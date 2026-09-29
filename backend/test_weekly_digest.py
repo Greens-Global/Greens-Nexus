@@ -66,7 +66,8 @@ class _Case(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.NexusWeeklyDigestLog, models.NexusSetting, models.NexusEmployee, models.Task,
-                  models.TaskProject, models.Shift, models.ShiftAssignment, models.ScheduledShift):
+                  models.TaskProject, models.Shift, models.ShiftAssignment, models.ScheduledShift,
+                  models.TaskTicket, models.TimeOffRequest):
             self.db.query(m).delete()
         self.db.commit()
         self.sent = []
@@ -263,7 +264,8 @@ class ContentTests(_Case):
         mail = self.sent[0]
         self.assertEqual(mail["subject"], "Your Weekly Digest - Week of 09/28/2026")
         html = mail["html"]
-        self.assertIn("These are the tasks you have overdue, along with their due dates.", html)
+        self.assertIn("These are the tasks you have overdue, along with their due dates, "
+                      "and everything else still waiting on you.", html)
         self.assertIn("Due 09/20/2026 - 8 days overdue", html)
         self.assertIn("Extend Due Date", html)
         self.assertIn("do=extend", html)
@@ -272,6 +274,62 @@ class ContentTests(_Case):
         self.assertIn("Open My Tasks", html)
         self.assertIn("/tasks/mine", html)
         self.assertNotIn("Open My Briefing", html)
+
+
+class StillToDoTests(_Case):
+    """Sep 29 (Sagar): the Daily Briefing's "Action Required" items ride along
+    as "Still to Do" - approvals, tickets, time off to decide."""
+
+    def test_pending_work_joins_the_digest_without_repeating_overdue_tasks(self):
+        self._emp(AMY)
+        overdue_approval = self._task("Old approval", "2026-09-01", type="approval", approval_status="pending")
+        self._task("Fresh approval", "2026-10-15", type="approval", approval_status="pending")
+        self.db.add(models.TaskTicket(id=gen_id(), code="TKT-7", subject="New laptop", approval_status="pending",
+                                      approver_email=AMY, status="new"))
+        self.db.commit()
+        sections = weekly_digest.build_sections(self.db, AMY, TODAY)
+        self.assertEqual([r["title"] for r in sections["overdue"]], ["Old approval"])
+        pending = [r["title"] for r in sections["pending"]]
+        self.assertIn("Approve: Fresh approval", pending)
+        self.assertIn("Approve: New laptop", pending)
+        self.assertNotIn("Approve: Old approval", pending)     # already listed as overdue
+        self.assertTrue(all(r.get("task_id") != overdue_approval for r in sections["pending"]))
+
+    def test_a_manager_is_told_about_time_off_to_decide(self):
+        self._emp("boss@greensglobal.com")
+        self._emp("bob@greensglobal.com", manager_email="boss@greensglobal.com")
+        self.db.add(models.TimeOffRequest(id=gen_id(), employee_email="bob@greensglobal.com", type="vacation",
+                                          start_date="2026-10-05", end_date="2026-10-06", status="pending"))
+        self.db.commit()
+        rows = weekly_digest.build_sections(self.db, "boss@greensglobal.com", TODAY)["pending"]
+        self.assertEqual(rows[0]["title"], "Approve: Bob's time off (vacation)")
+
+    def test_nothing_overdue_but_work_waiting_still_sends(self):
+        self._emp(AMY)
+        self._task("Fresh approval", "2026-10-15", type="approval", approval_status="pending")
+        self._config(defaultSendTime="07:00")
+        self._scan()
+        self.assertEqual(len(self.sent), 1)
+        html = self.sent[0]["html"]
+        self.assertIn("Still to Do", html)
+        self.assertIn("and everything else still waiting on you.", html)
+        self.assertNotIn("Overdue Tasks", html)
+
+    def test_a_test_copy_carries_no_one_click_decisions(self):
+        self._emp("boss@greensglobal.com")
+        self._emp("bob@greensglobal.com", manager_email="boss@greensglobal.com")
+        for d in ("2026-10-05", "2026-10-12"):
+            self.db.add(models.TimeOffRequest(id=gen_id(), employee_email="bob@greensglobal.com", type="vacation",
+                                              start_date=d, end_date=d, status="pending"))
+        self.db.commit()
+        emp = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == "boss@greensglobal.com").one()
+        cfg = weekly_digest.get_settings(self.db)
+        sections, _, html = weekly_digest.compose(self.db, emp, cfg, TODAY, FIXED.replace(tzinfo=None), actions=False)
+        self.assertIn("10/05/2026", html)                    # the bundled requests are still listed
+        self.assertNotIn("briefing-actions", html)          # but nothing acts as the boss
+        self.assertNotIn("action_id", str(sections))
+        _, _, own = weekly_digest.compose(self.db, emp, cfg, TODAY, FIXED.replace(tzinfo=None), actions=True)
+        self.assertEqual(own.count("briefing-actions"), 4)  # the boss's own copy: Approve + Reject per request
 
 
 class DailyUnchangedTests(_Case):

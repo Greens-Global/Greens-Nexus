@@ -123,7 +123,10 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
 
   async function run(call, done) {
     setBusy(true);
-    try { await call(); setNote(''); toastOk?.(done); onChanged?.(); }
+    try {
+      await call(); setNote(''); toastOk?.(done); onChanged?.();
+      window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));   // Timesheets to Review list
+    }
     catch (e) { toastErr?.(e?.message || 'Could not save that.'); }
     finally { setBusy(false); }
   }
@@ -151,10 +154,14 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
           {lastNote && <span style={{ color: 'var(--muted)' }}> Latest note: "{lastNote}"</span>}
         </p>
         {noteBox('What needs changing? (required to send back)')}
+        {r.agreeBlocker && (
+          <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.agreeBlocker}</p>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="secondary-btn" disabled={busy || !note.trim()} onClick={() => run(() => api.timesheetReviewSendBack(r.id, note.trim()), 'Sent back to the employee.')}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Undo2 size={13} /> Send Back</button>
-          <button className="primary-btn" disabled={busy} onClick={() => run(() => api.timesheetReviewAgree(r.id, note.trim()), 'Agreed - sent to the employee to sign.')}
+          <button className="primary-btn" disabled={busy || !!r.agreeBlocker} title={r.agreeBlocker || undefined}
+            onClick={() => run(() => api.timesheetReviewAgree(r.id, note.trim()), 'Agreed - sent to the employee to sign.')}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Agree &amp; Send for Signature</button>
         </div>
       </>

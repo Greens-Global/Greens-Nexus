@@ -76,7 +76,9 @@ describe('Access > People > role picker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Assign a role…/ }));
     expect(screen.getByPlaceholderText('Search roles')).toBeInTheDocument();
-    fireEvent.mouseDown(document.body);
+    // pointerdown, not mousedown: the panel is an AnchoredMenu, which closes
+    // on a tap as well as a click.
+    fireEvent.pointerDown(document.body);
     expect(screen.queryByPlaceholderText('Search roles')).not.toBeInTheDocument();
   });
 });

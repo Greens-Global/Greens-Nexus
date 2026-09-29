@@ -181,10 +181,10 @@ export const DOCS = [
   },
   {
     id: 'workday', name: 'Workday', group: 'My Desk', icon: 'Contact', view: 'myhr',
-    tagline: 'Clock in and out, check your hours, see your shifts and request time off.',
+    tagline: 'Clock in and out, check your hours and request time off.',
     where: 'Left menu > Workday',
     access: 'Everyone (employees)',
-    purpose: 'Workday is everything about your own time and HR record in one place. Punch in and out (with breaks), check your time sheet for the pay period, see when you are scheduled, request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
+    purpose: 'Workday is everything about your own time and HR record in one place. Punch in and out (with breaks), check your time sheet for the pay period (your schedule is in Shifts), request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
     gains: [
       'Get paid correctly. Every punch is timestamped and tagged with where it happened.',
       'See your hours for this pay period, day by day, before payroll does.',
@@ -230,15 +230,14 @@ export const DOCS = [
       { name: 'Overview', desc: 'Your profile, contact and emergency details, assigned equipment, checkouts, signed documents, paystubs and leave. Only you see this page.' },
       { name: 'Clock', desc: 'Punch In, Start Break, End Break and Punch Out, with today\'s punches and location tags.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
-      { name: 'Shifts', desc: 'When you are scheduled to work, week by week. Team Shifts shows who else is on.' },
       { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
-      { name: 'Location Tag', desc: 'Each punch records whether it was on site or off site. Remote staff can punch from anywhere, and their location is still recorded.' },
+      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, even if you move between several sites in a day. A punch away from all of your work sites shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded.' },
     ],
     manager: {
       title: 'Managers & Admins',
       points: [
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
-        'Team hours, punch fixes and payroll time cards live in People > Time.',
+        'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Shifts.',
         'HR sets work sites (the geofence used for on-site checks) and holiday calendars in People.',
       ],
     },
@@ -278,7 +277,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Coverage', desc: 'Live list of who is Working, On Break or Not Clocked In, with On Site and Off Site tags.' },
+      { name: 'Coverage', desc: 'Live list of who is Working, On Break or Not Clocked In, with On Site and Out of Location tags.' },
       { name: 'Activity', desc: 'Time and activity per person across the day.' },
       { name: 'Locations', desc: 'A map of where each person last punched from.' },
       { name: 'Computers', desc: 'Company computers with the desktop agent. Copy the install or uninstall command here.' },
@@ -293,6 +292,111 @@ export const DOCS = [
       ],
     },
     tips: ['Monitoring is disclosed. Every employee acknowledges it before their first punch.'],
+  },
+  {
+    id: 'shifts', name: 'Shifts', group: 'My Desk', icon: 'CalendarClock', view: 'shifts',
+    tagline: 'See your shifts and your team\'s; managers build and publish the schedule.',
+    where: 'Left menu > Shifts (managers: Shifts > Manage)',
+    access: 'Everyone sees My Shifts. Managers and above also get Manage: the schedule grid and Presets & Groups.',
+    purpose: 'Shifts is where you see when you work and where the team schedule is made. Everyone opens on My Shifts: your next shift, this week\'s hours and time off at a glance, your week, then your team\'s shifts with you pinned at the top. Managers click Manage to place shifts on a weekly grid, fill a whole group from a preset in one go, post open shifts and publish when it is ready. Nothing is shared until it is published.',
+    gains: [
+      'See your next shift and this week\'s hours without opening a calendar.',
+      'Ask for an open shift, or swap or offer a shift, without messaging your manager.',
+      'Managers: plan the week on one grid, with daily and weekly hour totals as you go.',
+      'Fill a group\'s schedule across a date range in one step instead of shift by shift.',
+      'See time off, holidays and limited availability right on the grid before you schedule someone.',
+      'Tell people only when their shifts change, by bell and email.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Check When You Work',
+        steps: [
+          'Open Shifts from the left menu. You land on My Shifts.',
+          'Read your next shift and this week\'s hours at the top, then your week day by day.',
+          'Scroll to Team Shifts to see who else is on. You are pinned at the top, and a green dot marks who is on shift now.',
+        ],
+      },
+      {
+        title: 'Swap or Offer a Shift',
+        steps: [
+          'On My Shifts, open one of your shifts and pick Swap or Offer.',
+          'Pick the teammate (and, for a swap, one of their shifts).',
+          'Send it. Once your teammate accepts, it goes to a manager to approve.',
+        ],
+      },
+      {
+        title: 'Set Up a Shift Preset and a Group',
+        steps: [
+          'Managers: open Shifts, click Manage, then click the Presets & Groups tab.',
+          'Add a shift: name, a short code for the grid, start and end time, unpaid break, grace minutes and days. Click Save.',
+          'Add a group: name it, pick its members, then click Save.',
+        ],
+      },
+      {
+        title: 'Fill a Week for a Group',
+        steps: [
+          'On Manage > Schedule, click Fill schedule.',
+          'Pick the group in Apply to, then the shift preset and the dates.',
+          'Click Fill schedule. The shifts land as drafts, marked with a star.',
+        ],
+      },
+      {
+        title: 'Place or Change One Shift',
+        steps: [
+          'Click an empty day on a person\'s row.',
+          'Pick a preset or set the start, end and unpaid break, and add a label or note.',
+          'Click Save. Drag a shift to move it, or Ctrl-drag to copy it.',
+        ],
+      },
+      {
+        title: 'Publish the Schedule',
+        steps: [
+          'Click Publish. The button counts the changes waiting.',
+          'Choose who hears about it: only people whose shifts changed, or the whole team.',
+          'Click Publish. Staff see the shifts in Shifts > My Shifts.',
+        ],
+      },
+      {
+        title: 'Handle a Shift Request',
+        steps: [
+          'Click Requests. The number shows how many are waiting on you.',
+          'Read the request: an open shift, a swap, an offer or time off.',
+          'Click Approve or Decline, with a note if you like.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'My Shifts', desc: 'Everyone: your next shift (or the one you are on now), this week\'s paid hours and time off, your week, then Team Shifts with you pinned at the top.' },
+      { name: 'Requests From Staff', desc: 'On My Shifts: ask for an open shift, swap or offer a shift to a teammate, and set My Availability. Every request goes to a manager.' },
+      { name: 'Manage', desc: 'Managers and above: the button that opens the schedule grid and Presets & Groups. Back to My Shifts returns.' },
+      { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
+      { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
+      { name: 'Fill Schedule', desc: 'Apply one preset to a whole group, or everyone in view, across a date range. It can skip days a person has time off.' },
+      { name: 'Copy Schedule', desc: 'Copy a range of shifts to later dates, as many times as you need, with or without notes. It can skip days a person has time off.' },
+      { name: 'Clear Schedule', desc: 'Remove every shift in a date range. Drafts are deleted; published shifts are marked for removal until you publish.' },
+      { name: 'Import', desc: 'Add shifts from a spreadsheet. They come in as drafts.' },
+      { name: 'Requests', desc: 'Open-shift requests, time off, and swaps and offers a teammate has already accepted, waiting for a manager.' },
+      { name: 'Publish', desc: 'Share drafts and edits with the team. Until then the team keeps seeing the last published version.' },
+      { name: 'Discard Changes', desc: 'Undo edits and removals that are not published yet, going back to what the team sees.' },
+      { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
+      { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
+      { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
+      { name: 'Presets & Groups', desc: 'Shift presets (time, unpaid break, grace, days, color, code) and groups of people. Assign a Shift to a Group sets a preset for everyone in a group.' },
+    ],
+    manager: {
+      title: 'Who Can Do What',
+      points: [
+        'Everyone sees their own shifts and their team\'s. The schedule itself is read-only for them.',
+        'Managers and above see Manage, and build and publish schedules there.',
+        'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off, and when shift reminders go out.',
+      ],
+    },
+    tips: [
+      'A star on a shift means it is a draft the team cannot see yet.',
+      'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
+      'Ctrl+C over a shift and Ctrl+V over a day copies it, like in Teams.',
+      'Shifts used to be a tab under People > Time and under Workday. Since 09/29/2026 it is one module, and old links open My Shifts.',
+    ],
   },
 
   // ───────────────────────────── Work ─────────────────────────────
@@ -961,8 +1065,9 @@ export const DOCS = [
       { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
-      { name: 'Time', desc: 'Team punches, time cards and payroll hours.' },
+      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it).' },
       { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy.' },
+      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, click the work sites they may punch at - any number of them. None picked means any of the company sites.' },
     ],
     manager: {
       title: 'HR & Admins',
@@ -970,6 +1075,7 @@ export const DOCS = [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
         'Offboarding: hand over their tasks, set mailbox handling, then mark them Left.',
         'Changing a status asks for a reason, and every change is kept in history.',
+        'Punch locations are judged punch by punch: the timecard shows the allowed site the person punched at, or Out of Location when they were at none of them. Mapping a new site later also corrects earlier punches made there.',
       ],
     },
     tips: ['People pickers across Nexus use this directory, so keep names and emails correct here.'],
@@ -1189,7 +1295,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, and SLA & Ticket Types), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
-      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
+      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
       { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
       { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },

@@ -3629,10 +3629,11 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-card { background: var(--card); border-color: var(--line); box-shadow: none; }
 
 /* header row: greeting + session */
-/* z-index so the header's "…" dropdown paints over the stat cards below.
-   .dk-rise animates with fill-mode "both", so the transform persists and
-   .dk-head keeps a stacking context - which trapped the menu's own z-index
-   inside it, letting the later .dk-board siblings cover the open menu. */
+/* z-index keeps the header above the stat cards below. .dk-rise animates
+   with fill-mode "both", so the transform persists and .dk-head keeps a
+   stacking context. The "…" view menu no longer depends on this: it renders
+   through AnchoredMenu (portaled to <body>), because on a phone .dk-toolbar
+   is a horizontal scroller that clipped the in-place menu (Sep 28). */
 .dk-head { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; padding: 4px 2px 0; position: relative; z-index: 5; }
 .dk-head-left { flex: 1; min-width: 240px; }
 .dk-head h1 {
@@ -3892,7 +3893,7 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
   .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
   .dk-zones { display: none; }
-  .dk-sub-local { display: inline; }
+  .dk-sub-local { display: inline; white-space: nowrap; }  /* "California 6:21 PM PDT" never splits */
 }
 
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */

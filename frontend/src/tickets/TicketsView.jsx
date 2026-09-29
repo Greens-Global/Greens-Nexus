@@ -24,7 +24,7 @@ import {
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
-import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, useClickOutside, SearchSelect, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
+import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, SearchSelect, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -46,6 +46,7 @@ import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -299,80 +300,67 @@ function TicketFilterMenu({
   serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
 }) {
   const [open, setOpen] = useState(false);
-  // Not useClickOutside: every filter here is a TicketSelect, which renders
-  // its own dropdown to a document.body portal (SelectMenu) - a containment
-  // check against this component's own ref sees a click on any option as
-  // "outside" (the portal node isn't a DOM descendant of it) and closed the
-  // WHOLE panel on mousedown, before the option's own click handler ever
-  // ran, so nothing you picked ever applied (Pranshu, Sep 9 - "the filter
-  // button... is not functional"). A full-screen backdrop that only closes
-  // on a direct click on ITSELF - the same technique MoreMenu below already
-  // uses successfully with its own portaled "Group by" select - has no such
-  // false positive, since a portal click never bubbles through it.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open]);
+  const btnRef = useRef(null);
+  // Every filter here is a TicketSelect, whose options render in their own
+  // document.body portal (SelectMenu). A plain containment check saw a pick
+  // as "outside" and closed the WHOLE panel before the option's click ran
+  // (Pranshu, Sep 9). AnchoredMenu counts taps routed through its React tree
+  // - portals included - as inside, so the backdrop workaround is gone and
+  // the panel can no longer be clipped by the toolbar on a phone.
   const active = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter].filter((v) => v !== 'all').length;
   const rowStyle = { width: '100%' };
   const wrap = { marginBottom: 10 };
   const lab = { ...label, fontSize: 12 };
   return (
-    <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} title="Filters" style={{ ...btn('outline'), borderColor: active ? NX.blue : NX.border, color: active ? NX.blue : NX.ink }}>
+    <>
+      <button ref={btnRef} onClick={() => setOpen((o) => !o)} title="Filters" aria-haspopup="dialog" aria-expanded={open} style={{ ...btn('outline'), borderColor: active ? NX.blue : NX.border, color: active ? NX.blue : NX.ink }}>
         <SlidersHorizontal size={15} /> Filters{active ? ` (${active})` : ''}
       </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 260, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 41, padding: 12 }}>
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Filters"
+        style={{ width: 260, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 12 }}>
+        <div style={wrap}>
+          <label style={lab}>Status</label>
+          <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={rowStyle} />
+        </div>
+        <div style={wrap}>
+          <label style={lab}>Priority</label>
+          <TicketSelect value={priorityFilter} onChange={setPriorityFilter} style={rowStyle}
+            options={[['all', 'All priorities'], ...priorityOptions()]} />
+        </div>
+        <div style={wrap}>
+          <label style={lab}>Type</label>
+          <TicketSelect value={typeFilter} onChange={setTypeFilter} style={rowStyle}
+            options={[['all', 'All types'], ...typeOptions()]} />
+        </div>
+        <div style={wrap}>
+          <label style={lab}>SLA</label>
+          <TicketSelect value={slaFilter} onChange={setSlaFilter} options={slaFilterOptions} style={rowStyle} />
+        </div>
+        {hrDepts.length > 0 && (
           <div style={wrap}>
-            <label style={lab}>Status</label>
-            <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={rowStyle} />
+            <label style={lab}>Department</label>
+            <TicketSelect value={hrDeptFilter} onChange={setHrDeptFilter} style={rowStyle} searchPlaceholder="Search departments…"
+              options={[['all', 'All departments'], ['', 'No department'], ...hrDepts.map((d) => [d.id, d.name])]} />
           </div>
+        )}
+        <div style={wrap}>
+          <label style={lab}>Service Area</label>
+          <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={rowStyle}
+            options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
+        </div>
+        {assigneeOptions.length > 0 && (
           <div style={wrap}>
-            <label style={lab}>Priority</label>
-            <TicketSelect value={priorityFilter} onChange={setPriorityFilter} style={rowStyle}
-              options={[['all', 'All priorities'], ...priorityOptions()]} />
+            <label style={lab}>Assigned To</label>
+            <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={rowStyle} searchPlaceholder="Search people…"
+              options={[['all', 'Anyone'], ...assigneeOptions]} />
           </div>
-          <div style={wrap}>
-            <label style={lab}>Type</label>
-            <TicketSelect value={typeFilter} onChange={setTypeFilter} style={rowStyle}
-              options={[['all', 'All types'], ...typeOptions()]} />
-          </div>
-          <div style={wrap}>
-            <label style={lab}>SLA</label>
-            <TicketSelect value={slaFilter} onChange={setSlaFilter} options={slaFilterOptions} style={rowStyle} />
-          </div>
-          {hrDepts.length > 0 && (
-            <div style={wrap}>
-              <label style={lab}>Department</label>
-              <TicketSelect value={hrDeptFilter} onChange={setHrDeptFilter} style={rowStyle} searchPlaceholder="Search departments…"
-                options={[['all', 'All departments'], ['', 'No department'], ...hrDepts.map((d) => [d.id, d.name])]} />
-            </div>
-          )}
-          <div style={wrap}>
-            <label style={lab}>Service Area</label>
-            <TicketSelect value={serviceAreaFilter} onChange={setServiceAreaFilter} style={rowStyle}
-              options={[['all', 'All service areas'], ['', 'Not set'], ...serviceAreaOptions()]} />
-          </div>
-          {assigneeOptions.length > 0 && (
-            <div style={wrap}>
-              <label style={lab}>Assigned To</label>
-              <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={rowStyle} searchPlaceholder="Search people…"
-                options={[['all', 'Anyone'], ...assigneeOptions]} />
-            </div>
-          )}
-          {active > 0 && (
-            <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
-              style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
-          )}
-          </div>
-        </>
-      )}
-    </div>
+        )}
+        {active > 0 && (
+          <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear filters</button>
+        )}
+      </AnchoredMenu>
+    </>
   );
 }
 
@@ -380,41 +368,39 @@ function TicketFilterMenu({
 // export - so the toolbar stays search + Filters + More (owner call, Jul 28).
 function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup }) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
   const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
   return (
-    <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} title="Views, grouping and export">
+    <>
+      <button ref={btnRef} onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} title="Views, grouping and export" aria-haspopup="menu" aria-expanded={open}>
         <Bookmark size={15} />More
       </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 41, minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden', fontFamily: FONT }}>
-            {showGroup && (
-              <>
-                <div style={sectionLabel}>Group by</div>
-                <div style={{ padding: '0 12px 10px' }}>
-                  <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
-                </div>
-                <div style={{ borderTop: `1px solid ${NX.border2}` }} />
-              </>
-            )}
-            <div style={sectionLabel}>Saved views</div>
-            {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
-            {views.map((v) => (
-              <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
-                <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
-                  <Bookmark size={13} style={{ color: NX.faint, flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</span>
-                </button>
-                <button onClick={() => onDelete(v.id)} title="Delete view" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><X size={13} /></button>
-              </div>
-            ))}
-            <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
+      {/* The "Group by" TicketSelect's portaled list counts as inside. */}
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={240}
+        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT }}>
+        {showGroup && (
+          <>
+            <div style={sectionLabel}>Group by</div>
+            <div style={{ padding: '0 12px 10px' }}>
+              <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
+            </div>
+            <div style={{ borderTop: `1px solid ${NX.border2}` }} />
+          </>
+        )}
+        <div style={sectionLabel}>Saved views</div>
+        {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
+        {views.map((v) => (
+          <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
+            <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
+              <Bookmark size={13} style={{ color: NX.faint, flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name}</span>
+            </button>
+            <button onClick={() => onDelete(v.id)} title="Delete view" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><X size={13} /></button>
           </div>
-        </>
-      )}
-    </div>
+        ))}
+        <button onClick={() => { onSave(); setOpen(false); }} style={{ ...item, color: NX.blue, fontWeight: 600 }}><Plus size={14} />Save current view…</button>
+      </AnchoredMenu>
+    </>
   );
 }
 
@@ -426,34 +412,32 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
 function TicketColumnsMenu({ columns, hidden, toggleHidden, cols }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  useClickOutside(ref, () => setOpen(false), open);
   const hideable = columns.filter((c) => !c.fixed);
   const visibleCount = cols.filter((c) => !c.fixed).length;
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')}>
+    <>
+      <button ref={ref} onClick={() => setOpen((o) => !o)} title="Customize columns" style={btn('outline')} aria-haspopup="menu" aria-expanded={open}>
         <SlidersHorizontal size={14} /> Customize
       </button>
-      {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, padding: 8 }}>
-          <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show columns</div>
-          {hideable.map((c) => {
-            const checked = !hidden.includes(c.key);
-            const lastOne = checked && visibleCount <= 1;
-            return (
-              <label key={c.key} style={{
-                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 6px',
-                borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
-              }}>
-                <input type="checkbox" checked={checked} disabled={lastOne}
-                  onChange={() => toggleHidden(c.key)} />
-                {c.label}
-              </label>
-            );
-          })}
-        </div>
-      )}
-    </div>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end"
+        style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 8 }}>
+        <div style={{ padding: '4px 6px 8px', fontSize: 12, fontWeight: 600, color: NX.dim }}>Show columns</div>
+        {hideable.map((c) => {
+          const checked = !hidden.includes(c.key);
+          const lastOne = checked && visibleCount <= 1;
+          return (
+            <label key={c.key} style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 6px',
+              borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
+            }}>
+              <input type="checkbox" checked={checked} disabled={lastOne}
+                onChange={() => toggleHidden(c.key)} />
+              {c.label}
+            </label>
+          );
+        })}
+      </AnchoredMenu>
+    </>
   );
 }
 
@@ -1450,11 +1434,9 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
   // (including the scrollable body), so any wheel/touch scroll while the
   // menu was open hit the backdrop instead of the scroll container and did
   // nothing - the modal looked frozen until the menu was dismissed.
-  // useClickOutside (the same pattern every other dropdown in this file
-  // uses - TicketFilterMenu, MoreMenu) closes on an outside click without
-  // ever intercepting scroll.
-  const menuWrapRef = useRef(null);
-  useClickOutside(menuWrapRef, () => setMenu(false), menu);
+  // AnchoredMenu closes on an outside tap without ever intercepting scroll,
+  // and renders above the modal body so it is never clipped by it.
+  const recordBtnRef = useRef(null);
 
   const record = async (voice) => {
     setMenu(false);
@@ -1485,7 +1467,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
       {showRecord && (
-        <div ref={menuWrapRef} style={{ position: 'relative' }}>
+        <div style={{ position: 'relative' }}>
           {/* Record is the featured action here - a screen recording tells us
               more about a broken workflow than a paragraph of description
               ever will, so it's styled to be noticed, not just discoverable. */}
@@ -1496,7 +1478,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               mistake for spam next to the picker everyone expects) was very
               likely getting reflexively dismissed. That's the "come back"
               cue this button promises. */}
-          <button type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
+          <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
             style={{
               ...btn('primary'), background: NX.red, borderColor: NX.red,
               padding: '11px 18px', fontSize: 14, fontWeight: 700, borderRadius: 10,
@@ -1506,16 +1488,15 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
             {recording ? <Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={17} />}
             {recording ? 'Recording…' : 'Record screen'}
           </button>
-          {menu && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
-              <button type="button" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-                <Video size={14} /> Screen recording
-              </button>
-              <button type="button" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-                <Mic size={14} /> Screen + narration
-              </button>
-            </div>
-          )}
+          <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
+            style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
+            <button type="button" role="menuitem" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+              <Video size={14} /> Screen recording
+            </button>
+            <button type="button" role="menuitem" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
+              <Mic size={14} /> Screen + narration
+            </button>
+          </AnchoredMenu>
         </div>
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
@@ -1672,6 +1653,7 @@ export function CreateTicketModal({ onClose }) {
   const scanRef = useRef(null);
   const [attachments, setAttachments] = useState(seed?.attachments || []);
   const [photoMenu, setPhotoMenu] = useState(false);
+  const photoBtnRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);
   // While a screen recording runs, the whole modal steps aside (see the early
   // return before `shell`): the backdrop at z-4000 both buried the recorder's
@@ -1915,7 +1897,7 @@ export function CreateTicketModal({ onClose }) {
     extras: (<>
       {isMobile && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
-          <button type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+          <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
             style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
           <button type="button" title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()}
             style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
@@ -1923,13 +1905,12 @@ export function CreateTicketModal({ onClose }) {
             style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
           {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
           {attachments.length > 0 && <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>}
-          {photoMenu && (
-            /* Opens upward - the footer is pinned to the bottom of the modal. */
-            <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
-              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
-            </div>
-          )}
+          {/* Flips upward on its own - the footer is pinned to the bottom of the modal. */}
+          <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
+            style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
+            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
+            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+          </AnchoredMenu>
           {/* capture="environment" opens the rear camera on a phone. */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
           <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onFiles} />

@@ -1958,7 +1958,7 @@ class EntityIn(BaseModel):
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
-    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people) - source of truth
+    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
 
 
@@ -2588,6 +2588,31 @@ def company_sites(db: Session, company_id: str):
     return db.query(HrWorkSite).order_by(HrWorkSite.name).all()
 
 
+def allowed_site_ids(emp) -> list:
+    """The work sites a person may punch at (Charmi, Sep 29): HR can allow
+    several, and ANY of them is on-site. [] = every site on their company's
+    list. The single work_site_id from Sep 25 still counts as a one-site list."""
+    ids = []
+    raw = (getattr(emp, "work_site_ids", "") or "").strip()
+    if raw:
+        try:
+            v = json.loads(raw)
+            ids = [str(x).strip() for x in v if str(x).strip()] if isinstance(v, list) else []
+        except ValueError:
+            ids = []
+    if not ids and (getattr(emp, "work_site_id", "") or "").strip():
+        ids = [emp.work_site_id.strip()]
+    return ids
+
+
+def _set_allowed_sites(emp, ids: list) -> None:
+    """Store the allowed list; work_site_id mirrors it only while it is ONE
+    site, so an older build reading that column still sees the truth."""
+    ids = list(dict.fromkeys(i for i in ids if i))
+    emp.work_site_ids = json.dumps(ids) if ids else ""
+    emp.work_site_id = ids[0] if len(ids) == 1 else ""
+
+
 def _link_site(db: Session, company_id: str, site_id: str, email: str) -> bool:
     lid = f"{company_id}:{site_id}"
     if db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.id == lid).first():
@@ -2702,10 +2727,12 @@ def remove_company_work_site(entity_id: str, site_id: str, user: dict = Depends(
     site = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if site and (site.company or "") == entity_id:
         site.company = ""   # else main.py's link backfill would re-add it on the next boot
-    # This company's people pinned to the site go back to "any company site".
-    for emp in (db.query(NexusEmployee)
-                .filter(NexusEmployee.company == entity_id, NexusEmployee.work_site_id == site_id).all()):
-        emp.work_site_id = ""
+    # This company's people allowed at the site lose it; with none left they
+    # go back to "any company site".
+    for emp in db.query(NexusEmployee).filter(NexusEmployee.company == entity_id).all():
+        ids = allowed_site_ids(emp)
+        if site_id in ids:
+            _set_allowed_sites(emp, [i for i in ids if i != site_id])
     db.commit()
     return {"ok": True}
 
@@ -3273,7 +3300,9 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
 def _geofence_payload(emp: NexusEmployee) -> dict:
     return {
         "remote": bool(emp.work_remote or 0),
-        # Optional assigned work site (Sep 25): '' = any company site.
+        # Allowed work sites (Sep 29): [] = any company site. workSiteId is
+        # the Sep 25 single pick, kept for builds that still read it.
+        "workSiteIds": allowed_site_ids(emp),
         "workSiteId": (emp.work_site_id or "").strip(),
         "setBy": emp.geofence_set_by or "",
         "setAt": emp.geofence_set_at or "",
@@ -3303,9 +3332,9 @@ def get_geofence(eid: str, user: dict = Depends(require_hr_read), db: Session = 
     # Only the person's company's sites are pickable (plus whatever they are
     # already pinned to, so the picker never shows a blank for a live pin).
     pool = list(company_sites(db, emp.company or ""))
-    pinned = (emp.work_site_id or "").strip()
-    if pinned and all(s.id != pinned for s in pool):
-        pool += db.query(HrWorkSite).filter(HrWorkSite.id == pinned).all()
+    pinned = [i for i in allowed_site_ids(emp) if all(s.id != i for s in pool)]
+    if pinned:
+        pool += db.query(HrWorkSite).filter(HrWorkSite.id.in_(pinned)).all()
     sites = [{"id": s.id, "name": s.name or "", "radiusM": int(s.radius_m or 150)}
              for s in pool if (s.latitude or "") and (s.longitude or "")]
     return {"geofence": _geofence_payload(emp), "lastPunchLocation": last_loc, "workSites": sites}
@@ -3315,6 +3344,9 @@ class GeofenceIn(BaseModel):
     remote:   Optional[bool] = None
     # An HrWorkSite.id to pin this person to, "" to clear (any site). Omitted = unchanged.
     work_site_id: Optional[str] = None
+    # The sites this person may punch at (Sep 29); [] = any company site.
+    # Omitted = unchanged. Wins over work_site_id when both are sent.
+    work_site_ids: Optional[List[str]] = None
     # Sent by builds older than Sep 19; accepted so they do not 422, never used.
     lat:      Optional[str] = None
     lng:      Optional[str] = None
@@ -3330,16 +3362,18 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    if body.remote is None and body.work_site_id is None:
+    if body.remote is None and body.work_site_id is None and body.work_site_ids is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
                                  "or leave them on-site to punch from any company work site.")
     if body.remote is not None:
         emp.work_remote = 1 if body.remote else 0
-    if body.work_site_id is not None:
-        sid = body.work_site_id.strip()
-        if sid and not db.query(HrWorkSite).filter(HrWorkSite.id == sid).first():
+    if body.work_site_ids is not None or body.work_site_id is not None:
+        ids = ([i.strip() for i in body.work_site_ids if (i or "").strip()] if body.work_site_ids is not None
+               else ([body.work_site_id.strip()] if body.work_site_id.strip() else []))
+        found = {s.id for s in db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all()} if ids else set()
+        if any(i not in found for i in ids):
             raise HTTPException(404, "Work site not found")
-        emp.work_site_id = sid
+        _set_allowed_sites(emp, ids)
     emp.geofence_set_by = user["email"]
     emp.geofence_set_at = datetime.now(timezone.utc).isoformat()
     emp.updated_at = emp.geofence_set_at

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
@@ -92,6 +93,10 @@ function mondayOf(d) {
 }
 
 export default function ShiftSchedule({ toastOk, toastErr }) {
+  // The signed-in scheduler's own row is pinned first in its section and
+  // marked, the same as on My Shifts (Neil, Sep 29: find yourself easily).
+  const { myEmail } = useRole() || {};
+  const me = (myEmail || '').toLowerCase();
   // Day / Week / Month (Sep 29, Teams parity) all hang off one date.
   const [view, setView] = useState('week');
   const [cursor, setCursor] = useState(() => new Date());
@@ -113,6 +118,16 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [cell, setCell] = useState(null);   // { email, date, existing? }
   const [openCell, setOpenCell] = useState(null);   // { date, existing? } - open-shift editor
+  // Another manager's open slot is read-only for a scoped manager (the API
+  // marks it canEdit=false and refuses the write) - say so instead of opening
+  // an editor whose Save would fail.
+  const openExisting = (date, s) => {
+    if (s.canEdit === false) {
+      toastErr?.('This open shift was posted by another manager - only they or an administrator can change it.');
+      return;
+    }
+    setOpenCell({ date, existing: s });
+  };
   const [bulkOpen, setBulkOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -194,8 +209,9 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       .filter(g => !picked || groupBy !== 'group' || g.name === picked.name)
       .map(g => ({ ...g, members: g.members.filter(m => (!q || `${m.name || ''} ${m.email}`.toLowerCase().includes(q))
         && (!picked || groupBy === 'group' || picked.members.includes(m.email))) }))
-      .filter(g => g.members.length);
-  }, [data, query, groupFilter, groupBy]);
+      .filter(g => g.members.length)
+      .map(g => ({ ...g, members: [...g.members].sort((a, b) => (b.email === me) - (a.email === me)) }));
+  }, [data, query, groupFilter, groupBy, me]);
   const visibleEmails = useMemo(() => new Set(groupsView.flatMap(g => g.members.map(m => m.email))), [groupsView]);
   const filtering = !!(query.trim() || groupFilter || presetFilter);
   // Open shifts belong to no group, so a group filter hides them.
@@ -332,7 +348,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
     const m = menu; setMenu(null);
     if (!m) return;
     const s = m.shift;
-    if (action === 'edit') (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s }));
+    if (action === 'edit') (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : openExisting(s.date, s));
     else if (action === 'add') (m.email ? setCell({ email: m.email, date: m.date }) : setOpenCell({ date: m.date }));
     else if (action === 'timeoff') setOffCell({ email: m.email, date: m.date });
     else if (action === 'color') recolor(s, arg);
@@ -701,12 +717,12 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
           dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable}
           onMenu={(e, email, s) => openMenu(e, email, start, s)}
           onEditNote={() => setNoteEdit({ date: start, note: notes[start] || '' })}
-          onOpenShift={(s) => (s.email ? setCell({ email: s.email, date: start, existing: s }) : setOpenCell({ date: start, existing: s }))}
+          onOpenShift={(s) => (s.email ? setCell({ email: s.email, date: start, existing: s }) : openExisting(start, s))}
           onAdd={(email) => (email ? setCell({ email, date: start }) : setOpenCell({ date: start }))} />
         </div>
       ) : rowsBy === 'shifts' ? (
         <ShiftTypeWeek days={days} shifts={shown} presets={data.shifts || []} names={names}
-          onOpen={(s) => (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s }))} />
+          onOpen={(s) => (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : openExisting(s.date, s))} />
       ) : (
         <div>
         {canManage && (
@@ -768,7 +784,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                     style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 48, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle('', ds) }}
                     className="sched-cell">
                     {items.map(s => { const ps = pendingState(s); return (
-                      <div key={s.id} onClick={clickable((e) => { e.stopPropagation(); setOpenCell({ date: ds, existing: s }); })}
+                      <div key={s.id} onClick={clickable((e) => { e.stopPropagation(); openExisting(ds, s); })}
                         title={chipTitle(s, ps)} {...dragProps(s)} {...hoverShift(s)} onContextMenu={(e) => openMenu(e, '', ds, s)}
                         className="sched-chip"
                         style={{ position: 'relative', background: (s.color || '#16a34a') + '18', border: `1px dashed ${s.color || '#16a34a'}`, borderRadius: 6, padding: '5px 24px 5px 8px', marginBottom: 3, cursor: canManage ? 'grab' : 'pointer', userSelect: 'none', ...ps.style, ...(drag?.id === s.id ? { opacity: 0.4 } : {}) }}>
@@ -807,11 +823,16 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                   </div>
                 </div>
                 {g.members.map(emp => (
-                  <div key={emp.email} style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
-                    <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <div key={emp.email} aria-current={emp.email === me ? 'true' : undefined}
+                    style={{ ...GRID, borderBottom: '1px solid var(--line)', background: emp.email === me ? 'var(--wk-brand-tint)' : undefined }}>
+                    <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0,
+                      boxShadow: emp.email === me ? 'inset 3px 0 0 var(--wk-brand)' : 'none' }}>
                       <Avatar name={emp.name || emp.email} photoUrl={emp.photoUrl} size={30} />
                       <span style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name || emp.email}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: emp.email === me ? 800 : 700, color: emp.email === me ? 'var(--wk-brand)' : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {emp.name || emp.email}
+                          {emp.email === me && <span style={{ fontSize: 9.5, fontWeight: 800, color: '#fff', background: 'var(--wk-brand)', borderRadius: 999, padding: '1px 6px', marginLeft: 6, letterSpacing: '.03em', verticalAlign: 'middle' }}>YOU</span>}
+                        </div>
                         <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{fmtHrs(empWeekMin(emp.email))}</div>
                         {data.availability?.[emp.email]?.length > 0 && (
                           <div title={`Availability: ${availText(data.availability[emp.email])}`}
@@ -830,14 +851,21 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           {...hoverCell(emp.email, ds)} onContextMenu={(e) => openMenu(e, emp.email, ds, null)}
                           style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle(emp.email, ds) }}
                           className="sched-cell">
+                          {/* Confidential time off (Sep 29): a neutral tint (the
+                              tint would name the type) and never the note - the
+                              grid is often up on a shared screen, so not even
+                              the approver's own view shows it here. */}
                           {off && !items.length && (
-                            <div style={{ background: TYPE_TINT[off.type] || TYPE_TINT.other, borderRadius: 6, padding: '6px 8px', height: '100%' }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239' }}>{off.status === 'approved' ? 'Off' : 'Requested off'}</div>
+                            <div title={off.confidential ? 'Confidential time off' : undefined}
+                              style={{ background: off.confidential ? TYPE_TINT.unpaid : (TYPE_TINT[off.type] || TYPE_TINT.other), borderRadius: 6, padding: '6px 8px', height: '100%' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                {off.status === 'approved' ? 'Off' : 'Requested off'}{off.confidential && <Lock size={10} aria-label="Confidential" />}
+                              </div>
                               <div style={{ fontSize: 10, color: '#9f1239' }}>
                                 {off.startDate !== off.endDate ? `${formatDate(off.startDate)} - ${formatDate(off.endDate)}`
                                   : off.startTime ? `${t12Full(off.startTime)} - ${t12Full(off.endTime)}` : 'All Day'}
                               </div>
-                              {off.note && <div title={off.note} style={{ fontSize: 10, color: '#9f1239', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{off.note}</div>}
+                              {off.note && !off.confidential && <div title={off.note} style={{ fontSize: 10, color: '#9f1239', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{off.note}</div>}
                             </div>
                           )}
                           {hol && !items.length && (
@@ -901,7 +929,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       {details && (
         <ShiftDetails at={details} shift={details.shift} name={details.shift.email ? (names[details.shift.email] || details.shift.email) : 'Open shift'}
           status={STATUS_TEXT(details.shift)} onClose={() => setDetails(null)}
-          onEdit={() => { const s = details.shift; setDetails(null); (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : setOpenCell({ date: s.date, existing: s })); }} />
+          onEdit={() => { const s = details.shift; setDetails(null); (s.email ? setCell({ email: s.email, date: s.date, existing: s }) : openExisting(s.date, s)); }} />
       )}
 
       {menu && (

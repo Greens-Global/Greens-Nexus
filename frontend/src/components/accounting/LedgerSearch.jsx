@@ -5,7 +5,7 @@ import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import EntryDetail from './EntryDetail';
 import { useAccountingPrefs } from './prefs';
-import { usePopover } from './reportControls';
+import { PopoverPanel, usePopover } from './reportControls';
 import { downloadCsv } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
@@ -430,27 +430,26 @@ function ColumnChooser({ layout, visible, onChange }) {
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
         <Columns3 size={14} /> Columns
       </button>
-      {open && (
-        <div role="dialog" aria-label="Columns" style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 40, width: 240, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Show these columns</div>
-          <div style={{ display: 'grid', gap: 2, maxHeight: 320, overflowY: 'auto' }}>
-            {LINE_COLUMNS.map((c) => (
-              <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', padding: '3px 4px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={visible(c)} onChange={(e) => onChange({ visible: { ...(layout.visible || {}), [c.key]: e.target.checked } })} />
-                {c.label}
-              </label>
-            ))}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-            <button type="button" disabled={!customized} onClick={() => onChange({ visible: {}, widths: {} })}
-              style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: customized ? 'pointer' : 'default', textDecoration: 'underline', opacity: customized ? 1 : 0.5, padding: 0 }}>
-              Reset to default
-            </button>
-            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
-          </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>Your layout is saved for you on every computer.</div>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align="right" role="dialog" aria-label="Columns"
+        style={{ width: 240, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 }}>
+        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Show these columns</div>
+        <div style={{ display: 'grid', gap: 2, maxHeight: 320, overflowY: 'auto' }}>
+          {LINE_COLUMNS.map((c) => (
+            <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', padding: '3px 4px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visible(c)} onChange={(e) => onChange({ visible: { ...(layout.visible || {}), [c.key]: e.target.checked } })} />
+              {c.label}
+            </label>
+          ))}
         </div>
-      )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <button type="button" disabled={!customized} onClick={() => onChange({ visible: {}, widths: {} })}
+            style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: customized ? 'pointer' : 'default', textDecoration: 'underline', opacity: customized ? 1 : 0.5, padding: 0 }}>
+            Reset to default
+          </button>
+          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+        </div>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>Your layout is saved for you on every computer.</div>
+      </PopoverPanel>
     </div>
   );
 }

@@ -12,7 +12,7 @@ import {
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
-import { usePeopleDirectory } from '../lib/queries';
+import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
@@ -36,6 +36,8 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES, countryName } from '../lib/countries';
 import LocationPickerMap from '../components/LocationPickerMap';
+import AnchoredMenu from '../components/AnchoredMenu';
+import PersonSearchSelect from '../components/PersonSearchSelect';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -654,21 +656,23 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   const remote = !!gf.remote;
   const lp = data?.lastPunchLocation || null;
   const sites = data?.workSites || [];
-  const assignedSite = gf.workSiteId || '';
+  // Allowed sites (Charmi, Sep 29): several, any of them is on-site; none
+  // picked = any company work site. Older payloads carry one workSiteId.
+  const allowed = gf.workSiteIds || (gf.workSiteId ? [gf.workSiteId] : []);
   const firstName = employee.firstName || employee.first_name || 'This person';
 
-  // Optional single site (Sep 25): blank = any company site is inside the fence.
-  const chooseSite = async (sid) => {
-    if (busy || !canEdit || sid === assignedSite) return;
+  const saveSites = async (ids) => {
+    if (busy || !canEdit) return;
     setBusy(true);
     try {
-      const r = await api.setGeofence(employee.id, { work_site_id: sid });
+      const r = await api.setGeofence(employee.id, { work_site_ids: ids });
       setData(d => ({ ...(d || {}), geofence: r }));
-      const nm = sites.find(x => x.id === sid)?.name;
-      toastOk(sid ? `${firstName} now punches from ${nm || 'one site'} - anywhere else is outside the fence.` : `${firstName} may punch from any company work site.`);
-    } catch (e) { toastErr(e?.message || 'Could not save the work site.'); }
+      const names = sites.filter(x => ids.includes(x.id)).map(x => x.name || 'Unnamed site');
+      toastOk(ids.length ? `${firstName} may punch at ${names.join(', ')}. Anywhere else is Out of Location.` : `${firstName} may punch from any company work site.`);
+    } catch (e) { toastErr(e?.message || 'Could not save the work sites.'); }
     finally { setBusy(false); }
   };
+  const toggleSite = (sid) => saveSites(allowed.includes(sid) ? allowed.filter(x => x !== sid) : [...allowed, sid]);
 
   const choose = async (next) => {
     if (busy || !canEdit || next === remote) return;
@@ -731,15 +735,17 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Work sites {firstName} can punch from</div>
               {sites.length > 0 && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 10, flexWrap: 'wrap' }}>
-                  <span style={{ color: 'var(--muted)' }}>Assigned site</span>
-                  <select value={assignedSite} disabled={!canEdit || busy} onChange={e => chooseSite(e.target.value)}
-                    style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
-                    <option value="">Any company work site</option>
-                    {sites.map(st => <option key={st.id} value={st.id}>{st.name || 'Unnamed site'} ({st.radiusM} m)</option>)}
-                  </select>
-                  <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{assignedSite ? 'Only this site counts as inside the fence.' : 'A punch inside any site’s radius is on-site.'}</span>
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span>
+                    {allowed.length
+                      ? `Punches at any of these ${allowed.length} site${allowed.length === 1 ? '' : 's'} are on-site, whichever one ${firstName} is at. Anywhere else is Out of Location.`
+                      : 'Any company work site counts. Click sites to allow only those.'}
+                  </span>
+                  {allowed.length > 0 && canEdit && (
+                    <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
+                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Allow Any Site</button>
+                  )}
+                </div>
               )}
               {sites.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
@@ -748,11 +754,17 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {sites.map(st => {
-                    const on = !assignedSite || st.id === assignedSite;
+                    const picked = allowed.includes(st.id);
+                    const on = !allowed.length || picked;
                     return (
-                      <span key={st.id} title={`${st.radiusM} m fence`} style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, background: on ? 'var(--mist)' : 'transparent', border: `1px solid ${on ? 'var(--pine)' : 'var(--line)'}`, color: on ? 'var(--ink)' : 'var(--muted)', textDecoration: on ? 'none' : 'line-through' }}>
+                      <button key={st.id} type="button" aria-pressed={picked} disabled={!canEdit || busy} onClick={() => toggleSite(st.id)}
+                        title={`${st.radiusM} m fence${canEdit ? (picked ? ' - click to remove' : ' - click to allow') : ''}`}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, fontFamily: 'inherit', cursor: canEdit && !busy ? 'pointer' : 'default',
+                          background: picked ? 'var(--mist)' : 'transparent', border: `1px solid ${picked ? 'var(--pine)' : 'var(--line)'}`,
+                          color: on ? 'var(--ink)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {picked && <CheckCircle size={11} style={{ color: 'var(--pine)' }} />}
                         {st.name || 'Unnamed site'} · {st.radiusM} m
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -2991,13 +3003,17 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
 function PeopleFilter({ employees, selected, onChange }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  // The suggestions match the search box's width, measured as it opens.
+  const [boxWidth, setBoxWidth] = useState();
+  const openList = () => { setBoxWidth(boxRef.current?.offsetWidth); setOpen(true); };
   const selSet = new Set(selected);
   const matches = q.trim()
     ? employees.filter(e => !selSet.has(e.id) && fullName(e).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
     : [];
   const pick = (e) => { onChange([...selected, e.id]); setQ(''); };
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+    <div ref={boxRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
       border: '1px solid var(--line)', borderRadius: 10, padding: '5px 10px', background: 'var(--card)', minWidth: 260, flex: '0 1 460px' }}>
       <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       {selected.map(id => {
@@ -3009,8 +3025,8 @@ function PeopleFilter({ employees, selected, onChange }) {
           </span>
         );
       })}
-      <input value={q} onChange={e => { setQ(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+      <input value={q} onChange={e => { setQ(e.target.value); openList(); }}
+        onFocus={openList} onBlur={() => setTimeout(() => setOpen(false), 150)}
         onKeyDown={e => {
           if (e.key === 'Enter' && matches[0]) { e.preventDefault(); pick(matches[0]); }
           if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
@@ -3020,18 +3036,17 @@ function PeopleFilter({ employees, selected, onChange }) {
       {selected.length > 0 && (
         <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
       )}
-      {open && matches.length > 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 60, overflow: 'hidden' }}>
-          {matches.map(e => (
-            <button key={e.id} onMouseDown={ev => { ev.preventDefault(); pick(e); }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}
-              onMouseEnter={ev => ev.currentTarget.style.background = 'var(--mist)'}
-              onMouseLeave={ev => ev.currentTarget.style.background = 'none'}>
-              {fullName(e)} <span style={{ color: 'var(--muted)', fontSize: 11 }}>· {e.department || e.jobTitle || ''}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <AnchoredMenu anchorRef={boxRef} open={open && matches.length > 0} onClose={() => setOpen(false)} role="listbox"
+        style={{ width: boxWidth, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)' }}>
+        {matches.map(e => (
+          <button key={e.id} onMouseDown={ev => { ev.preventDefault(); pick(e); }}
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}
+            onMouseEnter={ev => ev.currentTarget.style.background = 'var(--mist)'}
+            onMouseLeave={ev => ev.currentTarget.style.background = 'none'}>
+            {fullName(e)} <span style={{ color: 'var(--muted)', fontSize: 11 }}>· {e.department || e.jobTitle || ''}</span>
+          </button>
+        ))}
+      </AnchoredMenu>
     </div>
   );
 }
@@ -3064,7 +3079,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
     ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
       .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
         name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
+        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.redacted ? 'Time off' : (r.type || ''),
       })),
   ].filter(e => e.start && e.end);
 
@@ -3355,7 +3370,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   useEffect(() => {
     api.getGroupManager().then(r => setGroupMgr(r?.email || '')).catch(() => {});
   }, []);
-  const personName = email => people.find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || '';
+  // Company Manager(s) may also be external users (Sep 29) - offered in their
+  // own group of the picker. HR Contact and the group manager stay Nexus People.
+  const { data: withExternal = [] } = usePeopleDirectoryWithExternal();
+  const externals = withExternal.filter(p => p.external);
+  const personName = email => [...people, ...externals].find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || '';
+  const isExternal = email => externals.some(p => (p.email || '').toLowerCase() === (email || '').toLowerCase());
   async function saveGroupMgr(email) {
     setGroupMgr(email); setGroupMgrBusy(true);
     try { await api.setGroupManager(email); toastOk(email ? 'Group manager set.' : 'Group manager cleared.'); }
@@ -3484,6 +3504,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       {f.manager_emails.map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', borderRadius: 999, padding: '4px 6px 4px 10px', fontSize: 12 }}>
                           {personName(em) || em}
+                          {isExternal(em) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>External</span>}
                           <button type="button" onClick={() => set('manager_emails', f.manager_emails.filter(x => x !== em))}
                             title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                             <X size={12} />
@@ -3492,11 +3513,13 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       ))}
                     </div>
                   )}
-                  <select className="form-input" style={{ width: '100%' }} value=""
-                    onChange={e => { const v = e.target.value; if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }}>
-                    <option value="">+ add a manager</option>
-                    {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
-                  </select>
+                  {/* Searchable (Sep 29): type a name or email, or open the list. */}
+                  <PersonSearchSelect placeholder="+ add a manager - type a name or email"
+                    groups={[
+                      { label: 'Nexus People', people: people.filter(p => !f.manager_emails.includes(p.email)) },
+                      { label: 'External Users', people: externals.filter(p => !f.manager_emails.includes(p.email)) },
+                    ]}
+                    onPick={v => { if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }} />
                 </div>
                 {/* Signs every employee's timesheet last and finalizes it for
                     payroll (timesheet review + Nexus Sign, Sep 2026). */}
@@ -3935,6 +3958,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
   // has no such source, so it's a best-effort +1 year on the same month/day.
   const [copyBusy, setCopyBusy] = useState(false);
   const [copyPickerOpen, setCopyPickerOpen] = useState(false);
+  const copyBtnRef = useRef(null);
   const [copyYears, setCopyYears] = useState([]);
   // Next 5 calendar years, excluding the current one (Pranshu, Sep 22: "the
   // next 5 years option excluding the current year, and it should be
@@ -3951,6 +3975,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
   // downloads what's already on screen; nothing to fetch from the server.
   const EXPORT_YEARS_BACK = 15;
   const [exportPickerOpen, setExportPickerOpen] = useState(false);
+  const exportBtnRef = useRef(null);
   const [exportYears, setExportYears] = useState([]);
   const exportYearOptions = Array.from({ length: EXPORT_YEARS_BACK + 1 }, (_, i) => new Date().getFullYear() - i);
   const toggleExportYear = y => setExportYears(ys => ys.includes(y) ? ys.filter(x => x !== y) : [...ys, y].sort((a, b) => b - a));
@@ -4091,26 +4116,25 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
           <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
             {holidays.length > 0 && (
               <>
-                <button className="secondary-btn" onClick={() => setCopyPickerOpen(v => !v)} disabled={copyBusy}
+                <button ref={copyBtnRef} className="secondary-btn" onClick={() => setCopyPickerOpen(v => !v)} disabled={copyBusy}
                   title="Copy this holiday set forward to one or more future years - looks up the real date for movable holidays instead of just adding a year"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                   {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to year(s)
                 </button>
-                {copyPickerOpen && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12, minWidth: 180 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>COPY TO</div>
-                    {copyYearOptions.map(y => (
-                      <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
-                        <input type="checkbox" checked={copyYears.includes(y)} onChange={() => toggleCopyYear(y)} />
-                        {y}
-                      </label>
-                    ))}
-                    <button className="primary-btn" onClick={copyToYears} disabled={!copyYears.length || copyBusy}
-                      style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
-                      Copy{copyYears.length ? ` to ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}` : ''}
-                    </button>
-                  </div>
-                )}
+                <AnchoredMenu anchorRef={copyBtnRef} open={copyPickerOpen} onClose={() => setCopyPickerOpen(false)} role="dialog" minWidth={180}
+                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>COPY TO</div>
+                  {copyYearOptions.map(y => (
+                    <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
+                      <input type="checkbox" checked={copyYears.includes(y)} onChange={() => toggleCopyYear(y)} />
+                      {y}
+                    </label>
+                  ))}
+                  <button className="primary-btn" onClick={copyToYears} disabled={!copyYears.length || copyBusy}
+                    style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
+                    Copy{copyYears.length ? ` to ${copyYears.length} year${copyYears.length === 1 ? '' : 's'}` : ''}
+                  </button>
+                </AnchoredMenu>
               </>
             )}
             <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
@@ -4120,34 +4144,33 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
             </button>
             {holidays.length > 0 && (
               <>
-                <button className="secondary-btn" onClick={() => setExportPickerOpen(v => !v)}
+                <button ref={exportBtnRef} className="secondary-btn" onClick={() => setExportPickerOpen(v => !v)}
                   title="Export this company's holiday list as a CSV file, for one or more years"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                   <Download size={12} /> Export holidays
                 </button>
-                {exportPickerOpen && (
-                  <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12, minWidth: 180 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>EXPORT YEAR(S)</div>
-                      <button type="button" onClick={selectAllExportYears}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-green))', fontSize: 11, fontWeight: 600 }}>
-                        Last {EXPORT_YEARS_BACK} yrs
-                      </button>
-                    </div>
-                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                      {exportYearOptions.map(y => (
-                        <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
-                          <input type="checkbox" checked={exportYears.includes(y)} onChange={() => toggleExportYear(y)} />
-                          {y}
-                        </label>
-                      ))}
-                    </div>
-                    <button className="primary-btn" onClick={exportHolidaysCsv} disabled={!exportYears.length}
-                      style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
-                      Export{exportYears.length ? ` ${exportYears.length} year${exportYears.length === 1 ? '' : 's'}` : ''}
+                <AnchoredMenu anchorRef={exportBtnRef} open={exportPickerOpen} onClose={() => setExportPickerOpen(false)} role="dialog" align="end" minWidth={180}
+                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>EXPORT YEAR(S)</div>
+                    <button type="button" onClick={selectAllExportYears}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-green))', fontSize: 11, fontWeight: 600 }}>
+                      Last {EXPORT_YEARS_BACK} yrs
                     </button>
                   </div>
-                )}
+                  <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                    {exportYearOptions.map(y => (
+                      <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
+                        <input type="checkbox" checked={exportYears.includes(y)} onChange={() => toggleExportYear(y)} />
+                        {y}
+                      </label>
+                    ))}
+                  </div>
+                  <button className="primary-btn" onClick={exportHolidaysCsv} disabled={!exportYears.length}
+                    style={{ width: '100%', marginTop: 10, fontSize: 12, padding: '6px 0' }}>
+                    Export{exportYears.length ? ` ${exportYears.length} year${exportYears.length === 1 ? '' : 's'}` : ''}
+                  </button>
+                </AnchoredMenu>
               </>
             )}
           </div>
@@ -5250,7 +5273,10 @@ export default function HR({ activeSub, onSubChange }) {
   // People) - old deep links fall through to hr-people, where externals live now.
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
+  // Dashboard tiles open the Time tab on a specific inner list.
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-attendance': 'attendance' };
+  const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
+    : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
@@ -5288,6 +5314,7 @@ export default function HR({ activeSub, onSubChange }) {
   // One Add control (Neil, Aug 24): Add Employee / Add Independent Contractor /
   // Add External - everything lands in the master People list.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuBtnRef = useRef(null);
   const [addPreset,   setAddPreset]   = useState('full_time');   // employment type the Add form opens with
   const [inviteOpen,  setInviteOpen]  = useState(false);
   // Company Setup / Work Sites / Sync M365 moved to the Admin module in full
@@ -5492,31 +5519,27 @@ export default function HR({ activeSub, onSubChange }) {
                 module in full (Pranshu, Sep 9) - no longer buttons here. */}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
-            <div style={{ position: 'relative' }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-                onClick={() => setAddMenuOpen(o => !o)} aria-expanded={addMenuOpen}>
+            <div>
+              <button ref={addMenuBtnRef} className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+                onClick={() => setAddMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={addMenuOpen}>
                 <Plus size={15} /> Add Person <ChevronDown size={14} />
               </button>
-              {addMenuOpen && (
-                <>
-                  <div style={{ position: 'fixed', inset: 0, zIndex: 1190 }} onClick={() => setAddMenuOpen(false)} />
-                  <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 1200, minWidth: 240, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-                    {[
-                      ['Add Employee', 'On payroll - full profile, provisioning, time tracking', () => { setEditing(null); setAddPreset('full_time'); setFormOpen(true); }],
-                      ['Add Independent Contractor', 'Engagement scope, SOW and rate on the same record', () => { setEditing(null); setAddPreset('contractor'); setFormOpen(true); }],
-                      ...(isAdmin ? [['Add External', 'Partner-company person - invited by email, code sign-in', () => setInviteOpen(true)]] : []),
-                    ].map(([lbl, hint, fn]) => (
-                      <button key={lbl} onClick={() => { setAddMenuOpen(false); fn(); }}
-                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
-                        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{lbl}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+              <AnchoredMenu anchorRef={addMenuBtnRef} open={addMenuOpen} onClose={() => setAddMenuOpen(false)} align="end" minWidth={240}
+                style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+                {[
+                  ['Add Employee', 'On payroll - full profile, provisioning, time tracking', () => { setEditing(null); setAddPreset('full_time'); setFormOpen(true); }],
+                  ['Add Independent Contractor', 'Engagement scope, SOW and rate on the same record', () => { setEditing(null); setAddPreset('contractor'); setFormOpen(true); }],
+                  ...(isAdmin ? [['Add External', 'Partner-company person - invited by email, code sign-in', () => setInviteOpen(true)]] : []),
+                ].map(([lbl, hint, fn]) => (
+                  <button key={lbl} role="menuitem" onClick={() => { setAddMenuOpen(false); fn(); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{lbl}</span>
+                    <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>
+                  </button>
+                ))}
+              </AnchoredMenu>
             </div>
           </div>
         )}
@@ -5541,7 +5564,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-time' && <TimeAdmin toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />

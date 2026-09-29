@@ -57,6 +57,9 @@ class ShiftViewTests(unittest.TestCase):
                                             work_email=em, status="active", deleted_at=""))
             db.add(models.NexusGroup(id=G_ED, name="ed", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=G_ED, email=ADMIN))
+            # Changing shifts needs a manager (Sep 29); the hr:editor grant
+            # keeps the company-wide scope these tests exercise.
+            db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
             db.add(models.NexusGroup(id=G_VW, name="vw", allowed_modules="hr:viewer"))
             db.add(models.NexusGroupMember(group_id=G_VW, email=VIEWER))
             db.add(models.ShiftGroup(id=GROUP, name="Store"))
@@ -65,6 +68,7 @@ class ShiftViewTests(unittest.TestCase):
         finally:
             db.close()
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
         self._as(ADMIN)
 
     def tearDown(self):
@@ -75,10 +79,12 @@ class ShiftViewTests(unittest.TestCase):
         else:
             os.environ["NEXUS_DEV_EMAIL"] = self._email
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
 
     def _cleanup(self):
         db = database.SessionLocal()
         try:
+            db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).delete(synchronize_session=False)
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("view.%")).delete(synchronize_session=False))
             for gid in (G_ED, G_VW):

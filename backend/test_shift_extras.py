@@ -59,6 +59,9 @@ class _Base(unittest.TestCase):
                                             work_email=em, status="active", deleted_at=""))
             db.add(models.NexusGroup(id=G_ED, name="ed", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=G_ED, email=ADMIN))
+            # Changing shifts needs a manager (Sep 29); the hr:editor grant
+            # keeps the company-wide scope these tests exercise.
+            db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
             db.add(models.ShiftGroup(id=GROUP, name="Xtra Store", scheduler_emails=json.dumps([LEAD])))
             db.add(models.ShiftGroupMember(id="sgm-xtra-a", group_id=GROUP, employee_email=A))
             db.add(models.ShiftGroup(id=OTHER, name="Xtra Other"))
@@ -68,6 +71,7 @@ class _Base(unittest.TestCase):
         finally:
             db.close()
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
         self._as(ADMIN)
 
     def tearDown(self):
@@ -78,10 +82,12 @@ class _Base(unittest.TestCase):
         else:
             os.environ["NEXUS_DEV_EMAIL"] = self._email
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
 
     def _cleanup(self):
         db = database.SessionLocal()
         try:
+            db.query(models.NexusRole).filter(models.NexusRole.email.in_([ADMIN, LEAD])).delete(synchronize_session=False)
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("xtra.%")).delete(synchronize_session=False))
             db.query(models.NexusGroup).filter(models.NexusGroup.id == G_ED).delete(synchronize_session=False)
@@ -111,6 +117,15 @@ class _Base(unittest.TestCase):
         r = self.client.get(f"/timeclock/schedule?start={start}&end={end}")
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
+
+    def _make_manager(self, email):
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusRole(email=email, role="manager", assigned_by="test"))
+            db.commit()
+        finally:
+            db.close()
+        auth.invalidate_role_cache()
 
     def _place(self, email=A, day=MON, start="09:00", end="17:00", expect=200):
         r = self.client.post("/timeclock/schedule", json={"employee_email": email, "work_date": day,
@@ -153,40 +168,53 @@ class AvailabilityTests(_Base):
 
 
 class GroupSchedulerTests(_Base):
-    def test_a_group_scheduler_builds_only_their_groups_schedule(self):
+    def test_an_employee_scheduler_can_only_read_their_group(self):
+        # Neil, Sep 29: employees never change shifts, whatever group role
+        # they hold. Named scheduler below manager = read-only, published only.
+        self._as(ADMIN)
+        self._place(email=A, day=MON)                   # a draft nobody else sees yet
+        self._as(LEAD)
+        grid = self._grid()
+        self.assertFalse(grid["canManage"])
+        self.assertEqual({e["email"] for e in grid["employees"]}, {A, LEAD})
+        self.assertEqual(grid["scheduled"], [])        # drafts stay hidden
+        self._place(email=A, expect=403)
+        pub = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": TUE})
+        self.assertEqual(pub.status_code, 403)
+        note = self.client.put("/timeclock/schedule/day-note", json={"work_date": MON, "note": "Stock count"})
+        self.assertEqual(note.status_code, 403)
+        me = self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()
+        self.assertFalse(me["canManage"])
+        self.assertEqual(me["schedulerOf"], [])
+
+    def test_a_manager_scheduler_builds_only_their_groups_schedule(self):
+        self._make_manager(LEAD)
         self._as(LEAD)
         grid = self._grid()
         self.assertTrue(grid["canManage"])
-        self.assertTrue(grid["groupScheduler"])
         self.assertEqual({e["email"] for e in grid["employees"]}, {A, LEAD})
-        self.assertEqual([g["id"] for g in grid["groups"]], [GROUP])
         self._place(email=A)
         self._place(email=B, expect=403)
         pub = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": TUE})
         self.assertEqual(pub.status_code, 200, pub.text)
+        me = self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()
+        self.assertTrue(me["canManage"])
+        self.assertEqual(me["schedulerOf"], [{"id": GROUP, "name": "Xtra Store"}])
+        # The group they run shows in their team view even though they are
+        # not a member of it.
+        self.assertIn(GROUP, [t["id"] for t in me["teams"]])
 
     def test_others_are_still_turned_away(self):
         self._as(B)
         self.assertEqual(self.client.get(f"/timeclock/schedule?start={MON}&end={TUE}").status_code, 401)
-        self.assertEqual(self.client.post("/timeclock/schedule", json={"employee_email": B, "work_date": MON}).status_code, 401)
+        # Writing is refused outright: only managers change shifts (Sep 29).
+        self.assertEqual(self.client.post("/timeclock/schedule", json={"employee_email": B, "work_date": MON}).status_code, 403)
 
     def test_their_scope_stops_at_the_schedule(self):
         self._as(LEAD)
         # Timesheets and time-off decisions are still manager-only.
         self.assertEqual(self.client.get(f"/timeclock/team?start={MON}&end={TUE}").status_code, 401)
         self.assertEqual(self.client.get("/timeclock/timeoff").status_code, 401)
-
-    def test_their_day_notes_go_to_their_group(self):
-        self._as(LEAD)
-        r = self.client.put("/timeclock/schedule/day-note", json={"work_date": MON, "note": "Stock count"})
-        self.assertEqual(r.json()["groupId"], GROUP)
-
-    def test_my_schedule_says_which_groups_i_schedule(self):
-        self._as(LEAD)
-        me = self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()
-        self.assertEqual(me["schedulerOf"], [{"id": GROUP, "name": "Xtra Store"}])
-        self._as(A)
-        self.assertEqual(self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()["schedulerOf"], [])
 
     def test_admins_name_the_schedulers(self):
         groups = {g["id"]: g for g in self.client.get("/timeclock/shift-groups").json()["groups"]}
@@ -228,6 +256,7 @@ class ImportTests(_Base):
         self.assertEqual((again["created"], again["errors"]), (0, ["Row 2: that shift is already on the schedule."]))
 
     def test_scope_and_limits(self):
+        self._make_manager(LEAD)   # a manager who schedules one group
         self._as(LEAD)
         r = self.client.post("/timeclock/schedule/import", json={"rows": [
             {"row": 2, "email": B, "date": MON, "start": "09:00", "end": "17:00"}]}).json()

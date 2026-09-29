@@ -3,7 +3,7 @@
 // WIP limits, collapsible columns, an "Add section" column that creates a
 // custom status, an inline comment composer on cards, and orthogonal swimlanes
 // (None / Assignee / Priority / Project). Grey columns, white cards.
-import { useMemo, useRef, useState, useEffect } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Circle, CheckCircle2, MessageSquare, Diamond, Plus, Trash2, ChevronsLeft, ChevronsRight,
   MoreHorizontal, Gauge, Rows3, ChevronDown,
@@ -11,9 +11,10 @@ import {
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } from '../lib';
 import { statusesForProject } from '../TasksContext';
-import { Avatar, PriorityChip, useClickOutside } from '../components';
+import { Avatar, PriorityChip } from '../components';
 import { fmtDate } from '../lib';
 import DueBadge from '../DueBadge';
+import AnchoredMenu from '../../components/AnchoredMenu';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
 const SWIMLANE_OPTIONS = [
@@ -93,7 +94,6 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const statusMeta = (key) => STATUS_META[key]
     || (() => { const c = store.customStatuses.find((s) => s.id === key); return c ? { label: c.label, color: c.color, tint: `${c.color}1a` } : { label: key, color: NX.dim, tint: NX.border2 }; })();
 
-  useClickOutside(swimRef, () => setSwimOpen(false), swimOpen);
 
   const toggleCollapse = (s) => setCollapsed((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
@@ -298,17 +298,16 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
       {/* Board toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0 }}>
-        <div ref={swimRef} style={{ position: 'relative' }}>
-          <button onClick={() => setSwimOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12.5 }}>
+        <div>
+          <button ref={swimRef} onClick={() => setSwimOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12.5 }}>
             <Rows3 size={14} /> Swimlanes: {swimLabel} <ChevronDown size={13} style={{ color: NX.faint }} />
           </button>
-          {swimOpen && (
-            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 4 }}>
-              {swimOptions.map((o) => (
-                <button key={o.key} onClick={() => { setSwimlane(o.key); setSwimOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: swimlane === o.key ? NX.blue : NX.ink, background: swimlane === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
-              ))}
-            </div>
-          )}
+          <AnchoredMenu anchorRef={swimRef} open={swimOpen} onClose={() => setSwimOpen(false)}
+            style={{ width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+            {swimOptions.map((o) => (
+              <button key={o.key} onClick={() => { setSwimlane(o.key); setSwimOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: swimlane === o.key ? NX.blue : NX.ink, background: swimlane === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
+            ))}
+          </AnchoredMenu>
         </div>
         <span style={{ fontSize: 11, color: NX.faint, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           Set a WIP limit with the <Gauge size={11} /> in each column header.
@@ -427,27 +426,22 @@ function WipMenu({ limit, onSet }) {
   const [open, setOpen] = useState(false);
   const [val, setVal] = useState(limit ?? '');
   const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
+  // Portaled: the column header lives inside the board's horizontal
+  // scroller, which clipped the in-place panel.
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => { setVal(limit ?? ''); setOpen((o) => !o); }} title="Set WIP limit" style={{ ...btn('ghost'), padding: 4, color: limit != null ? NX.blue : NX.faint }}><Gauge size={14} /></button>
-      {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 }}>WIP limit</div>
-          <input type="number" min={0} autoFocus value={val} onChange={(e) => setVal(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { onSet(val === '' ? null : Number(val) || null); setOpen(false); } }}
-            placeholder="No limit" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-            <button onClick={() => { onSet(null); setOpen(false); }} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 6px', color: NX.dim }}>Clear</button>
-            <span style={{ fontSize: 10, color: NX.faint }}>Enter to save</span>
-          </div>
+    <div>
+      <button ref={ref} onClick={() => { setVal(limit ?? ''); setOpen((o) => !o); }} title="Set WIP limit" style={{ ...btn('ghost'), padding: 4, color: limit != null ? NX.blue : NX.faint }}><Gauge size={14} /></button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" role="dialog"
+        style={{ width: 176, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 }}>WIP limit</div>
+        <input type="number" min={0} autoFocus value={val} onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { onSet(val === '' ? null : Number(val) || null); setOpen(false); } }}
+          placeholder="No limit" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <button onClick={() => { onSet(null); setOpen(false); }} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 6px', color: NX.dim }}>Clear</button>
+          <span style={{ fontSize: 10, color: NX.faint }}>Enter to save</span>
         </div>
-      )}
+      </AnchoredMenu>
     </div>
   );
 }

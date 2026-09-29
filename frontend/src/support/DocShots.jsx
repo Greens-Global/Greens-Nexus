@@ -130,7 +130,7 @@ const SHOTS = {
           <Mark n={4}><Bell size={14} style={{ color: 'var(--ink)' }} /></Mark>
         </Row>}>
         <Col>
-          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)' }}>Good morning, Alex</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)' }}>Good Morning, Alex</div>
           <Row><Stat label="Open Tasks" value="6" color="blue" /><Stat label="Checked-out Items" value="2" color="orange" /><Stat label="Signatures" value="1" color="green" /></Row>
           <Card><Col gap={6}><Line w="60%" /><Line w="85%" o={0.7} /><Line w="40%" o={0.7} /></Col></Card>
         </Col>
@@ -143,7 +143,7 @@ const SHOTS = {
       <Frame title="Dashboard" tabs={['Dashboard', 'Links']} active="Dashboard" activeRail={0}
         headerMark={<Mark n={4}><Btn icon={Star}>Customize</Btn></Mark>}>
         <Col gap={10}>
-          <Mark n={1} block><div style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)' }}>Good morning, Alex <span style={{ fontSize: 10, color: solid('green'), fontWeight: 700 }}>● Clocked in 8:02 AM</span></div></Mark>
+          <Mark n={1} block><div style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)' }}>Good Morning, Alex <span style={{ fontSize: 10, color: solid('green'), fontWeight: 700 }}>● Clocked in 8:02 AM</span></div></Mark>
           <Row>
             <Mark n={2} style={{ flex: 1, minWidth: 0 }}><Stat label="Open Tasks" value="6" color="blue" /></Mark>
             <Stat label="Checked-out Items" value="2" color="orange" />

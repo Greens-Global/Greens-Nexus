@@ -1,19 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
-  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, User,
+  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, User, Lock,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
-import MyShifts from '../components/MyShifts';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
+import { getPosition, punchPosition } from '../lib/geoPosition';
+import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
@@ -45,7 +46,6 @@ const TAB_META = {
   overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
   clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
-  shifts:    { title: 'My Shifts',  label: 'Shifts',     subtitle: 'When you are scheduled to work, week by week' },
   timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
 };
 // Work OS card-header title (sentence case, no uppercase tracking).
@@ -228,24 +228,6 @@ function AllDayToggle({ on, onChange }) {
   );
 }
 
-// One-shot position with a hard timeout: never keep the user waiting on GPS.
-// `maxMs` caps how long the punch waits on geolocation before firing without it.
-// Clock-OUT passes a short budget: a lost out-punch (tab closed during the wait)
-// is the whole "logout not recorded" bug, and location matters far less when
-// someone is leaving than the punch actually landing. Clock-IN keeps the full
-// budget for an accurate geofence check.
-const getPosition = (maxMs = 9000) => new Promise((resolve) => {
-  if (!navigator.geolocation) { resolve(null); return; }
-  const done = (v) => { clearTimeout(timer); resolve(v); };
-  const timer = setTimeout(() => resolve(null), maxMs);
-  navigator.geolocation.getCurrentPosition(
-    (pos) => done({ lat: String(pos.coords.latitude), lng: String(pos.coords.longitude),
-                    accuracy_m: Math.round(pos.coords.accuracy || 0) }),
-    () => done(null),
-    { enableHighAccuracy: true, timeout: Math.max(1000, maxMs - 1000), maximumAge: 30000 },
-  );
-});
-
 // Shared-PC binding: mint a nonce and hand it to the LOCAL Nexus agent over
 // localhost, so the agent claims this PC's device identity with its own token
 // (the browser never sends a device_id). Returns the nonce to send with clock-in,
@@ -277,8 +259,8 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title="Recorded and flagged for review - this never blocks your punch.">
-      <AlertTriangle size={12} /> {p.distanceM}m from {p.workSiteName || 'nearest site'} - flagged
+      title={`Not at any of your work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM}m away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
   if (p.geoStatus === 'remote') return (
@@ -310,13 +292,20 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // setTab(...) call below just updates local state - the effects further
   // down mirror it out to activeSub/the URL in one place, so no call site had
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
-  const [tab, setTab] = useState(() => (TAB_META[activeSub] ? activeSub : initialTab));   // overview | clock | timesheet | timeoff
+  const [tab, setTab] = useState(() => (TAB_META[activeSub] ? activeSub : initialTab));
+  // Workday > Shifts moved into the Shifts module (Sep 29). Old links - a
+  // bookmark, a bell or schedule email sent before the move - land there.
+  useEffect(() => {
+    if (activeSub === 'shifts') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
+  }, [activeSub]);   // overview | clock | timesheet | timeoff
   useEffect(() => {
     if (TAB_META[activeSub] && activeSub !== tab) setTab(activeSub);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
-    if (onSubChange && activeSub !== tab) onSubChange(tab);
+    // Not while forwarding an old Shifts link - that would pull the address
+    // back to this view on its way out.
+    if (onSubChange && activeSub !== tab && activeSub !== 'shifts') onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   const [status, setStatus] = useState(null);
@@ -459,9 +448,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // calendar day(s), no time fields; off = a specific window, which the
   // backend only accepts on a single day, so start/end date stay locked
   // together while it's off.
-  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
+  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
+  // The request form's 7-column row needs ~700px; under this it stacks so
+  // Request stays on screen on phones (QA, Sep 23).
+  const toNarrow = useIsMobile('(max-width: 820px)');
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
   // Custom reasons and the admins' requests switch (Sep 29, Shifts settings).
   const [toTypes, setToTypes] = useState(null);
@@ -493,9 +485,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setToBusy(true);
     try {
       await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end,
-        start_time: st, end_time: et, note: toForm.note });
+        start_time: st, end_time: et, note: toForm.note, confidential: !!toForm.confidential });
       toast(true, 'Time-off request sent - your manager gets a notification.');
-      setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
+      setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
@@ -609,7 +601,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // IN, pair with the local agent concurrently (shared-PC device binding) so it
     // adds no latency over the geolocation wait.
     const [pos, pairNonce] = await Promise.all([
-      getPosition(kind === 'out' ? 2500 : 9000),
+      kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
     // punchDurable retries and, if the server still can't be reached, parks the
@@ -624,7 +616,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       gateClickRef.current = '';
       const p = res.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
-        : p.geoStatus === 'out_of_fence' ? ` - ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
+        : p.geoStatus === 'out_of_fence' ? ' - Out of Location, flagged for review'
         : p.geoStatus === 'remote' ? ' - remote'
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
         : pos ? '' : ' - location unavailable, recorded without it';
@@ -751,8 +743,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'clock', 'shifts', 'timeoff']
-          : ['overview', 'clock', 'timesheet', 'shifts', 'timeoff']
+          ? ['overview', 'clock', 'timeoff']
+          : ['overview', 'clock', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1036,9 +1028,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
 
       {/* Time off */}
-      {/* Shifts (Neil, Sep 23): read-only view of the week's shifts, set by
-          the manager in People > Shifts. */}
-      {tab === 'shifts' && <MyShifts />}
 
       {tab === 'timeoff' && (<>
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
@@ -1058,41 +1047,62 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Time-off requests are turned off. Ask your manager to add your time off.</div>
         ) : (() => {
           const noteRow = toForm.allDay ? 2 : 3;
+          // Where each cell sits. Phones (toNarrow): type / start "to" end /
+          // All day + Total / hours / Note / Request, all full width.
+          const narrowNote = toForm.allDay ? 4 : 5;
+          const at = toNarrow ? {
+            cols: 'minmax(0,1fr) auto minmax(0,1fr)',
+            type: ['1 / -1', 1], start: [1, 2], to: [2, 2], end: [3, 2], allDay: ['1 / 3', 3],
+            request: ['1 / -1', narrowNote + 2], hours: ['1 / -1', 4], note: ['1 / -1', narrowNote], total: [3, 3],
+            confidential: ['1 / -1', narrowNote + 1],
+          } : {
+            cols: '140px 150px auto 150px auto 1fr auto',
+            type: [1, 1], start: [2, 1], to: [3, 1], end: [4, 1], allDay: [5, 1],
+            request: [7, 1], hours: ['1 / 5', 2], note: ['1 / 5', noteRow], total: [5, noteRow],
+            confidential: ['1 / 8', noteRow + 1],
+          };
+          const cell = (k) => ({ gridColumn: at[k][0], gridRow: at[k][1] });
           return (
-            <div style={{ display: 'grid', gridTemplateColumns: '140px 150px auto 150px auto 1fr auto', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: at.cols, gap: 10, alignItems: 'center' }}>
               <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
-                style={{ gridColumn: 1, gridRow: 1, fontSize: 12.5 }}>
+                style={{ ...cell('type'), fontSize: 12.5 }}>
                 {toOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
               <input className="form-input" type="date" value={toForm.start}
                 onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? f.end : e.target.value }))}
-                style={{ gridColumn: 2, gridRow: 1, fontSize: 12.5 }} />
-              <span style={{ gridColumn: 3, gridRow: 1, fontSize: 12, color: 'var(--muted)' }}>to</span>
+                style={{ ...cell('start'), fontSize: 12.5, minWidth: 0 }} />
+              <span style={{ ...cell('to'), fontSize: 12, color: 'var(--muted)' }}>to</span>
               <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay}
                 title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
                 onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
-                style={{ gridColumn: 4, gridRow: 1, fontSize: 12.5, opacity: toForm.allDay ? 1 : 0.55 }} />
+                style={{ ...cell('end'), fontSize: 12.5, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
               {/* Teams' New Request "All day" switch (Pranshu, Sep 16): on = whole
                   day(s), off = a specific start/end time on that one day. */}
-              <label style={{ gridColumn: 5, gridRow: 1, display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <label style={{ ...cell('allDay'), display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <AllDayToggle on={toForm.allDay} onChange={toggleAllDay} />
                 All day
               </label>
               <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
-                style={{ gridColumn: 7, gridRow: 1, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, justifySelf: 'end' }}>
+                style={{ ...cell('request'), fontSize: 12.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, justifySelf: toNarrow ? 'stretch' : 'end' }}>
                 {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
               </button>
 
               {/* Specific hours: only offered on a one-day range, since that's
                   all the backend accepts a start/end time on. */}
               {!toForm.allDay && (
-                <div style={{ gridColumn: '1 / 5', gridRow: 2, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Start time</span>
-                  <input className="form-input" type="time" value={toForm.startTime}
-                    onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
-                  <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>End time</span>
-                  <input className="form-input" type="time" value={toForm.endTime}
-                    onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                <div style={{ ...cell('hours'), display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {/* Label + input pairs, so a phone wraps between the pairs,
+                      never between a label and its field. */}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, minWidth: 58 }}>Start time</span>
+                    <input className="form-input" type="time" value={toForm.startTime}
+                      onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, minWidth: 58 }}>End time</span>
+                    <input className="form-input" type="time" value={toForm.endTime}
+                      onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
+                  </span>
                 </div>
               )}
 
@@ -1101,13 +1111,25 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   type/date fields above it. */}
               <textarea className="form-input" placeholder="Note (optional)" value={toForm.note} rows={2}
                 onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
-                style={{ gridColumn: '1 / 5', gridRow: noteRow, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
+                style={{ ...cell('note'), fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
+              {/* Confidential (Neil, Sep 29): the team still sees that you're
+                  out; the type and note stay between you and your approver. */}
+              <label style={{ ...cell('confidential'), display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+                <input type="checkbox" checked={!!toForm.confidential} onChange={e => setToForm(f => ({ ...f, confidential: e.target.checked }))}
+                  style={{ marginTop: 2 }} />
+                <span>
+                  <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    Your team sees only that you're out. The type and note are visible only to you and your approver (your manager).
+                  </span>
+                </span>
+              </label>
               {/* Total: a live read of what this request will count as, using
                   the same day-fraction math as the year-at-a-glance tally
                   below, so the two numbers never disagree (Pranshu, Sep 16) -
                   directly under "All day", not beside Note. */}
               {toTotalDays > 0 && (
-                <span style={{ gridColumn: 5, gridRow: noteRow, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+                <span style={{ ...cell('total'), justifySelf: toNarrow ? 'end' : undefined, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
                   Total
                   <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
                   <span style={{ fontWeight: 600, color: 'var(--muted)' }}>day{toTotalDays === 1 ? '' : 's'}</span>
@@ -1127,6 +1149,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         {(timeoff || []).map(r => (
           <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12.5, fontWeight: 800, width: 90 }}>{TIMEOFF_TYPES[r.type] || r.type}</span>
+            {r.confidential && <ConfidentialBadge />}
             <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
             {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
             <div style={{ flex: 1 }} />
@@ -1288,5 +1311,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         </div>
       )}
     </div>
+  );
+}
+
+// Lock + "Confidential" chip on a confidential time-off row (Sep 29).
+function ConfidentialBadge() {
+  return (
+    <span title="Confidential - only you and your approver see the type and note"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)',
+        background: 'var(--mist)', borderRadius: 999, padding: '2px 8px' }}>
+      <Lock size={10} /> Confidential
+    </span>
   );
 }

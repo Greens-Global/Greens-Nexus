@@ -10,8 +10,9 @@ import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
-import { Avatar, useClickOutside, useIsMobile, localTodayISO, notPast } from './components';
+import { Avatar, useIsMobile, localTodayISO, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 const WIDGET_META = [
   { key: 'my_tasks', label: 'My Tasks' },
@@ -102,7 +103,6 @@ export default function HomeView({ onNavigate }) {
   const isMobile = useIsMobile();
   const dateRef = useRef(null);
   const rangeRef = useRef(null);
-  useClickOutside(rangeRef, () => setRangeOpen(false), rangeOpen);
   const [widgets, setWidgets] = useState(() => {
     try { const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); if (Array.isArray(raw) && raw.length) return raw.filter((k) => WIDGET_META.some((w) => w.key === k)); } catch { /* */ }
     return DEFAULT_LAYOUT;
@@ -550,13 +550,12 @@ export default function HomeView({ onNavigate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My Tasks</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div ref={rangeRef} style={{ position: 'relative' }}>
-            <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
-            {rangeOpen && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 4 }}>
-                {RANGES.map((r) => <button key={r.key} onClick={() => { setRange(r.key); setRangeOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: range === r.key ? NX.blue : NX.ink }}>{r.label}</button>)}
-              </div>
-            )}
+          <div>
+            <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
+            <AnchoredMenu anchorRef={rangeRef} open={rangeOpen} onClose={() => setRangeOpen(false)} align="end"
+              style={{ width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+              {RANGES.map((r) => <button key={r.key} onClick={() => { setRange(r.key); setRangeOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: range === r.key ? NX.blue : NX.ink }}>{r.label}</button>)}
+            </AnchoredMenu>
           </div>
         </div>
       </div>

@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Plus, Search } from 'lucide-react';
 import { NX, FONT, input as inputStyle } from './theme';
 import { teamInProject } from './lib';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 /** Projects the user is actually attached to: owner, explicit member, or a
  *  member of a team that is on the project. Mirrors the "direct access or team
@@ -54,6 +55,9 @@ export default function ProjectPicker({
   const [q, setQ] = useState('');
   const wrapRef = useRef(null);
   const searchRef = useRef(null);
+  // The panel matches the field's width; it's portaled, so it can't read it
+  // from a shared parent any more.
+  const [panelW, setPanelW] = useState(0);
 
   const selected = projects.find((p) => p.id === value) || null;
 
@@ -68,18 +72,13 @@ export default function ProjectPicker({
     };
   }, [projects, teams, myEmail, q]);
 
-  // Close on an outside click or Escape - a panel that traps you is worse than
-  // the select it replaced.
+  // Escape closes just the panel, not the modal around it - hence capture +
+  // stopPropagation. An outside tap is AnchoredMenu's job.
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey, true);
-    };
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [open]);
 
   useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
@@ -101,8 +100,8 @@ export default function ProjectPicker({
   };
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <button type="button" onClick={() => setOpen((o) => !o)}
+    <div>
+      <button ref={wrapRef} type="button" onClick={() => { setPanelW(wrapRef.current?.offsetWidth || 0); setOpen((o) => !o); }}
         style={{
           ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 8, cursor: 'pointer', textAlign: 'left', width: '100%',
@@ -115,69 +114,69 @@ export default function ProjectPicker({
         <ChevronDown size={15} style={{ color: NX.dim, flexShrink: 0 }} />
       </button>
 
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 60,
-          background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
-            borderBottom: `1px solid ${NX.border2}` }}>
-            <Search size={14} style={{ color: NX.faint, flexShrink: 0 }} />
-            <input
-              ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)}
-              placeholder="Search projects"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const first = mine[0] || others[0];
-                  if (first) pick(first.id);
-                }
-              }}
-              style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1,
-                fontSize: 13.5, color: NX.ink, fontFamily: FONT }} />
-          </div>
+      {/* Portaled: inside Create Task the modal body scrolls, and clipped
+          the panel's lower half. */}
+      <AnchoredMenu anchorRef={wrapRef} open={open} onClose={() => setOpen(false)} role="dialog" style={{
+        width: panelW || undefined,
+        background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
+        boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflowX: 'hidden',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+          borderBottom: `1px solid ${NX.border2}` }}>
+          <Search size={14} style={{ color: NX.faint, flexShrink: 0 }} />
+          <input
+            ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Search projects"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const first = mine[0] || others[0];
+                if (first) pick(first.id);
+              }
+            }}
+            style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1,
+              fontSize: 13.5, color: NX.ink, fontFamily: FONT }} />
+        </div>
 
-          <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            {allowNone && !q.trim() && (
-              <button type="button" className="nx-menu-row" onClick={() => pick('')} style={rowStyle(!value)}>
-                <span style={{ width: 14, flexShrink: 0 }}>{!value && <Check size={14} />}</span>
-                <span style={{ color: NX.dim }}>{noneLabel}</span>
-              </button>
-            )}
-
-            {mine.length > 0 && <div style={heading}>Your Projects</div>}
-            {mine.map((p) => (
-              <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
-                <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              </button>
-            ))}
-
-            {others.length > 0 && <div style={heading}>{mine.length ? 'All Projects' : 'Projects'}</div>}
-            {others.map((p) => (
-              <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
-                <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              </button>
-            ))}
-
-            {mine.length === 0 && others.length === 0 && (
-              <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
-                No project matches “{q.trim()}”.
-              </div>
-            )}
-          </div>
-
-          {onCreateNew && (
-            <button type="button" onClick={() => { setOpen(false); setQ(''); onCreateNew(); }}
-              className="nx-menu-row"
-              style={{ ...rowStyle(false), borderTop: `1px solid ${NX.border2}`, color: NX.blue, fontWeight: 600 }}>
-              <Plus size={14} /> Create New Project
+        <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
+          {allowNone && !q.trim() && (
+            <button type="button" className="nx-menu-row" onClick={() => pick('')} style={rowStyle(!value)}>
+              <span style={{ width: 14, flexShrink: 0 }}>{!value && <Check size={14} />}</span>
+              <span style={{ color: NX.dim }}>{noneLabel}</span>
             </button>
           )}
+
+          {mine.length > 0 && <div style={heading}>Your Projects</div>}
+          {mine.map((p) => (
+            <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
+              <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            </button>
+          ))}
+
+          {others.length > 0 && <div style={heading}>{mine.length ? 'All Projects' : 'Projects'}</div>}
+          {others.map((p) => (
+            <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
+              <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            </button>
+          ))}
+
+          {mine.length === 0 && others.length === 0 && (
+            <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
+              No project matches “{q.trim()}”.
+            </div>
+          )}
         </div>
-      )}
+
+        {onCreateNew && (
+          <button type="button" onClick={() => { setOpen(false); setQ(''); onCreateNew(); }}
+            className="nx-menu-row"
+            style={{ ...rowStyle(false), borderTop: `1px solid ${NX.border2}`, color: NX.blue, fontWeight: 600 }}>
+            <Plus size={14} /> Create New Project
+          </button>
+        )}
+      </AnchoredMenu>
     </div>
   );
 }

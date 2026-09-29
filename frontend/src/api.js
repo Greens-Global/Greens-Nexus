@@ -1304,6 +1304,7 @@ export const api = {
   timePunchEditDecide:    (id, data) => req(`/timeclock/punch-edits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   // Timesheet review before signing in Nexus Sign (Sep 2026) - timesheet_review.py.
   timesheetReviewSubmit:   (start, note = '') => req('/timesheet-review/submit', { method: 'POST', body: JSON.stringify({ start: start || '', note }) }),
+  timesheetReviewWaiting:  ()                 => req('/timesheet-review/waiting'),   // submitted to me, not decided yet (Sep 29)
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
   timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -1730,6 +1731,22 @@ export const api = {
   policyPublish:      (data) => req('/policy/publish', { method: 'POST', body: JSON.stringify(data) }),
   policyReport:       ()     => req('/policy/report'),
   policyReportCsv:    (status = 'not_accepted') => reqBlob(`/policy/report.csv?status=${status}`),
+  // Workforce Analytics saved team views (routers/workforce_views.py).
+  workforceViews:        ()               => req('/timeclock/workforce-views'),
+  workforceViewOptions:  ()               => req('/timeclock/workforce-views/options'),
+  workforceViewPreview:  (criteria)       => req('/timeclock/workforce-views/preview', { method: 'POST', body: JSON.stringify({ criteria }) }),
+  workforceViewCreate:   (data)           => req('/timeclock/workforce-views', { method: 'POST', body: JSON.stringify(data) }),
+  workforceViewUpdate:   (id, data)       => req(`/timeclock/workforce-views/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  workforceViewDelete:   (id)             => req(`/timeclock/workforce-views/${id}`, { method: 'DELETE' }),
+
+  // ── Weather widget (Sep 29) - Open-Meteo through the API, see routers/weather.py ──
+  weather:          (lat, lon, units = 'imperial') => req(`/weather?lat=${lat}&lon=${lon}&units=${units}`),
+  weatherPlaces:    (q)         => req(`/weather/places?q=${encodeURIComponent(q)}`),
+  weatherPlaceName: (lat, lon)  => req(`/weather/place-name?lat=${lat}&lon=${lon}`),
+
+  // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
+  //    back as `notes` on timePayroll ──
+  timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

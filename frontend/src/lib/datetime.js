@@ -44,6 +44,22 @@ export function formatTime(v, fallback = '') {
   }).format(d);
 }
 
+// h:mm AM/PM on another zone's clock  ->  formatTimeIn(now, 'America/Los_Angeles') = "4:42 PM"
+export function formatTimeIn(v, timeZone, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone,
+  }).format(d);
+}
+
+// Heading greeting, Title Case like every heading (Neil, Sep 28):
+// "Good Morning" before noon, "Good Afternoon" before 5 PM, then "Good Evening".
+export function greetingFor(v = new Date()) {
+  const h = (toDate(v) || new Date()).getHours();
+  return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+}
+
 // MM/DD/YYYY, h:mm AM/PM  ->  "08/04/2026, 2:01 PM"
 export function formatDateTime(v, fallback = '') {
   const d = toDate(v);

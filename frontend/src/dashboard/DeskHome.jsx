@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
-import { useWorldClockZones } from '../lib/worldClockZones';
+import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
+import { formatTimeIn, greetingFor } from '../lib/datetime';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
@@ -60,8 +61,11 @@ function useCountUp(target, ms = 650) {
   return val;
 }
 
-const fmtZone = (d, tz) =>
-  new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(d);
+// One clock from headerClocks: "7:42 PM" for the viewer's own time,
+// "California 4:42 PM PDT" / "India - Kolkata 8:12 AM" for the others.
+const ZoneClock = ({ clock, now }) => (
+  <>{clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b></>
+);
 
 const fmtElapsed = (secs) => {
   const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
@@ -103,9 +107,15 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   const { accounts } = useMsal();
   const { actingAs } = useRole();
   const now = useNow();
-  const zones = useWorldClockZones();
+  const picks = useWorldClockPicks();
+  // Own time bare, California beside it only when it differs, then the My
+  // Profile picks (headerClocks). Recomputed once a minute - a DST switch
+  // lands on a minute boundary.
+  const minute = Math.floor(now.getTime() / 60000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const clocks = useMemo(() => headerClocks(picks, now), [picks, minute]);
   // While acting as someone, the greeting greets THEM - this whole screen is
-  // their day, and "Good evening, Visesh" on Pranshu's dashboard read wrong.
+  // their day, and "Good Evening, Visesh" on Pranshu's dashboard read wrong.
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
   const [status, setStatus] = useState(null);
   useEffect(() => { api.timeStatus().then(setStatus).catch(() => {}); }, []);
@@ -117,8 +127,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
 
-  const hour = now.getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const greeting = greetingFor(now);
   const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
 
   return (
@@ -127,9 +136,13 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
         <h1>{greeting}, {firstName}!</h1>
         <div className="dk-head-sub">
           {dateLine}{summary && <> · {summary}</>}
-          {/* On a phone the zones line below is hidden and the local time
-              rides here instead (Sep 23) - one line, no separate row. */}
-          {zones[0] && <span className="dk-sub-local"> · {zones[0].label} <b>{fmtZone(now, zones[0].tz)}</b></span>}
+          {/* On a phone the zones line below is hidden and the time rides
+              here instead (Sep 23) - one line, no separate row. Own time and
+              California (when different) only; the My Profile picks stay on
+              the wider layout. */}
+          {clocks.filter((c) => c.home).map((c) => (
+            <span key={c.tz} className="dk-sub-local"> · <ZoneClock clock={c} now={now} /></span>
+          ))}
         </div>
       </div>
       <div className="dk-head-right">
@@ -145,6 +158,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
             onClick={() => navTo('timeclock')}
             title="Open time clock"
+            style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
             {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
@@ -157,10 +171,10 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
           {menu}
         </div>
         <div className="dk-zones">
-          {zones.map((z, i) => (
-            <Fragment key={z.tz}>
+          {clocks.map((c, i) => (
+            <Fragment key={c.tz}>
               {i > 0 && <span className="dk-zone-sep" />}
-              <span>{z.label} <b>{fmtZone(now, z.tz)}</b></span>
+              <span><ZoneClock clock={c} now={now} /></span>
             </Fragment>
           ))}
         </div>

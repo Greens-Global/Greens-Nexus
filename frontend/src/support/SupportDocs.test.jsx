@@ -50,7 +50,7 @@ describe('Support documentation', () => {
     as({});
     const { container } = render(<SupportDocs />);
     const names = indexButtons(container).map((b) => b.textContent);
-    for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Knowledge Base', 'Item Management', 'Construction', 'Support']) {
+    for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Shifts', 'Knowledge Base', 'Item Management', 'Construction', 'Support']) {
       expect(names).toContain(n);
     }
     for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credential Vault', 'Settings', 'Workforce Analytics']) {

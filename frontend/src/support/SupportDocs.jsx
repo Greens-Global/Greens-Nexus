@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, ArrowUpRight, ChevronLeft, ChevronRight, CheckCircle2, MousePointerClick,
   ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X,
-  Sparkles, LayoutDashboard, Contact, MonitorDot, CheckSquare, HardDrive, Ticket,
+  Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
   Megaphone, Gauge, KeyRound, HelpCircle, Settings,
 } from 'lucide-react';
@@ -23,7 +23,7 @@ import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
 import { takePendingOpen } from '../lib/pendingOpen';
 
 const ICONS = {
-  Sparkles, LayoutDashboard, Contact, MonitorDot, CheckSquare, HardDrive, Ticket,
+  Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   BookOpen, FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark,
   Users, Megaphone, Gauge, KeyRound, HelpCircle, Settings,
 };

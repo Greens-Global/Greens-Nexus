@@ -171,7 +171,7 @@ export function outRows(approved = [], now = new Date()) {
     if (s <= today && today <= e) {
       const back = new Date(new Date(`${e}T12:00:00`).getTime() + DAY_MS);
       const partial = r.startTime && r.endTime ? `${r.startTime} - ${r.endTime}` : '';
-      todayRows.push({ id: `to-${r.id}`, title: who, meta: `${TIMEOFF_TYPES[r.type] || r.type || 'Time off'}${partial ? ` · ${partial}` : ''} · back ${formatDate(back)}`, statusLabel: partial ? 'Partial' : 'Out', status: partial ? 'pending' : 'overdue', end: e });
+      todayRows.push({ id: `to-${r.id}`, title: who, meta: `${r.redacted ? 'Time off' : (TIMEOFF_TYPES[r.type] || r.type || 'Time off')}${partial ? ` · ${partial}` : ''} · back ${formatDate(back)}`, statusLabel: partial ? 'Partial' : 'Out', status: partial ? 'pending' : 'overdue', end: e });
     }
     // Every remaining day of the request inside the window counts - including
     // the rest of a range that already started, so someone out through Monday

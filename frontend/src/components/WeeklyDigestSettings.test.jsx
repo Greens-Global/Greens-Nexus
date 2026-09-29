@@ -91,7 +91,7 @@ describe('WeeklyDigestSettings', () => {
     render(<WeeklyDigestSettings />);
     fireEvent.change(await screen.findByLabelText('Send Test Digest'), { target: { value: 'bob@greensglobal.com' } });
     fireEvent.click(screen.getByText('Send Test'));
-    expect(await screen.findByText(/has nothing overdue right now/)).toBeTruthy();
+    expect(await screen.findByText(/has nothing overdue or waiting right now/)).toBeTruthy();
   });
 
   it('force-resends one person from the Delivery Log', async () => {

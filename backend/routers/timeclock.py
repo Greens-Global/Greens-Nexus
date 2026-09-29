@@ -36,6 +36,7 @@ from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
@@ -47,8 +48,8 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability)
-from routers.hr import company_sites, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
+                    ShiftAvailability, TimecardNote)
+from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 
@@ -91,18 +92,45 @@ def _scheduled_groups(db: Session, email: str) -> list:
     return [g for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all() if email in _schedulers(g)]
 
 
+# Changing shifts is a manager's job (Neil, Sep 29: "Employees should not be
+# able to make changes to shifts for anytime and for any reason"). Every
+# route that writes a schedule, a preset, a group, a default assignment or
+# the shift-request settings - or decides a shift request - requires role
+# level >= SHIFT_MANAGE_LEVEL. An HR-module grant or being named a group's
+# scheduler no longer confers write on its own; both still confer READ.
+SHIFT_MANAGE_LEVEL = 3
+SHIFT_MANAGE_DENIED = "Only managers and above can change shifts."
+
+
+def can_manage_shifts(user: dict) -> bool:
+    return int(user.get("level", 0)) >= SHIFT_MANAGE_LEVEL
+
+
+def require_shift_manage(user: dict = Depends(get_current_user)):
+    if not can_manage_shifts(user):
+        raise HTTPException(status_code=403, detail=SHIFT_MANAGE_DENIED)
+    return user
+
+
 def _schedule_dep(team_level: str):
     """Schedule access (Sep 29, Teams "scheduling owner" per team): the team
     audience as before, PLUS anyone named a scheduler on a shift group, for
     that group's members only. The user dict carries `_sched_extra` (those
     members), which _visible_emails adds to the caller's scope - only on the
     schedule routes that use this dependency, never on timesheets or payroll.
-    `_group_scheduler` = schedule rights come ONLY from groups."""
+    `_group_scheduler` = schedule rights come ONLY from groups.
+
+    WRITE ("editor") additionally requires a manager (can_manage_shifts): a
+    group scheduler or HR-grant holder below manager keeps read-only access
+    to the published schedule."""
     threshold = _MODULE_LEVEL_RANK[team_level]
+    write = team_level == "editor"
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-        team_write = user["level"] >= 3 or _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"]
-        team = user["level"] >= 3 or _module_level(user["email"], "hr", db) >= threshold
+        manage = can_manage_shifts(user)
+        if write and not manage:
+            raise HTTPException(status_code=403, detail=SHIFT_MANAGE_DENIED)
+        team = manage or _module_level(user["email"], "hr", db) >= threshold
         gids = [g.id for g in _scheduled_groups(db, user["email"])]
         if not gids:
             if team:
@@ -110,7 +138,7 @@ def _schedule_dep(team_level: str):
             raise HTTPException(status_code=401, detail="Insufficient permissions")
         members = {(m.employee_email or "").lower() for m in
                    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(gids)).all() if m.employee_email}
-        return {**user, "_sched_extra": members, "_group_scheduler": not team_write}
+        return {**user, "_sched_extra": members, "_group_scheduler": not (manage or team)}
     return _check
 
 
@@ -191,60 +219,121 @@ def _soft_gate(d: float, radius: int, accuracy_m: int, base: dict) -> dict:
     return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
 
 
-def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "") -> dict:
-    """Soft-gate verdict for a punch (Neil, Sep 19). Nobody is tied to ONE place:
-    a person is on site when they are inside ANY company work site's fence, and
-    a person tagged remote is fine wherever they are - that is a contractual
-    arrangement, not a location. ("You're either remote or you're coming into
-    any of our offices.") The per-person geofence this replaces judged someone
-    against a single assigned location.
-
-    A remote person standing at a work site still resolves to that site, so
-    billable-time-per-location keeps attributing their hours to the property.
-    Anywhere else they get geo_status="remote": recorded with its coordinates
-    (still reviewable on the map), never flagged, never escalated."""
+def _has_fence(site) -> bool:
+    """A work site that is on the map (both coordinates parse)."""
     try:
-        plat, plng = float(lat), float(lng)
+        float(site.latitude), float(site.longitude)
+        return True
     except (TypeError, ValueError):
-        return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
-    # An assigned work site (Visesh, Sep 25) narrows "any company site" to that
-    # one; the default (no assignment) is every site on the person's company's
-    # list (Neil, Sep 25: a Sacred Natural punch must not resolve to a Greens
-    # office) - company_sites falls back to all sites for an unconfigured company.
-    sites = None
+        return False
+
+
+_NO_LOCATION = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+
+
+def _geo_context(db: Session, email: str = "") -> dict:
+    """What this person's punches are judged against, loaded ONCE per request
+    (a timecard judges every punch in the period): the mapped sites they are
+    allowed at, and whether they work remote.
+
+    Allowed = the sites HR picked for them; none picked = every site on their
+    company's list (Neil, Sep 25: a Sacred Natural punch must not resolve to a
+    Greens office - company_sites falls back to all sites for an unconfigured
+    company). Only MAPPED sites can be judged; a picked site with no
+    coordinates is skipped, never a reason to call a GPS punch "Location off"."""
+    emp = None
     if email:
         emp = (db.query(NexusEmployee)
                .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
-        if emp and (emp.work_site_id or "").strip():
-            site = db.query(HrWorkSite).filter(HrWorkSite.id == emp.work_site_id.strip()).first()
-            if site:
-                sites = [site]
-        if sites is None and emp:
-            sites = company_sites(db, emp.company or "")
-    verdict = _geofence_site(db, plat, plng, accuracy_m, sites=sites)
-    if verdict["geo_status"] != "in_fence" and email and _is_remote(db, email):
+    if emp is None:
+        sites = db.query(HrWorkSite).all()
+    else:
+        ids = _allowed_site_ids(emp)
+        sites = (db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all() if ids
+                 else company_sites(db, emp.company or ""))
+    return {"sites": [s for s in sites if _has_fence(s)],
+            "remote": bool(emp and (emp.work_remote or 0))}
+
+
+def _judge(plat: float, plng: float, accuracy_m: int, ctx: dict) -> dict:
+    """Where ONE punch was, judged on its own coordinates (Charmi, Sep 29).
+
+    - Inside any allowed site's fence -> in_fence AT THAT SITE (the closest one
+      when fences overlap). Someone allowed at five sites shows whichever of the
+      five they actually punched at, punch by punch.
+    - Inside none -> out_of_fence: "Out of Location". The nearest allowed site
+      and its distance ride along for the reviewer, never as the location.
+    - Remote people are fine anywhere (Neil, Sep 19); at a site they still
+      resolve to it, so billable time per property keeps working.
+    - Coordinates but no mapped allowed site -> no_site, not "Location off":
+      the browser DID share where it was.
+    GPS accuracy gets the same credit (capped at 150 m) as before; a fix worse
+    than 500 m is too rough to judge (low_accuracy)."""
+    remote = ctx.get("remote")
+    acc = max(0, int(accuracy_m or 0))
+    nearest = None      # (distance, site)
+    inside = None       # (distance, site)
+    for s in ctx.get("sites") or []:
+        d = _haversine_m(plat, plng, float(s.latitude), float(s.longitude))
+        if nearest is None or d < nearest[0]:
+            nearest = (d, s)
+        if acc <= 500 and max(0.0, d - min(acc, 150)) <= max(25, int(s.radius_m or 150)):
+            if inside is None or d < inside[0]:
+                inside = (d, s)
+    if inside:
+        d, s = inside
+        return {"geo_status": "in_fence", "work_site_id": s.id, "work_site_name": s.name or "", "distance_m": int(round(d))}
+    if remote:
         return {"geo_status": "remote", "work_site_id": "", "work_site_name": "Remote", "distance_m": 0}
-    return verdict
+    if nearest is None:
+        return {"geo_status": "no_site", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    d, s = nearest
+    return {"geo_status": "low_accuracy" if acc > 500 else "out_of_fence",
+            "work_site_id": s.id, "work_site_name": s.name or "", "distance_m": int(round(d))}
 
 
-def _healed_geo(db: Session, email: str, punches: list) -> dict:
-    """Read-time re-check of punches stamped "no_location" that DID carry
-    coordinates (Charmi, Sep 26). The verdict is stamped at punch time, so a
-    punch made before its company had any geofenced work site came out as
-    "Location off" forever, even though the browser shared its position.
-    Judged against today's sites exactly like a live punch (_geofence); the
-    stored row is never touched. Punches with no coordinates stay no_location.
-    Returns {punch_id: geo dict} for the rows that now resolve."""
-    todo = [p for p in punches if (p.geo_status or "no_location") == "no_location"
-            and (p.lat or "").strip() and (p.lng or "").strip()]
+def _geofence(db: Session, lat, lng, accuracy_m: int, email: str = "", ctx: dict = None) -> dict:
+    """Soft-gate verdict for a punch (see _judge). Pass `ctx` (_geo_context)
+    when judging many punches for one person."""
+    try:
+        plat, plng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return dict(_NO_LOCATION)
+    return _judge(plat, plng, accuracy_m, ctx if ctx is not None else _geo_context(db, email))
+
+
+def _manager_set_site(p) -> bool:
+    """A manager put this punch at a site by hand - keep it as stamped. Rows
+    from before site_set_by existed are recognized by the stamp that edit
+    wrote (adjusted, in_fence at exactly 0 m)."""
+    if (getattr(p, "site_set_by", "") or "").strip():
+        return True
+    return bool((p.adjusted_by or "").strip() and p.geo_status == "in_fence"
+                and (p.work_site_id or "").strip() and int(p.distance_m or 0) == 0)
+
+
+def _live_geo(db: Session, email: str, punches: list) -> dict:
+    """Every located punch judged NOW, from its own coordinates, against the
+    person's allowed sites as they stand today (Charmi, Sep 29).
+
+    The verdict used to be stamped once, at punch time, against whatever sites
+    were mapped that day - so a week punched before Temecula was on the map
+    read "Menifee" forever, and a punch made before any site existed read
+    "Location off" forever. The coordinates are the truth; the stored stamp is
+    only a fallback for punches with none. Manager-set sites are kept. The
+    stored rows are never touched.
+    Returns {punch_id: geo dict} for the punches it judged."""
+    todo = [p for p in punches if (p.lat or "").strip() and (p.lng or "").strip() and not _manager_set_site(p)]
     if not todo:
         return {}
+    ctx = _geo_context(db, email)
     out = {}
     for p in todo:
-        g = _geofence(db, p.lat, p.lng, int(p.accuracy_m or 0), email=email)
+        g = _geofence(db, p.lat, p.lng, int(p.accuracy_m or 0), ctx=ctx)
         if g["geo_status"] != "no_location":
             out[p.id] = g
     return out
+
 
 
 def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
@@ -391,8 +480,9 @@ def _is_stray_out(db: Session, punch) -> bool:
     return (b - a).total_seconds() > _MAX_SHIFT_MIN * 60
 
 
-def _serialize(p: TimePunch) -> dict:
-    return {
+def _serialize(p: TimePunch, geo: dict = None) -> dict:
+    """`geo` = this punch's live verdict (_live_geo), when the caller has one."""
+    out = {
         "id": p.id, "email": p.employee_email, "kind": p.kind, "at": p.at,
         "originalAt": p.original_at or "", "localDate": p.local_date,
         "tzOffsetMin": p.tz_offset_min or 0,
@@ -409,6 +499,10 @@ def _serialize(p: TimePunch) -> dict:
         "editReason": p.edit_reason or "", "editedBy": p.edited_by or "",
         "editedAt": p.edited_at or "", "editReviewedBy": p.edit_reviewed_by or "",
     }
+    if geo:
+        out.update({"geoStatus": geo["geo_status"], "workSiteId": geo.get("work_site_id") or "",
+                    "workSiteName": geo.get("work_site_name") or "", "distanceM": int(geo.get("distance_m") or 0)})
+    return out
 
 
 def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
@@ -420,7 +514,7 @@ def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
     return q.order_by(TimePunch.at).all()
 
 
-def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) -> dict:
+def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None, geo: dict = None) -> dict:
     """local_date -> {workedMin, breakMin, paidBreakMin, firstIn, lastOut, flags, punches}.
     When round_min>0 each punch is rounded to the nearest round_min minutes before
     the worked-minute math, so approve / finalize / timesheet totals match the
@@ -457,7 +551,8 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) ->
         if round_min:
             t = _round_punch(t, round_min)
         d = p.local_date
-        if p.geo_status == "out_of_fence":
+        # geo = live verdicts (_live_geo) when the caller judged the punches.
+        if ((geo or {}).get(p.id) or {}).get("geo_status", p.geo_status) == "out_of_fence":
             flag(d, "out_of_fence")
         if p.source in ("manual", "self_manual"):
             flag(d, "manual")
@@ -550,7 +645,7 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None) ->
             "paidBreakMin": paid,
             "firstIn": first_in.get(d, ""), "lastOut": last_out.get(d, ""),
             "flags": sorted(flags.get(d, set())),
-            "punches": [_serialize(p) for p in plist],
+            "punches": [_serialize(p, (geo or {}).get(p.id)) for p in plist],
         }
     return out
 
@@ -833,8 +928,9 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
 def my_timesheet(start: str = "", end: str = "",
                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == user["email"]).first()
-    return {"days": _day_summaries(_live_punches(db, user["email"], start, end), _round_min(db),
-                                   break_cfg=_break_cfg_for(db, user["email"])),
+    _mine = _live_punches(db, user["email"], start, end)
+    return {"days": _day_summaries(_mine, _round_min(db), break_cfg=_break_cfg_for(db, user["email"]),
+                                   geo=_live_geo(db, user["email"], _mine)),
             # My HR hides its hours widgets for salaried/exempt people (Charmi, Aug 21)
             "timeTrackingExempt": bool(getattr(_rr, "time_tracking_exempt", 0) or 0) if _rr else False}
 
@@ -895,7 +991,8 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     for email in sorted(set(by_emp) | roster):
         plist = by_emp.get(email, [])
         days = _day_summaries(plist, rmin,
-                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"}) if plist else {}
+                              break_cfg={**_bp, "enabled": _bp["enabled"] and _rules.get(email, "ca") == "ca"},
+                              geo=_live_geo(db, email, plist)) if plist else {}
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
@@ -1100,14 +1197,42 @@ def _blocking_exceptions(db: Session, email: str, start: str, end: str) -> list:
     return [e for e in _period_exceptions(db, email, start, end) if e["blocking"]]
 
 
-def _exceptions_409(exc: list):
+# What each blocking exception is, in words a person can act on (Sep 29: the
+# old message called every one a "missing clock-out", so a break that never
+# ended sent people looking for a clock-out that was there all along).
+_EXCEPTION_FIX = {
+    "missing_out":       "no clock-out - add the out time",
+    "out_without_in":    "a clock-out with no clock-in - add the in time or remove the out",
+    "missing_break_end": "a break that never ended - click its Break time to set when it ended",
+}
+
+
+def _exception_summary(exc: list) -> str:
+    """'08/05/2026: a break that never ended - ...; 08/12/2026: no clock-out - ...'"""
+    def us(d):
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").strftime("%m/%d/%Y")
+        except (TypeError, ValueError):
+            return d or ""
+    seen, parts = set(), []
+    for e in sorted(exc, key=lambda x: (x["date"], x["type"])):
+        key = (e["date"], e["type"])
+        if key not in seen:
+            seen.add(key)
+            parts.append(f"{us(e['date'])}: {_EXCEPTION_FIX.get(e['type'], e.get('label') or e['type'])}")
+    return "; ".join(parts)
+
+
+def _exceptions_409(exc: list, can_override: bool = True):
+    """`can_override`: the caller has an override (approve / finalize take
+    allow_exceptions); agreeing to a timesheet review does not."""
     n = len(exc)
-    days = ", ".join(sorted({e["date"] for e in exc}))
     raise HTTPException(409, {
         "code": "unresolved_exceptions",
-        "message": (f"{n} unresolved punch exception{'s' if n != 1 else ''} "
-                    f"({days}) must be fixed before sign-off. Add the missing "
-                    f"clock-out(s) on the timesheet, or override to sign off anyway."),
+        "message": (f"Fix {'this' if n == 1 else f'these {n} problems'} on the timesheet before sign-off - "
+                    f"{_exception_summary(exc)}."
+                    + (" Or override to sign off anyway." if can_override
+                       else " Or send it back to the employee to fix.")),
         "exceptions": exc})
 
 
@@ -1505,6 +1630,8 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     if body.work_site_id is not None:
         # Reassign the punch's location to a curated work site (manager correction).
         wsid = body.work_site_id.strip()
+        # site_set_by: the timecard keeps this instead of re-judging the GPS.
+        row.site_set_by = user["email"]
         if not wsid:
             row.work_site_id, row.work_site_name, row.geo_status = "", "", "no_location"
         else:
@@ -4017,31 +4144,39 @@ def geofence_punches(email: str = "", start: str = "", end: str = "",
         q = q.filter(TimePunch.local_date <= end[:10])
     punches = q.order_by(TimePunch.at.asc()).all()
     emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == target).first()
-    assigned = (emp.work_site_id or "").strip() if emp else ""
+    # The sites this person may punch at are marked `assigned` (several now,
+    # Sep 29); the rest of their company's sites still draw on the map.
+    allowed = set(_allowed_site_ids(emp)) if emp else set()
+    assigned = next(iter(allowed)) if len(allowed) == 1 else ""
     sites = []
     pool = list(company_sites(db, (emp.company or "") if emp else ""))
-    if assigned and all(st.id != assigned for st in pool):
-        pool += db.query(HrWorkSite).filter(HrWorkSite.id == assigned).all()
+    missing = [i for i in allowed if all(st.id != i for st in pool)]
+    if missing:
+        pool += db.query(HrWorkSite).filter(HrWorkSite.id.in_(missing)).all()
+    live = _live_geo(db, target, punches)
     for st in pool:
         try:
             lat, lng = float(st.latitude), float(st.longitude)
         except (TypeError, ValueError):
             continue
         sites.append({"id": st.id, "name": st.name or "", "lat": lat, "lng": lng, "radiusM": max(25, int(st.radius_m or 150)),
-                      "address": st.address or "", "assigned": st.id == assigned})
+                      "address": st.address or "", "assigned": st.id in allowed})
     rows = []
     for p in punches:
         if p.kind not in ("in", "out"):
             continue
+        g = live.get(p.id) or {"geo_status": p.geo_status or "no_location", "work_site_id": p.work_site_id or "",
+                               "work_site_name": p.work_site_name or "", "distance_m": p.distance_m or 0}
         rows.append({
             "id": p.id, "at": p.at, "localDate": p.local_date, "tzOffsetMin": p.tz_offset_min or 0,
             "kind": p.kind, "lat": (p.lat or ""), "lng": (p.lng or ""), "accuracyM": int(p.accuracy_m or 0),
-            "geoStatus": p.geo_status or "no_location", "workSiteId": p.work_site_id or "",
-            "workSiteName": p.work_site_name or "", "distanceM": int(p.distance_m or 0),
+            "geoStatus": g["geo_status"], "workSiteId": g.get("work_site_id") or "",
+            "workSiteName": g.get("work_site_name") or "", "distanceM": int(g.get("distance_m") or 0),
             "source": p.source or "", "note": p.note or "",
         })
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else target
     return {"email": target, "name": name, "remote": bool(emp and (emp.work_remote or 0)), "assignedSiteId": assigned,
+            "allowedSiteIds": sorted(allowed),
             "start": start, "end": end, "sites": sites, "punches": rows,
             "outOfFence": sum(1 for r in rows if r["geoStatus"] == "out_of_fence")}
 
@@ -4083,6 +4218,9 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
         ua = (loc.user_agent or "").lower()
         device = "mobile" if any(k in ua for k in ("mobi", "android", "iphone", "ipad", "ipod")) else "desktop"
         ent = ents.get(em.company or "")
+        # Judged now against today's allowed sites, like the timecard (Sep 29).
+        g = _live_geo(db, email, [loc]).get(loc.id) or {"geo_status": loc.geo_status or "no_location",
+                                                          "work_site_name": loc.work_site_name or ""}
         people.append({
             "email": email,
             "name": f"{em.first_name} {em.last_name}".strip() or email,
@@ -4093,8 +4231,8 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
             "companyName": (ent.name if ent else ""),
             "country": (ent.country if ent else ""),
             "lat": loc.lat, "lng": loc.lng, "accuracyM": loc.accuracy_m or 0,
-            "geoStatus": loc.geo_status or "no_location",
-            "workSiteName": loc.work_site_name or "",
+            "geoStatus": g["geo_status"],
+            "workSiteName": g.get("work_site_name") or "",
             "at": loc.at,
             "clockedIn": status != "off",
             "status": status,
@@ -4191,7 +4329,7 @@ def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(g
 
 
 @router.post("/shifts")
-def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def create_shift(body: ShiftIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     _check_span(body.start_hhmm, body.end_hhmm)
@@ -4207,7 +4345,7 @@ def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Se
 
 
 @router.patch("/shifts/{shift_id}")
-def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     if not s:
         raise HTTPException(404, "Shift not found")
@@ -4226,7 +4364,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team
 
 
 @router.delete("/shifts/{shift_id}")
-def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def delete_shift(shift_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     db.query(Shift).filter(Shift.id == shift_id).delete()
     db.query(ShiftAssignment).filter(ShiftAssignment.shift_id == shift_id).delete()
     db.commit()
@@ -4273,7 +4411,7 @@ def _clean_schedulers(db: Session, emails: list) -> str:
 
 
 @router.post("/shift-groups")
-def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
@@ -4291,7 +4429,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), 
 
 
 @router.patch("/shift-groups/{group_id}")
-def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
@@ -4335,7 +4473,7 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 
 
 @router.delete("/shift-groups/{group_id}")
-def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def delete_shift_group(group_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
@@ -4349,7 +4487,7 @@ class AssignIn(BaseModel):
 
 
 @router.post("/shift-assign")
-def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def assign_shift(body: AssignIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     """Bulk-assign a shift to a set of employees (typically a group's members).
     An empty shift_id clears the assignment."""
     now = _now_iso()
@@ -4545,24 +4683,44 @@ def _shift_conflicts(item: dict, others: list, timeoff: list, holidays: dict, av
     return out
 
 
-def _timeoff_dict(t) -> dict:
-    return {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
-            "type": t.type, "status": t.status, "note": t.note or "",
-            "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or ""}
+def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
+    """Time off as the schedule grid carries it. A confidential request shows
+    only to its viewers (_TimeoffPrivacy); everyone else gets "time off" with
+    no note - and the conflict warnings built from it say only that too."""
+    out = {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
+           "type": t.type, "status": t.status, "note": t.note or "",
+           "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or "",
+           "confidential": _is_confidential(t), "redacted": False}
+    if priv is not None and not priv.can_see(t):
+        out.update(type=REDACTED_TYPE, note="", redacted=True)
+    return out
 
 
 def _can_write_schedule(user: dict, db: Session) -> bool:
-    """True if the caller can BUILD schedules (level>=3, or an Access Group 'hr'
-    grant of 'editor') - the audience that sees unpublished DRAFT shifts and can
-    publish them. Read-only viewers ('hr' viewer) see only published shifts, which
-    matches Teams Shifts: staff see a schedule only once the manager shares it.
-    Mirrors the split between require_team_read (viewer) and require_team_write
-    (editor), both of which admit level>=3."""
-    from auth import _module_level, _MODULE_LEVEL_RANK
-    if user.get("_sched_extra") is not None:
-        return True   # a shift group's scheduler (require_schedule_*)
-    return (int(user.get("level", 0)) >= 3 or
-            _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"])
+    """True if the caller can BUILD schedules - the audience that sees
+    unpublished DRAFT shifts and can publish them. Everyone else reading the
+    grid sees only published shifts, which matches Teams Shifts: staff see a
+    schedule only once the manager shares it."""
+    # Managers only (Sep 29) - the same rule as require_schedule_write. A
+    # group scheduler or HR editor below manager now reads the PUBLISHED
+    # schedule, like staff, and sees no drafts.
+    return can_manage_shifts(user)
+
+
+def _open_row_mine(row, scope, user) -> bool:
+    """May this caller touch an OPEN shift (no employee)? Open slots belong
+    to no team, so a scoped manager (direct reports / a group) may change
+    only the open shifts they created; unscoped schedulers (administrators,
+    an unrestricted People grant) any of them (Sep 29 - before this, any
+    manager could edit, delete or publish every open shift company-wide)."""
+    return scope is None or (getattr(row, "created_by", "") or "").lower() == (user.get("email") or "").lower()
+
+
+def _row_in_scope(row, scope, user) -> bool:
+    em = (row.employee_email or "").lower()
+    if em:
+        return scope is None or em in scope
+    return _open_row_mine(row, scope, user)
 
 
 @router.get("/schedule")
@@ -4606,14 +4764,20 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                      (ScheduledShift.employee_email == ""))
     if not can_write:
         q = q.filter(ScheduledShift.published == 1)   # staff see only SHARED shifts
-    scheduled = [_sched_dict(r, presets, effective=can_write) for r in q.all()]
+    rows = q.all()
+    scheduled = [_sched_dict(r, presets, effective=can_write) for r in rows]
+    for r, sd in zip(rows, scheduled):
+        if not (r.employee_email or "").strip():
+            # Another manager's open slot shows, but read-only (Sep 29).
+            sd["canEdit"] = can_write and _open_row_mine(r, scope, user)
 
     tq = (db.query(TimeOffRequest)
           .filter(TimeOffRequest.status.in_(["approved", "pending"]),
                   TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
     if scope is not None:
         tq = tq.filter(TimeOffRequest.employee_email.in_(list(scope)))
-    timeoff = [_timeoff_dict(t) for t in tq.all()]
+    _priv = _TimeoffPrivacy(db, user.get("email"))
+    timeoff = [_timeoff_dict(t, _priv) for t in tq.all()]
 
     # Company holidays, per visible employee (Pranshu, Sep 22: "fetch the
     # holiday in shifts so that HR is aware of the holiday through shifts
@@ -4672,7 +4836,8 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
               db.query(ScheduledShift).filter(ScheduledShift.employee_email == em,
                                               ScheduledShift.work_date >= lo, ScheduledShift.work_date <= hi).all()
               if r.id != exclude_id]
-    off = [_timeoff_dict(t) for t in db.query(TimeOffRequest)
+    _priv = _TimeoffPrivacy(db, user.get("email"))
+    off = [_timeoff_dict(t, _priv) for t in db.query(TimeOffRequest)
            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status.in_(["approved", "pending"]),
                    TimeOffRequest.start_date <= date[:10], TimeOffRequest.end_date >= date[:10]).all()]
     item = {"id": exclude_id or "", "date": date[:10], "start": start[:5], "end": end[:5]}
@@ -4711,14 +4876,28 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # Each group carries its members with their default preset, the
     # PUBLISHED shifts placed on them, and their approved time off with the
     # type withheld (a teammate needs to know you are out, not why).
-    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+    member_of = [m.group_id for m in db.query(ShiftGroupMember)
                  .filter(ShiftGroupMember.employee_email == email).all()]
-    teams = []
+    manage = can_manage_shifts(user)
     # Admins can hide teammates' shifts from staff (Sep 29, Teams "see
     # coworkers' schedules"); swaps still work - routers/shift_requests.py
     # hands the swap dialog only the shifts it can target.
     from routers.shift_requests import get_settings as _sr_settings
-    if group_ids and _sr_settings(db).get("teamSchedules", True):
+    group_ids = list(member_of) if _sr_settings(db).get("teamSchedules", True) else []
+    # A manager also sees the teams they RUN (Shifts module, Sep 29): groups
+    # they are named scheduler of, and groups holding anyone in their scope
+    # (direct reports; everyone for an unscoped admin). Always shown to
+    # them, whatever the staff setting - it is their schedule to run.
+    if manage:
+        scope = _visible_emails(db, user)
+        run = {g.id for g in _scheduled_groups(db, email)}
+        for m in db.query(ShiftGroupMember).all():
+            em = (m.employee_email or "").lower()
+            if em and (scope is None or em in scope) and em != email:
+                run.add(m.group_id)
+        group_ids = list(dict.fromkeys(group_ids + sorted(run)))
+    teams = []
+    if group_ids:
         names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
                  for e in db.query(NexusEmployee).all() if e.work_email}
         members_by_group = {}
@@ -4743,21 +4922,24 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                           TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start).all()):
             away.setdefault((t.employee_email or "").lower(), []).append(
                 {"startDate": t.start_date, "endDate": t.end_date})
-        for g in db.query(ShiftGroup).filter(ShiftGroup.id.in_(group_ids)).order_by(ShiftGroup.name).all():
+        member_set = set(member_of)
+        # Your own teams first, then the ones you run; each by name.
+        for g in sorted(db.query(ShiftGroup).filter(ShiftGroup.id.in_(group_ids)).all(),
+                        key=lambda g: (g.id not in member_set, (g.name or "").lower())):
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
-            teams.append({"id": g.id, "name": g.name,
+            teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
                                        "timeoff": away.get(em, [])} for em in ems]})
 
     day_notes = [{"date": n.work_date, "note": n.note} for n in db.query(ScheduleDayNote)
                  .filter(ScheduleDayNote.work_date >= start, ScheduleDayNote.work_date <= end,
-                         ScheduleDayNote.group_id.in_([""] + group_ids)).order_by(ScheduleDayNote.work_date).all()
+                         ScheduleDayNote.group_id.in_([""] + list(set(member_of) | set(group_ids)))).order_by(ScheduleDayNote.work_date).all()
                  if n.note]
     return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
             "timeoff": timeoff, "holidays": _company_holidays_for_employee(db, email, start, end) or [],
-            "teams": teams, "dayNotes": day_notes,
-            "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)]}
+            "teams": teams, "dayNotes": day_notes, "canManage": manage,
+            "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)] if manage else []}
 
 
 class ScheduledShiftIn(BaseModel):
@@ -4827,6 +5009,8 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    if not _open_row_mine(row, scope, user):
+        raise HTTPException(403, "This open shift was posted by another manager.")
     assigned = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=em, work_date=row.work_date,
         shift_id=row.shift_id, start_hhmm=row.start_hhmm, end_hhmm=row.end_hhmm,
@@ -4992,8 +5176,8 @@ def _range_rows(db: Session, user: dict, d0: str, d1: str, emails: list, group_i
         if em:
             if (scope is not None and em not in scope) or (narrow and em not in narrow):
                 continue
-        elif not include_open or narrow:
-            continue
+        elif not include_open or narrow or not _open_row_mine(r, scope, user):
+            continue   # open slots: only ones this scheduler may touch (Sep 29)
         out.append(r)
     return out
 
@@ -5047,7 +5231,8 @@ def _copy_timeoff(db: Session, user: dict, body, s0: date, s1: date, span: int, 
             db.add(TimeOffRequest(id=str(uuid.uuid4()), employee_email=t.employee_email, type=t.type,
                                   start_date=a, end_date=b, start_time=getattr(t, "start_time", "") or "",
                                   end_time=getattr(t, "end_time", "") or "", note=t.note or "",
-                                  status="pending", created_at=now, requested_by=user["email"]))
+                                  status="pending", created_at=now, requested_by=user["email"],
+                                  confidential=1 if _is_confidential(t) else 0))
             held.setdefault(t.employee_email, []).append((a, b))
             n += 1
     return n
@@ -5262,7 +5447,7 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
         em = (r.employee_email or "").lower()
         if em and ((scope is not None and em not in scope) or (narrow and em not in narrow)):
             continue
-        if not em and narrow:
+        if not em and (narrow or not _open_row_mine(r, scope, user)):
             continue
         r.pending_json, r.pending_delete = "", 0
         n += 1
@@ -5458,7 +5643,7 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     if not row:
         raise HTTPException(404, "Shift not found")
     scope = _visible_emails(db, user)
-    if row.employee_email and scope is not None and row.employee_email not in scope:
+    if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     cur = {"shiftId": row.shift_id, "start": row.start_hhmm, "end": row.end_hhmm,
@@ -5508,7 +5693,7 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_schedule_write)
     if not row:
         return {"ok": True, "pending": False}
     scope = _visible_emails(db, user)
-    if row.employee_email and scope is not None and row.employee_email not in scope:
+    if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
     if row.published:
         row.pending_delete = 1
@@ -5528,7 +5713,7 @@ def discard_scheduled_changes(sched_id: str, user: dict = Depends(require_schedu
     if not row:
         raise HTTPException(404, "Shift not found")
     scope = _visible_emails(db, user)
-    if row.employee_email and scope is not None and row.employee_email not in scope:
+    if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
     if not row.published:
         raise HTTPException(400, "This shift has never been published - edit or remove it instead.")
@@ -5567,8 +5752,10 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
                  (ScheduledShift.published == 0) | (ScheduledShift.pending_delete == 1) |
                  ((ScheduledShift.pending_json.isnot(None)) & (ScheduledShift.pending_json != ""))))
     if scope is not None:
+        # Their team's shifts, plus the open slots THEY posted (Sep 29).
         q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
-                     (ScheduledShift.employee_email == ""))
+                     ((ScheduledShift.employee_email == "") &
+                      (func.lower(ScheduledShift.created_by) == (user.get("email") or "").lower())))
     narrow = {e.strip().lower() for e in body.emails if e and e.strip()}
     if (body.group_id or "").strip():
         narrow |= {(m.employee_email or "").lower() for m in
@@ -6258,13 +6445,23 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # the module-level `date` name across this whole function scope)
     _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
     punches = _live_punches(db, em, start, _end_fetch)
-    _geo_fix = _healed_geo(db, em, punches)
+    _geo_fix = _live_geo(db, em, punches)
 
     def _geo_of(p):
         g = _geo_fix.get(p.id)
         if g:
             return g["geo_status"], g.get("work_site_name") or "", g.get("work_site_id") or ""
         return (p.geo_status or ""), (p.work_site_name or ""), (p.work_site_id or "")
+    _punch_by_id = {p.id: p for p in punches}
+
+    def _dist_of(pid):
+        """Metres to the site named on the punch - for an Out of Location
+        punch, how far the nearest allowed site was."""
+        g = _geo_fix.get(pid)
+        if g:
+            return int(g.get("distance_m") or 0)
+        q = _punch_by_id.get(pid)
+        return int(q.distance_m or 0) if q else 0
     # SwipeClock-parity rounding: rounded times drive ALL math below; the raw
     # punch strings are still emitted per segment so the UI can offer a
     # "show unrounded times" view, mirroring SwipeClock exactly.
@@ -6326,7 +6523,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
              "breaks": list(seg_breaks),
              "note": open_in_note,
              "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
-             "geoOut": "", "workSiteOut": "", "workSiteOutId": "",
+             "geoOut": "", "workSiteOut": "", "workSiteOutId": "", "distance": _dist_of(open_in_id), "distanceOut": 0,
              "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
              "outPendingAt": "", "outEditStatus": "", "outEditReason": "",
              "inAdjustNote": open_in_adjnote, "outAdjustNote": ""})
@@ -6389,7 +6586,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "note": (p.note or "").strip(),
                          "workSite": open_in_site or "", "workSiteId": open_in_site_id or "",
                          "geo": open_in_geo or "", "category": open_in_cat or "",
-                         "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                         "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2], "distance": _dist_of(open_in_id), "distanceOut": _dist_of(p.id),
                          "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                          "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                          "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
@@ -6422,7 +6619,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "breaks": list(seg_breaks),
                      "note": _notes,
                      "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or "",
-                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2], "distance": _dist_of(open_in_id), "distanceOut": _dist_of(p.id),
                      "inPendingAt": open_in_pend, "inEditStatus": open_in_estat, "inEditReason": open_in_ereason,
                      "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
@@ -6682,11 +6879,72 @@ def payroll_timecard(email: str, start: str, end: str,
         card = _fixed_card(db, em, start or _employee_today(db, em))
         card.update(_signoff_state(db, em, card["periodStart"], card["periodEnd"]))
         card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
+        # The Notes column is on the monthly card too (Sep 29).
+        card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
         return card
     card = _compute_timecard(db, em, start, end)
     card.update(_signoff_state(db, em, start, end))
     card["review"] = _review_state(db, em, start, user, team=True)
+    card["notes"] = _timecard_notes(db, em, start, end)
     return card
+
+
+def _timecard_notes(db: Session, email: str, start: str, end: str) -> dict:
+    """{date: {note, by, at}} - the manager/HR notes on this person's days."""
+    rows = (db.query(TimecardNote)
+            .filter(TimecardNote.employee_email == email,
+                    TimecardNote.date >= (start or "0"), TimecardNote.date <= (end or "9")).all())
+    return {r.date: {"note": r.note or "", "by": r.updated_by or "", "at": r.updated_at or ""}
+            for r in rows if (r.note or "").strip()}
+
+
+class TimecardNoteIn(BaseModel):
+    email: str
+    date: str               # YYYY-MM-DD
+    note: str = ""          # "" clears it
+
+
+@router.put("/timecard-notes")
+def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_write),
+                      db: Session = Depends(get_db)):
+    """Write (or clear) the Notes cell for one day of one person's timecard
+    (Charmi, Sep 29). Managers/HR inside their team scope only. A note never
+    changes hours, so it stays editable after the period is finalized."""
+    em = (body.email or "").strip().lower()
+    day = (body.date or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    if not em:
+        raise HTTPException(400, "email is required")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    text = (body.note or "").strip()[:2000]
+    rid = f"{em}|{day}"
+    row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
+    if not text:
+        if row:
+            db.delete(row)
+            db.commit()
+        return {"date": day, "note": "", "by": "", "at": ""}
+    now = _now_iso()
+    if row is None:
+        row = TimecardNote(id=rid, employee_email=em, date=day)
+        db.add(row)
+    row.note, row.updated_by, row.updated_at = text, user["email"], now
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two saves of the same new note raced (Enter, then the box losing
+        # focus): both found no row and both inserted, and the second hit the
+        # primary key - a 500 on dev (Sep 29). The row is there now; update it.
+        db.rollback()
+        row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
+        row.note, row.updated_by, row.updated_at = text, user["email"], now
+        db.commit()
+    return {"date": day, "note": text, "by": user["email"], "at": now}
 
 
 def _review_state(db: Session, email: str, start: str, user: dict, team: bool) -> dict:
@@ -7229,17 +7487,110 @@ def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_w
     return {"builtIn": list(TIMEOFF_TYPES), "custom": out, "requestsOn": _timeoff_requests_on(db)}
 
 
-def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
-    return {"id": r.id, "email": r.employee_email,
-            "name": (names or {}).get(r.employee_email, ""),
-            "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
-            "startTime": getattr(r, "start_time", "") or "",
-            "endTime": getattr(r, "end_time", "") or "",
-            "note": r.note or "", "status": r.status, "approver": r.approver or "",
-            "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
-            "createdAt": r.created_at,
-            "requestedBy": getattr(r, "requested_by", "") or "",
-            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", "")}
+# ── Confidential time off (Neil, Sep 29) ─────────────────────────────────────
+# "make a personal leave confidential where it doesn't show the reason
+# publicly, but it would show to the manager or the approver only." Any type
+# can be confidential - a custom type IS a reason ("Jury Duty"), and so is
+# "sick" - so confidential hides the type as well as the note and the decision
+# note. Everyone else still sees that the person is out, and when: plain
+# "Time off" with the dates, status and part-day times.
+REDACTED_TYPE = "time off"
+
+
+def _is_confidential(r) -> bool:
+    return bool(getattr(r, "confidential", 0))
+
+
+class _TimeoffPrivacy:
+    """Who may read a confidential request, for ONE caller - built once per
+    request so a 300-row list costs one employee load, not 300.
+
+    Viewers: the requester; the request's approvers; and whoever recorded the
+    decision (`approver`). Approvers: the employee's direct manager; with no
+    manager on file, their company's HR contact (People -> Companies, the same
+    person _team_alert_recipients names); with neither, the administrators.
+    Only approvers may decide a confidential request, and nobody decides their
+    own. Filing on someone's behalf or copying a schedule does NOT make you a
+    viewer - that would leak it to every scheduler who copies a week."""
+
+    def __init__(self, db: Session, viewer_email: str):
+        self.db = db
+        self.viewer = (viewer_email or "").strip().lower()
+        self._emps = None
+        self._approvers = {}
+
+    def _emp(self, email: str):
+        if self._emps is None:
+            self._emps = {(e.work_email or "").strip().lower(): e
+                          for e in self.db.query(NexusEmployee).all() if e.work_email}
+        return self._emps.get(email)
+
+    def approvers(self, employee_email: str) -> list:
+        em = (employee_email or "").strip().lower()
+        if em in self._approvers:
+            return self._approvers[em]
+        from models import HrEntity
+        emp = self._emp(em)
+        mgr = ((emp.manager_email if emp else "") or "").strip().lower()
+        out = []
+        if mgr and mgr != em:
+            out = [mgr]
+        else:
+            company = ((getattr(emp, "company", "") if emp else "") or "")
+            ent = self.db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
+            hr = ((ent.hr_contact_email if ent else "") or "").strip().lower()
+            if hr and hr != em:
+                out = [hr]
+            else:
+                out = sorted({(r.email or "").strip().lower() for r in self.db.query(NexusRole)
+                              .filter(NexusRole.role.in_(["administrator", "owner"])).all()
+                              if r.email and (r.email or "").strip().lower() != em})
+        self._approvers[em] = out
+        return out
+
+    def can_see(self, r) -> bool:
+        if not _is_confidential(r):
+            return True
+        em = (r.employee_email or "").strip().lower()
+        return bool(self.viewer) and (self.viewer == em
+                                      or self.viewer in self.approvers(em)
+                                      or self.viewer == (r.approver or "").strip().lower())
+
+    def can_decide(self, r) -> bool:
+        em = (r.employee_email or "").strip().lower()
+        if not self.viewer or self.viewer == em:
+            return False
+        return not _is_confidential(r) or self.viewer in self.approvers(em)
+
+    def reviewer_names(self, r) -> str:
+        """Who decides it, for the "only X can decide this" line."""
+        names = []
+        for e in self.approvers(r.employee_email):
+            emp = self._emp(e)
+            n = f"{emp.first_name or ''} {emp.last_name or ''}".strip() if emp else ""
+            names.append(n or e.split("@")[0].replace(".", " ").title())
+        return ", ".join(names[:3]) + (" and others" if len(names) > 3 else "")
+
+
+def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" = None) -> dict:
+    out = {"id": r.id, "email": r.employee_email,
+           "name": (names or {}).get(r.employee_email, ""),
+           "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
+           "startTime": getattr(r, "start_time", "") or "",
+           "endTime": getattr(r, "end_time", "") or "",
+           "note": r.note or "", "status": r.status, "approver": r.approver or "",
+           "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
+           "createdAt": r.created_at,
+           "requestedBy": getattr(r, "requested_by", "") or "",
+           "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", ""),
+           "confidential": _is_confidential(r), "redacted": False}
+    if priv is not None:
+        out["canDecide"] = priv.can_decide(r)
+        if _is_confidential(r):
+            out["reviewer"] = priv.reviewer_names(r)
+        if not priv.can_see(r):
+            out.update(type=REDACTED_TYPE, note="", decideNote="", redacted=True)
+    return out
 
 
 def _us_day(iso: str) -> str:
@@ -7289,6 +7640,14 @@ def _timeoff_window(st: str, et: str) -> str:
     return f" ({_hhmm12(st)} - {_hhmm12(et)})" if st and et else ""
 
 
+def _bell_kind(r) -> str:
+    """The request's type as a shared bell names it: "vacation" - or, for a
+    confidential request, "confidential time off" (never the type)."""
+    if _is_confidential(r):
+        return "confidential time off"
+    return r.type or "time off"
+
+
 class TimeOffIn(BaseModel):
     type: str
     start_date: str
@@ -7296,6 +7655,7 @@ class TimeOffIn(BaseModel):
     note: Optional[str] = ""
     start_time: Optional[str] = ""   # HH:MM - partial day; both empty = full day
     end_time: Optional[str] = ""
+    confidential: Optional[bool] = False   # type + note shown only to the requester and approver
 
 
 @router.post("/timeoff")
@@ -7318,16 +7678,19 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=user["email"], type=body.type,
                          start_date=body.start_date, end_date=body.end_date,
                          start_time=st, end_time=et,
-                         note=(body.note or "").strip()[:400], created_at=now)
+                         note=(body.note or "").strip()[:400], created_at=now,
+                         confidential=1 if body.confidential else 0)
     db.add(row)
     who = _display_name(db, user["email"])
+    # A bell's text reaches every recipient alike (manager, HR contact, Global
+    # Admins), so a confidential request never names its type there.
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-off request",
-                       body=f"{who} requested {body.type} "
+                       body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
 class TimeOffOnBehalfIn(TimeOffIn):
@@ -7365,28 +7728,30 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                          start_date=body.start_date, end_date=body.end_date,
                          start_time=st, end_time=et,
                          note=(body.note or "").strip()[:400], created_at=now,
-                         requested_by=user["email"])
+                         requested_by=user["email"], confidential=1 if body.confidential else 0)
     db.add(row)
     filer = _display_name(db, user["email"])
     if target != user["email"]:
+        # The employee's own copy may name the type - it is theirs.
         _hr_notify(db, target, "Time-off request filed for you",
                    f"{filer} requested {body.type} time off {_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)} "
-                   "on your behalf - you'll hear once it's decided.",
+                   "on your behalf" + (" (confidential)" if row.confidential else "") + " - you'll hear once it's decided.",
                    ref_id=row.id, action={"view": "timeclock", "sub": ""})
     _notify_team_alert(db, employee_email=target, actor_email=user["email"],
                        title="Time-off request",
-                       body=f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
+                       body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
 @router.get("/timeoff/mine")
 def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
             .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
-    return [_ser_timeoff(r) for r in rows]
+    priv = _TimeoffPrivacy(db, user["email"])
+    return [_ser_timeoff(r, priv=priv) for r in rows]
 
 
 @router.get("/timeoff")
@@ -7401,7 +7766,8 @@ def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
     rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
-    return [_ser_timeoff(r, names) for r in rows]
+    priv = _TimeoffPrivacy(db, user["email"])
+    return [_ser_timeoff(r, names, priv) for r in rows]
 
 
 class TimeOffDecision(BaseModel):
@@ -7420,6 +7786,13 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only decide your own team's requests.")
+    # Nobody decides their own time off (a manager's scope includes themself),
+    # and a confidential request is decided only by its approvers.
+    priv = _TimeoffPrivacy(db, user["email"])
+    if (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+        raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
+    if not priv.can_decide(row):
+        raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")
     if row.status != "pending":
         raise HTTPException(409, f"Already {row.status}")
     row.status = body.status
@@ -7432,7 +7805,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=priv)
 
 
 @router.post("/timeoff/{req_id}/cancel")
@@ -7454,9 +7827,9 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time off cancelled",
-                           body=f"{_display_name(db, user['email'])} cancelled their {row.type} request "
+                           body=f"{_display_name(db, user['email'])} cancelled their {_bell_kind(row)} request "
                                 f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))

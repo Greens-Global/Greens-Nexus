@@ -130,6 +130,31 @@ const MKTG_STYLES = `
   border-color: #d1d5db !important;
 }
 
+/* Responsive layout (QA, Sep 23). The export's desktop Tailwind spans were
+   fixed inline grids with no breakpoints, so phones got seven 40px KPI cards
+   and three skinny chart columns. Spans live here so they can collapse. */
+.mktg-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.mktg-grid12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.mktg-grid12 > * { min-width: 0; }
+.mktg-span-3 { grid-column: span 3; }
+.mktg-span-4 { grid-column: span 4; }
+.mktg-span-5 { grid-column: span 5; }
+.mktg-span-6 { grid-column: span 6; }
+@media (max-width: 1100px) {
+  .mktg-grid12 > * { grid-column: 1 / -1; }
+}
+
+/* Tab bar: the tabs swipe (.scroll-tabs) instead of pushing AI Analyst /
+   Manage / Alerts off-screen; on phones the actions take their own row. */
+.mktg-tabbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+.mktg-tabbar-tabs { flex: 1 1 0; min-width: 0; }
+.mktg-tabbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+@media (max-width: 640px) {
+  .mktg-tabbar-tabs { flex-basis: 100%; }
+}
+
+.mktg-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   .mktg-root, .mktg-root *, .mktg-root .mktg-card { animation: none !important; transition: none !important; }
 }

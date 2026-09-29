@@ -208,6 +208,17 @@ def _last_log(db: Session, email: str):
             .first())
 
 
+def _leave_labeler(db: Session, recipient: str):
+    """r -> the time-off type as `recipient`'s briefing may name it. A
+    confidential request (Neil, Sep 29) names its type only to the people who
+    may see it - its requester and approvers (timeclock._TimeoffPrivacy) -
+    and reads plain "time off" to anyone else. Lazy import: the timeclock
+    router is heavy and daily_briefing is imported by the scheduler loop."""
+    from routers.timeclock import _TimeoffPrivacy, REDACTED_TYPE
+    priv = _TimeoffPrivacy(db, recipient)
+    return lambda r: r.type if priv.can_see(r) else REDACTED_TYPE
+
+
 def _already_logged_today(db: Session, email: str, briefing_date: str) -> bool:
     return (db.query(models.NexusDailyBriefingLog)
             .filter(models.NexusDailyBriefingLog.employee_email == email,
@@ -515,6 +526,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
         # separate card each, which made the same "Approve X's time off" line
         # repeat and drowned out the rest of the section (Pranshu, Sep 15).
         by_employee = {}
+        leave = _leave_labeler(db, email)
         for r in (db.query(models.TimeOffRequest)
                   .filter(models.TimeOffRequest.status == "pending",
                           models.TimeOffRequest.employee_email.in_(list(my_reports))).all()):
@@ -526,7 +538,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             if len(reqs) == 1:
                 r = reqs[0]
                 rows.append({
-                    "title": f"Approve: {name}'s time off ({r.type})",
+                    "title": f"Approve: {name}'s time off ({leave(r)})",
                     "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}",
                     "url": f"{app_url()}/timeclock",
                     "module": "time_off",
@@ -536,7 +548,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                     "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
                 })
             else:
-                types = {r.type for r in reqs}
+                types = {leave(r) for r in reqs}
                 same_type = next(iter(types)) if len(types) == 1 else None
                 label = f"({same_type})" if same_type else f"({len(reqs)} requests)"
                 rows.append({
@@ -551,14 +563,37 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                     # dropped the one-click actions along with the repetition).
                     "sub_actions": [{
                         "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
-                                  ("" if same_type else f" ({r.type})"),
+                                  ("" if same_type else f" ({leave(r)})"),
                         "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
                     } for r in reqs],
                 })
     rows.extend(_timecard_rows(db, email))
+    rows.extend(_timesheet_review_rows(db, email))
     rows.extend(_item_action_rows(db, email, bool(my_reports)))
     rows.extend(_ticket_action_rows(db, email))
     rows.extend(_esign_action_rows(db, email))
+    return rows
+
+
+def _timesheet_review_rows(db: Session, email: str) -> list:
+    """Timesheets submitted to this person for review (Sep 29) - one row each,
+    opening that employee's card for that period in People > Time. Send Back
+    needs a note and Agree may be refused for a still-open period, so these are
+    "Open in Nexus" rather than one-click actions."""
+    import timesheet_review as tsr
+    from urllib.parse import quote
+    rows = []
+    for r in tsr.waiting_on(db, email):
+        q = tsr.queue_row(db, r)
+        hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
+        rows.append({
+            "title": f"Review {q['name']}'s timesheet",
+            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
+                      + (" - resubmitted" if q["resubmitted"] else ""),
+            "url": (f"{app_url()}/hr/hr-time?timecard={quote(r.employee_email)}"
+                    f"&start={r.period_start}&type={r.pay_type}"),
+            "module": "timecard",
+        })
     return rows
 
 
@@ -802,13 +837,14 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
     today = briefing_date
     tomorrow = (datetime.strptime(briefing_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
     rows = []
+    leave = _leave_labeler(db, email)
     for r in (db.query(models.TimeOffRequest)
               .filter(models.TimeOffRequest.employee_email.in_(report_emails),
                       models.TimeOffRequest.status == "approved",
                       models.TimeOffRequest.start_date <= today,
                       models.TimeOffRequest.end_date >= today).all()):
         rows.append({
-            "title": f"Out today: {names.get(r.employee_email, r.employee_email)} ({r.type})",
+            "title": f"Out today: {names.get(r.employee_email, r.employee_email)} ({leave(r)})",
             "detail": f"Back after {_fmt_date(r.end_date)}",
             "url": "", "module": "team",
         })
@@ -860,6 +896,7 @@ _SECTION_META = {
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
     "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
+    "pending":         ("Still to Do",                         "#b45309", "Still to do"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light
@@ -872,6 +909,7 @@ _TONE = {
     "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
     "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
     "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
 }
 
 _MODULE_META = {
@@ -1001,7 +1039,9 @@ def _sub_actions_html(row: dict, tone: tuple) -> str:
     lines = "".join(
         f"<tr><td style='padding:6px 0;font-size:12.5px;color:{_BODY};border-top:1px solid {tone[2]}'>{escape(s['detail'])}</td>"
         f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
-        f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email'])}</td></tr>"
+        # A copy for someone else (the Weekly Digest's test mode) carries the
+        # dates without the act-as-them buttons.
+        f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email']) if s.get('action_kind') else ''}</td></tr>"
         for s in subs)
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
 

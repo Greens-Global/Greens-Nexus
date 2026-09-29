@@ -6,7 +6,7 @@
 // rules and notifications are unchanged. Approve or decline with an optional
 // note; the on/off switches live here too.
 import { useEffect, useState } from 'react';
-import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff } from 'lucide-react';
+import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 
@@ -109,16 +109,29 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                 return (
                   <div key={t.id} style={row}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                      <CalendarOff size={12} /> Time off · {t.type}
+                      <CalendarOff size={12} /> {t.redacted ? 'Time off' : `Time off · ${t.type}`}
+                      {t.confidential && (
+                        <span title="Confidential - the type and note are visible only to the employee and their approver"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, textTransform: 'none', letterSpacing: 0 }}>
+                          <Lock size={11} /> Confidential
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{t.name || t.email} · {when}{hours}</div>
                     {t.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>“{t.note}”</div>}
+                    {t.canDecide === false ? (
+                      // Confidential and not yours to decide, or your own request.
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                        {t.reviewer ? `${t.reviewer} decides this request.` : 'Your manager decides this request.'}
+                      </div>
+                    ) : (
                     <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                       <input className="form-input" aria-label="Note to the employee" placeholder="Note (optional)" value={notes[t.id] || ''}
                         onChange={(e) => setNotes((n) => ({ ...n, [t.id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
                       <button type="button" className="primary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, true)} style={{ fontSize: 12.5 }}>Approve</button>
                       <button type="button" className="secondary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, false)} style={{ fontSize: 12.5 }}>Decline</button>
                     </div>
+                    )}
                   </div>
                 );
               })}

@@ -205,13 +205,58 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
 
 
 def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> None:
-    if to:
-        _tc()._hr_notify(db, to, title, body, action={"view": "timeclock", "sub": "timecard",
-                                                       "email": r.employee_email, "start": r.period_start})
+    """The employee lands on their own timecard; anyone else (the manager, HR)
+    on THAT employee's card for THAT period in People > Time > Payroll (Sep 29 -
+    it used to open the reviewer's own Workday timecard)."""
+    if not to:
+        return
+    if to.lower() == r.employee_email:
+        action = {"view": "timeclock", "sub": "timecard", "email": r.employee_email, "start": r.period_start}
+    else:
+        action = {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
+                  "start": r.period_start, "payType": r.pay_type}
+    _tc()._hr_notify(db, to, title, body, action=action)
 
 
 def _label(r: TimesheetReview) -> str:
     return f"{us_date(r.period_start)} - {us_date(r.period_end)}"
+
+
+# ── Waiting on a reviewer ────────────────────────────────────────────────────
+
+def agree_blocker(db: Session, r: TimesheetReview) -> str:
+    """Why Agree would be refused right now, in plain words; '' when it would
+    go through. The same checks agree() makes, so the screen can say so up
+    front instead of after the click (Sep 29)."""
+    tc = _tc()
+    if tc._employee_today(db, r.employee_email) < r.period_end:
+        return (f"This period runs to {us_date(r.period_end)}. You can agree to it after that day, "
+                "once every day is in.")
+    exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
+    if exc:
+        return (f"Fix {'this' if len(exc) == 1 else 'these'} on the timesheet before you can agree - "
+                f"{tc._exception_summary(exc)}. Or send it back to the employee to fix.")
+    return ""
+
+
+def waiting_on(db: Session, reviewer: str) -> list:
+    """Timesheets submitted to `reviewer` that they have not decided yet,
+    oldest first."""
+    rows = (db.query(TimesheetReview)
+            .filter(TimesheetReview.status == "with_manager",
+                    TimesheetReview.manager_email == (reviewer or "").lower()).all())
+    return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
+
+
+def queue_row(db: Session, r: TimesheetReview) -> dict:
+    """One line of the reviewer's list: who, which period, the hours as last
+    submitted, when, their note, and whether Agree would go through now."""
+    last = next((e for e in reversed(r.rounds or []) if e.get("action") in ("submitted", "resubmitted")), {})
+    return {"id": r.id, "employeeEmail": r.employee_email, "name": display_name(db, r.employee_email),
+            "periodStart": r.period_start, "periodEnd": r.period_end, "payType": r.pay_type,
+            "workedMin": int(last.get("workedMin") or 0), "submittedAt": last.get("at") or r.updated_at or "",
+            "resubmitted": last.get("action") == "resubmitted", "note": last.get("note") or "",
+            "agreeBlocker": agree_blocker(db, r)}
 
 
 # ── Review actions ───────────────────────────────────────────────────────────
@@ -274,7 +319,7 @@ def agree(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: st
                                  "last day, so every day is in before it is signed.")
     exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
     if exc:
-        tc._exceptions_409(exc)
+        tc._exceptions_409(exc, can_override=False)   # a review has no override - send it back instead
     hr = hr_of(db, r.employee_email)
     if not hr:
         raise HTTPException(409, "This company has no HR contact, so nobody can finalize the timesheet. "
@@ -610,4 +655,5 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
         "canSubmit": is_self and r.status == "with_employee",
         "canSendBack": manager_side and r.status == "with_manager",
         "canAgree": manager_side and r.status == "with_manager",
+        "agreeBlocker": agree_blocker(db, r) if manager_side and r.status == "with_manager" else "",
     }

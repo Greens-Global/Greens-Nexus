@@ -1,0 +1,150 @@
+"""Punch locations, judged punch by punch (Charmi, Sep 29).
+
+A person may be allowed at several work sites and move between them whenever
+they like. Every punch is judged on its own coordinates:
+  - inside an allowed site's fence -> that site (in_fence)
+  - inside none -> out_of_fence ("Out of Location"), never another site's name
+  - coordinates but no mapped allowed site -> no_site, not "Location off"
+The timecard re-judges from the coordinates against today's allowed sites, so
+a week punched before a site was mapped stops reading the wrong site. A site a
+manager set by hand is kept.
+
+    python -m unittest test_geofence_assigned_site
+"""
+import json
+import os
+import tempfile
+import unittest
+import uuid
+
+# Its own throwaway database (CLAUDE.md): the new columns exist from the start.
+_tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+_tmp_db.close()
+os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
+os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
+
+import database                                                                  # noqa: E402
+import models                                                                    # noqa: E402
+from models import HrCompanyWorkSite, HrWorkSite, NexusEmployee, TimePunch       # noqa: E402
+from routers.timeclock import _compute_timecard, _geofence                       # noqa: E402
+
+models.Base.metadata.create_all(bind=database.engine)
+
+DAY = "2026-09-21"
+# Far from anything else a shared test DB might hold; ~5.5 km apart.
+A = ("-41.0000", "-150.0000")   # "Menifee"
+B = ("-41.0500", "-150.0000")   # "Temecula"
+C = ("-41.1000", "-150.0000")   # a company site this person is NOT allowed at
+FAR = ("-41.5000", "-150.0000")
+
+
+def near(pt):
+    return f"{float(pt[0]) - 0.0001:.4f}", f"{float(pt[1]) + 0.0001:.4f}"
+
+
+class PunchLocationTest(unittest.TestCase):
+    def setUp(self):
+        tag = uuid.uuid4().hex[:8]
+        self.email = f"geo.sites.{tag}@greensglobal.com"
+        self.company = f"co-{tag}"
+        self.a, self.b, self.c, self.d = (f"site-{k}-{tag}" for k in "abcd")
+        self.emp_id = str(uuid.uuid4())
+        self.punch_ids = []
+        db = database.SessionLocal()
+        try:
+            for sid, name, pt in ((self.a, "Menifee", A), (self.b, "Temecula", B), (self.c, "Other", C)):
+                db.add(HrWorkSite(id=sid, name=name, latitude=pt[0], longitude=pt[1], radius_m=150))
+                db.add(HrCompanyWorkSite(id=f"{self.company}:{sid}", company_id=self.company, site_id=sid))
+            db.add(HrWorkSite(id=self.d, name="Unmapped", latitude="", longitude=""))
+            db.add(NexusEmployee(id=self.emp_id, work_email=self.email, first_name="Geo", last_name="Test",
+                                 company=self.company, work_site_ids=json.dumps([self.a, self.b])))
+            db.commit()
+        finally:
+            db.close()
+
+    def tearDown(self):
+        db = database.SessionLocal()
+        try:
+            db.query(TimePunch).filter(TimePunch.id.in_(self.punch_ids)).delete(synchronize_session=False)
+            db.query(NexusEmployee).filter(NexusEmployee.id == self.emp_id).delete()
+            db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == self.company).delete()
+            db.query(HrWorkSite).filter(HrWorkSite.id.in_([self.a, self.b, self.c, self.d])).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+
+    def judge(self, pt, **emp):
+        db = database.SessionLocal()
+        try:
+            if emp:
+                row = db.query(NexusEmployee).filter(NexusEmployee.id == self.emp_id).first()
+                for k, v in emp.items():
+                    setattr(row, k, v)
+                db.commit()
+            lat, lng = near(pt) if pt else ("", "")
+            return _geofence(db, lat, lng, 10, email=self.email)
+        finally:
+            db.close()
+
+    def test_each_allowed_site_shows_where_the_punch_was(self):
+        self.assertEqual((self.judge(A)["geo_status"], self.judge(A)["work_site_id"]), ("in_fence", self.a))
+        self.assertEqual((self.judge(B)["geo_status"], self.judge(B)["work_site_id"]), ("in_fence", self.b))
+
+    def test_a_site_they_are_not_allowed_at_is_out_of_location(self):
+        g = self.judge(C)
+        self.assertEqual(g["geo_status"], "out_of_fence")
+        self.assertNotEqual(g["work_site_id"], self.c)
+
+    def test_far_away_is_out_of_location(self):
+        self.assertEqual(self.judge(FAR)["geo_status"], "out_of_fence")
+
+    def test_no_sites_picked_means_any_company_site(self):
+        g = self.judge(C, work_site_ids="", work_site_id="")
+        self.assertEqual((g["geo_status"], g["work_site_id"]), ("in_fence", self.c))
+
+    def test_the_old_single_site_still_counts(self):
+        g = self.judge(B, work_site_ids="", work_site_id=self.a)
+        self.assertEqual(g["geo_status"], "out_of_fence")
+        self.assertEqual(self.judge(A)["work_site_id"], self.a)
+
+    def test_gps_with_no_mapped_allowed_site_is_not_location_off(self):
+        self.assertEqual(self.judge(A, work_site_ids=json.dumps([self.d]))["geo_status"], "no_site")
+
+    def test_no_coordinates_is_still_location_off(self):
+        self.assertEqual(self.judge(None)["geo_status"], "no_location")
+
+    def test_remote_is_fine_anywhere_but_still_resolves_to_a_site(self):
+        self.assertEqual(self.judge(FAR, work_remote=1)["geo_status"], "remote")
+        self.assertEqual(self.judge(B)["work_site_id"], self.b)
+
+    def test_timecard_rejudges_old_stamps_and_keeps_manager_sites(self):
+        db = database.SessionLocal()
+        try:
+            common = dict(employee_email=self.email, local_date=DAY, tz_offset_min=0, source="web",
+                          voided=0, created_by=self.email, created_at=f"{DAY}T00:00:00", accuracy_m=10)
+            b_lat, b_lng = near(B)
+            stale = [str(uuid.uuid4()) for _ in range(2)]   # punched at Temecula, stamped Menifee
+            fixed = [str(uuid.uuid4()) for _ in range(2)]   # a manager put these at Menifee
+            self.punch_ids += stale + fixed
+            for pid, kind, hh in ((stale[0], "in", 15), (stale[1], "out", 16)):
+                db.add(TimePunch(id=pid, kind=kind, at=f"{DAY}T{hh}:00:00", lat=b_lat, lng=b_lng,
+                                 geo_status="out_of_fence", work_site_id=self.a, work_site_name="Menifee",
+                                 distance_m=5500, **common))
+            for pid, kind, hh in ((fixed[0], "in", 17), (fixed[1], "out", 18)):
+                db.add(TimePunch(id=pid, kind=kind, at=f"{DAY}T{hh}:00:00", lat=b_lat, lng=b_lng,
+                                 geo_status="in_fence", work_site_id=self.a, work_site_name="Menifee",
+                                 distance_m=0, site_set_by="mgr@greensglobal.com", **common))
+            db.commit()
+            segs = [s for d in _compute_timecard(db, self.email, DAY, DAY)["days"] for s in d.get("segments", [])]
+            self.assertEqual(len(segs), 2)
+            self.assertEqual((segs[0]["geo"], segs[0]["workSiteId"]), ("in_fence", self.b))
+            self.assertEqual(segs[0]["workSite"], "Temecula")
+            self.assertEqual((segs[1]["geo"], segs[1]["workSiteId"]), ("in_fence", self.a))
+            db.expire_all()   # read-only: the stored stamp is untouched
+            self.assertEqual(db.query(TimePunch).filter(TimePunch.id == stale[0]).first().work_site_name, "Menifee")
+        finally:
+            db.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

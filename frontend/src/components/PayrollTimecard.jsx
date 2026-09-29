@@ -13,6 +13,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
+import AnchoredMenu from './AnchoredMenu';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -72,42 +73,35 @@ function OptionSwitch({ checked, label, hint, onChange }) {
 // company-wide pay rules (admins only); the display choices are everyone's.
 function TimecardOptions({ self, showRaw, setShowRaw, children }) {
   const [open, setOpen] = useState(false);
-  const box = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
-  }, [open]);
+  // Portaled panel (AnchoredMenu): closes on an outside tap or Escape, and no
+  // scrolling toolbar or card can clip it on a phone.
+  const btn = useRef(null);
   const rules = [].concat(children || []).filter(Boolean);
   return (
-    <div ref={box} style={{ position: 'relative' }}>
-      <button type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
+    <div>
+      <button ref={btn} type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
         title="Timezone, unrounded times and pay rules"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
         <SlidersHorizontal size={14} /> Options
       </button>
-      {open && (
-        <div role="dialog" aria-label="Timecard options" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40, width: 320, maxWidth: '92vw', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
-          {!self && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
-              <TzSwitch />
-            </div>
-          )}
-          <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
-            hint="See the raw punch times. Totals stay computed from the rounded times." />
-          {rules.length > 0 && (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
-              {rules}
-            </>
-          )}
-        </div>
-      )}
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Timecard options"
+        style={{ width: 320, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
+        {!self && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
+            <TzSwitch />
+          </div>
+        )}
+        <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
+          hint="See the raw punch times. Totals stay computed from the rounded times." />
+        {rules.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
+            {rules}
+          </>
+        )}
+      </AnchoredMenu>
     </div>
   );
 }
@@ -145,6 +139,15 @@ function periodStartFor(date) {
 // Location cell - the punch's work site + an at-site/off-site pin (SwipeClock "Loc").
 // A punch made with location sharing OFF is called out explicitly (the red
 // slashed pin Charmi showed from SwipeClock, Aug 21) - not folded into "-".
+//
+// Every punch is judged on its own coordinates against the sites the person is
+// allowed at (Charmi, Sep 29): inside one -> that site's name; inside none ->
+// "Out of Location". The nearest allowed site is only a hint in the tooltip -
+// showing it as the location read as "she was at Menifee" when she was not.
+const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+function outOfLocationHint(site, dist) {
+  return site ? `Not at any of their work sites. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not at any of their work sites.';
+}
 function LocCell({ seg }) {
   if (!seg) return <span style={{ color: 'var(--muted)' }}>-</span>;
   const geo = seg.geo || '';
@@ -154,8 +157,8 @@ function LocCell({ seg }) {
   const outDiffers = !!seg.out && geoOut && (geoOut !== geo || (seg.workSiteOut || '') !== site);
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
-      title={geoOut === 'out_of_fence' ? `Out punch: ${seg.workSiteOut || 'nearest site'} - off-site` : geoOut === 'no_location' ? 'Out punch: no location shared' : `Out punch: ${seg.workSiteOut || geoOut}`}>
-      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out off-site' : geoOut === 'no_location' ? 'Out: location off' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
+      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their work sites is on the map yet' : `Out punch: ${seg.workSiteOut || geoOut}`}>
+      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
   if (geo === 'no_location') return (
@@ -164,18 +167,73 @@ function LocCell({ seg }) {
       <MapPinOff size={12} style={{ flexShrink: 0 }} /> Location off{outTail}
     </span>
   );
-  if (!site && geo !== 'out_of_fence') return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
-  const color = geo === 'in_fence' ? 'hsl(var(--color-green))'
-    : geo === 'out_of_fence' ? '#b45309' : 'var(--muted)';
+  if (geo === 'out_of_fence') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b45309', fontWeight: 700 }}
+      title={outOfLocationHint(site, seg.distance)}>
+      <MapPin size={12} style={{ flexShrink: 0 }} /> Out of Location{outTail}
+    </span>
+  );
+  if (geo === 'no_site') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}
+      title="Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.">
+      <MapPin size={12} style={{ flexShrink: 0 }} /> No Site Mapped{outTail}
+    </span>
+  );
+  if (!site) return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
+  const color = geo === 'in_fence' ? 'hsl(var(--color-green))' : 'var(--muted)';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}
-      title={geo === 'out_of_fence' ? `${site || 'nearest site'} - off-site when punched` : site}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }} title={site}>
       <MapPin size={12} style={{ color, flexShrink: 0 }} />
       <span style={{ color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
-        {site || 'Off-site'}{geo === 'out_of_fence' && site ? ' ⚠' : ''}
+        {site}
       </span>
       {outTail}
     </span>
+  );
+}
+
+// Notes cell (Charmi, Sep 29): a manager/HR note on the day, one per day,
+// edited in place. Enter or clicking away saves, Esc cancels, an emptied note
+// is removed. Never shown on the employee's own timecard.
+function NoteCell({ date, note, onSave, locked }) {
+  const saved = note?.note || '';
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  // One save at a time: Enter saves, and the box then losing focus fired a
+  // second save of the same note mid-flight - the two raced into a 500.
+  const savingRef = useRef(false);
+  useEffect(() => { if (!editing) setText(saved); }, [saved, editing]);
+  const save = async () => {
+    if (savingRef.current) return;
+    const t = text.trim();
+    if (t === saved) { setEditing(false); return; }
+    savingRef.current = true;
+    setBusy(true);
+    const ok = await onSave(date, t);
+    savingRef.current = false;
+    setBusy(false);
+    if (ok) setEditing(false);
+  };
+  if (editing) return (
+    <textarea className="form-input" autoFocus rows={2} value={text} disabled={busy}
+      aria-label={`Note for ${formatDate(date)}`} placeholder="Add a note"
+      onChange={e => setText(e.target.value)} onBlur={save}
+      onKeyDown={e => {
+        if (e.key === 'Escape') { setText(saved); setEditing(false); }
+        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+      }}
+      style={{ fontSize: 12, width: 200, minWidth: 150, resize: 'vertical', fontFamily: 'inherit', padding: '5px 7px' }} />
+  );
+  const who = note?.by ? `\n- ${note.by}${note.at ? `, ${formatDate(note.at)}` : ''}` : '';
+  return (
+    <button type="button" onClick={() => !locked && setEditing(true)} disabled={locked}
+      title={saved ? `${saved}${who}` : (locked ? '' : 'Add a note for this day')}
+      style={{ background: 'none', border: 'none', padding: 0, cursor: locked ? 'default' : 'pointer', textAlign: 'left',
+        fontFamily: 'inherit', fontSize: 12, color: saved ? 'var(--ink)' : 'var(--muted)', opacity: saved ? 1 : 0.6,
+        maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+      {saved || (locked ? '-' : '+ Add Note')}
+    </button>
   );
 }
 
@@ -185,14 +243,26 @@ function LocCell({ seg }) {
 const _timecardCache = new Map();
 const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
 
-export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '' }) {
+// The period anchor for a review's period start (Sep 29): a salaried month
+// anchors mid-month (the same UTC-drift-safe day the month snap uses), an
+// hourly one on its bi-weekly period.
+function anchorForStart(startIso, payType) {
+  const [y, m, d] = (startIso || '').split('-').map(Number);
+  if (!y) return null;
+  return payType === 'fixed' ? new Date(y, m - 1, 15) : periodStartFor(new Date(y, m - 1, d));
+}
+
+export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [email, setEmail] = useState(initialEmail);
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
   // "N to review" badge in TimeAdmin opens that person's card).
   useEffect(() => { if (initialEmail) setEmail(initialEmail); }, [initialEmail]);
-  const [pStart, setPStart] = useState(() => periodStartFor(new Date()));
+  // Opened on a specific period (Timesheets to Review, the bell, the briefing
+  // link): start there, and don't let the first-load snaps move it.
+  const seeded = useRef(!selfMode && !!anchorForStart(initialStart, initialPayType));
+  const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(initialStart, initialPayType)) || periodStartFor(new Date()));
   // Seed from the module cache so a reopen renders the last card immediately (no loader).
   const [data, setData] = useState(() => {
     const s = isoDate(pStart), e = isoDate(pStart.getTime() + 13 * DAY);
@@ -291,7 +361,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Fixed employees are paid by MONTH, but the default period anchor is the
   // bi-weekly Sunday (which can fall in the previous month). On the first fixed
   // load, snap to the CURRENT month so they don't open on last month by default.
-  const fixedSnapped = useRef(false);
+  const fixedSnapped = useRef(seeded.current);
   useEffect(() => {
     if (!data || data.payType !== 'fixed' || fixedSnapped.current) return;
     fixedSnapped.current = true;
@@ -308,6 +378,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // employee's grid off its Sunday anchor and break SwipeClock parity for the session.
   useEffect(() => {
     if (self) return;
+    if (seeded.current) { seeded.current = false; return; }   // keep the period we were opened on
     fixedSnapped.current = false;
     setPStart(periodStartFor(new Date()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -397,6 +468,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
 
+  // Manager/HR day notes (Charmi, Sep 29) - only the team timecard carries them.
+  const [notes, setNotes] = useState({});
+  useEffect(() => { setNotes(data?.notes || {}); }, [data]);
+  const saveNote = async (date, note) => {
+    try {
+      const r = await api.timeSetTimecardNote(email, date, note);
+      setNotes(n => {
+        const next = { ...n };
+        if (r.note) next[date] = { note: r.note, by: r.by, at: r.at }; else delete next[date];
+        return next;
+      });
+      return true;
+    } catch (e) { toastErr?.(e?.message || 'Could not save the note.'); return false; }
+  };
   // build rows: for each date, its segments (or one empty row); punch-note lines
   // under their day (SwipeClock); weekly subtotal after each SUNDAY-anchored week
   const rows = [];
@@ -477,7 +562,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} />
+        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} />
     );
     return (
       <>
@@ -617,7 +702,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,
               Hrs/day, Non-OT, OT, OT 2×, Loc, Department, Pay rate, Wage - so HR
-              reads this card exactly like the one they use today. */}
+              reads this card exactly like the one they use today. Work Log is
+              ours, not SwipeClock's, so it rides at the far right, after Wage
+              (Neil, Sep 29: mid-row it crowded Hrs/day and overlapped). */}
           <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--wk-hover)' }}>
@@ -628,27 +715,28 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Category</th>
                 <th style={th}>Hours</th>
                 <th style={th}>Hrs/day</th>
-                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th style={th}>Non-OT</th>
                 <th style={th}>OT</th>
                 <th style={th}>OT 2×</th>
                 <th style={{ ...th, textAlign: 'left' }}>Loc</th>
+                {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={{ ...th, textAlign: 'left' }}>Notes</th>}
                 <th style={{ ...th, textAlign: 'left' }}>Department</th>
                 <th style={th}>Pay rate</th>
                 <th style={th}>Wage</th>
+                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'brk' ? (
                 <tr key={i}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
                       <Coffee size={11} /> Breaks
                       {!r.breaks.length && <span style={{ fontWeight: 500 }}>- none recorded</span>}
@@ -668,9 +756,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                         </span>
                       );
                     })}
-                    {self && !fin && (
+                    {!fin && (
                       <button onClick={() => setBreakFix({ date: r.ds, breaks: r.breaks })}
-                        title="Ask your approver to add a break punch that didn't record"
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing break punch'}
                         style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
                         Fix a Break Punch
                       </button>
@@ -679,14 +767,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'auto' ? (
                 <tr key={i}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
                   </td>
                 </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <span>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
@@ -703,7 +791,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}
                   </td>
                 </tr>
@@ -748,18 +836,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
                     ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
                     : ''}</td>
+                  <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
+                  <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
+                  <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
+                  {!self && (
+                    <td style={{ ...td, textAlign: 'left' }}>
+                      {r.first !== false && <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} />}
+                    </td>
+                  )}
+                  <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
+                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {r.first !== false && (
                       <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
                     )}
                   </td>
-                  <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
-                  <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
-                  <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
-                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
-                  <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {!self && !fin && (
                       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
@@ -793,7 +886,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
-                  <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
                   <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
@@ -801,6 +893,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}></td>
                   <td style={td}>{fmtM(T.totalPay)}</td>
+                  <td style={td}></td>
                   <td style={td}></td>
                 </tr>
               </tfoot>
@@ -919,7 +1012,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
       {breakFix && (
-        <BreakFixModal day={breakFix} busy={busy} setBusy={setBusy}
+        <BreakFixModal day={breakFix} email={email} self={self} busy={busy} setBusy={setBusy}
           onDone={() => { setBreakFix(null); load(); }} onClose={() => setBreakFix(null)}
           toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -966,7 +1059,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote }) {
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
@@ -974,6 +1067,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const mgrAp = data.approval;
   const [openPunches, setOpenPunches] = useState({});   // date -> show every punch pair
   const [openBreaks, setOpenBreaks] = useState({});     // date -> show each break window
+  const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
   const fixedDays = data.fixedDays || [];
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
@@ -1064,8 +1158,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
               <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={th}>Notes</th>}
+              {/* Far right, like the hourly card (Sep 29). */}
+              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
             </tr>
           </thead>
           <tbody>
@@ -1094,6 +1190,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 }
               }
               const dayBreak = (d?.breakMin || 0) + breaks.reduce((a, b) => a + b.min, 0);
+              // The day's Start Break / End Break windows (d.breakMin above). A
+              // break the clock-out closed (implicit) never ended - it blocks
+              // sign-off, so it is flagged and fixable here (Sep 29).
+              const formal = segs.flatMap(s => s.breaks || []);
+              const unendedBreak = formal.some(b => b.implicit);
               const overBreak = dayBreak > 60;             // 60 min/day allowance
               const breakFg = dayBreak <= 0 ? 'var(--muted)' : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
 
@@ -1167,12 +1268,15 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                         ? outCell(lastSeg)
                         : outCell(firstSeg)}
                   </td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
-                  </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
                   <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  {!self && (
+                    <td style={td}><NoteCell date={fd.date} note={dayNotes[fd.date]} onSave={saveNote} /></td>
+                  )}
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
+                  </td>
                 </tr>
               );
 
@@ -1180,7 +1284,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               //    hourly card gets, so 'Absent'/0 hours never reads as unexplained ──
               if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push(
                 <tr key={fd.date + '-auto'} style={{ background: rowBg }}>
-                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 8 : 9} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held until the real Out time is set{self ? ' - tap the Out time to propose the real end of your shift.' : '.'}
                   </td>
@@ -1204,16 +1308,17 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       </td>
                       <td style={td}>{inCell(seg)}</td>
                       <td style={td}>{outCell(seg)}</td>
-                      <td style={td}></td>
                       <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
                       <td style={td}></td>
+                      <td style={td}></td>
+                      {!self && <td style={td}></td>}
                       <td style={td}></td>
                     </tr>
                   );
                   if (edited) rows.push(
                     <tr key={fd.date + '-pr' + si} style={{ background: rBg }}>
                       <td style={td}></td><td style={td}></td>
-                      <td colSpan={6} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                      <td colSpan={self ? 6 : 7} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                         <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{reasons.join('  ·  ')}
                       </td>
                     </tr>
@@ -1224,15 +1329,27 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={td}></td><td style={td}></td>
                     <td style={td} colSpan={2}>{addBtn}</td>
                     <td style={td}></td><td style={td}></td><td style={td}></td><td style={td}></td>
+                    {!self && <td style={td}></td>}
                   </tr>
                 );
               }
 
               // ── Expanded: each break window (clock-out -> next clock-in + duration) ──
-              if (breaksOpen && dayBreak > 0) rows.push(
+              if ((breaksOpen || unendedBreak) && dayBreak > 0) rows.push(
                 <tr key={fd.date + '-br'} style={{ background: 'var(--wk-hover)' }}>
-                  <td colSpan={8} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
+                  <td colSpan={self ? 8 : 9} style={{ ...td, whiteSpace: 'normal', fontSize: 12 }}>
                     <span style={{ fontWeight: 700, color: breakFg, marginRight: 10 }}>Breaks - {hhmm(dayBreak)} {overBreak ? '(over the 60 min allowance)' : '(within 60 min)'}</span>
+                    {formal.map((b, i) => (
+                      <span key={'f' + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: b.implicit ? 'rgba(185,28,28,0.07)' : 'var(--card)', border: `1px solid ${b.implicit ? 'rgba(185,28,28,0.4)' : 'var(--line)'}`, borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
+                        {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
+                        <span style={{ fontWeight: 700, marginLeft: 3 }}>({hhmm(b.min)})</span>
+                        {b.implicit && (
+                          <span title="This break was never ended - the day's clock-out closed it, so all of this time counts as unpaid break." style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#b91c1c', fontWeight: 700 }}>
+                            <AlertTriangle size={10} /> never ended
+                          </span>
+                        )}
+                      </span>
+                    ))}
                     {breaks.map((b, i) => (
                       <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
                         {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
@@ -1240,6 +1357,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       </span>
                     ))}
                     {offClockGaps > 0 && <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 4 }}>· {offClockGaps} longer gap{offClockGaps === 1 ? '' : 's'} off the clock (not counted as break)</span>}
+                    {!fin && (
+                      <button onClick={() => setBreakFix({ date: fd.date, breaks: formal })}
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing break punch'}
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 6, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: unendedBreak ? '#b91c1c' : 'var(--wk-brand)' }}>
+                        {unendedBreak ? 'Fix the Break End' : 'Fix a Break Punch'}
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -1248,7 +1372,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               //    each edited punch shows its own reason inline above instead. ──
               if (notes.length && !(multi && punchesOpen)) rows.push(
                 <tr key={fd.date + '-notes'} style={{ background: rowBg }}>
-                  <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 8 : 9} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontStyle: 'italic', fontSize: 11.5, whiteSpace: 'normal' }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{notes.join('  ·  ')}
                   </td>
                 </tr>
@@ -1270,7 +1394,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={td}>{r.action === 'add' && !isIn ? <span style={{ color: '#b45309', fontWeight: 700 }}>{t12(r.at)}</span> : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                     <td style={td}></td>
                     <td style={td}></td>
-                    <td style={td}></td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       {!self
                         ? <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -1279,11 +1402,12 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                           </span>
                         : <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700, fontStyle: 'italic' }}>pending approval</span>}
                     </td>
+                    <td style={td}></td>
                   </tr>
                 );
                 rows.push(
                   <tr key={fd.date + '-reqr-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                    <td colSpan={8} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
+                    <td colSpan={self ? 8 : 9} style={{ ...td, borderTop: 'none', paddingTop: 0, color: '#b45309', fontSize: 11.5, whiteSpace: 'normal' }}>
                       <span style={{ fontWeight: 700 }}>{kindLabel}</span>{r.reason ? <span style={{ fontStyle: 'italic' }}> · {r.employeeName || 'Employee'}: “{r.reason}”</span> : ''}
                     </td>
                   </tr>
@@ -1343,6 +1467,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
+      {breakFix && (
+        <BreakFixModal day={breakFix} email={email} self={self} busy={busy} setBusy={setBusy}
+          onDone={() => { setBreakFix(null); load(); }} onClose={() => setBreakFix(null)}
+          toastOk={toastOk} toastErr={toastErr} />
+      )}
       {geoMap && (
         <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={data?.periodStart || ''} end={data?.periodEnd || ''} onClose={() => setGeoMap('')} />
       )}
@@ -1398,7 +1527,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
   // Clicking the location dot opens the Geofence Punch view for this person and
   // period (SwipeClock-style map + punch table, Charmi Sep 25).
   const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
-  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Outside geofence${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
+  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No work site mapped' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail
@@ -1445,7 +1574,12 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
 // day they could see was wrong and no way to say so - which is exactly what got
 // reported. Same gated route as every other fix: a PunchRequest, nothing moves
 // on pay until it is approved.
-function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
+// Sep 29: a manager (self = false) fixes the break straight on the card - the
+// same POST /timeclock/punches their "+ add" uses, so the employee is told and
+// the change is on record. An employee (self) still sends a request for their
+// approver, as before. Before this a break that never ended could not be fixed
+// by a manager at all, and it blocks sign-off.
+export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
   // A break the day's clock-out closed (implicit) is one whose END never landed -
   // by far the common case, so open on it with its start time already known.
   const unended = (day.breaks || []).find(b => b.implicit);
@@ -1459,7 +1593,7 @@ function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr 
   const label = kind === 'break_end' ? 'End Break' : 'Start Break';
 
   async function save() {
-    if (!reason.trim()) { toastErr?.('Add a reason so your approver can confirm it.'); return; }
+    if (!reason.trim()) { toastErr?.(self ? 'Add a reason so your approver can confirm it.' : 'Add a reason - it is kept on record.'); return; }
     // An end that isn't after its start can't be approved (the server re-checks
     // the sequence), so catch it here rather than after a round trip.
     if (kind === 'break_end' && unended?.start && new Date(at) <= new Date(utcToInput(unended.start))) {
@@ -1467,8 +1601,13 @@ function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr 
     }
     setBusy(true);
     try {
-      await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
-      toastOk?.('Request sent to your approver - nothing changes on your timecard until they approve it.');
+      if (self) {
+        await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
+        toastOk?.('Request sent to your approver - nothing changes on your timecard until they approve it.');
+      } else {
+        await api.timeAddPunch({ employee_email: email, kind, at: inputToUtc(at), tz_offset_min: tz, note: reason.trim() });
+        toastOk?.(kind === 'break_end' ? 'Break end added - the timecard is updated.' : 'Break start added - the timecard is updated.');
+      }
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not send the request.'); }
@@ -1481,37 +1620,37 @@ function BreakFixModal({ day, busy, setBusy, onDone, onClose, toastOk, toastErr 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Request a missing break punch"
+      <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing break punch' : 'Fix a break punch'}
         style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 50vw, 560px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>Request a Missing Break Punch</span>
+          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Break Punch' : 'Fix a Break Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         {unended && (
           <div style={{ fontSize: 12, lineHeight: 1.55, color: '#b45309', background: 'rgba(180,83,9,0.09)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 10, padding: '9px 12px', marginBottom: 12 }}>
-            Your break started at {t12(unended.start)} and was never ended, so the clock-out closed it
-            and all {hhmm(unended.min)} of it counts as unpaid break. Set the time you actually came back.
+            {self ? 'Your' : 'The'} break started at {t12(unended.start)} and was never ended, so the clock-out closed it
+            and all {hhmm(unended.min)} of it counts as unpaid break. Set the time {self ? 'you' : 'they'} actually came back.
           </div>
         )}
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>Which punch is missing
             <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
-              <option value="break_end">End Break - I came back and it didn&apos;t record</option>
-              <option value="break_start">Start Break - my break start didn&apos;t record</option>
+              <option value="break_end">{self ? 'End Break - I came back and it didn\'t record' : 'End Break - the break end is missing'}</option>
+              <option value="break_start">{self ? 'Start Break - my break start didn\'t record' : 'Start Break - the break start is missing'}</option>
             </select>
           </label>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{label} time
             <input autoFocus type="datetime-local" className="form-input" value={at} onChange={e => setAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
           </label>
-          <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver - not the time)
+          <label style={{ fontSize: 11, color: 'var(--muted)' }}>{self ? 'Reason (sent to your approver - not the time)' : 'Reason (kept on record and shown to the employee)'}
             <input className="form-input" value={reason} onChange={e => setReason(e.target.value)}
-              placeholder="Why it's missing - e.g. ended my break on my phone and it didn't record" style={{ width: '100%', fontSize: 13 }} />
+              placeholder={self ? "Why it's missing - e.g. ended my break on my phone and it didn't record" : 'Why - e.g. confirmed with them they were back at 1:00 PM'} style={{ width: '100%', fontSize: 13 }} />
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : 'Send Request'}</button>
+          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : self ? 'Send Request' : 'Save Break'}</button>
         </div>
       </div>
       {guard.confirming && (

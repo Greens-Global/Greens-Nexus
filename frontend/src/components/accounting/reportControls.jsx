@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Layers, ListFilter, Search, Settings2, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
+import AnchoredMenu from '../AnchoredMenu';
 import { formatDate } from '../../lib/datetime';
 import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
@@ -24,8 +25,9 @@ const button = (active) => ({
   border: `1px solid ${active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`,
   color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
 });
-const panel = (width, align) => ({
-  position: 'absolute', top: 'calc(100% + 4px)', [align === 'right' ? 'right' : 'left']: 0, zIndex: 40, width, maxWidth: '94vw',
+// Where it sits is PopoverPanel's job; this is only how it looks.
+const panel = (width) => ({
+  width,
   background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10,
   boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10,
 });
@@ -37,19 +39,19 @@ const row = (on) => ({
 const link = { border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 };
 const count = { fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
 
-// Open / close, closing on Escape and on a click outside.
+// Open / close state plus the anchor (the wrapper around the button).
+// Escape and a tap outside are handled by PopoverPanel.
 export function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
-  }, [open]);
   return [open, setOpen, ref];
+}
+
+// A toolbar dropdown's panel, pinned under its button. Portaled
+// (AnchoredMenu): on a phone the toolbar row scrolls sideways, and a
+// scroller clips an in-place panel at its bottom edge.
+export function PopoverPanel({ anchor, open, setOpen, align, ...rest }) {
+  return <AnchoredMenu anchorRef={anchor} open={open} onClose={() => setOpen(false)} align={align === 'right' ? 'end' : 'start'} {...rest} />;
 }
 
 // A searchable list with a tick per row. `options`: [{ code, name, depth?, group? }];
@@ -137,16 +139,14 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, ali
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      {open && (
-        <div role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(380, align)}>
-          <OptionList options={options} value={value} onChange={onChange} allLabel={all}
-            placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : 'An entity includes its sub-entities.'}</span>
-            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
-          </div>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(380)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel={all}
+          placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : 'An entity includes its sub-entities.'}</span>
+          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
-      )}
+      </PopoverPanel>
     </div>
   );
 }
@@ -184,38 +184,36 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      {open && (
-        <div role="dialog" aria-label="Dimensions" style={{ ...panel(560, align), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
-          <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
-            {POPOVER_DIMS.map((k) => {
-              const c = (dims[k.key] || []).length;
-              return (
-                <button key={k.key} type="button" style={row(k.key === kind.key)} onClick={() => setKind(k)} aria-pressed={k.key === kind.key}>
-                  <span style={{ flex: 1 }}>{k.label}</span>
-                  {c > 0 ? <span style={count}>{c}</span> : <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />}
-                </button>
-              );
-            })}
-            {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS, departments: dims.departments || [] })}>Clear all</button>}
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Dimensions" style={{ ...panel(560), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
+          {POPOVER_DIMS.map((k) => {
+            const c = (dims[k.key] || []).length;
+            return (
+              <button key={k.key} type="button" style={row(k.key === kind.key)} onClick={() => setKind(k)} aria-pressed={k.key === kind.key}>
+                <span style={{ flex: 1 }}>{k.label}</span>
+                {c > 0 ? <span style={count}>{c}</span> : <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />}
+              </button>
+            );
+          })}
+          {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS, departments: dims.departments || [] })}>Clear all</button>}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <strong style={{ fontSize: '0.8rem' }}>{kind.label}{picked.length ? ` · ${picked.length} selected` : ''}</strong>
+            <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+              {picked.length > 0 && <button type="button" style={link} onClick={() => onChange({ ...dims, [kind.key]: [] })}>Clear</button>}
+              <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
+            </span>
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <strong style={{ fontSize: '0.8rem' }}>{kind.label}{picked.length ? ` · ${picked.length} selected` : ''}</strong>
-              <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
-                {picked.length > 0 && <button type="button" style={link} onClick={() => onChange({ ...dims, [kind.key]: [] })}>Clear</button>}
-                <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
-              </span>
-            </div>
-            <OptionList key={kind.key} options={options} value={picked} onChange={(codes) => onChange({ ...dims, [kind.key]: codes })}
-              loading={!lists[kind.kind]} error={lists[kind.kind]?.error}
-              placeholder={`Search ${kind.label.toLowerCase()} by name or code`} empty={`No ${kind.plural} on the ledger yet.`} />
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
-              Lines without a {kind.label.toLowerCase()} are left out when one is picked. Historical (H) entries are hidden.
-            </div>
+          <OptionList key={kind.key} options={options} value={picked} onChange={(codes) => onChange({ ...dims, [kind.key]: codes })}
+            loading={!lists[kind.kind]} error={lists[kind.kind]?.error}
+            placeholder={`Search ${kind.label.toLowerCase()} by name or code`} empty={`No ${kind.plural} on the ledger yet.`} />
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
+            Lines without a {kind.label.toLowerCase()} are left out when one is picked. Historical (H) entries are hidden.
           </div>
         </div>
-      )}
+      </PopoverPanel>
     </div>
   );
 }
@@ -250,16 +248,14 @@ export function DepartmentsPicker({ value, onChange, align = 'left' }) {
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      {open && (
-        <div role="listbox" aria-label="Departments" aria-multiselectable="true" style={panel(360, align)}>
-          <OptionList options={options} value={value} onChange={onChange} allLabel="All departments" loading={!list} error={list?.error}
-            placeholder="Search department by name or code" empty="No departments on the ledger yet." />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Historical (H) departments are hidden.</span>
-            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
-          </div>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Departments" aria-multiselectable="true" style={panel(360)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel="All departments" loading={!list} error={list?.error}
+          placeholder="Search department by name or code" empty="No departments on the ledger yet." />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Historical (H) departments are hidden.</span>
+          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
-      )}
+      </PopoverPanel>
     </div>
   );
 }
@@ -283,16 +279,14 @@ export function AccountsPicker({ accounts, value, onChange, align = 'left' }) {
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      {open && (
-        <div role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(400, align)}>
-          <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts"
-            placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.</span>
-            <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
-          </div>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(400)}>
+        <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts"
+          placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.</span>
+          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
-      )}
+      </PopoverPanel>
     </div>
   );
 }
@@ -318,10 +312,14 @@ export function PeriodStepper({ config, period, onChange }) {
     const [from, end] = stepRange(config.preset, config.from, config.to, dir);
     onChange({ preset: 'custom', from, to: end });
   };
+  // A preset keeps arrow - period - arrow on one row: on a phone the long
+  // "Year-to-Date · dates" option narrows instead of pushing each arrow onto
+  // a line of its own (QA, Sep 23). Custom dates still wrap.
+  const custom = config.preset === 'custom';
   return (
-    <div role="group" aria-label="Report period" style={group}>
-      <button type="button" style={arrow} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
-      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300 }}>
+    <div role="group" aria-label="Report period" style={custom ? group : { ...group, flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
+      <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(-1)} aria-label="Previous period" title="Previous period"><ChevronLeft size={14} /></button>
+      <select value={config.preset} onChange={(e) => onChange({ preset: e.target.value })} aria-label="Period" style={{ ...control, maxWidth: 300, minWidth: 0 }}>
         {PRESETS.map((p) => {
           const r = p.key === 'custom' ? null : presetRange(p.key).map(iso);
           return <option key={p.key} value={p.key}>{r ? `${p.label} · ${formatDate(r[0])} - ${formatDate(r[1])}` : 'Custom Dates'}</option>;
@@ -339,7 +337,7 @@ export function PeriodStepper({ config, period, onChange }) {
             onChange={(e) => e.target.value && onChange({ to: e.target.value, from: e.target.value < config.from ? e.target.value : config.from })} />
         </>
       )}
-      <button type="button" style={arrow} onClick={() => step(1)} aria-label="Next period" title="Next period"><ChevronRight size={14} /></button>
+      <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(1)} aria-label="Next period" title="Next period"><ChevronRight size={14} /></button>
     </div>
   );
 }
@@ -361,28 +359,26 @@ export function CustomizeButton({ density, onDensity, suppressZero, onSuppressZe
       <button type="button" style={button(suppressZero)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
         <Settings2 size={14} style={{ flexShrink: 0, color: suppressZero ? 'inherit' : 'var(--text-muted)' }} /> Customize
       </button>
-      {open && (
-        <div role="dialog" aria-label="Customize" style={{ ...panel(300, align), display: 'grid', gap: 10 }}>
-          <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Row density</div>
-            <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-              {DENSITIES.map((d) => (
-                <button key={d.key} type="button" onClick={() => onDensity(d.key)} title={d.title} aria-pressed={density === d.key}
-                  style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: density === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' }}>
-                  {d.label}
-                </button>
-              ))}
-            </div>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Customize" style={{ ...panel(300), display: 'grid', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Row density</div>
+          <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+            {DENSITIES.map((d) => (
+              <button key={d.key} type="button" onClick={() => onDensity(d.key)} title={d.title} aria-pressed={density === d.key}
+                style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: density === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' }}>
+                {d.label}
+              </button>
+            ))}
           </div>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={suppressZero} onChange={(e) => onSuppressZero(e.target.checked)} style={{ marginTop: 2 }} />
-            <span>
-              Hide zero balances
-              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are left off.</span>
-            </span>
-          </label>
         </div>
-      )}
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+          <input type="checkbox" checked={suppressZero} onChange={(e) => onSuppressZero(e.target.checked)} style={{ marginTop: 2 }} />
+          <span>
+            Hide zero balances
+            <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are left off.</span>
+          </span>
+        </label>
+      </PopoverPanel>
     </div>
   );
 }
@@ -411,8 +407,8 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
       <button type="button" style={button(false)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
         <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> Memorize
       </button>
-      {open && (
-        <form role="dialog" aria-label="Memorize this report" onSubmit={save} style={{ ...panel(330, align), display: 'grid', gap: 8 }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Memorize this report" style={panel(330)}>
+        <form onSubmit={save} style={{ display: 'grid', gap: 8 }}>
           <label style={{ fontSize: '0.78rem', fontWeight: 600 }} htmlFor="acct-memorize-name">What would you like to name it?</label>
           <input id="acct-memorize-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus
             placeholder="Income Statement - GG Inc - YTD" style={{ ...control, width: '100%' }} />
@@ -426,7 +422,7 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
             <button type="submit" className="primary-btn" style={{ fontSize: '0.75rem', padding: '4px 12px' }} disabled={!name.trim() || busy}>{busy ? 'Saving...' : 'Save'}</button>
           </div>
         </form>
-      )}
+      </PopoverPanel>
     </div>
   );
 }
@@ -450,50 +446,48 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
         {!active && reports.length > 0 && <span style={{ ...count, background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{reports.length}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      {open && (
-        <div role="menu" aria-label="Saved Reports" style={panel(400, align)}>
-          {reports.length > 6 && (
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search saved reports" aria-label="Search saved reports" style={{ ...control, width: '100%', marginBottom: 6 }} />
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Saved Reports" style={panel(400)}>
+        {reports.length > 6 && (
+          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search saved reports" aria-label="Search saved reports" style={{ ...control, width: '100%', marginBottom: 6 }} />
+        )}
+        <div style={{ maxHeight: 320, overflowY: 'auto', display: 'grid', gap: 1 }}>
+          {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
+          {loading && <SkeletonBlocks count={2} />}
+          {!loading && !error && !reports.length && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '8px 6px' }}>Nothing saved yet. Set up a report, then press Memorize.</div>
           )}
-          <div style={{ maxHeight: 320, overflowY: 'auto', display: 'grid', gap: 1 }}>
-            {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
-            {loading && <SkeletonBlocks count={2} />}
-            {!loading && !error && !reports.length && (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '8px 6px' }}>Nothing saved yet. Set up a report, then press Memorize.</div>
-            )}
-            {shown.map((r) => (
-              <div key={r.id} style={{ ...row(r.id === activeId), cursor: 'default', padding: 0 }}>
-                <button type="button" role="menuitem" onClick={() => { onOpen(r); setOpen(false); }}
-                  style={{ flex: 1, minWidth: 0, border: 'none', background: 'none', padding: '6px 8px', font: 'inherit', fontSize: '0.8rem', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.name}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    {r.mine ? (r.shared ? 'Shared with the team' : 'Only you') : `Shared by ${nameOf ? nameOf(r.owner) : 'a teammate'}`}
-                  </div>
-                </button>
-                {r.mine && (confirm === r.id ? (
-                  <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', paddingRight: 8 }}>
-                    <button type="button" style={{ ...link, color: 'var(--bad-fg, #dc2626)' }} onClick={() => { onDelete(r); setConfirm(''); }}>Delete</button>
-                    <button type="button" style={link} onClick={() => setConfirm('')}>Keep</button>
-                  </span>
-                ) : (
-                  <span style={{ display: 'inline-flex', gap: 2, paddingRight: 4 }}>
-                    <button type="button" onClick={() => onShare(r, !r.shared)} aria-pressed={r.shared} aria-label={r.shared ? `Stop sharing ${r.name}` : `Share ${r.name} with the team`}
-                      title={r.shared ? 'Shared with the team - click to make it yours only' : 'Share with the accounting team'}
-                      style={{ border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--text-muted)' }}>
-                      <Users size={14} />
-                    </button>
-                    <button type="button" onClick={() => setConfirm(r.id)} aria-label={`Delete ${r.name}`} title="Delete"
-                      style={{ border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}>
-                      <Trash2 size={14} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            ))}
-            {!loading && reports.length > 0 && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No saved report matches.</div>}
-          </div>
+          {shown.map((r) => (
+            <div key={r.id} style={{ ...row(r.id === activeId), cursor: 'default', padding: 0 }}>
+              <button type="button" role="menuitem" onClick={() => { onOpen(r); setOpen(false); }}
+                style={{ flex: 1, minWidth: 0, border: 'none', background: 'none', padding: '6px 8px', font: 'inherit', fontSize: '0.8rem', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.name}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  {r.mine ? (r.shared ? 'Shared with the team' : 'Only you') : `Shared by ${nameOf ? nameOf(r.owner) : 'a teammate'}`}
+                </div>
+              </button>
+              {r.mine && (confirm === r.id ? (
+                <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', paddingRight: 8 }}>
+                  <button type="button" style={{ ...link, color: 'var(--bad-fg, #dc2626)' }} onClick={() => { onDelete(r); setConfirm(''); }}>Delete</button>
+                  <button type="button" style={link} onClick={() => setConfirm('')}>Keep</button>
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', gap: 2, paddingRight: 4 }}>
+                  <button type="button" onClick={() => onShare(r, !r.shared)} aria-pressed={r.shared} aria-label={r.shared ? `Stop sharing ${r.name}` : `Share ${r.name} with the team`}
+                    title={r.shared ? 'Shared with the team - click to make it yours only' : 'Share with the accounting team'}
+                    style={{ border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--text-muted)' }}>
+                    <Users size={14} />
+                  </button>
+                  <button type="button" onClick={() => setConfirm(r.id)} aria-label={`Delete ${r.name}`} title="Delete"
+                    style={{ border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}>
+                    <Trash2 size={14} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ))}
+          {!loading && reports.length > 0 && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No saved report matches.</div>}
         </div>
-      )}
+      </PopoverPanel>
     </div>
   );
 }

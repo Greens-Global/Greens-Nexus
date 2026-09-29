@@ -65,9 +65,13 @@ def _execute(db, bt: BackgroundTasks, *, user: dict, kind: str, entity_id: str, 
             raise HTTPException(404, "This request no longer exists.")
         if r.status != "pending":
             raise HTTPException(409, f"Already {r.status}.")
+        # decide_timeoff also refuses self-approval and, for a confidential
+        # request, anyone but its approvers - so the type below is only ever
+        # shown to someone allowed to see it.
         timeclock_router.decide_timeoff(entity_id, timeclock_router.TimeOffDecision(status=status),
                                         user=user, db=db)
-        return f"{r.type} request", status
+        label = "Confidential time off" if timeclock_router._is_confidential(r) else r.type
+        return f"{label} request", status
     if kind == "ticket_approval":
         from routers import tickets as tickets_router
         t = db.query(models.TaskTicket).filter(models.TaskTicket.id == entity_id).first()

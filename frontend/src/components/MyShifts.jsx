@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote, Timer, Plane } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { SkeletonBlocks } from './AsyncState';
@@ -7,11 +7,9 @@ import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './Sh
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 
-// A shift group's scheduler builds that group's schedule from here (Sep 29,
-// Teams "scheduling owner" per team) - loaded only when they open it.
-const ShiftSchedule = lazy(() => import('./ShiftSchedule'));
-
-// My Workday > Shifts (Neil, Sep 23): a read-only week of the signed-in
+// Shifts > My Shifts (was My Workday > Shifts until Sep 29, when it moved into
+// the Shifts module for everyone; the module's Manage button, managers and
+// above only, is where scheduling happens). A read-only week of the signed-in
 // person's own shifts. Scheduling stays in People > Shifts; this only shows
 // what a manager has published there - the shifts placed on them in the
 // schedule grid, or, on days with nothing placed, their default shift preset
@@ -64,9 +62,19 @@ function dayShiftsFor(member, key, iso) {
   if (placed.length) return placed;
   const preset = member.shift;
   if (preset && (preset.days || '').split(',').includes(iso)) {
-    return [{ id: `preset-${member.email}-${key}`, start: preset.start, end: preset.end, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }];
+    return [{ id: `preset-${member.email}-${key}`, start: preset.start, end: preset.end, breakMin: preset.breakMin, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }];
   }
   return [];
+}
+// Paid minutes of a shift: its span (overnight wraps) minus its unpaid break.
+function paidMin(s) {
+  let d = minutesOf(s.end) - minutesOf(s.start);
+  if (d < 0) d += 1440;
+  return Math.max(0, d - (Number(s.breakMin) || 0));
+}
+function fmtHrs(min) {
+  const h = min / 60;
+  return `${Number.isInteger(h) ? h : h.toFixed(1)} hrs`;
 }
 function firstName(name, email) {
   const n = (name || '').trim();
@@ -80,7 +88,6 @@ export default function MyShifts() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
   const [teamId, setTeamId] = useState(''); // which group's grid shows, when in more than one
-  const [manage, setManage] = useState(false);   // a group scheduler's schedule grid
 
   const start = dateKey(weekStart), end = dateKey(addDays(weekStart, 6));
   const [reload, setReload] = useState(0);
@@ -116,7 +123,7 @@ export default function MyShifts() {
       const key = dateKey(d);
       const iso = String(d.getDay() === 0 ? 7 : d.getDay());
       const shifts = placed[key]
-        || (preset && presetDays.has(iso) ? [{ id: `preset-${key}`, start: preset.start, end: preset.end, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }] : []);
+        || (preset && presetDays.has(iso) ? [{ id: `preset-${key}`, start: preset.start, end: preset.end, breakMin: preset.breakMin, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }] : []);
       const timeoff = off.filter(t => t.startDate <= key && t.endDate >= key);
       return { date: d, key, shifts, timeoff, holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
     });
@@ -142,6 +149,23 @@ export default function MyShifts() {
   }, [data, days, now, todayKey]);
 
   const thisWeek = start === dateKey(startOfWeek(now));
+
+  // The at-a-glance strip: the next shift, the week's paid hours, time off.
+  const glance = useMemo(() => {
+    if (!data) return null;
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    let next = null;
+    for (const d of days) {
+      if (d.key < todayKey) continue;
+      const s = d.shifts.find(x => d.key > todayKey || minutesOf(x.end) > nowMin || minutesOf(x.end) < minutesOf(x.start));
+      if (s && !d.timeoff.some(t => t.status === 'approved')) { next = { d, s }; break; }
+    }
+    const worked = days.filter(d => d.shifts.length && !d.timeoff.some(t => t.status === 'approved'));
+    const mins = worked.reduce((m, d) => m + d.shifts.reduce((a, s) => a + paidMin(s), 0), 0);
+    const offDays = days.filter(d => d.timeoff.length).length;
+    const pending = days.some(d => d.timeoff.some(t => t.status === 'pending'));
+    return { next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending };
+  }, [data, days, now, todayKey]);
 
   // The team grid: the chosen group (or the only one), each member's seven
   // days, plus who is on shift at this moment for the summary line.
@@ -170,31 +194,9 @@ export default function MyShifts() {
     });
   }, [team, teamRows, now, thisWeek]);
 
-  const schedulerOf = data?.schedulerOf || [];
-  const manageBtn = schedulerOf.length > 0 && (
-    <button type="button" className="secondary-btn" onClick={() => { setManage(m => !m); setFlash(''); }} style={{ fontSize: 12.5 }}>
-      {manage ? 'Back to My Shifts' : 'Manage Schedule'}
-    </button>
-  );
-  if (manage && schedulerOf.length) {
-    return (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-          {manageBtn}
-          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>You schedule {schedulerOf.map(g => g.name).join(', ')}.</span>
-        </div>
-        {flash && <div role="status" style={{ marginBottom: 12, fontSize: 12.5, fontWeight: 600 }}>{flash}</div>}
-        <Suspense fallback={<SkeletonBlocks count={4} height={60} />}>
-          <ShiftSchedule toastOk={setFlash} toastErr={setFlash} />
-        </Suspense>
-      </div>
-    );
-  }
-
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        {manageBtn}
         <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', background: 'var(--card)' }}>
           <button type="button" onClick={() => setWeekStart(w => addDays(w, -7))} title="Previous Week" aria-label="Previous week"
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
@@ -206,16 +208,25 @@ export default function MyShifts() {
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronRight size={16} /></button>
         </div>
         {thisWeek && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{fmtRange(weekStart, addDays(weekStart, 6))}</span>}
-        {status && (
-          <span style={{
-            marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 700,
-            background: status.on ? 'hsla(var(--color-green),0.12)' : 'var(--mist)', color: status.on ? 'hsl(var(--color-green))' : 'var(--muted)',
-          }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: status.on ? 'hsl(var(--color-green))' : 'var(--wk-line)' }} />
-            {status.text}
-          </span>
-        )}
       </div>
+
+      {/* At a glance (Sep 29): what anyone opening Shifts wants first -
+          when they work next, how much this week, and any time off. */}
+      {glance && !error && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
+          <GlanceTile icon={Clock} label={status?.on ? 'On Shift Now' : 'Next Shift'} tone={status?.on ? 'green' : 'brand'}
+            value={glance.next
+              ? `${glance.next.d.isToday ? 'Today' : glance.next.d.key === dateKey(addDays(now, 1)) ? 'Tomorrow' : `${DOW[glance.next.d.date.getDay()]} ${glance.next.d.date.getMonth() + 1}/${glance.next.d.date.getDate()}`}`
+              : 'None this week'}
+            sub={glance.next ? `${hhmmTo12(glance.next.s.start)} - ${hhmmTo12(glance.next.s.end)}${glance.next.s.label ? ` · ${glance.next.s.label}` : ''}` : 'Nothing else scheduled'} />
+          <GlanceTile icon={Timer} label={thisWeek ? 'This Week' : 'That Week'} tone="brand"
+            value={fmtHrs(glance.mins)}
+            sub={`${glance.shiftCount} shift${glance.shiftCount === 1 ? '' : 's'} · paid time, breaks excluded`} />
+          <GlanceTile icon={Plane} label="Time Off" tone={glance.offDays ? 'amber' : 'muted'}
+            value={glance.offDays ? `${glance.offDays} day${glance.offDays === 1 ? '' : 's'}` : 'None'}
+            sub={glance.pending ? 'Includes a pending request' : glance.offDays ? 'Approved' : 'This week'} />
+        </div>
+      )}
 
       {error ? (
         <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Your shifts could not be loaded right now - please try again.</div>
@@ -282,10 +293,10 @@ export default function MyShifts() {
             <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Team Shifts</span>
             {teams.length > 1 ? (
               <select className="form-select" value={team.id} onChange={e => setTeamId(e.target.value)} aria-label="Team" style={{ width: 'auto', fontSize: 12.5, padding: '4px 28px 4px 10px' }}>
-                {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.members.length})</option>)}
+                {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.members.length}){t.isMember === false ? ' - you manage' : ''}</option>)}
               </select>
             ) : (
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}</span>
+              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this team' : ''}</span>
             )}
             {thisWeek && (
               <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
@@ -309,29 +320,43 @@ export default function MyShifts() {
                 </tr>
               </thead>
               <tbody>
-                {teamRows.map(r => (
-                  <tr key={r.email}>
-                    <td style={{ position: 'sticky', left: 0, zIndex: 1, background: r.isMe ? 'var(--mist)' : 'var(--card)', padding: '9px 12px', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }}>
-                      <span style={{ fontWeight: r.isMe ? 800 : 600, color: 'var(--ink)' }}>{r.name || r.email}</span>
-                      {r.isMe && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 6 }}>You</span>}
-                    </td>
-                    {r.days.map(d => (
-                      <td key={d.key} style={{ padding: '8px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'top', background: d.isToday ? 'hsla(var(--color-green),0.05)' : (r.isMe ? 'var(--mist)' : 'transparent') }}>
-                        {d.off ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#b45309' }}><CalendarDays size={11} /> Time off</span>
-                        ) : d.shifts.length === 0 ? (
-                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
-                        ) : d.shifts.map(sh => (
-                          <div key={sh.id} title={`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
-                            style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
-                            <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
-                            {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
-                          </div>
-                        ))}
+                {teamRows.map(r => {
+                  // You, pinned first (the API sorts you to the top) and
+                  // marked so you find yourself at a glance (Neil, Sep 29):
+                  // the whole row tinted, an accent bar, your name in the
+                  // brand color and a filled "You" badge, then a firmer
+                  // rule before your teammates.
+                  const me = r.isMe;
+                  const onNowRow = onNow.some(o => o.email === r.email);
+                  const rowBg = me ? 'var(--wk-brand-tint)' : 'transparent';
+                  const rule = me ? '2px solid var(--wk-line2)' : '1px solid var(--line)';
+                  return (
+                    <tr key={r.email} aria-current={me ? 'true' : undefined}>
+                      <td style={{ position: 'sticky', left: 0, zIndex: 1, background: me ? 'var(--wk-brand-tint)' : 'var(--card)', padding: '9px 12px', borderBottom: rule, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200,
+                        boxShadow: me ? 'inset 3px 0 0 var(--wk-brand)' : 'none' }}>
+                        {onNowRow && <span title="On shift now" style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-green))', marginRight: 7, verticalAlign: 'middle' }} />}
+                        <span style={{ fontWeight: me ? 800 : 600, color: me ? 'var(--wk-brand)' : 'var(--ink)' }}>{r.name || r.email}</span>
+                        {me && <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: 'var(--wk-brand)', borderRadius: 999, padding: '1px 7px', marginLeft: 7, letterSpacing: '.03em', verticalAlign: 'middle' }}>YOU</span>}
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                      {r.days.map(d => (
+                        <td key={d.key} style={{ padding: '8px 8px', borderBottom: rule, verticalAlign: 'top', background: me ? rowBg : (d.isToday ? 'hsla(var(--color-green),0.05)' : 'transparent'),
+                          boxShadow: me && d.isToday ? 'inset 0 0 0 999px hsla(var(--color-green),0.06)' : 'none' }}>
+                          {d.off ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#b45309' }}><CalendarDays size={11} /> Time off</span>
+                          ) : d.shifts.length === 0 ? (
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
+                          ) : d.shifts.map(sh => (
+                            <div key={sh.id} title={`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
+                              style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
+                              <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
+                              {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
+                            </div>
+                          ))}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -343,9 +368,32 @@ export default function MyShifts() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
-          Shifts are set by your manager in People. Only shifts they have shared appear here - ask them if something looks wrong.
+          Shifts are set by your manager. Only shifts they have published appear here - ask them if something looks wrong.
           {data && teams.length === 0 && ' Your team will show here once your manager adds you to a group.'}
         </span>
+      </div>
+    </div>
+  );
+}
+
+const GLANCE_TONE = {
+  brand: { fg: 'var(--wk-brand)', bg: 'var(--wk-brand-tint)' },
+  green: { fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' },
+  amber: { fg: '#b45309', bg: 'rgba(180,83,9,0.1)' },
+  muted: { fg: 'var(--muted)', bg: 'var(--mist)' },
+};
+
+function GlanceTile({ icon: Icon, label, value, sub, tone = 'brand' }) {
+  const t = GLANCE_TONE[tone] || GLANCE_TONE.brand;
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, padding: '12px 14px', boxShadow: 'var(--wk-shadow)', display: 'flex', gap: 11, alignItems: 'center', minWidth: 0 }}>
+      <span style={{ width: 34, height: 34, borderRadius: 10, background: t.bg, color: t.fg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Icon size={17} />
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', lineHeight: 1.25 }}>{value}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>
       </div>
     </div>
   );

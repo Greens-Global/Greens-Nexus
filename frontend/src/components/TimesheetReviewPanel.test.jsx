@@ -37,6 +37,9 @@ describe('TimesheetReviewPanel', () => {
     fireEvent.change(screen.getByPlaceholderText(/What needs changing/), { target: { value: 'Fix Tue' } });
     fireEvent.click(screen.getByText('Send Back'));
     await waitFor(() => expect(sendBack).toHaveBeenCalledWith('r1', 'Fix Tue'));
+    // The buttons stay disabled until Send Back settles; clicking Agree before
+    // that was a no-op on a slow CI runner (flaky, Sep 29).
+    await waitFor(() => expect(screen.getByText('Agree & Send for Signature').closest('button')).not.toBeDisabled());
     fireEvent.click(screen.getByText('Agree & Send for Signature'));
     await waitFor(() => expect(agree).toHaveBeenCalled());
   });
@@ -46,6 +49,13 @@ describe('TimesheetReviewPanel', () => {
       rounds: [{ at: '2026-09-20T10:00:00Z', by: 'mgr@x.com', action: 'sent_back', note: 'Lunch missing on Tue' }] }} />);
     expect(screen.getAllByText(/Lunch missing on Tue/).length).toBeGreaterThan(0);
     expect(screen.getByText('Resubmit')).toBeInTheDocument();
+  });
+
+  it('tells the manager up front why Agree is not available yet (Sep 29)', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'with_manager', canAgree: true, canSendBack: true,
+      agreeBlocker: 'This period runs to 09/30/2026. You can agree to it after that day, once every day is in.' }} />);
+    expect(screen.getByRole('note')).toHaveTextContent('This period runs to 09/30/2026');
+    expect(screen.getByText(/Agree & Send for Signature/).closest('button')).toBeDisabled();
   });
 
   it('shows who has signed and opens Nexus Sign for my turn', () => {

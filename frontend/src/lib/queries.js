@@ -24,6 +24,14 @@ export function usePeopleDirectory(options = {}) {
   return useQuery({ queryKey: qk.peopleDirectory, queryFn: () => api.getPeopleDirectory(),
                     staleTime: 60_000, ...options });
 }
+// The same directory WITH external users, each flagged `external: true` - for
+// the few pickers that opt in (Company Manager, Sep 29). Keyed under
+// peopleDirectory, so every invalidation of the directory refreshes it too.
+// The server hands externals only to managers and above.
+export function usePeopleDirectoryWithExternal(options = {}) {
+  return useQuery({ queryKey: [...qk.peopleDirectory, 'with-external'], queryFn: () => api.getPeopleDirectory(true),
+                    staleTime: 60_000, ...options });
+}
 export function useRolesDirectory(options = {}) {
   return useQuery({ queryKey: qk.rolesDirectory, queryFn: api.getRolesDirectory,
                     staleTime: 60_000, ...options });
