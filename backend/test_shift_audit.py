@@ -283,6 +283,22 @@ class ShiftAuditTests(unittest.TestCase):
         self.assertEqual(me["timeZone"], "Asia/Kolkata")
         self.assertEqual(me["scheduled"][0]["timezone"], "America/Los_Angeles")     # the preset's own
 
+    def test_the_team_grid_gets_photos(self):
+        db = database.SessionLocal()
+        try:
+            b = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == B).first()
+            b.photo_url = "https://example.supabase.co/storage/v1/object/public/avatars/b.jpg"
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self._teammate(A, B)["photoUrl"], "https://example.supabase.co/storage/v1/object/public/avatars/b.jpg")
+        self.assertEqual(self._teammate(A, A)["photoUrl"], "")        # none on file: the grid shows initials
+
+    def test_the_inbox_says_who_may_change_the_settings(self):
+        self.assertTrue(self.client.get("/timeclock/shift-requests").json()["canConfigure"])      # company-wide
+        self._as(M1)
+        self.assertFalse(self.client.get("/timeclock/shift-requests").json()["canConfigure"])     # their reports only
+
     # ── Copy ─────────────────────────────────────────────────────────────
     def test_a_copy_can_leave_the_activities_behind(self):
         self._place(A, activities=[{"start": "10:00", "end": "11:00", "label": "Training"}])

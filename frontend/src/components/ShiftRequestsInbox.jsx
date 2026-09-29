@@ -14,18 +14,23 @@ import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
 const KIND = { open: ['Open shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send] };
 const hhmm12 = (v) => { const [h, m] = (v || '0:0').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
 
-export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastErr, canConfigure = true }) {
+// `inline` = on the Requests page (no overlay, no close button). Who may
+// change the settings comes from the API (`canConfigure`) unless the caller
+// already knows.
+export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastErr, canConfigure, inline = false }) {
   const [data, setData] = useState(null);
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState('');
   const [cfg, setCfg] = useState(null);
   const [timeoff, setTimeoff] = useState(null);
   const [tick, setTick] = useState(0);
+  const [mayConfigure, setMayConfigure] = useState(true);
+  const configure = canConfigure ?? mayConfigure;
 
   useEffect(() => {
     let live = true;
     api.shiftRequestsInbox()
-      .then((r) => { if (live) { setData(r); setCfg(r.settings); } })
+      .then((r) => { if (live) { setData(r); setCfg(r.settings); setMayConfigure(r.canConfigure !== false); } })
       .catch((e) => { if (live) { setData({ pending: [], recent: [] }); toastErr?.(e.message || 'Could not load requests.'); } });
     api.timeOffList('pending')
       .then((r) => { if (live) setTimeoff(Array.isArray(r) ? r : []); })
@@ -60,14 +65,19 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
   }
 
   const row = { border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' };
+  const shell = inline
+    ? { outer: { fontFamily: 'Inter,sans-serif' }, card: { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, padding: 18 } }
+    : { outer: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' },
+      card: { background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 620, padding: 20, maxHeight: '92dvh', overflowY: 'auto' } };
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Shift Requests" style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 620, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Shift Requests</span>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
-        </div>
+    <div style={shell.outer} onClick={inline ? undefined : (e) => e.target === e.currentTarget && onClose()}>
+      <div role={inline ? 'region' : 'dialog'} aria-label="Shift Requests" style={shell.card}>
+        {!inline && (
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Shift Requests</span>
+            <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+          </div>
+        )}
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
           Requests from your team waiting on a manager. Swaps and offers show here once the teammate has accepted.
         </div>
@@ -159,7 +169,7 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
           </div>
         )}
 
-        {cfg && canConfigure && (
+        {cfg && configure && (
           <div style={{ marginTop: 18, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Settings</div>
             {[['openShifts', 'Staff can request open shifts'], ['swaps', 'Staff can swap shifts with teammates'], ['offers', 'Staff can offer their shifts to teammates'],

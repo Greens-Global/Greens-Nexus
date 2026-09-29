@@ -4,7 +4,7 @@
 // away. Every request needs a manager's approval (and a swap/offer the
 // teammate's first) - see backend routers/shift_requests.py.
 import { useState } from 'react';
-import { ArrowLeftRight, Send, Hand, X, CheckCircle2, Clock } from 'lucide-react';
+import { ArrowLeftRight, Send, Hand, X, CheckCircle2, Clock, CalendarOff } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 
@@ -200,6 +200,126 @@ export function ShiftRequestsList({ reqs, onDone }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/** New Request (Shifts > Requests, Sep 30): pick what to ask for, then which
+ *  of my upcoming published shifts it is about. Time off is asked for in
+ *  Workday, so that choice takes the person there. */
+export function NewRequestDialog({ reqs, myShifts = [], onClose, onDone }) {
+  const cfg = reqs?.settings || {};
+  const teammates = reqs?.teammates || [];
+  const teamShifts = reqs?.swapShifts || {};
+  const kinds = [
+    ['swap', 'Swap', ArrowLeftRight, cfg.swaps !== false, 'Trade one of your shifts for a teammate\u2019s'],
+    ['offer', 'Offer', Send, cfg.offers !== false, 'Give one of your shifts to a teammate'],
+    ['timeoff', 'Time Off', CalendarOff, cfg.timeOffRequests !== false, 'Ask for a day, or part of a day, off'],
+  ];
+  const [kind, setKind] = useState((kinds.find((k) => k[3]) || kinds[0])[0]);
+  const [shiftId, setShiftId] = useState('');
+  const [target, setTarget] = useState('');
+  const [targetShift, setTargetShift] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const pending = new Set((reqs?.mine || []).filter((r) => PENDING.includes(r.status)).map((r) => r.shift.id));
+  const free = myShifts.filter((s) => !pending.has(s.id));
+  const theirs = teamShifts[target] || [];
+  const shifting = kind !== 'timeoff';
+  const blocked = !shifting ? '' : !teammates.length
+    ? 'You are not in a shift group yet, so there is nobody to swap with. Ask your manager to add you to one.'
+    : !free.length
+      ? 'You have no published shifts coming up. A swap or an offer needs a shift your manager has published.'
+      : '';
+  const ready = shifting && !blocked && shiftId && target && (kind === 'offer' || targetShift) && !busy;
+
+  async function send() {
+    setBusy(true); setErr('');
+    try {
+      await api.shiftRequestCreate({ kind, shift_id: shiftId, target_email: target, target_shift_id: kind === 'swap' ? targetShift : '', note });
+      const who = teammates.find((t) => t.email === target)?.name || target;
+      onDone(kind === 'swap' ? `Swap request sent to ${who}.` : `Shift offered to ${who}.`);
+    } catch (e) { setErr(e.message || 'Could not send the request.'); setBusy(false); }
+  }
+  function openTimeOff() {
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock', sub: 'timeoff' } }));
+    onClose();
+  }
+
+  const lbl = { fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 4 };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label="New Request"
+        style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 480, padding: 20, maxHeight: '92dvh', overflowY: 'auto', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>New Request</span>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        <div role="group" aria-label="Request type" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 14 }}>
+          {kinds.map(([k, label, Icon, on]) => (
+            <button key={k} type="button" aria-pressed={kind === k} disabled={!on} title={on ? undefined : 'Turned off by your company'}
+              onClick={() => { setKind(k); setErr(''); setTargetShift(''); }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '10px 6px', borderRadius: 10, cursor: on ? 'pointer' : 'default',
+                fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, opacity: on ? 1 : 0.45,
+                border: `1px solid ${kind === k ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
+                background: kind === k ? 'var(--wk-brand-tint)' : 'var(--card)', color: kind === k ? 'var(--wk-brand)' : 'var(--ink)' }}>
+              <Icon size={16} /> {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+          {kinds.find((k) => k[0] === kind)[4]}.{shifting ? ' Your teammate accepts first, then a manager approves.' : ' Your manager approves it.'}
+        </div>
+
+        {!shifting ? (
+          <div style={{ fontSize: 12.5, color: 'var(--ink)' }}>Time off is asked for in Workday, where your balance and past requests are.</div>
+        ) : blocked ? (
+          <div role="note" style={{ fontSize: 12.5, color: '#92400e', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8, padding: '9px 12px' }}>{blocked}</div>
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <label><div style={lbl}>Your shift</div>
+              <select className="form-select" aria-label="Your shift" value={shiftId} onChange={(e) => setShiftId(e.target.value)} style={{ width: '100%' }}>
+                <option value="">Pick one of your shifts</option>
+                {free.map((s) => <option key={s.id} value={s.id}>{span(s)}{s.label ? ` · ${s.label}` : ''}</option>)}
+              </select>
+            </label>
+            <label><div style={lbl}>Teammate</div>
+              <select className="form-select" aria-label="Teammate" value={target} onChange={(e) => { setTarget(e.target.value); setTargetShift(''); }} style={{ width: '100%' }}>
+                <option value="">Pick a teammate</option>
+                {teammates.map((t) => <option key={t.email} value={t.email}>{t.name}</option>)}
+              </select>
+            </label>
+            {kind === 'swap' && target && (
+              <label><div style={lbl}>Their shift</div>
+                {theirs.length ? (
+                  <select className="form-select" aria-label="Their shift" value={targetShift} onChange={(e) => setTargetShift(e.target.value)} style={{ width: '100%' }}>
+                    <option value="">Pick one of their shifts</option>
+                    {theirs.map((s) => <option key={s.id} value={s.id}>{span(s)}{s.label ? ` · ${s.label}` : ''}</option>)}
+                  </select>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>They have no published shifts coming up. Offer your shift instead, or pick someone else.</div>
+                )}
+              </label>
+            )}
+            <label><div style={lbl}>Note (optional)</div>
+              <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why, or anything they should know" style={{ width: '100%' }} />
+            </label>
+          </div>
+        )}
+        {err && <div role="alert" style={{ fontSize: 12.5, color: '#b91c1c', marginTop: 10 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          {shifting ? (
+            <button type="button" className="primary-btn" onClick={send} disabled={!ready} style={{ opacity: ready ? 1 : 0.55 }}>
+              {busy ? '…' : kind === 'swap' ? 'Send Swap Request' : 'Send Offer'}
+            </button>
+          ) : (
+            <button type="button" className="primary-btn" onClick={openTimeOff}>Open Time Off</button>
+          )}
+        </div>
       </div>
     </div>
   );
