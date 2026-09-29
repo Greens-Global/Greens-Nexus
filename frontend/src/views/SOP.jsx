@@ -11,6 +11,7 @@ import { formatDateLong } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { KB_OPEN_EVENT, PENDING_KB_KIND, decodeKbTarget } from '../support/openKb';
 import {
@@ -534,6 +535,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [coursePreview, setCoursePreview] = useState(false);
   const [certOpen, setCertOpen] = useState(false); // completion certificate modal
   const [shareOpen, setShareOpen] = useState(false); // SOP share/export menu
+  const shareBtn = useRef(null);
   const [courseReport, setCourseReport] = useState(null); // { course, attempts } manager report
   const [assign, setAssign] = useState(null); // { course, roster, directory, picks, due, busy, q } assign modal
   const [myAssignments, setMyAssignments] = useState([]); // employee required training
@@ -1508,18 +1510,18 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="secondary-btn" onClick={() => togglePin(d.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, color: pins.includes(d.id) ? 'hsl(38,82%,40%)' : undefined }}><Star size={14} fill={pins.includes(d.id) ? 'hsl(38,92%,48%)' : 'none'} /> {pins.includes(d.id) ? 'Pinned' : 'Pin'}</button>
-            <div style={{ position: 'relative' }}>
-              <button className="secondary-btn" onClick={() => setShareOpen(v => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Share2 size={14} /> Share</button>
-              {shareOpen && (<>
-                <div onClick={() => setShareOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', minWidth: 210, overflow: 'hidden', padding: '4px 0' }}>
-                  {typeof navigator !== 'undefined' && navigator.share && shareItem(Share2, 'Share…', doShare)}
-                  {shareItem(Link2, 'Copy link', () => copyToClipboard(docUrl))}
-                  {shareItem(FileText, 'Copy as text', () => copyToClipboard(sopAsText()))}
-                  {shareItem(Download, 'Download (.md)', downloadDoc)}
-                  {shareItem(Printer, 'Print / Save PDF', printDoc)}
-                </div>
-              </>)}
+            <div>
+              <button ref={shareBtn} className="secondary-btn" onClick={() => setShareOpen(v => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Share2 size={14} /> Share</button>
+              {/* Portaled so the header's wrapping row and the page's animated
+                  wrapper can't clip or cover it on a phone. */}
+              <AnchoredMenu anchorRef={shareBtn} open={shareOpen} onClose={() => setShareOpen(false)} align="end" minWidth={210}
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', padding: '4px 0' }}>
+                {typeof navigator !== 'undefined' && navigator.share && shareItem(Share2, 'Share…', doShare)}
+                {shareItem(Link2, 'Copy link', () => copyToClipboard(docUrl))}
+                {shareItem(FileText, 'Copy as text', () => copyToClipboard(sopAsText()))}
+                {shareItem(Download, 'Download (.md)', downloadDoc)}
+                {shareItem(Printer, 'Print / Save PDF', printDoc)}
+              </AnchoredMenu>
             </div>
             {d.status === 'approved' && !isMan && (b.procedure || []).length > 0 && !activeRun && (
               <button className="primary-btn" onClick={() => startRun(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Play size={14} /> Run This SOP</button>

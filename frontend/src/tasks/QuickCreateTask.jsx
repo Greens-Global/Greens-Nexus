@@ -11,6 +11,7 @@ import { SearchSelect } from './components';
 import { BottomSheet } from './MobileTaskBar';
 import { filesFromPaste, uploadTaskAttachment } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
 
@@ -29,6 +30,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const [files, setFiles] = useState([]); // { file, url, image }
   const [ocrBusy, setOcrBusy] = useState(false);
   const [photoMenu, setPhotoMenu] = useState(false);
+  const photoBtnRef = useRef(null);
 
   const camRef = useRef(null);
   const libRef = useRef(null);
@@ -128,19 +130,18 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
         )}
 
         {/* Toolbar: Photo · Attachment · Scan text */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
-          <button title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)} style={iconBtn()}><ImageIcon size={20} /></button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button ref={photoBtnRef} title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)} style={iconBtn()}><ImageIcon size={20} /></button>
           <button title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()} style={iconBtn()}><Paperclip size={20} /></button>
           <button title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()} style={iconBtn({ opacity: ocrBusy ? 0.5 : 1 })}><ScanText size={20} /></button>
           {ocrBusy
             ? <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>
             : <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
-          {photoMenu && (
-            <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
-              <button onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-              <button onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
-            </div>
-          )}
+          <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
+            style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
+            <button onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
+            <button onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+          </AnchoredMenu>
           {/* Hidden inputs - capture=environment opens the camera on mobile */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={addFiles} />
           <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={addFiles} />

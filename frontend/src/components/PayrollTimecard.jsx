@@ -13,6 +13,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
+import AnchoredMenu from './AnchoredMenu';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -72,42 +73,35 @@ function OptionSwitch({ checked, label, hint, onChange }) {
 // company-wide pay rules (admins only); the display choices are everyone's.
 function TimecardOptions({ self, showRaw, setShowRaw, children }) {
   const [open, setOpen] = useState(false);
-  const box = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
-  }, [open]);
+  // Portaled panel (AnchoredMenu): closes on an outside tap or Escape, and no
+  // scrolling toolbar or card can clip it on a phone.
+  const btn = useRef(null);
   const rules = [].concat(children || []).filter(Boolean);
   return (
-    <div ref={box} style={{ position: 'relative' }}>
-      <button type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
+    <div>
+      <button ref={btn} type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
         title="Timezone, unrounded times and pay rules"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
         <SlidersHorizontal size={14} /> Options
       </button>
-      {open && (
-        <div role="dialog" aria-label="Timecard options" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40, width: 320, maxWidth: '92vw', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
-          {!self && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
-              <TzSwitch />
-            </div>
-          )}
-          <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
-            hint="See the raw punch times. Totals stay computed from the rounded times." />
-          {rules.length > 0 && (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
-              {rules}
-            </>
-          )}
-        </div>
-      )}
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Timecard options"
+        style={{ width: 320, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
+        {!self && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
+            <TzSwitch />
+          </div>
+        )}
+        <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
+          hint="See the raw punch times. Totals stay computed from the rounded times." />
+        {rules.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
+            {rules}
+          </>
+        )}
+      </AnchoredMenu>
     </div>
   );
 }
@@ -630,7 +624,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,
               Hrs/day, Non-OT, OT, OT 2×, Loc, Department, Pay rate, Wage - so HR
-              reads this card exactly like the one they use today. */}
+              reads this card exactly like the one they use today. Work Log is
+              ours, not SwipeClock's, so it rides at the far right, after Wage
+              (Neil, Sep 29: mid-row it crowded Hrs/day and overlapped). */}
           <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--wk-hover)' }}>
@@ -641,7 +637,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Category</th>
                 <th style={th}>Hours</th>
                 <th style={th}>Hrs/day</th>
-                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th style={th}>Non-OT</th>
                 <th style={th}>OT</th>
                 <th style={th}>OT 2×</th>
@@ -649,6 +644,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Department</th>
                 <th style={th}>Pay rate</th>
                 <th style={th}>Wage</th>
+                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
               </tr>
             </thead>
@@ -761,11 +757,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
                     ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
                     : ''}</td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    {r.first !== false && (
-                      <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
-                    )}
-                  </td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
@@ -773,6 +764,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
                   <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    {r.first !== false && (
+                      <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
+                    )}
+                  </td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {!self && !fin && (
                       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
@@ -806,7 +802,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
-                  <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
                   <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
@@ -814,6 +809,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}></td>
                   <td style={td}>{fmtM(T.totalPay)}</td>
+                  <td style={td}></td>
                   <td style={td}></td>
                 </tr>
               </tfoot>
@@ -1078,8 +1074,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
               <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              {/* Far right, like the hourly card (Sep 29). */}
+              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
             </tr>
           </thead>
           <tbody>
@@ -1186,12 +1183,12 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                         ? outCell(lastSeg)
                         : outCell(firstSeg)}
                   </td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
-                  </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
                   <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
+                  </td>
                 </tr>
               );
 
@@ -1223,8 +1220,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       </td>
                       <td style={td}>{inCell(seg)}</td>
                       <td style={td}>{outCell(seg)}</td>
-                      <td style={td}></td>
                       <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
+                      <td style={td}></td>
                       <td style={td}></td>
                       <td style={td}></td>
                     </tr>
@@ -1307,7 +1304,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={td}>{r.action === 'add' && !isIn ? <span style={{ color: '#b45309', fontWeight: 700 }}>{t12(r.at)}</span> : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                     <td style={td}></td>
                     <td style={td}></td>
-                    <td style={td}></td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       {!self
                         ? <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -1316,6 +1312,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                           </span>
                         : <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700, fontStyle: 'italic' }}>pending approval</span>}
                     </td>
+                    <td style={td}></td>
                   </tr>
                 );
                 rows.push(

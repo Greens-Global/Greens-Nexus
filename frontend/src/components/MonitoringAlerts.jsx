@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useWorkforceView } from './workforce/viewContext';
 
 // Disclosed-monitoring tamper / coverage alerts: people who are clocked in
 // while their agent has gone quiet (killed, uninstalled, offline), so evasion
@@ -32,7 +33,9 @@ const AMBER = '#b45309';
 
 // The full list, for Workforce Analytics. Nothing is drawn when all is well.
 export function MonitoringAlertsPanel() {
-  const alerts = useMonitoringAlerts();
+  // Workforce Analytics' team view narrows this too (no view = everyone).
+  const { inView } = useWorkforceView();
+  const alerts = useMonitoringAlerts().filter((a) => inView(a.email));
   const [open, setOpen] = useState(false);
   if (!alerts.length) return null;
   const high = alerts.filter((a) => a.severity === 'high').length;

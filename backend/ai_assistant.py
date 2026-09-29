@@ -387,7 +387,9 @@ def _get_my_time_off(user: dict, db: Session, filter: str = "upcoming", **_args)
     if filter == "pending":
         rows = [r for r in rows if r.get("status") == "pending"]
     elif filter == "upcoming":
-        rows = [r for r in rows if r.get("status") == "approved" and r.get("end_date", "") >= today]
+        # _ser_timeoff sends camelCase `endDate` - reading `end_date` here
+        # always saw "" and "upcoming" came back empty (fixed Sep 29).
+        rows = [r for r in rows if r.get("status") == "approved" and (r.get("endDate") or "") >= today]
 
     return {"requests": rows}
 
