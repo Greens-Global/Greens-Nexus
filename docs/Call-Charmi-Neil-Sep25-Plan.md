@@ -64,6 +64,24 @@ Still to do on production, by a person:
 - One sentence in the Access limit dialog ("Reports, Packages and Leasing
   only") is on dev and goes to production with the next dev -> main release.
 
+Speed audit, 09/29 (timed on production, from the browser):
+- Search: see A1. A short word now waits 0.7 s for the rest of it to be
+  typed, because every search that starts runs to its end on the ledger.
+- Reports split by customer, vendor, employee, Project-Job or item read every
+  ledger line of the period: a year took 7 to 10.2 s. With working memory and
+  two covering indexes (accounting migrations `20260929140000`, `20260929150000`)
+  a year takes 4.4 to 5.5 s. Still the slowest reports on the screen.
+- Balance Sheet over the last 12 month-ends asked for 12 balance sheets at the
+  same moment (24 reads of the ledger, the slowest 8.8 s). It is now ONE read,
+  added up to each month-end on the screen.
+- Leasing asked for one read of the whole month per month (12 for a year). It
+  is now one read that starts from the tenants (accounting migration
+  `20260929130000`). No leases exist yet, so this was fixed before anyone met it.
+- Two controls changed one after the other now run one report, not two.
+- Fine as they are: Income Statement and Balance Sheet totals (1.5 to 2 s),
+  By Month / Entity / Department (2.4 s), Trial Balance (1.9 s), Cash
+  Position (1.3 s), drill-downs (under 1.5 s).
+
 Open:
 - Bundle budget is 10,000 KB (the build measures 9,902); needs the owner's
   nod like the earlier bumps.
@@ -83,10 +101,19 @@ Open:
 
 ## A. Bugs seen live on production
 
-- ☐ A1 (09/29: works on production after the release, cause of the 09/25 error never found - needs a look at the accounting database, which
-  the session was not allowed to read). What is built: the screen now shows
-  the accounting service's own reason instead of "returned 500", and says so
-  in plain words when a search runs out of time.
+- ✅ A1. FIXED 09/29, after Neil hit it again that morning ("300" answered
+  "covers too many ledger lines to finish in time"). CAUSE: a number was
+  matched as a substring first - 300 is inside 13000 (the Accounts Receivable
+  code on every receivable line), 1,300.00 and 3,000.00 - so a large share of
+  the ledger was read and then thrown away by the whole-number rule; and every
+  match was copied in full and read eight times for the totals and facets.
+  Every line now carries the whole numbers on it, indexed, and the totals
+  come out of one pass (accounting migration `20260929120000_search_fast.sql`,
+  which also serves the accounting app's own Search page and Ctrl+K). 34
+  searches return line for line what they returned before. On production:
+  "300" 1.3 s, "500" 1.3 s, "1500" 1.2 s, "amazon" 1.5 s, "2026" (135,798
+  lines) 3.9 s. Still slow by nature: a two-letter word that is on most of
+  the ledger ("in", 619,342 lines) takes 8.4 s.
   Search returns "Accounting service returned 500" (02:43). Typed "500",
   then "300", scope All dates / All books, entity Greens Global, Inc. (12000).
   Same error after Refresh. It had worked earlier the same day.

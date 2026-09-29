@@ -346,6 +346,47 @@ function earningsByBucket(rows) {
   return out;
 }
 
+// A balance sheet as of a date, from month-by-month activity since the books
+// began (bucket = the month's first day). The same statement the accounting
+// service builds for one date: balances are everything up to the date, the
+// profit of the years before sits on Retained Earnings, this year's is its
+// own line, and an account with nothing on that date is left out.
+export function balanceAsOf(rows, asof) {
+  const upTo = asof.slice(0, 7);
+  const thisYear = `${asof.slice(0, 4)}-01`;
+  const accounts = new Map();
+  let all = 0;
+  let prior = 0;
+  rows.forEach((r) => {
+    const month = (r.bucket || '').slice(0, 7);
+    if (!month || month > upTo) return;
+    if (PL_KEYS.includes(r.section)) {
+      const v = r.section === 'revenue' || r.section === 'other_income' ? r.credit - r.debit : -(r.debit - r.credit);
+      all += v;
+      if (month < thisYear) prior += v;
+      return;
+    }
+    if (!SECTIONS['balance-sheet'].some(([k]) => k === r.section)) return;
+    const cur = accounts.get(r.account_no) || { section: r.section, account_no: r.account_no, title: r.title, amount: 0 };
+    cur.amount += signed(r.section, r.debit, r.credit);
+    accounts.set(r.account_no, cur);
+  });
+  const was = round2(prior);
+  const list = (key) => [...accounts.values()].filter((a) => a.section === key)
+    .map((a) => ({ account_no: a.account_no, title: a.title, amount: round2(a.amount) }));
+  const retained = [...accounts.values()].find((a) => a.section === 'equity' && /retained\s+earnings/i.test(a.title));
+  let equity = list('equity').map((a) => (retained && a.account_no === retained.account_no ? { ...a, amount: round2(a.amount + was) } : a));
+  equity = equity.filter((a) => a.amount !== 0 || (retained && a.account_no === retained.account_no && round2(retained.amount) !== 0));
+  if (!retained) equity.push({ account_no: '', title: 'Retained earnings (prior years)', amount: was });
+  equity.push({ account_no: '', title: `Current year earnings (${asof.slice(0, 4)})`, amount: round2(round2(all) - was) });
+  const nonZero = (a) => a.amount !== 0;
+  return [
+    { key: 'asset', label: 'Assets', accounts: list('asset').filter(nonZero) },
+    { key: 'liability', label: 'Liabilities', accounts: list('liability').filter(nonZero) },
+    { key: 'equity', label: 'Equity', accounts: equity },
+  ];
+}
+
 // ── Reading the ledger ───────────────────────────────────────────────────────
 async function readColumns(api, config) {
   const { report } = config;
@@ -384,7 +425,16 @@ async function readColumns(api, config) {
     const dates = [];
     if (mode === 'month') for (let i = 0; i < 12; i += 1) dates.push(earlier(iso(endOfMonth(d.getFullYear(), d.getMonth() - i)), config.asof));
     else { const q = Math.floor(d.getMonth() / 3); for (let i = 0; i < 4; i += 1) dates.push(earlier(iso(endOfMonth(d.getFullYear(), q * 3 + 2 - i * 3)), config.asof)); }
-    const cols = await Promise.all(dates.map((asof) => one({ asof }, formatDate(asof), book, asof)));
+    // ONE read for every date (Sep 29): what each account did month by month
+    // since the books began, added up to each month-end here. It used to be
+    // a balance sheet per date, all asked for at once - twelve month-ends
+    // were 24 reads of the ledger at the same moment, the slowest of them
+    // 8.8 seconds on production, and with a dimension filter they would not
+    // have finished at all.
+    const data = await fetchBuckets(api, config, { from: undefined, to: config.asof }, 'month', book);
+    const cols = dates.map((asof) => ({
+      key: asof, label: formatDate(asof), drill: drillOf({ asof }, book), sections: balanceAsOf(data.rows || [], asof), org: data.org, generatedAt: data.generated_at,
+    }));
     return { cols, derived: null, mode: 'series' };
   }
 
