@@ -4,6 +4,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // Work sites are set by a searched, picked ADDRESS (Sep 30) - no pin placed
 // by hand. The map only shows the site.
 
+// jsdom has no SVG geometry, so Leaflet would find no renderer for the
+// geofence circle; give it the one method its SVG check looks for, before
+// Leaflet is first imported (the component is imported lazily below).
+if (typeof SVGSVGElement !== 'undefined' && !SVGSVGElement.prototype.createSVGRect) {
+  SVGSVGElement.prototype.createSVGRect = () => ({});
+}
+
 const nominatim = (items) => ({ ok: true, json: async () => items });
 const hit = (display_name, lat, lon, extra = {}) => ({ display_name, lat: String(lat), lon: String(lon), ...extra });
 
@@ -35,6 +42,14 @@ describe('address search', () => {
   });
 });
 
+describe('metersBetween', () => {
+  it('measures a fine-tuned pin against its address point', async () => {
+    const { metersBetween } = await import('../lib/addressSearch');
+    expect(Math.round(metersBetween([33.5186, -117.155], [33.5286, -117.155]))).toBe(1112);
+    expect(metersBetween([33.5, -117.1], [33.5, -117.1])).toBe(0);
+  });
+});
+
 describe('WorkSiteAddressMap', () => {
   it('sets the site from the picked address; the map cannot be clicked to move it', { timeout: 20000 }, async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(nominatim([
@@ -55,6 +70,30 @@ describe('WorkSiteAddressMap', () => {
     onPick.mockClear();
     fireEvent.click(container.querySelector('[aria-label="Map of the work site and its geofence"]'));
     expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('once an address is chosen, clicking the map moves the pin there', async () => {
+    const WorkSiteAddressMap = (await import('./WorkSiteAddressMap')).default;
+    const onAdjust = vi.fn();
+    const { container, rerender } = render(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable={false} onPick={() => {}} onAdjust={onAdjust} />);
+    const mapEl = container.querySelector('[aria-label="Map of the work site and its geofence"]');
+    fireEvent.click(mapEl, { clientX: 120, clientY: 90 });
+    expect(onAdjust).not.toHaveBeenCalled();          // an old map-pin site: search the address first
+    expect(screen.getByText(/Search the address to confirm this site/)).toBeTruthy();
+
+    rerender(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={onAdjust} />);
+    fireEvent.click(mapEl, { clientX: 120, clientY: 90 });
+    expect(onAdjust).toHaveBeenCalledTimes(1);
+    const { lat, lng } = onAdjust.mock.calls[0][0];
+    expect(Number.isFinite(lat) && Number.isFinite(lng)).toBe(true);
+  });
+
+  it('warns when the pin is far from the address point', async () => {
+    const WorkSiteAddressMap = (await import('./WorkSiteAddressMap')).default;
+    const { rerender } = render(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={() => {}} />);
+    expect(screen.getByText(/Drag the pin \(or click the map\) onto the exact building/)).toBeTruthy();
+    rerender(<WorkSiteAddressMap lat="33.5286" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={() => {}} />);
+    expect(screen.getByText(/The pin is 1\.1 km from the address/)).toBeTruthy();
   });
 
   it('says so when nothing matches, and when the search is unreachable', { timeout: 30000 }, async () => {

@@ -2,34 +2,49 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Search, Loader2, MapPin, AlertTriangle } from 'lucide-react';
-import { searchAddresses } from '../lib/addressSearch';
+import { searchAddresses, metersBetween } from '../lib/addressSearch';
 
-// Work site location, address first (Pranshu, Sep 30). Replaces the
-// click/drag-a-pin picker: a pin dropped by hand was not reliable, and a
-// geofence in the wrong place tags every punch there with the wrong site.
-// Search the address, pick the right match from the list, and the site takes
-// that address's coordinates. The map below only SHOWS the site and its
-// geofence circle - it cannot be clicked or dragged.
+// Work site location, address first (Pranshu, Sep 30).
+//
+// 1. Search the address and pick one of up to five matches - the site takes
+//    that address, and the map jumps to it in close-up satellite view.
+// 2. Fine-tune: an address search lands on the street or the parcel, not
+//    always the building people actually punch at, so once an address is
+//    chosen the pin can be dragged (or the map clicked) to the exact spot.
+//    The address stays the one picked; only the point moves, and the distance
+//    from the address point is shown - far away is called out.
+// Until an address is chosen the map only shows where things are: a site
+// always starts from its address, never from a pin dropped at random.
 //
 // Same Leaflet Map/Satellite layers as Workforce Analytics -> Locations. The
 // pin is an inline-SVG divIcon: Leaflet's default PNG icon 404s under Vite.
 const PIN_ICON = L.divIcon({
   className: 'nexus-location-pin',
-  html: '<svg width="30" height="30" viewBox="0 0 24 24" fill="hsl(217,91%,50%)" stroke="#fff" stroke-width="1.5"><path d="M12 22s8-7.58 8-13a8 8 0 1 0-16 0c0 5.42 8 13 8 13z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>',
-  iconSize: [30, 30],
-  iconAnchor: [15, 29],
+  html: '<svg width="34" height="34" viewBox="0 0 24 24" fill="hsl(217,91%,50%)" stroke="#fff" stroke-width="1.5"><path d="M12 22s8-7.58 8-13a8 8 0 1 0-16 0c0 5.42 8 13 8 13z"/><circle cx="12" cy="9" r="2.6" fill="#fff"/></svg>',
+  iconSize: [34, 34],
+  iconAnchor: [17, 33],
 });
+const FAR_M = 500;   // a pin this far from its address is probably a mistake
 
-export default function WorkSiteAddressMap({ lat, lng, radiusM, onPick }) {
+const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+
+export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = false, onPick, onAdjust }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
-  const layerRef = useRef(null);
+  const markerRef = useRef(null);
+  const circleRef = useRef(null);
+  const onAdjustRef = useRef(onAdjust);
+  useEffect(() => { onAdjustRef.current = onAdjust; });
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [matches, setMatches] = useState(null);   // null = not searched yet
   const [error, setError] = useState('');
-
-  const has = Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && lat !== '' && lng !== '';
+  const has = lat !== '' && lng !== '' && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+  const point = has ? [Number(lat), Number(lng)] : null;
+  // The address's own point - what a fine-tuned pin is measured against. Set
+  // by a pick; a saved site starts from its saved point, framed on open.
+  const [anchor, setAnchor] = useState(() => (has ? [Number(lat), Number(lng)] : null));
+  const [fitKey, setFitKey] = useState(() => (has ? 1 : 0));   // bump = re-frame the map on the site
 
   useEffect(() => {
     let map;
@@ -40,26 +55,52 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, onPick }) {
     const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' });
     const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
     const hybrid = L.layerGroup([satellite, labels]);
-    street.addTo(map);   // street map by default: the address is what is being checked
+    hybrid.addTo(map);   // satellite: the building is what the pin is placed on
     L.control.layers({ 'Map': street, 'Satellite': hybrid }, {}, { position: 'topright', collapsed: false }).addTo(map);
-    layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     setTimeout(() => { try { map.invalidateSize(); } catch { /* torn down */ } }, 120);
-    return () => { try { map.remove(); } catch { /* gone */ } mapRef.current = null; layerRef.current = null; };
+    return () => { try { map.remove(); } catch { /* gone */ } mapRef.current = null; markerRef.current = null; circleRef.current = null; };
   }, []);
 
-  // Draw the site and its geofence whenever the point or radius changes.
+  // Clicking the map moves the pin there - only once an address is chosen.
   useEffect(() => {
-    const map = mapRef.current, layer = layerRef.current;
-    if (!map || !layer) return;
-    layer.clearLayers();
-    if (!has) return;
-    const p = [Number(lat), Number(lng)];
+    const map = mapRef.current;
+    if (!map) return undefined;
+    const onClick = (e) => { if (adjustable) onAdjustRef.current?.({ lat: e.latlng.lat, lng: e.latlng.lng }); };
+    map.on('click', onClick);
+    return () => { map.off('click', onClick); };
+  }, [adjustable]);
+
+  // Draw (or move) the pin and its geofence circle.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!point) {
+      markerRef.current?.remove(); circleRef.current?.remove();
+      markerRef.current = null; circleRef.current = null;
+      return;
+    }
     const r = Math.max(25, Number(radiusM) || 150);
-    L.circle(p, { radius: r, color: 'hsl(217,91%,50%)', weight: 2, fillOpacity: 0.12, interactive: false }).addTo(layer);
-    L.marker(p, { icon: PIN_ICON, interactive: false, keyboard: false }).addTo(layer);
-    try { map.fitBounds(L.latLng(p).toBounds(r * 2.6), { maxZoom: 17 }); } catch { /* degenerate */ }
-  }, [lat, lng, radiusM, has]);
+    if (!circleRef.current) circleRef.current = L.circle(point, { radius: r, color: 'hsl(217,91%,50%)', weight: 2, fillOpacity: 0.12, interactive: false }).addTo(map);
+    else { circleRef.current.setLatLng(point); circleRef.current.setRadius(r); }
+    if (!markerRef.current) {
+      markerRef.current = L.marker(point, { icon: PIN_ICON, draggable: adjustable, keyboard: false, title: 'Drag to the exact spot' }).addTo(map);
+      markerRef.current.on('dragend', () => { const p = markerRef.current.getLatLng(); onAdjustRef.current?.({ lat: p.lat, lng: p.lng }); });
+      markerRef.current.on('drag', () => circleRef.current?.setLatLng(markerRef.current.getLatLng()));
+    } else {
+      markerRef.current.setLatLng(point);
+    }
+    if (markerRef.current.dragging) {
+      if (adjustable) markerRef.current.dragging.enable(); else markerRef.current.dragging.disable();
+    }
+  }, [lat, lng, radiusM, adjustable]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Frame the site close enough to see the building (on a pick / on open).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !point || !fitKey) return;
+    try { map.setView(point, 18); } catch { /* degenerate */ }
+  }, [fitKey]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   async function run() {
     const q = query.trim();
@@ -72,8 +113,13 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, onPick }) {
 
   const pick = (m) => {
     onPick({ address: m.address, lat: m.lat, lng: m.lng });
+    setAnchor([m.lat, m.lng]);
+    setFitKey((k) => k + 1);
     setMatches(null); setQuery('');
   };
+
+  const moved = point && anchor ? metersBetween(anchor, point) : 0;
+  const far = moved > FAR_M;
 
   return (
     <div>
@@ -106,7 +152,7 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, onPick }) {
                 {m.address}
                 {!m.exact && (
                   <span style={{ display: 'block', fontSize: 11, color: '#b45309', marginTop: 2 }}>
-                    Approximate - matches the street or area, not the exact building.
+                    Approximate - matches the street or area, not the exact building. Drag the pin onto the building after picking it.
                   </span>
                 )}
               </span>
@@ -117,10 +163,16 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, onPick }) {
 
       <div ref={mapElRef} aria-label="Map of the work site and its geofence"
         style={{ width: '100%', height: '100%', minHeight: 460, borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden', position: 'relative', zIndex: 0 }} />
-      <p style={{ fontSize: 11, color: 'var(--muted)', margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 5 }}>
-        {has
-          ? <>The blue circle is the geofence. Punches inside it count as at this site.</>
-          : <><AlertTriangle size={12} /> Search the address to place this site.</>}
+      <p style={{ fontSize: 11, margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 5, color: far ? '#b45309' : 'var(--muted)' }}>
+        {!point
+          ? <><AlertTriangle size={12} /> Search the address to place this site.</>
+          : !adjustable
+            ? <>Search the address to confirm this site. The blue circle is the geofence.</>
+            : far
+              ? <><AlertTriangle size={12} /> The pin is {distText(moved)} from the address - make sure it is on the right building.</>
+              : moved >= 5
+                ? <>Pin moved {distText(moved)} from the address point. The blue circle is the geofence.</>
+                : <>Drag the pin (or click the map) onto the exact building. The blue circle is the geofence.</>}
       </p>
     </div>
   );

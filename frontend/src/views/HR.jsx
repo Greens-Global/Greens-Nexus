@@ -3723,7 +3723,8 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
         {field('LATITUDE', 'latitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
         {field('LONGITUDE', 'longitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
         <div style={{ gridColumn: '1 / -1', fontSize: 11.5, marginTop: -6, color: f.address_verified || (f.verifiedAt && f.latitude) ? 'hsl(var(--color-green))' : '#b45309' }}>
-          {f.address_verified ? 'Location set from the address you picked. Save to keep it.'
+          {f.address_verified && f.pin_adjusted ? 'Pin fine-tuned on the map from the address you picked. Save to keep it.'
+            : f.address_verified ? 'Location set from the address you picked. Drag the pin onto the exact building if needed, then save.'
             : f.verifiedAt && f.latitude ? `Location verified from its address on ${formatDate(f.verifiedAt)}.`
             : f.latitude ? 'This location came from the old map pin. Search the address to confirm it.'
             : 'No location yet. Search the address to place this site.'}
@@ -3736,9 +3737,17 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
       </div>
       <div style={{ flex: '1 1 360px', minWidth: 300 }}>
         <label style={FL}>FIND THE ADDRESS</label>
+        {/* Fine-tuning the pin (Sep 30) is open once an address is chosen -
+            picked now, or already verified - never on an old map-pin site. */}
         <WorkSiteAddressMap lat={f.latitude} lng={f.longitude} radiusM={f.radius_m}
+          adjustable={!!(f.address_verified || (f.verifiedAt && f.latitude))}
           onPick={({ address, lat, lng }) => {
-            set('address', address); set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6)); set('address_verified', true);
+            set('address', address); set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
+            set('address_verified', true); set('pin_adjusted', false);
+          }}
+          onAdjust={({ lat, lng }) => {
+            set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
+            set('address_verified', true); set('pin_adjusted', true);
           }} />
       </div>
       <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
