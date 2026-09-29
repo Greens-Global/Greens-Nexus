@@ -425,15 +425,24 @@ async function readColumns(api, config) {
     const dates = [];
     if (mode === 'month') for (let i = 0; i < 12; i += 1) dates.push(earlier(iso(endOfMonth(d.getFullYear(), d.getMonth() - i)), config.asof));
     else { const q = Math.floor(d.getMonth() / 3); for (let i = 0; i < 4; i += 1) dates.push(earlier(iso(endOfMonth(d.getFullYear(), q * 3 + 2 - i * 3)), config.asof)); }
-    // ONE read for every date (Sep 29): what each account did month by month
-    // since the books began, added up to each month-end here. It used to be
-    // a balance sheet per date, all asked for at once - twelve month-ends
-    // were 24 reads of the ledger at the same moment, the slowest of them
-    // 8.8 seconds on production, and with a dimension filter they would not
-    // have finished at all.
-    const data = await fetchBuckets(api, config, { from: undefined, to: config.asof }, 'month', book);
+    // TWO reads for every date (Sep 29): where each account stood at the end
+    // of the year before the oldest date, and what it did month by month
+    // since; the balance on each date is added up here. It used to be a
+    // balance sheet per date, all asked for at once - twelve month-ends were
+    // 24 reads of the ledger at the same moment, the slowest of them 8.8
+    // seconds on production, and with a dimension filter they would not have
+    // finished at all. (Every month since the books began, in one read, was
+    // no better: 7.6 seconds, nearly all of it carrying months nobody sees.)
+    const firstYear = Number(dates[dates.length - 1].slice(0, 4));
+    const opening = `${firstYear - 1}-12-31`;
+    const [before, since] = await Promise.all([
+      fetchBuckets(api, config, { from: undefined, to: opening }, 'total', book),
+      fetchBuckets(api, config, { from: `${firstYear}-01-01`, to: config.asof }, 'month', book),
+    ]);
+    // The opening balances count as one month, the last of that earlier year.
+    const rows = [...(before.rows || []).map((r) => ({ ...r, bucket: `${firstYear - 1}-12-01` })), ...(since.rows || [])];
     const cols = dates.map((asof) => ({
-      key: asof, label: formatDate(asof), drill: drillOf({ asof }, book), sections: balanceAsOf(data.rows || [], asof), org: data.org, generatedAt: data.generated_at,
+      key: asof, label: formatDate(asof), drill: drillOf({ asof }, book), sections: balanceAsOf(rows, asof), org: since.org, generatedAt: since.generated_at,
     }));
     return { cols, derived: null, mode: 'series' };
   }
