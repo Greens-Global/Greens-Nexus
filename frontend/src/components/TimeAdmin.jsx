@@ -15,6 +15,8 @@ import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { ErrorBanner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
+import { takePendingOpen } from '../lib/pendingOpen';
+import TimesheetsToReview from './TimesheetsToReview';
 import { Avatar } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
@@ -104,7 +106,37 @@ const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 export default function TimeAdmin({ toastOk, toastErr }) {
   const [view, setView] = useState('payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
-  const [payrollEmail, setPayrollEmail] = useState('');   // preselect a person in the Payroll view (from the "to review" badge)
+  // A specific employee + period to open (Sep 29): Timesheets to Review, the
+  // "Timesheet to review" bell, and the Daily Briefing / Weekly Digest link.
+  // The key remounts the timecard so it starts on that period. Read once on
+  // mount - from an email link's ?timecard=<email>&start=<date>&type=<pay type>,
+  // else a bell click left for this screen while it was still loading.
+  const [firstTarget] = useState(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('timecard')) return { email: q.get('timecard'), start: q.get('start') || '', payType: q.get('type') || '' };
+    return takePendingOpen('timecard');
+  });
+  const [payrollEmail, setPayrollEmail] = useState(firstTarget?.email || '');   // preselect a person in the Payroll view (from the "to review" badge)
+  const [payrollTarget, setPayrollTarget] = useState({ start: firstTarget?.start || '', payType: firstTarget?.payType || '', key: 0 });
+  const openTimecard = useCallback((email, start, payType) => {
+    if (!email) return;
+    setPayrollEmail(email);
+    setPayrollTarget(t => ({ start: start || '', payType: payType || '', key: t.key + 1 }));
+    setView('payroll');
+  }, []);
+  useEffect(() => {
+    // Drop the link's parameters once used, so a reload doesn't reopen it.
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('timecard')) {
+      ['timecard', 'start', 'type'].forEach(k => q.delete(k));
+      const rest = q.toString();
+      window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+    // A bell click while this screen is already open.
+    const onOpen = (e) => { takePendingOpen('timecard'); openTimecard(e.detail?.email, e.detail?.start, e.detail?.payType); };
+    window.addEventListener('nexus:open-timecard', onOpen);
+    return () => window.removeEventListener('nexus:open-timecard', onOpen);
+  }, [openTimecard]);
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -419,6 +451,10 @@ export default function TimeAdmin({ toastOk, toastErr }) {
           </div>
         ))}
       </div>
+
+      {/* Timesheets submitted to me and not decided yet (Sep 29). */}
+      <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
+        onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
 
       {/* Monitoring tamper/coverage alerts - clocked in but agent quiet. */}
       {monAlerts.length > 0 && (
@@ -748,7 +784,8 @@ export default function TimeAdmin({ toastOk, toastErr }) {
       {/* Shifts moved out to its own module in My Desk (Sep 29) - views/Shifts.jsx. */}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
-      {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail} />}
+      {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
+        initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
 
 
       {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it.

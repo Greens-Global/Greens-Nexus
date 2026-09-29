@@ -258,5 +258,92 @@ class StateTests(ReviewCase):
         self.assertIsNone(mgr_view["myPartyId"])
 
 
+class WaitingOnReviewerTests(ReviewCase):
+    """Sep 29: the reviewer's list, the up-front Agree blocker, where the bell
+    goes, and the Daily Briefing line."""
+
+    def _bells(self, to):
+        self.db.expire_all()
+        return self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == to).all()
+
+    def test_the_reviewer_sees_what_is_waiting_on_them(self):
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])
+        tsr.submit(self.db, EMP, ANCHOR, "All in")
+        rows = [tsr.queue_row(self.db, r) for r in tsr.waiting_on(self.db, MGR)]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["employeeEmail"], row["name"], row["periodStart"], row["workedMin"], row["note"]),
+                         (EMP, "Erin Test", self.start, 420, "All in"))
+        self.assertEqual(row["agreeBlocker"], "")          # the period is over and clean
+        self.assertEqual(tsr.waiting_on(self.db, HR), [])  # only the person it waits on
+        tsr.send_back(self.db, self._r(), MGR, "Check Monday")
+        self.assertEqual(tsr.waiting_on(self.db, MGR), [])  # decided: off the list
+
+    def test_the_waiting_endpoint_is_the_callers_own_list(self):
+        tsr.submit(self.db, EMP, ANCHOR)
+        prev = os.environ.get("NEXUS_DEV_EMAIL")
+        os.environ["NEXUS_DEV_EMAIL"] = MGR
+        try:
+            r = self.client.get("/timesheet-review/waiting")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual([x["employeeEmail"] for x in r.json()["reviews"]], [EMP])
+            os.environ["NEXUS_DEV_EMAIL"] = HR
+            self.assertEqual(self.client.get("/timesheet-review/waiting").json()["reviews"], [])
+        finally:
+            if prev is None:
+                os.environ.pop("NEXUS_DEV_EMAIL", None)
+            else:
+                os.environ["NEXUS_DEV_EMAIL"] = prev
+
+    def test_agree_says_why_it_cannot_go_through_yet(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        real = timeclock._employee_today
+        timeclock._employee_today = lambda db, email: self.start      # the period is still running
+        try:
+            msg = tsr.agree_blocker(self.db, r)
+            self.assertIn(f"This period runs to {tsr.us_date(self.end)}", msg)
+            self.assertEqual(tsr.state_for(self.db, EMP, self.start, MGR, True)["agreeBlocker"], msg)
+            self.assertEqual(tsr.state_for(self.db, EMP, self.start, EMP, False)["agreeBlocker"], "")
+        finally:
+            timeclock._employee_today = real
+        self._punch(self.end, "in", "16:00:00")                        # an open shift: no clock-out
+        self.db.commit()
+        msg = tsr.agree_blocker(self.db, self._r())
+        self.assertIn(f"{tsr.us_date(self.end)}: no clock-out - add the out time", msg)
+        self.assertIn("Or send it back to the employee to fix.", msg)
+        with self.assertRaises(HTTPException) as e:                      # agree says the same, no "override"
+            tsr.agree(self.db, self._r(), MGR)
+        self.assertIn("no clock-out - add the out time", e.exception.detail["message"])
+        self.assertNotIn("override", e.exception.detail["message"])
+
+    def test_a_break_that_never_ended_is_called_that(self):
+        from routers import timeclock as tcm
+        exc = [{"date": "2026-08-05", "type": "missing_break_end", "label": "", "blocking": True}]
+        self.assertEqual(tcm._exception_summary(exc),
+                         "08/05/2026: a break that never ended - click its Break time to set when it ended")
+        with self.assertRaises(HTTPException) as e:
+            tcm._exceptions_409(exc)
+        self.assertTrue(e.exception.detail["message"].startswith("Fix this on the timesheet before sign-off - 08/05/2026"))
+        self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
+
+    def test_the_bell_takes_the_manager_to_that_timecard(self):
+        tsr.submit(self.db, EMP, ANCHOR)
+        import json as _json
+        action = _json.loads(self._bells(MGR)[-1].action)
+        self.assertEqual(action, {"view": "hr", "sub": "hr-time", "timecard": EMP,
+                                  "start": self.start, "payType": "hourly"})
+        tsr.send_back(self.db, self._r(), MGR, "Check Monday")
+        self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
+
+    def test_the_daily_briefing_asks_the_manager_to_review_it(self):
+        import daily_briefing
+        tsr.submit(self.db, EMP, ANCHOR)
+        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {}) if r["module"] == "timecard"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["title"], "Review Erin Test's timesheet")
+        self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
+        self.assertTrue(rows[0]["url"].endswith(f"/hr/hr-time?timecard=emp.ts%40greensglobal.com&start={self.start}&type=hourly"))
+
+
 if __name__ == "__main__":
     unittest.main()

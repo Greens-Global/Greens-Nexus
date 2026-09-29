@@ -17,8 +17,13 @@ const COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2'
 function daysLabel(csv) {
   const set = new Set((csv || '').split(',').filter(Boolean));
   const on = DAYS.filter(([n]) => set.has(n)).map(([, l]) => l);
-  if (on.length === 5 && !set.has('6') && !set.has('7')) return 'Mon–Fri';
+  if (on.length === 5 && !set.has('6') && !set.has('7')) return 'Mon-Fri';
   return on.join(', ') || '-';
+}
+// '17:30' -> '5:30 PM' (US 12-hour, app-wide).
+function hm12(hhmm) {
+  const [h, m] = (hhmm || '0:0').split(':').map(Number);
+  return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
 export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
@@ -151,7 +156,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 <button onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0 })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
                 <button onClick={() => delShift(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{s.start}–{s.end} · {daysLabel(s.days)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{hm12(s.start)} - {hm12(s.end)} · {daysLabel(s.days)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace{s.breakMin ? ` · ${s.breakMin}m unpaid break` : ''} · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
             </div>
           ))}

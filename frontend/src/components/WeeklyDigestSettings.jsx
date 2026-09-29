@@ -1,6 +1,7 @@
 // Weekly Digest - admin settings (Sep 28 2026). Separate from the Daily
 // Briefing (backend weekly_digest.py): one email per person per week listing
-// their overdue tasks with due dates and an Extend Due Date button. Neil's
+// their overdue tasks with due dates and an Extend Due Date button, plus
+// "Still to Do" - the Daily Briefing's Action Required items (Sep 29). Neil's
 // default is every Monday, 2 hours before the person's shift, and it is meant
 // to just work - these settings exist to test it and switch it on, not for
 // every employee to tune. Same Global-Admin bar, off/test/live modes and
@@ -97,7 +98,8 @@ export default function WeeklyDigestSettings() {
       </div>
       <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 14 }}>
         One email a week listing each employee's overdue tasks with their due dates, and a button to extend each
-        one. Managers also see which of their reports have overdue work. Separate from the Daily Briefing.
+        one, plus everything else still waiting on them (approvals, time off to decide, time card, items, tickets,
+        documents to sign). Managers also see which of their reports have overdue work. Separate from the Daily Briefing.
       </div>
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${NX.border}` }}>
         {[['settings', 'Settings'], ['log', 'Delivery Log']].map(([k, lab]) => (
@@ -188,7 +190,7 @@ export default function WeeklyDigestSettings() {
               This sends a real email to every employee in the company
             </div>
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
-              Everyone with an overdue task gets their digest on the next send day. Check Test mode with a few real
+              Everyone with an overdue task or other work waiting gets their digest on the next send day. Check Test mode with a few real
               people first.
             </div>
             {savedMode !== 'live' && (
@@ -249,8 +251,8 @@ function SendTestDigest({ testRecipients }) {
     try {
       const r = await api.sendTestWeeklyDigest(email);
       const where = (r.recipients || []).join(', ');
-      if (!r.sent) setResult({ ok: true, text: `${r.employeeEmail} has nothing overdue right now, so there is nothing to send.` });
-      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
+      if (!r.sent) setResult({ ok: true, text: `${r.employeeEmail} has nothing overdue or waiting right now, so there is nothing to send.` });
+      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} still to do` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
     } catch (e) { setResult({ ok: false, text: e.message || String(e) }); }
     finally { setBusy(false); }
   };
@@ -287,7 +289,9 @@ function SendTestDigest({ testRecipients }) {
 function statusOf(row) {
   if (row.sentAt) return { label: 'Sent', color: NX.green, Icon: CheckCircle2 };
   if (row.mode === 'off') return { label: 'Off (scan only)', color: NX.faint, Icon: MinusCircle };
-  if (!((row.overdueCount || 0) + (row.teamCount || 0))) return { label: 'Nothing overdue', color: NX.faint, Icon: MinusCircle };
+  // The log counts overdue work only; a digest with only "Still to Do" items
+  // that went out shows as Sent above.
+  if (!((row.overdueCount || 0) + (row.teamCount || 0))) return { label: 'Nothing to send', color: NX.faint, Icon: MinusCircle };
   return { label: 'Send failed', color: NX.red, Icon: XCircle };
 }
 
@@ -328,7 +332,7 @@ function DigestDeliveryLog() {
       const res = await api.forceResendWeeklyDigest(row.id);
       if (res.sentNow) setNote(`Sent ${row.employeeEmail}'s weekly digest.`);
       else if (res.mode === 'off') setNote('Cleared, but Mode is Off - nothing was sent. Switch to Test or Live first.');
-      else if (!res.hadContent) setNote(`${row.employeeEmail} has nothing overdue right now - no email needed.`);
+      else if (!res.hadContent) setNote(`${row.employeeEmail} has nothing overdue or waiting right now - no email needed.`);
       else setErr('Cleared, but the send did not go through.');
       load();
     } catch (e) { setErr(e.message || String(e)); }
