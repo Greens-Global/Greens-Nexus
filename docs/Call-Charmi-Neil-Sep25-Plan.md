@@ -13,8 +13,8 @@ figures from it are recorded here.
 Screens they had open: left monitor = Nexus prod / Intacct / Excel, right
 monitor = Nexus prod Accounting Reports and the accounting app Reports page.
 
-Status key: ☐ not built, 🔨 built and committed locally (not pushed, not on
-any site yet), ✅ live on PRODUCTION.
+Status key: ☐ not built or not done, ✅ live on PRODUCTION (released
+09/29/2026).
 
 ## Status - 09/29/2026: LIVE ON PRODUCTION
 
@@ -54,9 +54,15 @@ Still to do on production, by a person:
 - Roles & Access: grant "Personal Financial Statements" to whoever builds
   the statements with Charmi (nobody has it by default; administrators are
   not let in by role, Global Admins are).
-- People - Companies: check each company has its HR contact, since punch
-  and time-off requests now reach that person.
-- F3: set the eight named people to Exempt.
+- People - Companies: set the HR contact. Checked 09/29: NONE of the five
+  companies has one (Aarav Construction, GGCon, Greens Global, Oversite
+  Management, Sacred Natural), so punch and time-off requests still reach
+  only the manager and the Global Admins.
+- F3: set the eight named people to Exempt. Checked 09/29: none of them is.
+  Charmi and Neil each have two people records; Shivani has no pay record
+  yet, and the switch lives on the pay record.
+- One sentence in the Access limit dialog ("Reports, Packages and Leasing
+  only") is on dev and goes to production with the next dev -> main release.
 
 Open:
 - Bundle budget is 10,000 KB (the build measures 9,902); needs the owner's
@@ -64,9 +70,15 @@ Open:
 - GitHub artifact storage for the organization is full. The accounting
   deploy no longer needs it; anything else that uploads artifacts in a
   private repository will fail until old artifacts are cleared.
-- Backend test files that fail on dev with or without this batch: e-sign
-  paper return, roles and upload fields, external auth and users, policy
-  config, task batch mail.
+- Backend tests, the seven files that were failing: five are fixed. The
+  e-sign files and external sign-in were being answered 429 by the request
+  rate limiter (now off for pytest runs, `backend/conftest.py`); the policy
+  test was counting people a test of this batch had left behind (that test
+  now only runs against its own database). Two remain, both Sagar's:
+  `test_task_batch_mail` (uses the machine's date where the code uses the
+  business time zone, so "due tomorrow" fails from midnight to about 12:30 PM
+  India time) and `test_external_users` (the guest is missing from the
+  directory when a caller opts in).
 
 
 ## A. Bugs seen live on production
@@ -78,9 +90,9 @@ Open:
   Search returns "Accounting service returned 500" (02:43). Typed "500",
   then "300", scope All dates / All books, entity Greens Global, Inc. (12000).
   Same error after Refresh. It had worked earlier the same day.
-- 🔨 A2. No loading state on search (03:28). After typing, nothing shows that
+- ✅ A2. No loading state on search (03:28). After typing, nothing shows that
   work is happening, so they did not know whether to press Enter.
-- 🔨 A3. September shows 0.00 on every line (58:11). P&L, This Month
+- ✅ A3. September shows 0.00 on every line (58:11). P&L, This Month
   09/01/2026 - 09/25/2026, accrual: Gross Profit, Operating Income and Net
   Income all 0.00 for MCD Services, Inc. (56000) and Greens Escondido, LLC
   (15000). Charmi believes it is every entity. August for Escondido is fine
@@ -93,7 +105,7 @@ Open:
   every entity. Year to date was never affected. Fixed in
   `20260928100000_lms_core_same_month_tail.sql`; 48 of 48 ranges match the raw
   ledger in a local test database (the live logic fails 9).
-- 🔨 A4. Custom dates picker cannot move to the current month (59:23). With
+- ✅ A4. Custom dates picker cannot move to the current month (59:23). With
   08/01/2026 - 08/31/2026 selected, the calendar's next-month arrow does
   nothing. Likely the From input is capped at the To date.
 - ☐ A5. Time Clock shifts: assigning "Accounting - VSB" put the shift under
@@ -107,27 +119,27 @@ Direction: the accounting app's Reports page is the model. One slim row of
 dropdowns, the statement starts high on the page. "By the time you actually
 get to the report, half your screen is already gone."
 
-- 🔨 B1. No chips for report choice (01:48). Profit & Loss / Balance Sheet /
+- ✅ B1. No chips for report choice (01:48). Profit & Loss / Balance Sheet /
   Trial Balance / Cash Position become a dropdown, like the accounting app's
   "P&L Statement" selector.
-- 🔨 B2. Tighten the header (02:07). Title block, search, report pills,
+- ✅ B2. Tighten the header (02:07). Title block, search, report pills,
   period, filters and entity picker currently take about 45% of the screen
   height before the first row.
-- 🔨 B3. Remove the Refresh button from the active view (03:38). Data should
+- ✅ B3. Remove the Refresh button from the active view (03:38). Data should
   load on its own. If a manual refresh stays, it lives in the top bar.
-- 🔨 B4. Entity dropdown with search inside it, and multi-select (04:00).
+- ✅ B4. Entity dropdown with search inside it, and multi-select (04:00).
   The accounting app's "Search entity by name or code" is the reference.
-- 🔨 B5. Full filter set like the accounting app's Dimensions popover (04:20):
+- ✅ B5. Full filter set like the accounting app's Dimensions popover (04:20):
   Entity, Department, Vendor, Customer, Employee, Project-Job, Item.
-- 🔨 B6. Book selector becomes one dropdown: Accrual / Cash / Both (06:09).
+- ✅ B6. Book selector becomes one dropdown: Accrual / Cash / Both (06:09).
   They confirmed a default but the transcript does not say which - ask.
-- 🔨 B7. Memorize a report (04:57 - 06:02). "Memorize" button top right, asks
+- ✅ B7. Memorize a report (04:57 - 06:02). "Memorize" button top right, asks
   for a name, saved list to reopen it in one click. The accounting app's
   Saved Reports - Save Current View is the reference.
-- 🔨 B8. Rename "Profit & Loss" to "Income Statement" everywhere (16:44).
-- 🔨 B9. Historical classes still show (00:56). Rule agreed on the call: a
+- ✅ B8. Rename "Profit & Loss" to "Income Statement" everywhere (16:44).
+- ✅ B9. Historical classes still show (00:56). Rule agreed on the call: a
   class with "(H)" in its name is historical - hide it.
-- 🔨 B10. The same filters as the accounting app's Reports page (Visesh,
+- ✅ B10. The same filters as the accounting app's Reports page (Visesh,
   09/29, from the call: "the reports are better there"). Built 09/29:
   - Period stepper: the accounting app's named periods (This Month, Last
     Month, Month-to-Date, This Quarter, Last Quarter, Quarter-to-Date, This
@@ -165,31 +177,31 @@ get to the report, half your screen is already gone."
 
 ## C. Drill-down and journal entry view
 
-- 🔨 C1. Every column resizable (06:45). Today only Account is. Descriptions
+- ✅ C1. Every column resizable (06:45). Today only Account is. Descriptions
   are cut off ("Sales Invoice: 2026/09/23 Batch Summary Entry").
-- 🔨 C2. Show / hide columns, remembered per user (07:41). Doc No is the
+- ✅ C2. Show / hide columns, remembered per user (07:41). Doc No is the
   example: off by default, can be turned back on. Matches the task already in
   Nexus: "Settings - Add adjust what columns are visible".
-- 🔨 C3. A filter box under each column header (08:46 - 10:31), Intacct style.
+- ✅ C3. A filter box under each column header (08:46 - 10:31), Intacct style.
   Filters stack: Description contains "amazon", then Date = 08/19/2026, then
   amount ends in .55. Intacct uses a leading % for "contains".
-- 🔨 C4. One font across the table (10:52). Entry number and GL code are in a
+- ✅ C4. One font across the table (10:52). Entry number and GL code are in a
   different face from the date and the account name.
-- 🔨 C5. Banding and compact rows in the drill-down (11:28). Alternating row
+- ✅ C5. Banding and compact rows in the drill-down (11:28). Alternating row
   shading like Intacct, no wasted height.
-- 🔨 C6. Hover highlights the whole row edge to edge (13:28). She reads a
+- ✅ C6. Hover highlights the whole row edge to edge (13:28). She reads a
   48-inch monitor and loses the row by the time she reaches the amount.
-- 🔨 C7. Journal entry popup (08:08, 12:33): larger and resizable. Line
+- ✅ C7. Journal entry popup (08:08, 12:33): larger and resizable. Line
   columns in this order: Account, Amount, Department, Location, Memo, Vendor,
   Project-Job, Item, Employee, Customer - shown even when blank. Entry No,
   Intacct batch and Posted date have no value to them: hide or demote.
 
 ## D. Access
 
-- 🔨 D1 (Nexus only - see the limit below). Accounting - Access tab, for the
+- ✅ D1 (Nexus only - see the limit below). Accounting - Access tab, for the
   Full level on Accounting. A limited person reads only their entities on
-  reports, search, drill-downs and journal entries, and gets Reports and
-  Packages only. The accounting APP has no entity limits of its own, so a
+  reports, search, drill-downs and journal entries, and gets Reports,
+  Packages and Leasing only. The accounting APP has no entity limits of its own, so a
   limited person cannot open it at all; limits inside the app are a separate
   piece of work. Entity-level access inside Accounting (21:59 - 23:21). Even the
   accounting team sees only the entities they are granted. Personal and
@@ -198,10 +210,10 @@ get to the report, half your screen is already gone."
 
 ## E. New modules asked for
 
-- 🔨 E1. Reporting Package Builder (19:37). Pick 9 or 10 memorized reports
+- ✅ E1. Reporting Package Builder (19:37). Pick 9 or 10 memorized reports
   into a named package, send it out as one PDF. Lenders read it, so the PDF
   has to look professional. Depends on B7.
-- 🔨 E2 (first version). Accounting - PFS tab, for Global Admins and people
+- ✅ E2 (first version). Accounting - PFS tab, for Global Admins and people
   granted "Personal Financial Statements". A guarantor is set up once; each
   line reads the ledger (an entity's accounts at the share owned) or is kept
   by hand; the statement and its PDF are produced for any date and kept as
@@ -220,7 +232,7 @@ get to the report, half your screen is already gone."
   = net worth; standard history questions answered once; executive profile
   with photo; e-signed each time. One-time setup with Charmi maps Intacct
   accounts and ownership % to each person or trust. Needs D1 first.
-- 🔨 E3 (first version, built before the Monday walkthrough). Accounting -
+- ✅ E3 (first version, built before the Monday walkthrough). Accounting -
   Leasing tab: Rent Roll, Outstanding, Tenants. Received = what posted to the
   lease's rental income account (41101 unless changed) for that customer in
   that month - the rule the workbook used. NOT in this version: emails sent
@@ -244,9 +256,9 @@ get to the report, half your screen is already gone."
 
 ## F. Time Clock / People
 
-- 🔨 F1. Monitoring Alerts block takes half the Time screen (49:03). Move it
+- ✅ F1. Monitoring Alerts block takes half the Time screen (49:03). Move it
   to Workforce Analytics.
-- 🔨 F2. Punch change and time-off requests raise no pop-up (49:23). Notify
+- ✅ F2. Punch change and time-off requests raise no pop-up (49:23). Notify
   the person's manager and HR. The manager acts; HR acts only if the manager
   has not. Pranshu routed these to the employee's own manager plus Global
   Admins on 09/26 (dev); this batch adds the HR contact of the employee's
@@ -257,7 +269,7 @@ get to the report, half your screen is already gone."
   profile; when on, no time card. Time off is still logged by the day. Named:
   Sahil, Charmi, Neil, Rajesh, Darshana, Shivani, Pankaj, Visesh. Vinod stays
   tracked.
-- 🔨 F4. Remove the California / India toggle and the rounding controls from
+- ✅ F4. Remove the California / India toggle and the rounding controls from
   the payroll view (51:44) - previously agreed. Built as: the whole row of
   switches sits behind one Options button. Pay is computed exactly as before.
   OPEN QUESTION for Neil: did "turn it off" mean the rounding ITSELF (pay
