@@ -14,6 +14,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime } from '../lib/datetime';
+import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
@@ -462,6 +463,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '' });
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
+  // The request form's 7-column row needs ~700px; under this it stacks so
+  // Request stays on screen on phones (QA, Sep 23).
+  const toNarrow = useIsMobile('(max-width: 820px)');
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
   // Custom reasons and the admins' requests switch (Sep 29, Shifts settings).
   const [toTypes, setToTypes] = useState(null);
@@ -1058,35 +1062,48 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Time-off requests are turned off. Ask your manager to add your time off.</div>
         ) : (() => {
           const noteRow = toForm.allDay ? 2 : 3;
+          // Where each cell sits. Phones (toNarrow): type / start "to" end /
+          // All day + Total / hours / Note / Request, all full width.
+          const narrowNote = toForm.allDay ? 4 : 5;
+          const at = toNarrow ? {
+            cols: 'minmax(0,1fr) auto minmax(0,1fr)',
+            type: ['1 / -1', 1], start: [1, 2], to: [2, 2], end: [3, 2], allDay: ['1 / 3', 3],
+            request: ['1 / -1', narrowNote + 1], hours: ['1 / -1', 4], note: ['1 / -1', narrowNote], total: [3, 3],
+          } : {
+            cols: '140px 150px auto 150px auto 1fr auto',
+            type: [1, 1], start: [2, 1], to: [3, 1], end: [4, 1], allDay: [5, 1],
+            request: [7, 1], hours: ['1 / 5', 2], note: ['1 / 5', noteRow], total: [5, noteRow],
+          };
+          const cell = (k) => ({ gridColumn: at[k][0], gridRow: at[k][1] });
           return (
-            <div style={{ display: 'grid', gridTemplateColumns: '140px 150px auto 150px auto 1fr auto', gap: 10, alignItems: 'center' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: at.cols, gap: 10, alignItems: 'center' }}>
               <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
-                style={{ gridColumn: 1, gridRow: 1, fontSize: 12.5 }}>
+                style={{ ...cell('type'), fontSize: 12.5 }}>
                 {toOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
               <input className="form-input" type="date" value={toForm.start}
                 onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? f.end : e.target.value }))}
-                style={{ gridColumn: 2, gridRow: 1, fontSize: 12.5 }} />
-              <span style={{ gridColumn: 3, gridRow: 1, fontSize: 12, color: 'var(--muted)' }}>to</span>
+                style={{ ...cell('start'), fontSize: 12.5, minWidth: 0 }} />
+              <span style={{ ...cell('to'), fontSize: 12, color: 'var(--muted)' }}>to</span>
               <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay}
                 title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
                 onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
-                style={{ gridColumn: 4, gridRow: 1, fontSize: 12.5, opacity: toForm.allDay ? 1 : 0.55 }} />
+                style={{ ...cell('end'), fontSize: 12.5, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
               {/* Teams' New Request "All day" switch (Pranshu, Sep 16): on = whole
                   day(s), off = a specific start/end time on that one day. */}
-              <label style={{ gridColumn: 5, gridRow: 1, display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <label style={{ ...cell('allDay'), display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <AllDayToggle on={toForm.allDay} onChange={toggleAllDay} />
                 All day
               </label>
               <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
-                style={{ gridColumn: 7, gridRow: 1, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, justifySelf: 'end' }}>
+                style={{ ...cell('request'), fontSize: 12.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, justifySelf: toNarrow ? 'stretch' : 'end' }}>
                 {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
               </button>
 
               {/* Specific hours: only offered on a one-day range, since that's
                   all the backend accepts a start/end time on. */}
               {!toForm.allDay && (
-                <div style={{ gridColumn: '1 / 5', gridRow: 2, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ ...cell('hours'), display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Start time</span>
                   <input className="form-input" type="time" value={toForm.startTime}
                     onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
@@ -1101,13 +1118,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   type/date fields above it. */}
               <textarea className="form-input" placeholder="Note (optional)" value={toForm.note} rows={2}
                 onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
-                style={{ gridColumn: '1 / 5', gridRow: noteRow, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
+                style={{ ...cell('note'), fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
               {/* Total: a live read of what this request will count as, using
                   the same day-fraction math as the year-at-a-glance tally
                   below, so the two numbers never disagree (Pranshu, Sep 16) -
                   directly under "All day", not beside Note. */}
               {toTotalDays > 0 && (
-                <span style={{ gridColumn: 5, gridRow: noteRow, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+                <span style={{ ...cell('total'), justifySelf: toNarrow ? 'end' : undefined, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
                   Total
                   <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
                   <span style={{ fontWeight: 600, color: 'var(--muted)' }}>day{toTotalDays === 1 ? '' : 's'}</span>
