@@ -72,8 +72,10 @@ Speed audit, 09/29 (timed on production, from the browser):
   two covering indexes (accounting migrations `20260929140000`, `20260929150000`)
   a year takes 4.4 to 5.5 s. Still the slowest reports on the screen.
 - Balance Sheet over the last 12 month-ends asked for 12 balance sheets at the
-  same moment (24 reads of the ledger, the slowest 8.8 s). It is now ONE read,
-  added up to each month-end on the screen.
+  same moment (24 reads of the ledger, the slowest 8.8 s). It is now two
+  small reads - where each account stood before the first date, and the
+  months since - added up to each month-end on the screen. (One read of every
+  month since the books began was tried first and was no faster: 7.6 s.)
 - Leasing asked for one read of the whole month per month (12 for a year). It
   is now one read that starts from the tenants (accounting migration
   `20260929130000`). No leases exist yet, so this was fixed before anyone met it.
