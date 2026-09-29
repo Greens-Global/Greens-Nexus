@@ -206,7 +206,9 @@ def view_options(user: dict = Depends(require_tracking_read), db: Session = Depe
         members = by_group.get(g.id, set()) & visible
         if members:
             groups.append({"id": g.id, "name": g.name, "count": len(members)})
-    by_name = lambda d: sorted(d, key=lambda x: (x["name"] or "").lower())
+    def by_name(d):
+        return sorted(d, key=lambda x: (x["name"] or "").lower())
+
     return {
         "companies": by_name([{"id": k, "name": ents.get(k) or k, "count": n} for k, n in companies.items()]),
         "departments": by_name([{"id": k, "name": k, "count": n} for k, n in departments.items()]),
