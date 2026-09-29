@@ -19,6 +19,7 @@ import {
 import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect } from './components';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
 import TasksWorkspace from './TasksWorkspace';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
@@ -1245,18 +1246,14 @@ function ReportCard({ title, children }) {
 
 // Every filter is a multi-select that stays COLLAPSED until opened: four
 // always-expanded checkbox lists turned this modal into a column of nested
-// scrollbars. Built on the same trigger-plus-absolute-panel idiom as
-// PersonMultiSelect (components.jsx), which already lives inside a modal -
-// picks keep the menu open, since choosing several is the whole point.
+// scrollbars. The panel is portaled (AnchoredMenu) so the modal's scrolling
+// body can't clip it - picks keep the menu open, since choosing several is
+// the whole point.
 function MultiSelectDropdown({ label, options, value, onChange, placeholder, searchable = false, emptyHint }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, []);
+  const [panelW, setPanelW] = useState(0);
 
   const toggle = (key) => onChange(value.includes(key) ? value.filter((v) => v !== key) : [...value, key]);
   const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q.toLowerCase())) : options;
@@ -1270,8 +1267,8 @@ function MultiSelectDropdown({ label, options, value, onChange, placeholder, sea
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={fieldLabel}>{label}</label>
-      <div ref={ref} style={{ position: 'relative' }}>
-        <button type="button" onClick={() => setOpen((o) => !o)}
+      <div>
+        <button ref={ref} type="button" onClick={() => { setPanelW(ref.current?.offsetWidth || 0); setOpen((o) => !o); }}
           style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', gap: 8 }}>
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: chosen.length ? NX.ink : NX.faint }}>
             {summary}
@@ -1288,12 +1285,11 @@ function MultiSelectDropdown({ label, options, value, onChange, placeholder, sea
             <ChevronDown size={15} style={{ color: NX.faint }} />
           </span>
         </button>
-        {open && (
-          <div className="nx-scroll" style={{
-            position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface,
-            border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
-            zIndex: 50, maxHeight: 260, overflowY: 'auto',
-          }}>
+        <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} role="listbox" aria-multiselectable="true" style={{
+          width: panelW || undefined, background: NX.surface,
+          border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
+        }}>
+          <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
             {searchable && (
               <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${label.toLowerCase()}…`}
                 style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
@@ -1314,7 +1310,7 @@ function MultiSelectDropdown({ label, options, value, onChange, placeholder, sea
               </div>
             )}
           </div>
-        )}
+        </AnchoredMenu>
       </div>
     </div>
   );

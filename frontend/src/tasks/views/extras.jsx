@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video
 import { NX, FONT, btn, STATUS_META, STATUS_ORDER } from '../theme';
 import { taskStats } from '../lib';
 import { Card, LightBar, Donut, TrendArea, CustomChartsPanel } from './charts';
+import AnchoredMenu from '../../components/AnchoredMenu';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -55,13 +56,6 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
   const showRef = useRef(null);
   const [region, setRegion] = useState(() => localStorage.getItem('nexus.calendarHolidayRegion') || 'us');
   useEffect(() => { localStorage.setItem('nexus.calendarHolidayRegion', region); }, [region]);
-
-  useEffect(() => {
-    if (!showOpen) return;
-    const onDown = (e) => { if (showRef.current && !showRef.current.contains(e.target)) setShowOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [showOpen]);
 
   const days = useMemo(() => {
     if (weekly) {
@@ -119,32 +113,31 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
         <button onClick={() => step(1)} style={{ ...btn('ghost'), padding: 4 }}><ChevronRight size={18} /></button>
         <button onClick={() => setCursor(new Date())} style={{ ...btn('outline'), fontSize: 12 }}>Today</button>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div ref={showRef} style={{ position: 'relative' }}>
-            <button onClick={() => setShowOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12 }}><Sliders size={13} />Show</button>
-            {showOpen && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 216, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: '6px 0' }}>
-                <div style={{ padding: '4px 12px 6px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Show on calendar</div>
-                {Object.keys(KIND_META).map((k) => {
-                  const { label, color, Icon } = KIND_META[k]; const on = show[k];
-                  return (
-                    <button key={k} onClick={() => setShow((s) => ({ ...s, [k]: !s[k] }))} style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: '6px 12px', textAlign: 'left', fontSize: 13, background: 'transparent', border: 'none', cursor: 'pointer' }}>
-                      <span style={{ display: 'flex', width: 16, height: 16, alignItems: 'center', justifyContent: 'center', borderRadius: 4, border: `1px solid ${on ? color : NX.border}`, background: on ? color : 'transparent', color: '#fff' }}>{on && <Check size={11} />}</span>
-                      <Icon size={14} style={{ color }} />
-                      <span style={{ flex: 1, color: NX.ink }}>{label}</span>
-                    </button>
-                  );
-                })}
-                {/* Holiday region lives WITH the holiday toggle it modifies -
-                    not as a separate toolbar cluster (owner call, Jul 28) */}
-                {show.holiday && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px 6px 38px' }}>
-                    {Object.entries(HOLIDAY_REGIONS).map(([key, r]) => (
-                      <button key={key} onClick={() => setRegion(key)} style={seg(region === key)}>{r.label}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+          <div>
+            <button ref={showRef} onClick={() => setShowOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12 }}><Sliders size={13} />Show</button>
+            <AnchoredMenu anchorRef={showRef} open={showOpen} onClose={() => setShowOpen(false)} align="end" role="dialog"
+              style={{ width: 216, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: '6px 0' }}>
+              <div style={{ padding: '4px 12px 6px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Show on calendar</div>
+              {Object.keys(KIND_META).map((k) => {
+                const { label, color, Icon } = KIND_META[k]; const on = show[k];
+                return (
+                  <button key={k} onClick={() => setShow((s) => ({ ...s, [k]: !s[k] }))} style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: '6px 12px', textAlign: 'left', fontSize: 13, background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                    <span style={{ display: 'flex', width: 16, height: 16, alignItems: 'center', justifyContent: 'center', borderRadius: 4, border: `1px solid ${on ? color : NX.border}`, background: on ? color : 'transparent', color: '#fff' }}>{on && <Check size={11} />}</span>
+                    <Icon size={14} style={{ color }} />
+                    <span style={{ flex: 1, color: NX.ink }}>{label}</span>
+                  </button>
+                );
+              })}
+              {/* Holiday region lives WITH the holiday toggle it modifies -
+                  not as a separate toolbar cluster (owner call, Jul 28) */}
+              {show.holiday && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 12px 6px 38px' }}>
+                  {Object.entries(HOLIDAY_REGIONS).map(([key, r]) => (
+                    <button key={key} onClick={() => setRegion(key)} style={seg(region === key)}>{r.label}</button>
+                  ))}
+                </div>
+              )}
+            </AnchoredMenu>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', borderRadius: 9, background: NX.border2, padding: 2, gap: 2 }}>
             <button onClick={() => setWeekly(false)} style={seg(!weekly)}>Month</button>

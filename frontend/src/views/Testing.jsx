@@ -16,6 +16,7 @@ import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
 import { popupRedirectUri } from '../authConfig';
 import { toViewUrl } from '../lib/storageView';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -536,6 +537,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
   const [openLog, setOpenLog] = useState('');   // bug id whose recorded steps are expanded
   const [openVid, setOpenVid] = useState('');   // bug id whose recording is expanded
   const [recMenu, setRecMenu] = useState(false);   // Record choice popover
+  const recBtn = useRef(null);
   const [linked, setLinked] = useState(null);   // {case_id, run_id, failed_step} from a failing case
   const fileRef = useRef(null);
 
@@ -643,21 +645,20 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
               {QA_MODULES.map(m => <option key={m}>{m}</option>)}
             </select>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative' }}>
-                <button className="secondary-btn" title={desc.trim() ? 'Reproduce the bug anywhere - steps, screen and voice are captured together; one Stop attaches them all here' : 'Describe the bug first, then record'}
+              <div>
+                <button ref={recBtn} className="secondary-btn" title={desc.trim() ? 'Reproduce the bug anywhere - steps, screen and voice are captured together; one Stop attaches them all here' : 'Describe the bug first, then record'}
                   onClick={() => setRecMenu(m => !m)} disabled={!desc.trim() || screenBusy}
                   style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: desc.trim() ? 1 : 0.5 }}>
                   {screenBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} />} Record
                   <ChevronRight size={12} style={{ transform: recMenu ? 'rotate(90deg)' : 'rotate(90deg) rotate(180deg)', transition: 'transform .15s' }} />
                 </button>
-                {recMenu && <div onClick={() => setRecMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
-                {recMenu && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 6, width: 236 }}>
-                    <RecOption Icon={Video} title="Video + Voice + Steps" sub="Screen recording, narrate the bug aloud - it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
-                    <RecOption Icon={Video} title="Video + Steps" sub="Screen recording, no microphone" onClick={() => beginRecording('video')} />
-                    <RecOption Icon={ListChecks} title="Steps Only" sub="Just log what you click, no recording" onClick={() => beginRecording('steps')} />
-                  </div>
-                )}
+                {/* Portaled (AnchoredMenu): closes on an outside tap, never clipped. */}
+                <AnchoredMenu anchorRef={recBtn} open={recMenu} onClose={() => setRecMenu(false)}
+                  style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 6, width: 236 }}>
+                  <RecOption Icon={Video} title="Video + Voice + Steps" sub="Screen recording, narrate the bug aloud - it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
+                  <RecOption Icon={Video} title="Video + Steps" sub="Screen recording, no microphone" onClick={() => beginRecording('video')} />
+                  <RecOption Icon={ListChecks} title="Steps Only" sub="Just log what you click, no recording" onClick={() => beginRecording('steps')} />
+                </AnchoredMenu>
               </div>
               <button className="secondary-btn" onClick={() => fileRef.current?.click()} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Paperclip size={13} /> Screenshots

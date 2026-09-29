@@ -18,6 +18,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
+import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
@@ -112,6 +113,11 @@ const cardStyle = (maxWidth, maxHeight = 'min(94dvh, 880px)') => ({ background: 
 // custom (external) name. The Egnyte-Sign "add recipient" interaction.
 function NameCombo({ value, employees, onChange, onPick, placeholder, style }) {
   const [open, setOpen] = useState(false);
+  // Portaled (AnchoredMenu) so the send wizard's scrolling modal body can't
+  // clip the matches; sized to the input it drops from.
+  const inputRef = useRef(null);
+  const [inputW, setInputW] = useState(0);
+  const show = () => { setInputW(inputRef.current?.offsetWidth || 0); setOpen(true); };
   const matches = useMemo(() => {
     const q = String(value || '').trim().toLowerCase();
     if (!q) return [];
@@ -120,20 +126,19 @@ function NameCombo({ value, employees, onChange, onPick, placeholder, style }) {
   }, [value, employees]);
   return (
     <div style={{ position: 'relative', ...style }}>
-      <input className="form-input" style={{ width: '100%' }} placeholder={placeholder || 'Full name - type to search teammates'}
-        value={value} onChange={e => { onChange(e.target.value); setOpen(true); }}
-        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
-      {open && matches.length > 0 && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 60, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', overflow: 'hidden', marginTop: 4 }}>
-          {matches.map(e => (
-            <button key={e.id} onMouseDown={ev => ev.preventDefault()} onClick={() => { onPick(e); setOpen(false); }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{e.firstName} {e.lastName}</span>
-              <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{e.workEmail}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <input ref={inputRef} className="form-input" style={{ width: '100%' }} placeholder={placeholder || 'Full name - type to search teammates'}
+        value={value} onChange={e => { onChange(e.target.value); show(); }}
+        onFocus={show} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      <AnchoredMenu anchorRef={inputRef} open={open && matches.length > 0} onClose={() => setOpen(false)} role="listbox"
+        style={{ width: inputW || undefined, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)' }}>
+        {matches.map(e => (
+          <button key={e.id} onMouseDown={ev => ev.preventDefault()} onClick={() => { onPick(e); setOpen(false); }}
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{e.firstName} {e.lastName}</span>
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{e.workEmail}</span>
+          </button>
+        ))}
+      </AnchoredMenu>
     </div>
   );
 }
@@ -1136,6 +1141,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
   }));
 
   const [listOpen, setListOpen] = useState(false);   // outstanding-fields popover
+  const listBtnRef = useRef(null);
   const [declineOpen, setDeclineOpen] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
   // Declining is itself a consequential, one-way action - Save Changes isn't
@@ -1667,8 +1673,8 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 "3/8" tells a signer they are not finished but not what is
                 missing - on a six-page packet that is the difference between
                 finishing and giving up (review section 7). */}
-            <div style={{ position: 'relative' }}>
-              <button type="button" onClick={() => setListOpen(o => !o)}
+            <div>
+              <button ref={listBtnRef} type="button" onClick={() => setListOpen(o => !o)}
                 aria-expanded={listOpen}
                 title={allDone ? 'All required fields complete' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
                 style={{ background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
@@ -1680,10 +1686,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                 {doneCount}/{required.length}
                 {allDone ? <CheckCircle size={12} /> : <ChevronDown size={12} style={{ transform: listOpen ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />}
               </button>
-              {listOpen && (
-                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 30, minWidth: 250, maxWidth: 320,
-                  maxHeight: 280, overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--line)',
-                  borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))', padding: '8px 0' }}>
+              {/* Portaled so the page's scroll areas can't clip it (phones). */}
+              <AnchoredMenu anchorRef={listBtnRef} open={listOpen} onClose={() => setListOpen(false)} align="end" minWidth={250}
+                style={{ background: 'var(--card)', border: '1px solid var(--line)',
+                  borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 8px 28px rgba(0,0,0,0.18))' }}>
+                <div style={{ maxWidth: 320, maxHeight: 280, overflowY: 'auto', padding: '8px 0' }}>
                   <div style={{ padding: '4px 14px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '.05em',
                     textTransform: 'uppercase', color: 'var(--muted)', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
                     {allDone ? 'Nothing left to fill' : `${outstanding.length} required field${outstanding.length === 1 ? '' : 's'} left`}
@@ -1707,7 +1714,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
                     </button>
                   ))}
                 </div>
-              )}
+              </AnchoredMenu>
             </div>
             {/* UETA section 8: the signer must be able to keep a copy of what
                 they are being asked to sign, while they are deciding - not

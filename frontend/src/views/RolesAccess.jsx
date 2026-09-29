@@ -14,6 +14,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 // ── Roles & Access - people-first restructure (Jul 27) ───────────────────────
 // One rule: a person's access = their ONE job role (baseline) + extra groups
@@ -148,7 +149,7 @@ export function RoleOptions({ roles, companyName, label = r => r.name }) {
 function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const wrapRef = useRef(null);
+  const btnRef = useRef(null);
   const searchRef = useRef(null);
 
   const { own, shared } = useMemo(() => {
@@ -163,15 +164,21 @@ function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false })
     };
   }, [roles, q, companyName]);
 
+  // The panel is portaled (AnchoredMenu), which closes it on an outside tap.
+  // Escape stays here, in the capture phase, so it closes only the picker and
+  // not a drawer or modal around it.
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
     const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey, true);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey, true); };
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [open]);
-  useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
+  // A frame late: the panel's first frame is hidden while it is measured.
+  useEffect(() => {
+    if (!open) return undefined;
+    const f = requestAnimationFrame(() => searchRef.current?.focus());
+    return () => cancelAnimationFrame(f);
+  }, [open]);
 
   const pick = r => { setOpen(false); setQ(''); onPick(r.id); };
   const heading = { padding: '8px 10px 4px', fontSize: 10.5, fontWeight: 800, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' };
@@ -185,39 +192,37 @@ function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false })
   );
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-block' }}>
-      <button type="button" className="secondary-btn" disabled={disabled} onClick={() => setOpen(o => !o)}
+    <div style={{ display: 'inline-block' }}>
+      <button ref={btnRef} type="button" className="secondary-btn" disabled={disabled} onClick={() => setOpen(o => !o)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 12.5 }}>
         {placeholder} <ChevronDown size={13} />
       </button>
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 60, width: 300,
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
-          boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} role="dialog" aria-label="Choose a role"
+        style={{
+          width: 300, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+          boxShadow: 'var(--shadow-lg)',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
-            <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-            <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const first = own[0] || shared[0]; if (first) pick(first); } }}
-              style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
-          </div>
-          <div style={{ maxHeight: 280, overflowY: 'auto', padding: 4 }}>
-            {own.length === 0 && shared.length === 0 ? (
-              <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
-                {q.trim() ? `No role matches "${q.trim()}".` : 'No roles available.'}
-              </div>
-            ) : (
-              <>
-                {own.length > 0 && <div style={heading}>This Company</div>}
-                {own.map(row)}
-                {shared.length > 0 && <div style={heading}>Shared Across Companies</div>}
-                {shared.map(row)}
-              </>
-            )}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
+          <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const first = own[0] || shared[0]; if (first) pick(first); } }}
+            style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
         </div>
-      )}
+        <div style={{ maxHeight: 280, overflowY: 'auto', padding: 4 }}>
+          {own.length === 0 && shared.length === 0 ? (
+            <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
+              {q.trim() ? `No role matches "${q.trim()}".` : 'No roles available.'}
+            </div>
+          ) : (
+            <>
+              {own.length > 0 && <div style={heading}>This Company</div>}
+              {own.map(row)}
+              {shared.length > 0 && <div style={heading}>Shared Across Companies</div>}
+              {shared.map(row)}
+            </>
+          )}
+        </div>
+      </AnchoredMenu>
     </div>
   );
 }

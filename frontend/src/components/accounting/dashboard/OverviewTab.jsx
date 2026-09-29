@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, SlidersHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
+import AnchoredMenu from '../../AnchoredMenu';
 import { Chip, EmptyBox, card, input } from './Bits';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
@@ -45,6 +46,8 @@ export default function OverviewTab({ canEdit }) {
   const [editing, setEditing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [menuFor, setMenuFor] = useState(null);
+  // One widget menu is open at a time, so one anchor: the "..." last clicked.
+  const menuBtn = useRef(null);
   const [flash, setFlash] = useState(null);
   const [attnAll, setAttnAll] = useState(false);
   const [form, setForm] = useState(null);   // { mode: 'new' | 'rename', name, role, copy }
@@ -206,20 +209,20 @@ export default function OverviewTab({ canEdit }) {
                       <button type="button" className="icon-btn" aria-label="Remove" onClick={() => remove(i)} style={{ padding: 4, color: 'var(--bad-fg, #dc2626)' }}><X size={13} /></button>
                     </span>
                   ) : canEdit ? (
-                    <span style={{ position: 'relative' }}>
-                      <button type="button" className="icon-btn" aria-label="Widget menu" onClick={() => setMenuFor(menuFor === i ? null : i)} style={{ padding: 4 }}><MoreHorizontal size={14} /></button>
-                      {menuFor === i ? (
-                        <div style={{ ...card, position: 'absolute', right: 0, top: 26, zIndex: 20, minWidth: 190, padding: 4, display: 'grid' }} onMouseLeave={() => setMenuFor(null)}>
-                          {[
-                            ['Move up', <ChevronUp size={13} />, () => move(i, i - 1), i === 0],
-                            ['Move down', <ChevronDown size={13} />, () => move(i, i + 1), i === widgets.length - 1],
-                            [`Change width (${SIZE_LABEL[SIZES[(SIZES.indexOf(w.size) + 1) % SIZES.length]]})`, null, () => resize(i), false],
-                            ['Remove from this view', <Trash2 size={13} />, () => remove(i), false, true],
-                          ].map(([label, icon, fn, disabled, danger]) => (
-                            <button key={label} type="button" disabled={disabled} onClick={() => { fn(); setMenuFor(null); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: 'none', background: 'none', textAlign: 'left', font: 'inherit', fontSize: '0.78rem', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, color: danger ? 'var(--bad-fg, #dc2626)' : 'inherit', borderRadius: 6 }}>{icon}{label}</button>
-                          ))}
-                        </div>
-                      ) : null}
+                    <span>
+                      <button type="button" className="icon-btn" aria-label="Widget menu" aria-haspopup="menu" aria-expanded={menuFor === i}
+                        onClick={(e) => { menuBtn.current = e.currentTarget; setMenuFor(menuFor === i ? null : i); }} style={{ padding: 4 }}><MoreHorizontal size={14} /></button>
+                      <AnchoredMenu anchorRef={menuBtn} open={menuFor === i} onClose={() => setMenuFor(null)} align="end" minWidth={190}
+                        style={{ ...card, padding: 4, display: 'grid' }}>
+                        {[
+                          ['Move up', <ChevronUp size={13} />, () => move(i, i - 1), i === 0],
+                          ['Move down', <ChevronDown size={13} />, () => move(i, i + 1), i === widgets.length - 1],
+                          [`Change width (${SIZE_LABEL[SIZES[(SIZES.indexOf(w.size) + 1) % SIZES.length]]})`, null, () => resize(i), false],
+                          ['Remove from this view', <Trash2 size={13} />, () => remove(i), false, true],
+                        ].map(([label, icon, fn, disabled, danger]) => (
+                          <button key={label} type="button" role="menuitem" disabled={disabled} onClick={() => { fn(); setMenuFor(null); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: 'none', background: 'none', textAlign: 'left', font: 'inherit', fontSize: '0.78rem', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, color: danger ? 'var(--bad-fg, #dc2626)' : 'inherit', borderRadius: 6 }}>{icon}{label}</button>
+                        ))}
+                      </AnchoredMenu>
                     </span>
                   ) : null
                 } />

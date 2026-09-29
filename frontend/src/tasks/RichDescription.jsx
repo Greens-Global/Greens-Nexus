@@ -17,7 +17,8 @@ import {
 } from 'lucide-react';
 import { NX, FONT } from './theme';
 import { Avatar } from './components';
-import { useClickOutside, useImageZoom } from './components';
+import { useImageZoom } from './components';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
 import { matchPeople } from '../lib/peopleSearch';
 
@@ -90,7 +91,6 @@ export default function RichDescription({
   // @mention autocomplete: { query, index, coords } while an @word is being typed.
   const [mention, setMention] = useState(null);
   const addRef = useRef(null);
-  const addPanelRef = useRef(null);
   const fileRef = useRef(null);
   const imageRef = useRef(null);
   // Double-click, not click: a single click on an image in the editor selects
@@ -103,7 +103,6 @@ export default function RichDescription({
   const mentionScanRef = useRef(() => {});
   const mentionKeyRef = useRef(() => false);
   const submitRef = useRef(null);
-  useClickOutside([addRef, addPanelRef], () => setAddOpen(false), addOpen);
 
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -324,23 +323,24 @@ export default function RichDescription({
 
       {toolbar && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', padding: '5px 8px', borderTop: `1px solid ${NX.border2}` }}>
-        <span ref={addRef} style={{ position: 'relative', display: 'inline-flex' }}>
+        <span ref={addRef} style={{ display: 'inline-flex' }}>
           <Btn icon={Plus} label="Attach" active={addOpen} onClick={() => setAddOpen((o) => !o)} />
-          {addOpen && (
-            <div ref={addPanelRef} style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, width: 190, zIndex: 60, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
-              {onAttachFile && (
-                <button type="button" onClick={() => { setAddOpen(false); fileRef.current?.click(); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
-                  <Paperclip size={14} style={{ color: NX.dim }} />Attach file…
-                </button>
-              )}
-              <button type="button" onClick={() => { setAddOpen(false); imageRef.current?.click(); }}
+          {/* Portaled: the editor frame and the modal/drawer body around it
+              both clip, and the toolbar sits at the frame's bottom edge. */}
+          <AnchoredMenu anchorRef={addRef} open={addOpen} onClose={() => setAddOpen(false)}
+            style={{ width: 190, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+            {onAttachFile && (
+              <button type="button" onClick={() => { setAddOpen(false); fileRef.current?.click(); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
-                <ImagePlus size={14} style={{ color: NX.dim }} />Insert image…
+                <Paperclip size={14} style={{ color: NX.dim }} />Attach file…
               </button>
-              <div style={{ padding: '4px 8px 2px', fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste</div>
-            </div>
-          )}
+            )}
+            <button type="button" onClick={() => { setAddOpen(false); imageRef.current?.click(); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
+              <ImagePlus size={14} style={{ color: NX.dim }} />Insert image…
+            </button>
+            <div style={{ padding: '4px 8px 2px', fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste</div>
+          </AnchoredMenu>
         </span>
         {/* `multiple`: a batch of photos is picked in one go. Uploaded one after
             another (not in parallel) so they land in the order they were picked. */}

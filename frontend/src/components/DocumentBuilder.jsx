@@ -30,6 +30,7 @@ import EgnyteBrowser from './EgnyteBrowser';
 import DefineMergeFieldModal from './DefineMergeFieldModal';
 import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
+import AnchoredMenu from './AnchoredMenu';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -414,6 +415,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   const editorsRef = useRef(new Map()); // pageId -> live TipTap editor
   const pendingFocusId = useRef(''); // page just added/duplicated - focus+scroll to it once its editor registers
   const [pageMenuOpen, setPageMenuOpen] = useState(''); // page id whose "..." menu is open, or ''
+  const pageMenuBtn = useRef(null); // the open page's "..." button - the menu anchors to it
   const saveTimer = useRef(null);
   const fileInputRef = useRef(null);
   const importInputRef = useRef(null);
@@ -2432,15 +2434,17 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, gap: 2 }}>
                   <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
                   {isFirst && (
-                  <button onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
+                  <button ref={pageMenuOpen === p.id ? pageMenuBtn : undefined} onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 1, color: 'var(--muted)', flex: '0 0 auto' }}>
                     <MoreVertical size={13} />
                   </button>
                   )}
                 </div>
-                {isFirst && pageMenuOpen === p.id && (<>
-                  <div onClick={() => setPageMenuOpen('')} style={{ position: 'fixed', inset: 0, zIndex: 29 }} />
-                  <div style={{ position: 'absolute', top: '100%', right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', zIndex: 30, minWidth: 190, padding: 5 }}>
+                {/* Portaled: the thumbnail rail scrolls, which clipped the
+                    old in-place menu. Closes on an outside tap or Escape. */}
+                {isFirst && pageMenuOpen === p.id && (
+                  <AnchoredMenu anchorRef={pageMenuBtn} open onClose={() => setPageMenuOpen('')} align="end" minWidth={190}
+                    style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', padding: 5 }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
                     <button onClick={() => duplicatePage(i, true)}
                       style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
@@ -2457,8 +2461,8 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                         <Trash2 size={13} /> Delete page
                       </button>
                     </>)}
-                  </div>
-                </>)}
+                  </AnchoredMenu>
+                )}
               </div>
                 );
               });
