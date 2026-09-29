@@ -8,7 +8,7 @@ import {
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
-  Ticket as TicketIcon,
+  Ticket as TicketIcon, CloudSun,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
@@ -25,6 +25,8 @@ const lazyPanel = (name) => lazy(() => import('./panels.jsx').then(m => ({ defau
 // Quick-action composers (Outlook mail/event + the Tasks module's create modal)
 // - one lazy chunk, pulled in only when a "do" action is actually clicked.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
+// Weather (Sep 29) loads with the first Weather tile, not with every dashboard.
+const WeatherWidget = lazy(() => import('./weatherWidget.jsx'));
 
 const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
 const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
@@ -799,6 +801,7 @@ export const WIDGETS = {
   // should be synchronized with calendar"). `hidden` pulls it out of the Add
   // Widget gallery so new placements only ever go through 'calendar'.
   agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true },
+  weather:       { title: 'Weather',         cat: 'Live',      icon: CloudSun,     size: { w: 4, h: 6 }, limits: { minW: 2, minH: 2, maxW: 8, maxH: 7 }, render: WeatherWidget, configurable: 'weather' },
   calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },

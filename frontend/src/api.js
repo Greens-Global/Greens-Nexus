@@ -1730,6 +1730,11 @@ export const api = {
   policyPublish:      (data) => req('/policy/publish', { method: 'POST', body: JSON.stringify(data) }),
   policyReport:       ()     => req('/policy/report'),
   policyReportCsv:    (status = 'not_accepted') => reqBlob(`/policy/report.csv?status=${status}`),
+
+  // ── Weather widget (Sep 29) - Open-Meteo through the API, see routers/weather.py ──
+  weather:          (lat, lon, units = 'imperial') => req(`/weather?lat=${lat}&lon=${lon}&units=${units}`),
+  weatherPlaces:    (q)         => req(`/weather/places?q=${encodeURIComponent(q)}`),
+  weatherPlaceName: (lat, lon)  => req(`/weather/place-name?lat=${lat}&lon=${lon}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

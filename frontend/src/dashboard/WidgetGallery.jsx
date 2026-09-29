@@ -4,6 +4,8 @@ import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_AC
 import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { WeatherConfigFields } from './weatherWidget.jsx';
+import { weatherConfigValid, WEATHER_DEFAULT } from './weatherLib';
 
 // `onClose` here is expected to already be the guarded `requestClose` when
 // the caller has editable state to protect (see ConfigModal / the picking
@@ -123,6 +125,9 @@ function ConfigFields({ type, config, onChange }) {
       </div>
     );
   }
+  if (type === 'weather') {
+    return <WeatherConfigFields config={config} onChange={onChange} />;
+  }
   if (type === 'shortcut') {
     const cur = SHORTCUT_TARGETS.findIndex(t => t.view === config.view && (t.sub || '') === (config.sub || ''));
     return (
@@ -140,6 +145,7 @@ function ConfigFields({ type, config, onChange }) {
 // Is this widget's config complete enough to add / save? Gates the primary
 // button in both the gallery's picking step and the pencil's ConfigModal.
 export function configValid(type, config) {
+  if (type === 'weather') return weatherConfigValid(config);
   if (type === 'links-folder') return !!config?.folderId;
   if (type === 'quick-actions') return !Array.isArray(config?.actions) || config.actions.length > 0;
   return true;
@@ -202,6 +208,7 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                         const initial = def.configurable === 'kpi' ? { metric: 'open_tasks' }
                           : def.configurable === 'links-folder' ? {}
                           : def.configurable === 'quick-actions' ? { actions: [...DEFAULT_QUICK_ACTIONS] }
+                          : def.configurable === 'weather' ? { ...WEATHER_DEFAULT }
                           : { ...SHORTCUT_TARGETS[0] };
                         setPicking({ type, config: initial, initial });
                       } else { onAdd(type); onClose(); }
