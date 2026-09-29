@@ -16,7 +16,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
   const prevLabel = `vs ${formatRangeLabelMonthYear(previousRange)}`
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 12, marginBottom: 20 }}>
+    <div className="mktg-kpis">
       {cards.map((c) => {
         const Icon = c.icon
         const change = pctChange(current[c.key], previous[c.key])

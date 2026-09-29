@@ -37,6 +37,9 @@ describe('TimesheetReviewPanel', () => {
     fireEvent.change(screen.getByPlaceholderText(/What needs changing/), { target: { value: 'Fix Tue' } });
     fireEvent.click(screen.getByText('Send Back'));
     await waitFor(() => expect(sendBack).toHaveBeenCalledWith('r1', 'Fix Tue'));
+    // The buttons stay disabled until Send Back settles; clicking Agree before
+    // that was a no-op on a slow CI runner (flaky, Sep 29).
+    await waitFor(() => expect(screen.getByText('Agree & Send for Signature').closest('button')).not.toBeDisabled());
     fireEvent.click(screen.getByText('Agree & Send for Signature'));
     await waitFor(() => expect(agree).toHaveBeenCalled());
   });
