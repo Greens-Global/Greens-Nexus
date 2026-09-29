@@ -498,7 +498,7 @@ function layout(config, read) {
       { label: 'Net Income', value: money(across(net)[at]), tone: across(net)[at] >= 0 ? 'good' : 'bad' },
       { label: 'Net Margin', value: share(marginAcross[at]) || '-', tone: (marginAcross[at] || 0) >= 0 ? 'good' : 'bad' },
     ];
-    if (derived === 'compare') summary.push({ label: 'Net Change', value: `${money(net[0] - net[1])}${pct(net[0], net[1]) ? ` (${pct(net[0], net[1])})` : ''}`, tone: net[0] - net[1] >= 0 ? 'good' : 'bad' });
+    if (derived === 'compare') summary.push({ label: 'Net Change', value: [money(net[0] - net[1]), pct(net[0], net[1])].filter(Boolean).join(' · '), tone: net[0] - net[1] >= 0 ? 'good' : 'bad' });
   }
   if (report === 'balance-sheet' && rows.length) {
     const le = vec((i) => t('liability')[i] + t('equity')[i]);
