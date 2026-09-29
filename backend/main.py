@@ -813,6 +813,9 @@ def _run_migrations():
             # (Charmi, Sep 29) - see the Postgres list.
             "ALTER TABLE nexus_employees ADD COLUMN work_site_ids TEXT DEFAULT ''",
             "ALTER TABLE time_punches ADD COLUMN site_set_by TEXT DEFAULT ''",
+            # Address-verified work sites (Sep 30) - see the Postgres list.
+            "ALTER TABLE hr_work_sites ADD COLUMN address_verified_at TEXT DEFAULT ''",
+            "ALTER TABLE hr_work_sites ADD COLUMN address_verified_by TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1758,6 +1761,11 @@ def _run_migrations():
         # Timecard Notes column (Charmi, Sep 29) - new table, create_all builds
         # it; RLS per CLAUDE.md.
         "ALTER TABLE timecard_notes ENABLE ROW LEVEL SECURITY",
+        # Work sites are set by address, not a map pin (Pranshu, Sep 30): when
+        # the coordinates came from a searched, picked address. Blank on every
+        # older site, so the UI asks for each to be re-checked once.
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_at TEXT DEFAULT ''",
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_by TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

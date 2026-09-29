@@ -1443,6 +1443,11 @@ class HrWorkSite(Base):
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+    # Address-first sites (Pranshu, Sep 30): the coordinates came from an
+    # address the person searched and picked - never a hand-placed pin. Blank =
+    # an older site whose point came from the map; the UI asks for a re-check.
+    address_verified_at = Column(String, default="")
+    address_verified_by = Column(String, default="")
 
 
 class HrCompanyWorkSite(Base):
