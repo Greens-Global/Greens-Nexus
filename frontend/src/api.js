@@ -1743,6 +1743,10 @@ export const api = {
   weather:          (lat, lon, units = 'imperial') => req(`/weather?lat=${lat}&lon=${lon}&units=${units}`),
   weatherPlaces:    (q)         => req(`/weather/places?q=${encodeURIComponent(q)}`),
   weatherPlaceName: (lat, lon)  => req(`/weather/place-name?lat=${lat}&lon=${lon}`),
+
+  // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
+  //    back as `notes` on timePayroll ──
+  timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
