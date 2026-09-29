@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote, Timer, Plane } from 'lucide-react';
 import { api } from '../api';
-import { formatDate } from '../lib/datetime';
+import { formatDate, zoneClock } from '../lib/datetime';
 import { SkeletonBlocks } from './AsyncState';
+import { timeOffLabel, shiftPhase } from './shiftScheduleLib';
 import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
@@ -10,20 +11,24 @@ import MyAvailability from './MyAvailability';
 // Shifts > My Shifts (was My Workday > Shifts until Sep 29, when it moved into
 // the Shifts module for everyone; the module's Manage button, managers and
 // above only, is where scheduling happens). A read-only week of the signed-in
-// person's own shifts. Scheduling stays in People > Shifts; this only shows
-// what a manager has published there - the shifts placed on them in the
-// schedule grid, or, on days with nothing placed, their default shift preset
-// on its weekdays. Time off and company holidays overlay the same days, and
-// a strip at the top says whether they are on shift right now.
+// person's own shifts: the shifts a manager placed on them in the schedule
+// grid and published. Time off and company holidays overlay the same days,
+// and a tile at the top says whether they are on shift right now.
+//
+// A day with nothing published shows the person's default preset as their
+// "Usual hours" - a reminder, NOT a shift. It used to stand in as one: it
+// counted toward the week's hours and "next shift" while the manager's grid
+// showed that day empty, so the two screens disagreed (Sep 29 audit). Only
+// published shifts count now, here and on the grid.
 //
 // Below their own week, their team (Neil, Sep 23: "Shifts should show all
 // team shifts based on what team you are on as well as your own"): one
-// week grid per shift group the manager put them in (People > Shifts >
-// Groups - the same grouping bulk assignment and the BOD/EOD chat key on),
-// every member a row, the person themself first. A teammate's day is built
-// the same way as their own - placed published shifts, else the default
-// preset on its weekdays - and approved time off shows as "Off" without
-// the reason. Nobody is asked to define a team anywhere new.
+// week grid per shift group the manager put them in (Shifts > Manage >
+// Presets & Groups - the same grouping bulk assignment and the BOD/EOD chat
+// key on), every member a row, the person themself first. What a teammate's
+// row carries - why they are off, a shift's note, activities and break - is
+// the shift settings' call (Teams "Visibility"); the API sends only what
+// this person may see.
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -39,11 +44,6 @@ function hhmmTo12(hhmm) {
   return `${h12}:${String(m || 0).padStart(2, '0')} ${ampm}`;
 }
 function minutesOf(hhmm) { const [h, m] = (hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); }
-// A shift covers `now` (minutes since midnight) - overnight shifts wrap.
-function covers(s, nowMin) {
-  const a = minutesOf(s.start), b = minutesOf(s.end);
-  return a <= b ? nowMin >= a && nowMin < b : nowMin >= a || nowMin < b;
-}
 function fmtRange(a, b) {
   return `${formatDate(dateKey(a))} - ${formatDate(dateKey(b))}`;
 }
@@ -55,16 +55,16 @@ function compact12(hhmm) {
   const h12 = h % 12 || 12;
   return m ? `${h12}:${String(m).padStart(2, '0')}${ampm}` : `${h12}${ampm}`;
 }
-// A member's shifts for one day: placed published shifts win, else their
-// default preset on its weekdays - the same rule the person's own cards use.
-function dayShiftsFor(member, key, iso) {
-  const placed = (member.scheduled || []).filter(s => s.date === key);
-  if (placed.length) return placed;
-  const preset = member.shift;
-  if (preset && (preset.days || '').split(',').includes(iso)) {
-    return [{ id: `preset-${member.email}-${key}`, start: preset.start, end: preset.end, breakMin: preset.breakMin, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }];
-  }
-  return [];
+// A default preset's hours on one of its weekdays (ISO Mon=1 ... Sun=7), or
+// null. Shown as "Usual hours" on a day with nothing published.
+function usualOn(preset, iso) {
+  return preset && (preset.days || '').split(',').includes(iso)
+    ? { start: preset.start, end: preset.end, label: preset.name } : null;
+}
+// What a shift carries beyond its times, one per line, for a tooltip.
+function detailLines(s) {
+  return [s.note, ...(s.activities || []).map(a => `${hhmmTo12(a.start)} - ${hhmmTo12(a.end)} ${a.label}`),
+    s.breakMin ? `${s.breakMin} min unpaid break` : ''].filter(Boolean);
 }
 // Paid minutes of a shift: its span (overnight wraps) minus its unpaid break.
 function paidMin(s) {
@@ -104,14 +104,12 @@ export default function MyShifts() {
   const done = (msg) => { setAsk(null); setFlash(msg); reloadReqs(); setReload(n => n + 1); };
 
   const todayKey = dateKey(now);
-  // One entry per day: placed shifts win; otherwise the default preset on
-  // its weekdays (ISO Mon=1 … Sun=7); time off and holidays ride alongside.
+  // One entry per day: the published shifts placed on it, the usual hours
+  // when there are none, and the time off and holidays that ride alongside.
   const days = useMemo(() => {
     if (!data) return [];
     const placed = {};
     for (const s of data.scheduled || []) (placed[s.date] ||= []).push(s);
-    const preset = data.shift;
-    const presetDays = new Set((preset?.days || '').split(',').filter(Boolean));
     const off = data.timeoff || [];
     const hol = {};
     for (const h of data.holidays || []) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
@@ -122,50 +120,40 @@ export default function MyShifts() {
       const d = addDays(weekStart, i);
       const key = dateKey(d);
       const iso = String(d.getDay() === 0 ? 7 : d.getDay());
-      const shifts = placed[key]
-        || (preset && presetDays.has(iso) ? [{ id: `preset-${key}`, start: preset.start, end: preset.end, breakMin: preset.breakMin, code: preset.code, label: preset.name, color: preset.color, fromPreset: true }] : []);
+      const shifts = placed[key] || [];
       const timeoff = off.filter(t => t.startDate <= key && t.endDate >= key);
-      return { date: d, key, shifts, timeoff, holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
+      return { date: d, key, shifts, usual: shifts.length ? null : usualOn(data.shift, iso), timeoff,
+        holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
     });
   }, [data, weekStart, todayKey]);
 
-  // The strip: on shift now, or when the next one starts.
-  const status = useMemo(() => {
-    if (!data) return null;
-    const nowMin = now.getHours() * 60 + now.getMinutes();
-    const today = days.find(d => d.isToday);
-    const on = today?.shifts.find(s => covers(s, nowMin));
-    if (on) return { on: true, text: `On shift now · ${hhmmTo12(on.start)} - ${hhmmTo12(on.end)}${on.label && !on.fromPreset ? ` · ${on.label}` : on.fromPreset && on.label ? ` · ${on.label}` : ''}` };
-    // next shift, this week, after now
-    for (const d of days) {
-      if (d.key < todayKey) continue;
-      for (const s of d.shifts) {
-        if (d.key === todayKey && minutesOf(s.start) <= nowMin) continue;
-        const when = d.isToday ? 'today' : d.key === dateKey(addDays(now, 1)) ? 'tomorrow' : d.date.toLocaleDateString('en-US', { weekday: 'long' });
-        return { on: false, text: `Off shift · next ${when} at ${hhmmTo12(s.start)}` };
-      }
-    }
-    return { on: false, text: 'Off shift · nothing else scheduled this week' };
-  }, [data, days, now, todayKey]);
-
   const thisWeek = start === dateKey(startOfWeek(now));
 
-  // The at-a-glance strip: the next shift, the week's paid hours, time off.
+  // The clock in a shift's own zone: its preset's, else the team's.
+  const clockOf = useMemo(() => {
+    const seen = {};
+    return (s) => (seen[s.timezone || ''] ||= zoneClock(s.timezone || data?.timeZone, now));
+  }, [data, now]);
+
+  // The at-a-glance strip: the shift they are on (or the next one), the
+  // week's paid hours, and time off. Published shifts only.
   const glance = useMemo(() => {
     if (!data) return null;
-    const nowMin = now.getHours() * 60 + now.getMinutes();
-    let next = null;
+    let on = null, next = null;
     for (const d of days) {
-      if (d.key < todayKey) continue;
-      const s = d.shifts.find(x => d.key > todayKey || minutesOf(x.end) > nowMin || minutesOf(x.end) < minutesOf(x.start));
-      if (s && !d.timeoff.some(t => t.status === 'approved')) { next = { d, s }; break; }
+      if (d.timeoff.some(t => t.status === 'approved')) continue;
+      for (const s of d.shifts) {
+        const phase = shiftPhase(s, d.key, clockOf(s));
+        if (phase === 'on' && !on) on = { d, s };
+        else if (phase === 'ahead' && !next) next = { d, s };
+      }
     }
     const worked = days.filter(d => d.shifts.length && !d.timeoff.some(t => t.status === 'approved'));
     const mins = worked.reduce((m, d) => m + d.shifts.reduce((a, s) => a + paidMin(s), 0), 0);
     const offDays = days.filter(d => d.timeoff.length).length;
     const pending = days.some(d => d.timeoff.some(t => t.status === 'pending'));
-    return { next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending };
-  }, [data, days, now, todayKey]);
+    return { on, shown: on || next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending };
+  }, [data, days, clockOf]);
 
   // The team grid: the chosen group (or the only one), each member's seven
   // days, plus who is on shift at this moment for the summary line.
@@ -177,22 +165,19 @@ export default function MyShifts() {
       ...m,
       days: days.map(d => {
         const iso = String(d.date.getDay() === 0 ? 7 : d.date.getDay());
+        const shifts = (m.scheduled || []).filter(s => s.date === d.key);
         return {
-          key: d.key, isToday: d.isToday,
-          shifts: dayShiftsFor(m, d.key, iso),
-          off: (m.timeoff || []).some(t => t.startDate <= d.key && t.endDate >= d.key),
+          key: d.key, isToday: d.isToday, shifts,
+          usual: shifts.length ? null : usualOn(m.shift, iso),
+          off: (m.timeoff || []).find(t => t.startDate <= d.key && t.endDate >= d.key) || null,
         };
       }),
     }));
   }, [team, days]);
   const onNow = useMemo(() => {
     if (!team || !thisWeek) return [];
-    const nowMin = now.getHours() * 60 + now.getMinutes();
-    return teamRows.filter(r => {
-      const today = r.days.find(d => d.isToday);
-      return today && !today.off && today.shifts.some(s => covers(s, nowMin));
-    });
-  }, [team, teamRows, now, thisWeek]);
+    return teamRows.filter(r => r.days.some(d => !d.off && d.shifts.some(s => shiftPhase(s, d.key, clockOf(s)) === 'on')));
+  }, [team, teamRows, clockOf, thisWeek]);
 
   return (
     <div>
@@ -214,11 +199,11 @@ export default function MyShifts() {
           when they work next, how much this week, and any time off. */}
       {glance && !error && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
-          <GlanceTile icon={Clock} label={status?.on ? 'On Shift Now' : 'Next Shift'} tone={status?.on ? 'green' : 'brand'}
-            value={glance.next
-              ? `${glance.next.d.isToday ? 'Today' : glance.next.d.key === dateKey(addDays(now, 1)) ? 'Tomorrow' : `${DOW[glance.next.d.date.getDay()]} ${glance.next.d.date.getMonth() + 1}/${glance.next.d.date.getDate()}`}`
+          <GlanceTile icon={Clock} label={glance.on ? 'On Shift Now' : 'Next Shift'} tone={glance.on ? 'green' : 'brand'}
+            value={glance.shown
+              ? `${glance.shown.d.isToday ? 'Today' : glance.shown.d.key === dateKey(addDays(now, 1)) ? 'Tomorrow' : `${DOW[glance.shown.d.date.getDay()]} ${glance.shown.d.date.getMonth() + 1}/${glance.shown.d.date.getDate()}`}`
               : 'None this week'}
-            sub={glance.next ? `${hhmmTo12(glance.next.s.start)} - ${hhmmTo12(glance.next.s.end)}${glance.next.s.label ? ` · ${glance.next.s.label}` : ''}` : 'Nothing else scheduled'} />
+            sub={glance.shown ? `${hhmmTo12(glance.shown.s.start)} - ${hhmmTo12(glance.shown.s.end)}${glance.shown.s.label ? ` · ${glance.shown.s.label}` : ''}` : 'Nothing else published'} />
           <GlanceTile icon={Timer} label={thisWeek ? 'This Week' : 'That Week'} tone="brand"
             value={fmtHrs(glance.mins)}
             sub={`${glance.shiftCount} shift${glance.shiftCount === 1 ? '' : 's'} · paid time, breaks excluded`} />
@@ -251,13 +236,22 @@ export default function MyShifts() {
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#b45309', display: 'flex', alignItems: 'flex-start', gap: 6 }}><StickyNote size={12} style={{ flexShrink: 0, marginTop: 2 }} /> {d.note}</div>
               )}
               {d.timeoff.map((t, i) => (
-                <div key={i} style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize', color: t.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <CalendarDays size={12} /> {t.type}{t.status === 'pending' ? ' (pending)' : ''}
+                <div key={i}>
+                  <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'capitalize', color: t.status === 'approved' ? 'hsl(var(--color-green))' : '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CalendarDays size={12} /> {t.type}{t.status === 'pending' ? ' (pending)' : ''}
+                  </div>
+                  {t.note && <div title={t.note} style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Reason: {t.note}</div>}
                 </div>
               ))}
-              {d.shifts.length === 0 && !d.holiday && d.timeoff.length === 0 && (
+              {d.shifts.length === 0 && !d.holiday && d.timeoff.length === 0 && (d.usual ? (
+                <div title="Your regular hours. No shift is published for this day yet."
+                  style={{ marginTop: 'auto', borderLeft: '3px dotted var(--wk-line2)', paddingLeft: 9 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Usual hours</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{hhmmTo12(d.usual.start)} - {hhmmTo12(d.usual.end)}</div>
+                </div>
+              ) : (
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 'auto' }}>Off</div>
-              )}
+              ))}
               {d.shifts.map(s => (
                 <div key={s.id} style={{ borderLeft: `3px solid ${s.color || 'var(--wk-brand)'}`, paddingLeft: 9 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -342,16 +336,26 @@ export default function MyShifts() {
                         <td key={d.key} style={{ padding: '8px 8px', borderBottom: rule, verticalAlign: 'top', background: me ? rowBg : (d.isToday ? 'hsla(var(--color-green),0.05)' : 'transparent'),
                           boxShadow: me && d.isToday ? 'inset 0 0 0 999px hsla(var(--color-green),0.06)' : 'none' }}>
                           {d.off ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#b45309' }}><CalendarDays size={11} /> Time off</span>
+                            // The reason and note arrive only when the shift
+                            // settings share them with teammates.
+                            <span title={d.off.note || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#b45309' }}>
+                              <CalendarDays size={11} /> {d.off.type ? timeOffLabel(d.off.type) : 'Time off'}
+                            </span>
                           ) : d.shifts.length === 0 ? (
-                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
-                          ) : d.shifts.map(sh => (
-                            <div key={sh.id} title={`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`}
-                              style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
-                              <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
-                              {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
-                            </div>
-                          ))}
+                            d.usual
+                              ? <span title="Usual hours. No shift is published for this day yet." style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Usual {compact12(d.usual.start)}-{compact12(d.usual.end)}</span>
+                              : <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
+                          ) : d.shifts.map(sh => {
+                            const more = detailLines(sh);
+                            return (
+                              <div key={sh.id} title={[`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`, ...more].join('\n')}
+                                style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
+                                <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
+                                {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
+                                {more.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{more[0]}{more.length > 1 ? ` +${more.length - 1}` : ''}</div>}
+                              </div>
+                            );
+                          })}
                         </td>
                       ))}
                     </tr>
@@ -369,6 +373,7 @@ export default function MyShifts() {
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
           Shifts are set by your manager. Only shifts they have published appear here - ask them if something looks wrong.
+          {data?.shift && ' Usual hours are your regular schedule, shown on days with no published shift.'}
           {data && teams.length === 0 && ' Your team will show here once your manager adds you to a group.'}
         </span>
       </div>

@@ -240,7 +240,7 @@ def reminder_scan_once(db: Session) -> int:
         if em not in active:
             continue
         p = presets.get(r.shift_id)
-        tz = (p.timezone if p and p.timezone else "") or _DEFAULT_TZ
+        tz = (p.timezone if p and p.timezone else "") or cfg.get("timeZone") or _DEFAULT_TZ
         try:
             start = datetime.strptime(f"{r.work_date} {(r.start_hhmm or '09:00')[:5]}", "%Y-%m-%d %H:%M")
         except ValueError:

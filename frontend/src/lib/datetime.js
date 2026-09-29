@@ -53,6 +53,23 @@ export function formatTimeIn(v, timeZone, fallback = '') {
   }).format(d);
 }
 
+// The clock on another zone's wall, for comparing against a time kept in that
+// zone (a shift's start and end): zoneClock('Asia/Kolkata') = { date:
+// '2026-09-30', minutes: 95 } at 1:35 AM there. An unknown zone reads the
+// viewer's own clock.
+export function zoneClock(timeZone, v = new Date()) {
+  const d = toDate(v) || new Date();
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: timeZone || undefined, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(d).map(p => [p.type, p.value]));
+    return { date: `${parts.year}-${parts.month}-${parts.day}`, minutes: (Number(parts.hour) % 24) * 60 + Number(parts.minute) };
+  } catch {
+    return { date: toDateInputValue(d), minutes: d.getHours() * 60 + d.getMinutes() };
+  }
+}
+
 // Heading greeting, Title Case like every heading (Neil, Sep 28):
 // "Good Morning" before noon, "Good Afternoon" before 5 PM, then "Good Evening".
 export function greetingFor(v = new Date()) {

@@ -4325,7 +4325,16 @@ def _shift_dict(s: Shift) -> dict:
 
 @router.get("/shifts")
 def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return {"shifts": [_shift_dict(s) for s in db.query(Shift).order_by(Shift.name).all()]}
+    # How much hangs off each preset - what the delete confirmation tells the
+    # manager before they remove one.
+    placed = dict(db.query(ScheduledShift.shift_id, func.count(ScheduledShift.id))
+                  .filter(ScheduledShift.shift_id != "").group_by(ScheduledShift.shift_id).all())
+    assigned = dict(db.query(ShiftAssignment.shift_id, func.count(ShiftAssignment.id))
+                    .filter(ShiftAssignment.shift_id != "").group_by(ShiftAssignment.shift_id).all())
+    from routers.shift_requests import get_settings as _sr_settings
+    return {"shifts": [{**_shift_dict(s), "placed": int(placed.get(s.id, 0)), "assigned": int(assigned.get(s.id, 0))}
+                       for s in db.query(Shift).order_by(Shift.name).all()],
+            "defaultTimezone": _sr_settings(db).get("timeZone") or "America/Los_Angeles"}
 
 
 @router.post("/shifts")
@@ -4365,19 +4374,32 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
 
 @router.delete("/shifts/{shift_id}")
 def delete_shift(shift_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    db.query(Shift).filter(Shift.id == shift_id).delete()
+    s = db.query(Shift).filter(Shift.id == shift_id).first()
+    kept = 0
+    if s:
+        # Shifts already placed from this preset stay on the schedule. They
+        # took their code and color from the preset, so hand both to each
+        # shift before it goes - otherwise they turn into gray, unnamed
+        # "Shift" chips the moment the preset is deleted.
+        for r in db.query(ScheduledShift).filter(ScheduledShift.shift_id == shift_id).all():
+            if not (r.color or "").strip():
+                r.color = s.color or ""
+            if not (r.label or "").strip():
+                r.label = (s.code or s.name or "")[:80]
+            kept += 1
+        db.delete(s)
     db.query(ShiftAssignment).filter(ShiftAssignment.shift_id == shift_id).delete()
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "placedKept": kept}
 
 
-def _require_unscoped_team(user: dict, db: Session) -> None:
+def _require_unscoped_team(user: dict, db: Session, what: str = "Managing shift groups") -> None:
     """Shift groups + their Teams-chat bindings are a cross-company scheduling
     construct (a group can hold people from several companies, and its chat
     routes their BOD/EOD). A company-scoped People admin must not remap them or
     reroute another company's work-log delivery - that stays whole-team."""
     if _visible_emails(db, user) is not None:
-        raise HTTPException(403, "Managing shift groups needs company-wide team access")
+        raise HTTPException(403, f"{what} needs company-wide team access")
 
 
 @router.get("/shift-groups")
@@ -4390,7 +4412,10 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "schedulers": _schedulers(g),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
-                       for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
+                       for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()],
+            # Groups are changed company-wide only (_require_unscoped_team), so
+            # the screen offers New / Edit / Delete to those who can use them.
+            "canManageGroups": scope is None and can_manage_shifts(user)}
 
 
 class GroupIn(BaseModel):
@@ -4583,6 +4608,8 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False) -> 
             "breakMin": int(pend.get("breakMin", getattr(row, "break_min", 0)) or 0),
             "activities": pend.get("activities", _acts(row)),
             "ownColor": pend.get("color", getattr(row, "color", "") or "") or "",
+            # '' = no preset: the team's zone (shift settings) applies.
+            "timezone": (p.timezone or "") if p else "",
             "code": (p.code or p.name) if p else "",
             "color": pend.get("color", getattr(row, "color", "") or "") or (p.color if p else "#64748b")}
 
@@ -4786,11 +4813,17 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     # the employees it actually applies to, not the whole schedule at once
     # (two teams on this grid can be on different companies/countries with
     # different calendars).
-    holidays = {}
-    for em in emails:
-        h = _company_holidays_for_employee(db, em, start, end)
-        if h:
-            holidays[em] = h
+    holidays = _company_holidays_for_many(db, {em: people[em] for em in emails if em in people}, start, end)
+
+    # Each person's usual hours (their default preset). Not a shift on the
+    # schedule - the grid shows it faintly on days with nothing placed, the
+    # same way My Shifts does, so both screens say the same thing.
+    usual = {}
+    if emails:
+        for a in db.query(ShiftAssignment).filter(ShiftAssignment.shift_id != "").all():
+            em = (a.employee_email or "").lower()
+            if a.shift_id in presets and (scope is None or em in scope):
+                usual[em] = a.shift_id
 
     avail = _availability(db, emails) if can_write else {}
     if can_write:
@@ -4814,7 +4847,10 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "timeoff": timeoff, "holidays": holidays,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
-            "groupScheduler": bool(user.get("_group_scheduler"))}
+            "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
+            # Shift settings and groups are company-wide switches
+            # (_require_unscoped_team): offered only to those who can save them.
+            "canConfigure": can_write and scope is None}
 
 
 @router.get("/schedule/check")
@@ -4865,7 +4901,8 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
           .filter(TimeOffRequest.employee_email == email,
                   TimeOffRequest.status.in_(["approved", "pending"]),
                   TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
-    timeoff = [{"startDate": t.start_date, "endDate": t.end_date, "type": t.type, "status": t.status}
+    timeoff = [{"startDate": t.start_date, "endDate": t.end_date, "type": t.type, "status": t.status,
+                "note": t.note or ""}
                for t in tq.all()]
 
     # The person's team(s) (Neil, Sep 23: "Shifts should show all team shifts
@@ -4883,7 +4920,13 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # coworkers' schedules"); swaps still work - routers/shift_requests.py
     # hands the swap dialog only the shifts it can target.
     from routers.shift_requests import get_settings as _sr_settings
-    group_ids = list(member_of) if _sr_settings(db).get("teamSchedules", True) else []
+    cfg = _sr_settings(db)
+    group_ids = list(member_of) if cfg.get("teamSchedules", True) else []
+    # What staff see of a TEAMMATE (Teams "Visibility"): why they are off, and
+    # a shift's note, activities and break. A manager always sees both - it is
+    # their schedule - and a confidential reason shows to nobody here.
+    show_reasons = manage or bool(cfg.get("teamTimeOffReasons"))
+    show_details = manage or bool(cfg.get("teamShiftDetails", True))
     # A manager also sees the teams they RUN (Shifts module, Sep 29): groups
     # they are named scheduler of, and groups holding anyone in their scope
     # (direct reports; everyone for an unscoped admin). Always shown to
@@ -4914,14 +4957,21 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                           ScheduledShift.work_date >= start, ScheduledShift.work_date <= end,
                           ScheduledShift.published == 1)
                   .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all()):
-            placed.setdefault((r.employee_email or "").lower(), []).append(_sched_dict(r, presets))
+            em = (r.employee_email or "").lower()
+            sd = _sched_dict(r, presets)
+            if not show_details and em != email:
+                sd.update(note="", activities=[], breakMin=0)
+            placed.setdefault(em, []).append(sd)
         away = {}
         for t in (db.query(TimeOffRequest)
                   .filter(TimeOffRequest.employee_email.in_(all_members),
                           TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start).all()):
-            away.setdefault((t.employee_email or "").lower(), []).append(
-                {"startDate": t.start_date, "endDate": t.end_date})
+            em = (t.employee_email or "").lower()
+            item = {"startDate": t.start_date, "endDate": t.end_date}
+            if (show_reasons or em == email) and not _is_confidential(t):
+                item.update(type=t.type, note=t.note or "")
+            away.setdefault(em, []).append(item)
         member_set = set(member_of)
         # Your own teams first, then the ones you run; each by name.
         for g in sorted(db.query(ShiftGroup).filter(ShiftGroup.id.in_(group_ids)).all(),
@@ -4939,6 +4989,7 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
             "timeoff": timeoff, "holidays": _company_holidays_for_employee(db, email, start, end) or [],
             "teams": teams, "dayNotes": day_notes, "canManage": manage,
+            "timeZone": cfg.get("timeZone") or "America/Los_Angeles",
             "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)] if manage else []}
 
 
@@ -4965,6 +5016,9 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
     # be someone the caller can see.
     if em and scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    if em and not db.query(NexusEmployee.id).filter(func.lower(NexusEmployee.work_email) == em).first():
+        raise HTTPException(400, "That person is not in the People list.")
+    day = _parse_day(body.work_date, "date").isoformat()
     slots = int(body.open_slots or 0)
     if not em:
         slots = max(1, slots)   # an open shift needs at least one slot
@@ -4972,7 +5026,7 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
     _check_span(body.start_hhmm or (preset.start_hhmm if preset else "09:00"),
                 body.end_hhmm or (preset.end_hhmm if preset else "17:00"))
     row = ScheduledShift(
-        id=str(uuid.uuid4()), employee_email=em, work_date=body.work_date[:10],
+        id=str(uuid.uuid4()), employee_email=em, work_date=day,
         shift_id=body.shift_id or "",
         start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
         end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
@@ -5191,6 +5245,7 @@ class CopyScheduleIn(BaseModel):
     group_id: Optional[str] = ""            # optional: only this shift group
     include_open: bool = True
     include_notes: bool = True
+    include_activities: bool = True         # Teams "Include shift activities when copying shifts"
     skip_timeoff: bool = True               # don't copy onto approved/pending time off
     overwrite: bool = False                 # replace a person's shifts on a target day, else skip it
     include_timeoff: bool = False           # also copy APPROVED time off - as new PENDING requests
@@ -5320,7 +5375,8 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                 start_hhmm=src["start"], end_hhmm=src["end"], label=src["label"],
                 note=src["note"] if body.include_notes else "",
                 open_slots=int(src["openSlots"] or 0) if not em else 0, break_min=int(src.get("breakMin") or 0),
-                activities_json=json.dumps(src["activities"]) if src.get("activities") else "",
+                activities_json=(json.dumps(src["activities"])
+                                 if src.get("activities") and body.include_activities else ""),
                 color=src.get("ownColor") or "",
                 published=0, created_by=user["email"], created_at=now))
             created += 1
@@ -5998,6 +6054,31 @@ def _company_holidays_for_employee(db: Session, em: str, start: str, end: str) -
             .all())
     return {r.date: {"name": r.name, "type": r.type or "mandatory"} for r in rows
             if not r.country_code or emp.country in r.country_code.split(",")}
+
+
+def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) -> dict:
+    """_company_holidays_for_employee for a whole grid: {email: {date: {...}}}
+    from ONE read of the holiday calendar, not a pair of queries per person
+    (the schedule grid asked once per employee on every load). `people` is
+    {email: NexusEmployee}. Same company + country rule."""
+    companies = {e.company for e in people.values() if e is not None and e.company}
+    if not companies:
+        return {}
+    by_company = {}
+    for r in (db.query(HrCompanyHoliday)
+              .filter(HrCompanyHoliday.company_id.in_(list(companies)),
+                      HrCompanyHoliday.date >= start, HrCompanyHoliday.date <= end).all()):
+        by_company.setdefault(r.company_id, []).append(r)
+    out = {}
+    for em, e in people.items():
+        rows = by_company.get(e.company) if e is not None and e.company else None
+        if not rows:
+            continue
+        h = {r.date: {"name": r.name, "type": r.type or "mandatory"} for r in rows
+             if not r.country_code or e.country in r.country_code.split(",")}
+        if h:
+            out[em] = h
+    return out
 
 
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
@@ -7429,14 +7510,24 @@ _TIMEOFF_REASONS_KEY = "timeoff_custom_reasons"
 _TIMEOFF_REASONS_MAX = 20
 
 
+# The reasons Greens Global had in Teams Shifts that the built-in five do not
+# cover (Vacation, Sick and Unpaid are already there). They are the list until
+# someone saves their own in shift settings; after that the saved list is the
+# list, an empty one included.
+_TIMEOFF_DEFAULT_REASONS = ("Approved Time Off", "Off", "Holiday", "Parental Leave", "Closed",
+                            "Medical Appointment", "Work From Home", "Requested Off")
+
+
 def _custom_timeoff_types(db: Session) -> list:
     """Admin-added time-off reasons (Sep 29, Teams parity), e.g. "Jury Duty".
     Stored as the label itself. Payroll's leave pay classes come from punch
     job categories (_leave_class), not from this type, so a new reason never
     changes pay."""
     row = db.query(NexusSetting).filter(NexusSetting.key == _TIMEOFF_REASONS_KEY).first()
+    if row is None:
+        return list(_TIMEOFF_DEFAULT_REASONS)
     try:
-        v = json.loads(row.value) if row and row.value else []
+        v = json.loads(row.value) if row.value else []
     except (TypeError, ValueError):
         return []
     return [str(x) for x in v if str(x).strip()] if isinstance(v, list) else []
@@ -7640,6 +7731,15 @@ def _timeoff_window(st: str, et: str) -> str:
     return f" ({_hhmm12(st)} - {_hhmm12(et)})" if st and et else ""
 
 
+def _bell_reason(r) -> str:
+    """" Reason: ..." for a shared bell, so the approver sees why before they
+    open it - never for a confidential request, whose reason is not shared."""
+    why = " ".join((r.note or "").split())
+    if not why or _is_confidential(r):
+        return ""
+    return f" Reason: {why[:140]}{'...' if len(why) > 140 else ''}"
+
+
 def _bell_kind(r) -> str:
     """The request's type as a shared bell names it: "vacation" - or, for a
     confidential request, "confidential time off" (never the type)."""
@@ -7687,7 +7787,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-off request",
                        body=f"{who} requested {_bell_kind(row)} "
-                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
+                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
@@ -7740,7 +7840,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
     _notify_team_alert(db, employee_email=target, actor_email=user["email"],
                        title="Time-off request",
                        body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
-                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
+                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))

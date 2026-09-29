@@ -482,10 +482,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const et = toPartialOk ? toForm.endTime : '';
     if (!toForm.allDay && (!st || !et)) { toast(false, 'Set the start and end times, or switch All day back on.'); return; }
     if (st && et && et <= st) { toast(false, 'The end time has to be after the start time.'); return; }
+    // Every request says why (Visesh, Sep 29) - the approver decides on it.
+    // Private reasons use "Keep this confidential" rather than leaving it out.
+    if (!toForm.note.trim()) { toast(false, 'Add the reason for this time off.'); return; }
     setToBusy(true);
     try {
       await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end,
-        start_time: st, end_time: et, note: toForm.note, confidential: !!toForm.confidential });
+        start_time: st, end_time: et, note: toForm.note.trim(), confidential: !!toForm.confidential });
       toast(true, 'Time-off request sent - your manager gets a notification.');
       setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
@@ -1109,9 +1112,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               {/* Note: bigger now that it isn't squeezed against Total
                   (Pranshu, Sep 16 follow-up) - spans the same width as the
                   type/date fields above it. */}
-              <textarea className="form-input" placeholder="Note (optional)" value={toForm.note} rows={2}
-                onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
-                style={{ ...cell('note'), fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
+              <label style={{ ...cell('note'), display: 'grid', gap: 4, minWidth: 0 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>Reason</span>
+                <textarea className="form-input" aria-label="Reason" placeholder="Why you are taking this time off" value={toForm.note} rows={2}
+                  maxLength={400} onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
+                  style={{ fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
+              </label>
               {/* Confidential (Neil, Sep 29): the team still sees that you're
                   out; the type and note stay between you and your approver. */}
               <label style={{ ...cell('confidential'), display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
@@ -1120,7 +1126,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <span>
                   <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    Your team sees only that you're out. The type and note are visible only to you and your approver (your manager).
+                    Your team sees only that you're out. The type and reason are visible only to you and your approver (your manager).
                   </span>
                 </span>
               </label>
@@ -1151,7 +1157,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             <span style={{ fontSize: 12.5, fontWeight: 800, width: 90 }}>{TIMEOFF_TYPES[r.type] || r.type}</span>
             {r.confidential && <ConfidentialBadge />}
             <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
-            {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
+            {r.note && <span title={r.note} style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Reason: {r.note}</span>}
             <div style={{ flex: 1 }} />
             {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
             {/* The requester can withdraw their own request while it's still

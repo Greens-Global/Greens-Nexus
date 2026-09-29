@@ -4,6 +4,7 @@ import { api } from '../api';
 import { graphTokenSilent, graphTokenInteractive, listMyChats } from '../teamsGraph';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { dialog } from '../ui/dialog';
 import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
 
 // ── Shifts, groups & bulk assignment ──────────────────────────────────────────
@@ -37,6 +38,10 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [chatList, setChatList] = useState(null);   // Teams chats for the binding picker
   const [chatLoading, setChatLoading] = useState(false);
+  // Groups are changed company-wide only (the API refuses a manager limited
+  // to their own reports), so New / Edit / Delete show only when they work.
+  const [canGroups, setCanGroups] = useState(true);
+  const [defaultTz, setDefaultTz] = useState(BLANK.timezone);   // the team's zone, from shift settings
 
   async function loadChatOptions() {
     setChatLoading(true);
@@ -61,8 +66,8 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
   }
 
   const load = () => {
-    api.timeShifts().then(r => setShifts(r.shifts)).catch(() => setShifts([]));
-    api.timeShiftGroups().then(r => setGroups(r.groups)).catch(() => setGroups([]));
+    api.timeShifts().then(r => { setShifts(r.shifts); if (r.defaultTimezone) setDefaultTz(r.defaultTimezone); }).catch(() => setShifts([]));
+    api.timeShiftGroups().then(r => { setGroups(r.groups); setCanGroups(r.canManageGroups !== false); }).catch(() => setGroups([]));
     api.timeShiftAssignments().then(r => setAssignments(r.assignments || {})).catch(() => {});
   };
   useEffect(load, []);
@@ -83,8 +88,18 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
   }
-  async function delShift(id) {
-    try { await api.timeShiftDelete(id); toastOk('Shift deleted.'); load(); } catch (e) { toastErr(e?.message || 'Failed.'); }
+  // Deleting is permanent, so it is always confirmed - and says what hangs
+  // off the preset first.
+  async function delShift(s) {
+    const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+    const bits = [];
+    if (s.placed) bits.push(`${n(s.placed, 'shift', 'shifts')} already on the schedule ${s.placed === 1 ? 'stays' : 'stay'}, with this preset's color and name`);
+    if (s.assigned) bits.push(`${n(s.assigned, 'person loses', 'people lose')} it as their usual hours`);
+    const ok = await dialog.confirm(
+      `Delete the preset "${s.name}"? This can't be undone.${bits.length ? ` ${bits.join('; ')}.` : ''}`,
+      { title: 'Delete Preset', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try { await api.timeShiftDelete(s.id); toastOk('Preset deleted.'); load(); } catch (e) { toastErr(e?.message || 'Could not delete the preset.'); }
   }
   async function saveGroup() {
     if (!groupForm.name.trim()) { toastErr('Name the group.'); return; }
@@ -98,8 +113,13 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
     } catch (e) { toastErr(e?.message || 'Could not save.'); }
     setBusy(false);
   }
-  async function delGroup(id) {
-    try { await api.timeShiftGroupDelete(id); toastOk('Group deleted.'); load(); } catch (e) { toastErr(e?.message || 'Failed.'); }
+  async function delGroup(g) {
+    const ok = await dialog.confirm(
+      `Delete the group "${g.name}"? This can't be undone. Its ${g.members.length} member${g.members.length === 1 ? '' : 's'} keep their shifts, `
+      + `but leave the team grid${g.chatId ? ', and their BOD / EOD messages stop going to its Teams chat' : ''}.`,
+      { title: 'Delete Group', confirmText: 'Delete', danger: true });
+    if (!ok) return;
+    try { await api.timeShiftGroupDelete(g.id); toastOk('Group deleted.'); load(); } catch (e) { toastErr(e?.message || 'Could not delete the group.'); }
   }
   async function doAssign() {
     const g = (groups || []).find(x => x.id === assignGroup);
@@ -139,8 +159,8 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           <span className="wkc-chip"><Clock size={14} /></span>
           <span style={{ fontSize: 13.5, fontWeight: 600 }}>Shifts</span>
           <div style={{ flex: 1 }} />
-          <button className="secondary-btn" onClick={() => setForm({ ...BLANK })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Plus size={12} /> New shift
+          <button className="secondary-btn" onClick={() => setForm({ ...BLANK, timezone: defaultTz })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Plus size={12} /> New Shift
           </button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
@@ -154,7 +174,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                   : <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                 <button onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0 })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
-                <button onClick={() => delShift(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
+                <button onClick={() => delShift(s)} aria-label={`Delete preset ${s.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{hm12(s.start)} - {hm12(s.end)} · {daysLabel(s.days)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace{s.breakMin ? ` · ${s.breakMin}m unpaid break` : ''} · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
@@ -169,9 +189,13 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           <span className="wkc-chip"><Users size={14} /></span>
           <span style={{ fontSize: 13.5, fontWeight: 600 }}>Groups</span>
           <div style={{ flex: 1 }} />
-          <button className="secondary-btn" onClick={() => { setChatList(null); setGroupForm({ name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '' }); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Plus size={12} /> New group
-          </button>
+          {canGroups ? (
+            <button className="secondary-btn" onClick={() => { setChatList(null); setGroupForm({ name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '' }); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Plus size={12} /> New Group
+            </button>
+          ) : (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Groups are changed by an administrator</span>
+          )}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
           {groups === null && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />}
@@ -180,8 +204,8 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
             <div key={g.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>{g.name}</span>
-                <button onClick={() => { setChatList(null); setGroupForm({ id: g.id, name: g.name, members: g.members, schedulers: g.schedulers || [], teamsChatId: g.chatId || '', teamsChatName: g.chatName || '' }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
-                <button onClick={() => delGroup(g.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
+                {canGroups && <button onClick={() => { setChatList(null); setGroupForm({ id: g.id, name: g.name, members: g.members, schedulers: g.schedulers || [], teamsChatId: g.chatId || '', teamsChatName: g.chatName || '' }); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>}
+                {canGroups && <button onClick={() => delGroup(g)} aria-label={`Delete group ${g.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>
                 {g.members.length} member{g.members.length === 1 ? '' : 's'}
@@ -225,7 +249,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           onClick={e => e.target === e.currentTarget && formGuard.requestClose()}>
           <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(420px, 60vw, 700px)', padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-              <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{form.id ? 'Edit shift' : 'New shift'}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{form.id ? 'Edit Shift' : 'New Shift'}</span>
               <button onClick={formGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
             </div>
             <div style={{ display: 'grid', gap: 12 }}>
@@ -234,7 +258,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
                 <input className="form-input" placeholder="Code" value={form.code} maxLength={12} onChange={e => setForm({ ...form, code: e.target.value })} style={{ fontSize: 13, width: 90 }} title="Short label shown in the schedule grid (e.g. GSV)" />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Colour</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Color</div>
                 <div style={{ display: 'flex', gap: 7 }}>
                   {COLORS.map(c => (
                     <button key={c} onClick={() => setForm({ ...form, color: c })}
@@ -290,7 +314,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           onClick={e => e.target === e.currentTarget && groupGuard.requestClose()}>
           <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 'clamp(460px, 60vw, 760px)', padding: 20, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-              <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{groupForm.id ? 'Edit group' : 'New group'}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{groupForm.id ? 'Edit Group' : 'New Group'}</span>
               <button onClick={groupGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
             </div>
             <input className="form-input" placeholder="Group name (e.g. Warehouse crew)" value={groupForm.name} onChange={e => setGroupForm({ ...groupForm, name: e.target.value })} style={{ fontSize: 13, marginBottom: 12 }} />
@@ -305,10 +329,13 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               })}
             </div>
 
-            {/* Schedulers (Sep 29, Teams "scheduling owner" per team): people who
-                can build THIS group's schedule without being a manager. */}
+            {/* Schedulers (Sep 29, Teams "scheduling owner" per team): managers
+                who can build THIS group's schedule although its members do
+                not report to them. Changing shifts takes a manager either
+                way (require_shift_manage), so naming someone below manager
+                here gives them nothing. */}
             <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Schedulers - can build this group's schedule from My Workday &gt; Shifts, even without manager access</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Schedulers - managers who can build this group's schedule in Shifts &gt; Manage, even when its members do not report to them</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
                 {(groupForm.schedulers || []).map(em => (
                   <button key={em} style={chip(true)} aria-label={`Remove scheduler ${nameOf(em)}`}
@@ -331,12 +358,12 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               {groupForm.teamsChatId ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12.5, fontWeight: 700, padding: '5px 11px', borderRadius: 9, background: 'var(--bg)' }}>{groupForm.teamsChatName || 'Bound chat'}</span>
-                  <button className="secondary-btn" style={{ fontSize: 11.5 }} onClick={() => { setGroupForm({ ...groupForm, teamsChatId: '', teamsChatName: '' }); }}>Change / clear</button>
+                  <button className="secondary-btn" style={{ fontSize: 11.5 }} onClick={() => { setGroupForm({ ...groupForm, teamsChatId: '', teamsChatName: '' }); }}>Change or Clear</button>
                 </div>
               ) : chatList === null ? (
                 <button className="secondary-btn" onClick={loadChatOptions} disabled={chatLoading}
                   style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {chatLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <LinkIcon size={12} />} Bind a chat
+                  {chatLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <LinkIcon size={12} />} Bind a Chat
                 </button>
               ) : chatList.length === 0 ? (
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>

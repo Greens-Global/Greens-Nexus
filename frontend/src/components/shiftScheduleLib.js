@@ -10,6 +10,23 @@ const hm12 = (hhmm) => {
   return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const toMin = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+const dayBefore = (key) => { const [y, m, d] = key.split('-').map(Number); return isoOf(new Date(y, m - 1, d - 1)); };
+
+// Where a shift dated `key` (YYYY-MM-DD) stands against `clock` - the time in
+// the shift's OWN zone ({ date, minutes }, lib/datetime zoneClock), since its
+// start and end are that zone's wall clock, not the viewer's: 'ahead', 'on'
+// or 'over'. An overnight shift is still on the morning after its date.
+export function shiftPhase(s, key, clock) {
+  const a = toMin(s.start), b = toMin(s.end);
+  const overnight = b < a;
+  if (key > clock.date) return 'ahead';
+  if (key === clock.date) {
+    if (clock.minutes < a) return 'ahead';
+    return overnight || clock.minutes < b ? 'on' : 'over';
+  }
+  return overnight && key === dayBefore(clock.date) && clock.minutes < b ? 'on' : 'over';
+}
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // "Mon 9:00 AM - 1:00 PM · Tue unavailable" - availability for a row's tooltip.
