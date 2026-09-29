@@ -176,7 +176,7 @@ export function zoneOptionLabel(tz) {
   const offset = namePart('shortOffset') || namePart('short');
   const name = namePart('long');
   if (!offset && !name) return zoneLabel(tz);   // Intl unsupported for this zone - last resort
-  return `${offset ? `(${offset}) ` : ''}${name || cityOf(tz)} — ${cityOf(tz)}`;
+  return `${offset ? `(${offset}) ` : ''}${name || cityOf(tz)} - ${cityOf(tz)}`;
 }
 
 // Grouped by continent/region (the tz's first path segment) for <optgroup> -

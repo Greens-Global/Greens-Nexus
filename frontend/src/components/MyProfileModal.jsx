@@ -293,12 +293,12 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--wk-hover, rgba(0,0,0,.03))', color: 'var(--muted)', fontSize: 13 }}>
-              Local — {zoneOptionLabel(LOCAL_TZ)}
+              Local - {zoneOptionLabel(LOCAL_TZ)}
             </div>
             {zoneSlots.map((val, i) => (
               <select key={i} value={val} onChange={(e) => setSlot(i, e.target.value)}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
-                <option value="">— None —</option>
+                <option value="">None</option>
                 {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
                   <optgroup key={region} label={region.replace(/_/g, ' ')}>
                     {tzs.filter((tz) => tz !== LOCAL_TZ).map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
