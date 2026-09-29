@@ -9,6 +9,7 @@ import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
@@ -1314,7 +1315,6 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
   const ref = useRef(null);
-  useClickOutside([ref], () => setOpen(false), open);
 
   const run = async (format) => {
     setBusy(format); setErr('');
@@ -1335,35 +1335,33 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
 
   const empty = !rows || rows.length === 0;
   return (
-    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
-      <button onClick={() => setOpen((o) => !o)} disabled={empty}
+    <div style={{ flexShrink: 0 }}>
+      <button ref={ref} onClick={() => setOpen((o) => !o)} disabled={empty}
         title={empty ? 'Nothing to export' : `Export these ${rows.length} row${rows.length === 1 ? '' : 's'}`}
         aria-haspopup="menu" aria-expanded={open}
         style={{ ...btn('outline'), ...(compact ? { padding: '6px 10px', fontSize: 12 } : {}), opacity: empty ? 0.5 : 1 }}>
         <Download size={compact ? 14 : 15} />{compact ? 'Export' : 'Export'}
       </button>
-      {open && (
-        <div role="menu" style={{
-          position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 186, zIndex: 2600,
-          background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4,
-        }}>
-          <button role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => run('pdf')}
-            style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
-            <FileText size={15} style={{ color: NX.red, flexShrink: 0 }} />
-            {busy === 'pdf' ? 'Building PDF…' : 'Export as PDF'}
-          </button>
-          <button role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => run('excel')}
-            style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
-            <Sheet size={15} style={{ color: NX.green, flexShrink: 0 }} />
-            {busy === 'excel' ? 'Building Excel…' : 'Export as Excel'}
-          </button>
-          <div style={{ padding: '4px 9px 5px', fontSize: 11, color: NX.faint }}>
-            {rows.length} row{rows.length === 1 ? '' : 's'}, as shown
-          </div>
-          {err && <div style={{ padding: '2px 9px 6px', fontSize: 11, color: NX.red }}>{err}</div>}
+      {/* Portaled: list toolbars scroll sideways on a phone and clipped it. */}
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} align="end" style={{
+        width: 186, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
+        boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4,
+      }}>
+        <button role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => run('pdf')}
+          style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
+          <FileText size={15} style={{ color: NX.red, flexShrink: 0 }} />
+          {busy === 'pdf' ? 'Building PDF…' : 'Export as PDF'}
+        </button>
+        <button role="menuitem" className="nx-menu-row" disabled={!!busy} onClick={() => run('excel')}
+          style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 9 }}>
+          <Sheet size={15} style={{ color: NX.green, flexShrink: 0 }} />
+          {busy === 'excel' ? 'Building Excel…' : 'Export as Excel'}
+        </button>
+        <div style={{ padding: '4px 9px 5px', fontSize: 11, color: NX.faint }}>
+          {rows.length} row{rows.length === 1 ? '' : 's'}, as shown
         </div>
-      )}
+        {err && <div style={{ padding: '2px 9px 6px', fontSize: 11, color: NX.red }}>{err}</div>}
+      </AnchoredMenu>
     </div>
   );
 }

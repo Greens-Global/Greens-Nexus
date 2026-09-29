@@ -12,6 +12,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { SERVICE_AREAS } from '../tickets/ticketMeta';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import AnchoredMenu from '../components/AnchoredMenu';
 // Personal Link add/edit form + URL dupe check, and the per-browser Recently
 // Used trail, live in src/links/ now - shared with the dashboard's Favorites
 // and My Personal Links widgets and its "Add Personal Link" quick action
@@ -457,6 +458,7 @@ export default function ExternalLinks() {
   // create just left the modal re-clickable with no explanation.
   const [nameModal, setNameModal] = useState(null);
   const [viewMenu, setViewMenu] = useState(false);
+  const viewGroupRef = useRef(null);
   const openName = (opts) => { setViewMenu(false); setNameModal(opts); };
   const wrap = (fn, okMsg) => async (...a) => {
     try { await fn(...a); if (okMsg) setBanner({ kind: 'ok', text: okMsg }); }
@@ -800,13 +802,12 @@ export default function ExternalLinks() {
               (Aug 14 - "i don't see the use of 3 dot button separately,
               incorporate them with... view selection") rather than two
               separate pill buttons sitting side by side. The dropdown menu
-              lives on this OUTER wrapper (position: relative, no overflow
-              clip), not inside the inner overflow:hidden pill below it -
-              putting it inside the clipped pill was why the menu never
-              actually appeared ("its just a placeholder", Aug 14): it was
-              rendering, just clipped to invisible by the pill's own bounds. */}
-          <div style={{ position: 'relative' }}>
-            <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden' }}>
+              is portaled (AnchoredMenu) and pinned under the pill - rendered
+              inside the overflow:hidden pill it was clipped to invisible
+              ("its just a placeholder", Aug 14), and a scrolling toolbar
+              above it on a phone clips it the same way. */}
+          <div>
+            <div ref={viewGroupRef} style={{ display: 'flex', alignItems: 'stretch', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden' }}>
               <select value={activeId || ''}
                 onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
                 className="form-select" title="Switch layout view"
@@ -819,28 +820,29 @@ export default function ExternalLinks() {
                 )}
                 <option value="__new__">＋ New view…</option>
               </select>
-              <button onClick={() => setViewMenu(m => !m)} title="View options"
+              <button onClick={() => setViewMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={viewMenu}
                 style={{ display: 'flex', alignItems: 'center', padding: '0 9px', border: 'none', borderLeft: '1px solid var(--wk-line2)', background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)' }}>
                 <MoreHorizontal size={15} />
               </button>
             </div>
-            {viewMenu && (
-              <div onMouseLeave={() => setViewMenu(false)} style={{ position: 'absolute', right: 0, top: 42, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 210 }}>
-                <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 210, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeView?.name || 'Home'}</div>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{activeView ? (activeView.isDefault ? 'Your default view' : 'Personal view') : 'Built-in layout'}</div>
-                </div>
-                {isOwnView && <ViewMenuItem icon={Pencil} label="Rename view" onClick={() => { setViewMenu(false); renameCurrentView(); }} />}
-                {isOwnView && !activeView.isDefault && <ViewMenuItem icon={Star} label="Set as my default" onClick={makeDefault} />}
-                {!isOwnView && views.some(v => v.isDefault) && (
-                  <ViewMenuItem icon={LayoutGrid} label="Make Home my default"
-                    onClick={() => { setViewMenu(false); clearDefaultView().catch(e => setBanner({ kind: 'err', text: e?.message })); }} />
-                )}
-                <div style={{ borderTop: '1px solid var(--line)', margin: '5px 0' }} />
-                <ViewMenuItem icon={Copy} label="Save as new view" onClick={() => { setViewMenu(false); saveAsNewView(); }} />
-                {isOwnView && <ViewMenuItem icon={Trash2} label="Delete view" danger onClick={deleteCurrentView} />}
+            <AnchoredMenu anchorRef={viewGroupRef} open={viewMenu} onClose={() => setViewMenu(false)} align="end" minWidth={210}
+              style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
+              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 210, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeView?.name || 'Home'}</div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{activeView ? (activeView.isDefault ? 'Your default view' : 'Personal view') : 'Built-in layout'}</div>
               </div>
-            )}
+              {isOwnView && <ViewMenuItem icon={Pencil} label="Rename view" onClick={() => { setViewMenu(false); renameCurrentView(); }} />}
+              {isOwnView && !activeView.isDefault && <ViewMenuItem icon={Star} label="Set as my default" onClick={makeDefault} />}
+              {!isOwnView && views.some(v => v.isDefault) && (
+                <ViewMenuItem icon={LayoutGrid} label="Make Home my default"
+                  onClick={() => { setViewMenu(false); clearDefaultView().catch(e => setBanner({ kind: 'err', text: e?.message })); }} />
+              )}
+              {/* Divider only under actions - with none (built-in Home) the
+                  header's own rule already separates, and two read as a glitch. */}
+              {(isOwnView || views.some(v => v.isDefault)) && <div style={{ borderTop: '1px solid var(--line)', margin: '5px 0' }} />}
+              <ViewMenuItem icon={Copy} label="Save as new view" onClick={() => { setViewMenu(false); saveAsNewView(); }} />
+              {isOwnView && <ViewMenuItem icon={Trash2} label="Delete view" danger onClick={deleteCurrentView} />}
+            </AnchoredMenu>
           </div>
           {editing ? (
             <>
@@ -1396,40 +1398,35 @@ function AddAppTile({ label, onClick }) {
 // separable pieces, per the "prepare for future enhancements" precedent this
 // module has followed all session (data-link-id on tiles, plain flex grid).
 
-// Click-outside-closing folder picker for "move this item to a folder" -
-// self-contained rather than pulled in from credvault's Dropdown, which is
-// scoped to that module's own stylesheet.
+// Folder picker for "move this item to a folder" - self-contained rather
+// than pulled in from credvault's Dropdown, which is scoped to that module's
+// own stylesheet. Portaled (AnchoredMenu): the tiles it sits on carry drag/
+// jiggle transforms, which trapped the old in-place menu under neighbors.
 function FolderPicker({ folders, currentFolderId, onMove, onCreateNew }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
   return (
-    <div style={{ position: 'relative' }} ref={ref}>
+    <div ref={ref}>
       <IconBtn onClick={() => setOpen(o => !o)} title="Move to folder...">
         <FolderOpen size={11} />
       </IconBtn>
-      {open && (
-        <div className="folder-picker">
-          {currentFolderId && (
-            <button type="button" className="folder-picker-item" onClick={() => { onMove(null); setOpen(false); }}>
-              Remove from folder
-            </button>
-          )}
-          {folders.filter(f => f.id !== currentFolderId).map(f => (
-            <button key={f.id} type="button" className="folder-picker-item" onClick={() => { onMove(f.id); setOpen(false); }}>
-              {f.name}
-            </button>
-          ))}
-          <button type="button" className="folder-picker-item folder-picker-new" onClick={() => { onCreateNew(); setOpen(false); }}>
-            <FolderPlus size={12} /> New Folder...
+      {/* .folder-picker's centering transform/margin are for in-place use. */}
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} className="folder-picker"
+        style={{ transform: 'none', margin: 0, right: 'auto', bottom: 'auto' }}>
+        {currentFolderId && (
+          <button type="button" className="folder-picker-item" onClick={() => { onMove(null); setOpen(false); }}>
+            Remove from folder
           </button>
-        </div>
-      )}
+        )}
+        {folders.filter(f => f.id !== currentFolderId).map(f => (
+          <button key={f.id} type="button" className="folder-picker-item" onClick={() => { onMove(f.id); setOpen(false); }}>
+            {f.name}
+          </button>
+        ))}
+        <button type="button" className="folder-picker-item folder-picker-new" onClick={() => { onCreateNew(); setOpen(false); }}>
+          <FolderPlus size={12} /> New Folder...
+        </button>
+      </AnchoredMenu>
     </div>
   );
 }
@@ -2032,12 +2029,8 @@ function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCu
   const [open, setOpen] = useState(false);
   const [customValue, setCustomValue] = useState('');
   const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
+  // The panel matches the button's width, measured when it opens.
+  const [panelWidth, setPanelWidth] = useState();
 
   const toggle = (opt) => onChange(selected.includes(opt) ? selected.filter(s => s !== opt) : [...selected, opt]);
   const addCustom = () => {
@@ -2056,37 +2049,37 @@ function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCu
   const allOptions = [...new Set([...options, ...selected])].sort((a, b) => labelOf(a).localeCompare(labelOf(b)));
 
   return (
-    <div style={{ position: 'relative' }} ref={ref}>
-      <button type="button" className="form-select" onClick={() => setOpen(o => !o)}
+    <div>
+      <button ref={ref} type="button" className="form-select" onClick={(e) => { setPanelWidth(e.currentTarget.offsetWidth); setOpen(o => !o); }} aria-expanded={open}
         style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
         <span style={{ color: selected.length ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {selected.length ? selected.map(labelOf).join(', ') : placeholder}
         </span>
       </button>
-      {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,.18)', zIndex: 40, maxHeight: 220, overflowY: 'auto', padding: 6 }}>
-          {allOptions.length === 0 && (
-            <p style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 8px', margin: 0 }}>Nothing added yet.</p>
-          )}
-          {allOptions.map(opt => (
-            <label key={opt}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-              <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
-              {labelOf(opt)}
-            </label>
-          ))}
-          {allowCustom && (
-            <div style={{ display: 'flex', gap: 6, padding: '6px 8px 2px', borderTop: allOptions.length > 0 ? '1px solid var(--line)' : 'none', marginTop: allOptions.length > 0 ? 4 : 0 }}>
-              <input className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} value={customValue}
-                onChange={e => setCustomValue(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
-                placeholder={customPlaceholder || 'Add new...'} />
-              <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12.5 }} onClick={addCustom}>Add</button>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Portaled so the Add/Edit Link modal's scrolling body can't clip it. */}
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} role="dialog"
+        style={{ width: panelWidth, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: '0 12px 30px rgba(0,0,0,.18)', maxHeight: 220, padding: 6 }}>
+        {allOptions.length === 0 && (
+          <p style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 8px', margin: 0 }}>Nothing added yet.</p>
+        )}
+        {allOptions.map(opt => (
+          <label key={opt}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+            <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} />
+            {labelOf(opt)}
+          </label>
+        ))}
+        {allowCustom && (
+          <div style={{ display: 'flex', gap: 6, padding: '6px 8px 2px', borderTop: allOptions.length > 0 ? '1px solid var(--line)' : 'none', marginTop: allOptions.length > 0 ? 4 : 0 }}>
+            <input className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} value={customValue}
+              onChange={e => setCustomValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+              placeholder={customPlaceholder || 'Add new...'} />
+            <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12.5 }} onClick={addCustom}>Add</button>
+          </div>
+        )}
+      </AnchoredMenu>
     </div>
   );
 }

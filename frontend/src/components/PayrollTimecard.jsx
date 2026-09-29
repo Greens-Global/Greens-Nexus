@@ -13,6 +13,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
+import AnchoredMenu from './AnchoredMenu';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -72,42 +73,35 @@ function OptionSwitch({ checked, label, hint, onChange }) {
 // company-wide pay rules (admins only); the display choices are everyone's.
 function TimecardOptions({ self, showRaw, setShowRaw, children }) {
   const [open, setOpen] = useState(false);
-  const box = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    const onDown = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
-  }, [open]);
+  // Portaled panel (AnchoredMenu): closes on an outside tap or Escape, and no
+  // scrolling toolbar or card can clip it on a phone.
+  const btn = useRef(null);
   const rules = [].concat(children || []).filter(Boolean);
   return (
-    <div ref={box} style={{ position: 'relative' }}>
-      <button type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
+    <div>
+      <button ref={btn} type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
         title="Timezone, unrounded times and pay rules"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
         <SlidersHorizontal size={14} /> Options
       </button>
-      {open && (
-        <div role="dialog" aria-label="Timecard options" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 40, width: 320, maxWidth: '92vw', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
-          {!self && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
-              <TzSwitch />
-            </div>
-          )}
-          <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
-            hint="See the raw punch times. Totals stay computed from the rounded times." />
-          {rules.length > 0 && (
-            <>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
-              {rules}
-            </>
-          )}
-        </div>
-      )}
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Timecard options"
+        style={{ width: 320, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
+        {!self && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '5px 0' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Times Shown In</span>
+            <TzSwitch />
+          </div>
+        )}
+        <OptionSwitch checked={showRaw} onChange={setShowRaw} label="Show unrounded times"
+          hint="See the raw punch times. Totals stay computed from the rounded times." />
+        {rules.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 4px', paddingTop: 10, borderTop: '1px solid var(--wk-line2)' }}>Pay Rules</div>
+            {rules}
+          </>
+        )}
+      </AnchoredMenu>
     </div>
   );
 }

@@ -11,6 +11,7 @@
 // coupling would.
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Search } from 'lucide-react';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 /** `options` is [{ id, label, hint }] - `hint` is extra searchable text shown
  *  muted on the right (a phase, a code). Single selection; `value` is an id. */
@@ -21,15 +22,19 @@ export default function SearchPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
-  const ref = useRef(null);
-
+  // The list is portaled (AnchoredMenu) so a scrolling form or modal can't
+  // clip it; it opens at least as wide as the button.
+  const btn = useRef(null);
+  const [btnW, setBtnW] = useState(0);
+  const close = () => { setOpen(false); setQ(''); };
+  // Focus the search box a frame late: the panel's first frame is hidden
+  // while it is measured, and a hidden input can't take focus (autoFocus
+  // would silently miss).
+  const searchRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
-    const onDoc = (e) => { if (!ref.current?.contains(e.target)) { setOpen(false); setQ(''); } };
-    const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); setQ(''); } };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+    const f = requestAnimationFrame(() => searchRef.current?.focus());
+    return () => cancelAnimationFrame(f);
   }, [open]);
 
   const needle = q.trim().toLowerCase();
@@ -39,10 +44,10 @@ export default function SearchPicker({
   const chosen = options.find((o) => o.id === value);
 
   return (
-    <div ref={ref} style={{ position: 'relative', minWidth }}>
+    <div style={{ minWidth }}>
       <button
-        type="button" id={id}
-        onClick={() => { setOpen((v) => !v); setQ(''); }}
+        ref={btn} type="button" id={id}
+        onClick={() => { setBtnW(btn.current?.offsetWidth || 0); setOpen((v) => !v); setQ(''); }}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
           width: '100%', padding: '8px 12px', borderRadius: 8,
@@ -56,16 +61,16 @@ export default function SearchPicker({
         <ChevronDown size={15} style={{ flexShrink: 0, opacity: 0.7 }} />
       </button>
 
-      {open && (
-        <div style={{
-          position: 'absolute', zIndex: 50, top: 'calc(100% + 4px)', left: 0, minWidth: '100%',
-          maxWidth: 360, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
-          borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 10px 30px rgba(0,0,0,0.15))', overflow: 'hidden',
+      <AnchoredMenu anchorRef={btn} open={open} onClose={close} role="listbox" minWidth={btnW || undefined}
+        style={{
+          backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
+          borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 10px 30px rgba(0,0,0,0.15))',
         }}>
+        <div style={{ maxWidth: Math.max(360, btnW) }}>
           <div style={{ position: 'relative', borderBottom: '1px solid var(--border-color)' }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
             <input
-              autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+              ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '9px 12px 9px 30px', border: 'none',
                 outline: 'none', fontSize: '0.85rem', fontFamily: 'inherit',
@@ -76,7 +81,7 @@ export default function SearchPicker({
             {shown.map((o) => (
               <button
                 key={o.id} type="button"
-                onClick={() => { onChange(o.id); setOpen(false); setQ(''); }}
+                onClick={() => { onChange(o.id); close(); }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                   padding: '9px 12px', border: 'none', background: 'transparent', cursor: 'pointer',
@@ -96,7 +101,7 @@ export default function SearchPicker({
             )}
           </div>
         </div>
-      )}
+      </AnchoredMenu>
     </div>
   );
 }

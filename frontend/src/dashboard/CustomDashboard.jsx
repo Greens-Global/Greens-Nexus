@@ -1,4 +1,4 @@
-import { useState, Suspense } from 'react';
+import { useState, useRef, Suspense } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
@@ -11,6 +11,7 @@ import { WidgetGallery, ConfigModal } from './WidgetGallery';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { useIsMobile } from '../lib/useIsMobile';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 // Small, reliable name dialog (replaces window.prompt, which wouldn't let the
 // user type / was silently blocked). Auto-focuses; Enter submits, Esc cancels.
@@ -74,6 +75,7 @@ export default function CustomDashboard() {
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);
+  const menuBtn = useRef(null);
   // View picker + Customize crowded/overlapped the session chip on a phone
   // (Pranshu, Sep 22: "fix the customize and view area for mobile") - the
   // fixed-width select plus a right-justified row wrapped into a jagged
@@ -266,27 +268,28 @@ export default function CustomDashboard() {
         // its own distinct button at the row's right corner - not merged
         // with the chip (Pranshu, Sep 15 2nd follow-up).
         const viewMenu = (
-          <div style={{ position: 'relative' }}>
-            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options"><MoreHorizontal size={15} /></button>
-            {menu && (
-              <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
-                <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
-                </div>
-                {menuSections.map((section, si) => (
-                  <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                    {section.map((m, i) => (
-                      <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                        <m.icon size={14} /> {m.label}
-                      </button>
-                    ))}
-                  </div>
-                ))}
+          <>
+            <button ref={menuBtn} className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={menu}><MoreHorizontal size={15} /></button>
+            {/* Portaled: on a phone the toolbar is a horizontal scroller, which
+                clipped the old in-place menu at its bottom edge. */}
+            <AnchoredMenu anchorRef={menuBtn} open={menu} onClose={() => setMenu(false)} align="end" minWidth={220}
+              style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
+              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
               </div>
-            )}
-          </div>
+              {menuSections.map((section, si) => (
+                <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
+                  {section.map((m, i) => (
+                    <button key={i} role="menuitem" onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                      <m.icon size={14} /> {m.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </AnchoredMenu>
+          </>
         );
         return d.loading ? (
           <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>

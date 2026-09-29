@@ -3,7 +3,7 @@
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
 // the real TasksContext store + api.js instead of the export's mocked Zustand store.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
@@ -25,6 +25,7 @@ import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import { toDownloadUrl } from '../lib/storageView';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -118,37 +119,20 @@ function Chip({ color, tint, children }) {
     </span>
   );
 }
-// Lightweight popover anchored under its trigger; closes on outside click / Esc.
-// Opens left-aligned, but flips to right-aligned when that would run past the
-// viewport's right edge - a trigger near the edge (the header's "more actions")
-// otherwise pushes the panel off-screen, which is unreachable on a phone.
+// Lightweight popover anchored under its trigger; closes on outside tap / Esc.
+// Portaled (AnchoredMenu) so the drawer's scrolling body can't clip it, and
+// kept inside the viewport - a trigger near the edge (the header's "more
+// actions") used to push the panel off-screen, unreachable on a phone.
 function Pop({ trigger, children, width = 200 }) {
   const [open, setOpen] = useState(false);
-  const [flip, setFlip] = useState(false);
   const ref = useRef(null);
-  const panelRef = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
-  }, [open]);
-  useLayoutEffect(() => {
-    if (!open) { setFlip(false); return; }
-    const el = panelRef.current;
-    if (!el) return;
-    setFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
-  }, [open]);
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
+    <div ref={ref} style={{ display: 'inline-flex' }}>
       {trigger(() => setOpen((o) => !o))}
-      {open && (
-        <div ref={panelRef} style={{ position: 'absolute', top: '100%', left: flip ? 'auto' : 0, right: flip ? 0 : 'auto', marginTop: 4, width, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 300, overflowY: 'auto' }}>
-          {children(() => setOpen(false))}
-        </div>
-      )}
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)}
+        style={{ width, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <div style={{ maxHeight: 292, overflowY: 'auto' }}>{children(() => setOpen(false))}</div>
+      </AnchoredMenu>
     </div>
   );
 }
