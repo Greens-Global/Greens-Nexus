@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Camera, ChevronLeft, Loader2, MoonStar } from 'lucide-react';
 import { api } from '../api';
 import ImageLightbox from './ImageLightbox';
+import { useWorkforceView } from './workforce/viewContext';
 
 // ── Admin → Screenshots - work-session capture gallery ───────────────────────
 // Pick a day → people with captures → their frames (signed URLs, 1h expiry).
@@ -11,7 +12,10 @@ const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { ho
 
 export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, initialEmail = '', initialDate = '' }) {
   const [date, setDate] = useState(() => initialDate || new Date().toISOString().slice(0, 10));
-  const [people, setPeople] = useState(null);
+  const [everyone, setPeople] = useState(null);
+  // Workforce Analytics' team view narrows the list (no view = everyone).
+  const { inView } = useWorkforceView();
+  const people = useMemo(() => (everyone === null ? null : everyone.filter(p => inView(p.email))), [everyone, inView]);
   const [who, setWho] = useState(null);       // {email, name}
   const [shots, setShots] = useState(null);
   const [viewIdx, setViewIdx] = useState(null);   // open lightbox at this shot index
@@ -32,11 +36,11 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
   // Deep-link: jump straight to a person's batch when opened with an email.
   useEffect(() => { if (initialDate) setDate(initialDate); }, [initialDate]);
   useEffect(() => {
-    if (!initialEmail || who || people === null) return;
-    const p = (people || []).find(x => (x.email || '').toLowerCase() === initialEmail.toLowerCase());
+    if (!initialEmail || who || everyone === null) return;
+    const p = (everyone || []).find(x => (x.email || '').toLowerCase() === initialEmail.toLowerCase());
     setWho(p || { email: initialEmail, name: initialEmail });
     setDeepLinked(true);
-  }, [initialEmail, people, who]);
+  }, [initialEmail, everyone, who]);
 
   // Back: from a Coverage deep-link, return to Coverage; otherwise to the people list.
   const goBack = () => {
@@ -68,7 +72,9 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
               ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
               : people.length === 0
                 ? <div style={{ textAlign: 'center', padding: '30px 20px', fontSize: 12.5, color: 'var(--muted)' }}>
-                    No captures on this day. Frames are saved every 5 minutes while someone is clocked in with screen capture on.
+                    {everyone.length
+                      ? 'No one in this team view has captures on this day.'
+                      : 'No captures on this day. Frames are saved every 5 minutes while someone is clocked in with screen capture on.'}
                   </div>
                 : <div style={{ display: 'grid', gap: 8 }}>
                     {people.map(p => (

@@ -1730,6 +1730,13 @@ export const api = {
   policyPublish:      (data) => req('/policy/publish', { method: 'POST', body: JSON.stringify(data) }),
   policyReport:       ()     => req('/policy/report'),
   policyReportCsv:    (status = 'not_accepted') => reqBlob(`/policy/report.csv?status=${status}`),
+  // Workforce Analytics saved team views (routers/workforce_views.py).
+  workforceViews:        ()               => req('/timeclock/workforce-views'),
+  workforceViewOptions:  ()               => req('/timeclock/workforce-views/options'),
+  workforceViewPreview:  (criteria)       => req('/timeclock/workforce-views/preview', { method: 'POST', body: JSON.stringify({ criteria }) }),
+  workforceViewCreate:   (data)           => req('/timeclock/workforce-views', { method: 'POST', body: JSON.stringify(data) }),
+  workforceViewUpdate:   (id, data)       => req(`/timeclock/workforce-views/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  workforceViewDelete:   (id)             => req(`/timeclock/workforce-views/${id}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
