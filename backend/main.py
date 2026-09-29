@@ -1755,6 +1755,9 @@ def _run_migrations():
         # timecard keeps it instead of re-judging the punch's GPS.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_site_ids TEXT DEFAULT ''",
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS site_set_by TEXT DEFAULT ''",
+        # Timecard Notes column (Charmi, Sep 29) - new table, create_all builds
+        # it; RLS per CLAUDE.md.
+        "ALTER TABLE timecard_notes ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

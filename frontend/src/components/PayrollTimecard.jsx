@@ -192,6 +192,45 @@ function LocCell({ seg }) {
   );
 }
 
+// Notes cell (Charmi, Sep 29): a manager/HR note on the day, one per day,
+// edited in place. Enter or clicking away saves, Esc cancels, an emptied note
+// is removed. Never shown on the employee's own timecard.
+function NoteCell({ date, note, onSave, locked }) {
+  const saved = note?.note || '';
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!editing) setText(saved); }, [saved, editing]);
+  const save = async () => {
+    const t = text.trim();
+    if (t === saved) { setEditing(false); return; }
+    setBusy(true);
+    const ok = await onSave(date, t);
+    setBusy(false);
+    if (ok) setEditing(false);
+  };
+  if (editing) return (
+    <textarea className="form-input" autoFocus rows={2} value={text} disabled={busy}
+      aria-label={`Note for ${formatDate(date)}`} placeholder="Add a note"
+      onChange={e => setText(e.target.value)} onBlur={save}
+      onKeyDown={e => {
+        if (e.key === 'Escape') { setText(saved); setEditing(false); }
+        else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+      }}
+      style={{ fontSize: 12, width: 200, minWidth: 150, resize: 'vertical', fontFamily: 'inherit', padding: '5px 7px' }} />
+  );
+  const who = note?.by ? `\n- ${note.by}${note.at ? `, ${formatDate(note.at)}` : ''}` : '';
+  return (
+    <button type="button" onClick={() => !locked && setEditing(true)} disabled={locked}
+      title={saved ? `${saved}${who}` : (locked ? '' : 'Add a note for this day')}
+      style={{ background: 'none', border: 'none', padding: 0, cursor: locked ? 'default' : 'pointer', textAlign: 'left',
+        fontFamily: 'inherit', fontSize: 12, color: saved ? 'var(--ink)' : 'var(--muted)', opacity: saved ? 1 : 0.6,
+        maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+      {saved || (locked ? '-' : '+ Add Note')}
+    </button>
+  );
+}
+
 // Last successful payload per (employee|self + period), kept at MODULE scope so it
 // survives the component unmounting between tabs. Reopening the Time Sheet paints the
 // cached card instantly and refreshes in the background - no loader flash, no snap.
@@ -423,6 +462,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
 
+  // Manager/HR day notes (Charmi, Sep 29) - only the team timecard carries them.
+  const [notes, setNotes] = useState({});
+  useEffect(() => { setNotes(data?.notes || {}); }, [data]);
+  const saveNote = async (date, note) => {
+    try {
+      const r = await api.timeSetTimecardNote(email, date, note);
+      setNotes(n => {
+        const next = { ...n };
+        if (r.note) next[date] = { note: r.note, by: r.by, at: r.at }; else delete next[date];
+        return next;
+      });
+      return true;
+    } catch (e) { toastErr?.(e?.message || 'Could not save the note.'); return false; }
+  };
   // build rows: for each date, its segments (or one empty row); punch-note lines
   // under their day (SwipeClock); weekly subtotal after each SUNDAY-anchored week
   const rows = [];
@@ -660,6 +713,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={th}>OT</th>
                 <th style={th}>OT 2×</th>
                 <th style={{ ...th, textAlign: 'left' }}>Loc</th>
+                {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={{ ...th, textAlign: 'left' }}>Notes</th>}
                 <th style={{ ...th, textAlign: 'left' }}>Department</th>
                 <th style={th}>Pay rate</th>
                 <th style={th}>Wage</th>
@@ -670,13 +724,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'brk' ? (
                 <tr key={i}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
                       <Coffee size={11} /> Breaks
                       {!r.breaks.length && <span style={{ fontWeight: 500 }}>- none recorded</span>}
@@ -707,14 +761,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'auto' ? (
                 <tr key={i}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
                   </td>
                 </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <span>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
@@ -731,7 +785,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
-                  <td colSpan={16} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
+                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}
                   </td>
                 </tr>
@@ -780,6 +834,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
                   <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
+                  {!self && (
+                    <td style={{ ...td, textAlign: 'left' }}>
+                      {r.first !== false && <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} />}
+                    </td>
+                  )}
                   <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
                   <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>

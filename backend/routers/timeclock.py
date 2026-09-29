@@ -47,7 +47,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability)
+                    ShiftAvailability, TimecardNote)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -6882,7 +6882,57 @@ def payroll_timecard(email: str, start: str, end: str,
     card = _compute_timecard(db, em, start, end)
     card.update(_signoff_state(db, em, start, end))
     card["review"] = _review_state(db, em, start, user, team=True)
+    card["notes"] = _timecard_notes(db, em, start, end)
     return card
+
+
+def _timecard_notes(db: Session, email: str, start: str, end: str) -> dict:
+    """{date: {note, by, at}} - the manager/HR notes on this person's days."""
+    rows = (db.query(TimecardNote)
+            .filter(TimecardNote.employee_email == email,
+                    TimecardNote.date >= (start or "0"), TimecardNote.date <= (end or "9")).all())
+    return {r.date: {"note": r.note or "", "by": r.updated_by or "", "at": r.updated_at or ""}
+            for r in rows if (r.note or "").strip()}
+
+
+class TimecardNoteIn(BaseModel):
+    email: str
+    date: str               # YYYY-MM-DD
+    note: str = ""          # "" clears it
+
+
+@router.put("/timecard-notes")
+def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_write),
+                      db: Session = Depends(get_db)):
+    """Write (or clear) the Notes cell for one day of one person's timecard
+    (Charmi, Sep 29). Managers/HR inside their team scope only. A note never
+    changes hours, so it stays editable after the period is finalized."""
+    em = (body.email or "").strip().lower()
+    day = (body.date or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    if not em:
+        raise HTTPException(400, "email is required")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    text = (body.note or "").strip()[:2000]
+    rid = f"{em}|{day}"
+    row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
+    if not text:
+        if row:
+            db.delete(row)
+            db.commit()
+        return {"date": day, "note": "", "by": "", "at": ""}
+    now = _now_iso()
+    if row is None:
+        row = TimecardNote(id=rid, employee_email=em, date=day)
+        db.add(row)
+    row.note, row.updated_by, row.updated_at = text, user["email"], now
+    db.commit()
+    return {"date": day, "note": text, "by": user["email"], "at": now}
 
 
 def _review_state(db: Session, email: str, start: str, user: dict, team: bool) -> dict:

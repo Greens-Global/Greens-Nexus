@@ -4731,3 +4731,17 @@ class LeaseMonth(Base):
     note       = Column(String, default="")
     updated_by = Column(String, default="")
     updated_at = Column(String, default="")
+
+
+class TimecardNote(Base):
+    """A manager/HR note on one day of one person's timecard (Charmi, Sep 29 -
+    the Notes column). One per person per day, edited in place. Private to
+    managers and HR: only the team timecard (/timeclock/payroll) carries it,
+    never the employee's own /my-payroll."""
+    __tablename__ = "timecard_notes"
+    id             = Column(String, primary_key=True)             # "<email>|<YYYY-MM-DD>"
+    employee_email = Column(String, index=True, nullable=False)
+    date           = Column(String, index=True, nullable=False)   # YYYY-MM-DD
+    note           = Column(String, default="")
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
