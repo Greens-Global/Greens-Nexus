@@ -2766,3 +2766,5 @@ from routers import equipment_reminder_settings  # noqa: E402
 app.include_router(equipment_reminder_settings.router)  # Equipment Reminders timing - see equipment_reminder_config.py
 from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
+from routers import weather as weather_router  # noqa: E402
+app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
