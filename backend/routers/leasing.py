@@ -31,11 +31,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 import models
 from auth import require_module_grant
-from database import SessionLocal, get_db
+from database import SessionLocal
 from routers import accounting
 from routers.accounting import entity_scope
 

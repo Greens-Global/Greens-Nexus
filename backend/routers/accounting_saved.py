@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
-from auth import _LEVELS, _MODULE_LEVEL_RANK, _grants_for, get_current_user, require_module_grant
+from auth import _LEVELS, _MODULE_LEVEL_RANK, get_current_user, require_module_grant
 from database import get_db
 from routers.accounting import ACCOUNTING_SCOPE_MODULE, ACCOUNTING_SCOPE_TYPE
 
