@@ -56,6 +56,7 @@ export const NAV = [
     sub: [
       { subview: "mine",     label: "My Shifts",        icon: CalendarClock },
       { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },
+      { subview: "requests", label: "Requests",         icon: ClipboardList },
       { subview: "presets",  label: "Presets & Groups", icon: ClipboardList, minRole: 'manager' },
     ],
   },

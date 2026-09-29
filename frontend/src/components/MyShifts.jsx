@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, Users, StickyNote, Timer, Plane } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, StickyNote, Timer, Plane } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, zoneClock } from '../lib/datetime';
+import { zoneOptionLabel } from '../lib/worldClockZones';
 import { SkeletonBlocks } from './AsyncState';
-import { timeOffLabel, shiftPhase } from './shiftScheduleLib';
+import { shiftPhase } from './shiftScheduleLib';
+import TeamShiftGrid from './TeamShiftGrid';
 import { ShiftActions, RequestDialog, OpenShifts, ShiftRequestsList } from './ShiftSelfService';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
@@ -25,10 +27,11 @@ import MyAvailability from './MyAvailability';
 // team shifts based on what team you are on as well as your own"): one
 // week grid per shift group the manager put them in (Shifts > Manage >
 // Presets & Groups - the same grouping bulk assignment and the BOD/EOD chat
-// key on), every member a row, the person themself first. What a teammate's
-// row carries - why they are off, a shift's note, activities and break - is
-// the shift settings' call (Teams "Visibility"); the API sends only what
-// this person may see.
+// key on), every member a row, the person themself first, laid out like the
+// Teams Shifts schedule (TeamShiftGrid.jsx - photos, colored shift blocks,
+// open shifts, day notes). What a teammate's row carries - why they are off,
+// a shift's note, activities and break - is the shift settings' call (Teams
+// "Visibility"); the API sends only what this person may see.
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -47,24 +50,11 @@ function minutesOf(hhmm) { const [h, m] = (hhmm || '0:0').split(':').map(Number)
 function fmtRange(a, b) {
   return `${formatDate(dateKey(a))} - ${formatDate(dateKey(b))}`;
 }
-// "9a-5:30p": the team grid has seven columns to fit, so the times shrink.
-function compact12(hhmm) {
-  const [h, m] = (hhmm || '').split(':').map(Number);
-  if (Number.isNaN(h)) return hhmm || '';
-  const ampm = h >= 12 ? 'p' : 'a';
-  const h12 = h % 12 || 12;
-  return m ? `${h12}:${String(m).padStart(2, '0')}${ampm}` : `${h12}${ampm}`;
-}
 // A default preset's hours on one of its weekdays (ISO Mon=1 ... Sun=7), or
 // null. Shown as "Usual hours" on a day with nothing published.
 function usualOn(preset, iso) {
   return preset && (preset.days || '').split(',').includes(iso)
     ? { start: preset.start, end: preset.end, label: preset.name } : null;
-}
-// What a shift carries beyond its times, one per line, for a tooltip.
-function detailLines(s) {
-  return [s.note, ...(s.activities || []).map(a => `${hhmmTo12(a.start)} - ${hhmmTo12(a.end)} ${a.label}`),
-    s.breakMin ? `${s.breakMin} min unpaid break` : ''].filter(Boolean);
 }
 // Paid minutes of a shift: its span (overnight wraps) minus its unpaid break.
 function paidMin(s) {
@@ -75,10 +65,6 @@ function paidMin(s) {
 function fmtHrs(min) {
   const h = min / 60;
   return `${Number.isInteger(h) ? h : h.toFixed(1)} hrs`;
-}
-function firstName(name, email) {
-  const n = (name || '').trim();
-  return n ? n.split(/\s+/)[0] : (email || '').split('@')[0];
 }
 
 export default function MyShifts() {
@@ -102,6 +88,14 @@ export default function MyShifts() {
   const [ask, setAsk] = useState(null);          // { kind, shift } while the swap/offer form is open
   const [flash, setFlash] = useState('');
   const done = (msg) => { setAsk(null); setFlash(msg); reloadReqs(); setReload(n => n + 1); };
+  // Asking for an open shift straight from the team grid's Open Shifts row.
+  const [busyOpen, setBusyOpen] = useState('');
+  async function requestOpen(s) {
+    setBusyOpen(s.id);
+    try { await api.shiftRequestCreate({ kind: 'open', shift_id: s.id }); done('Request sent. A manager will approve it.'); }
+    catch (e) { setFlash(e?.message || 'Could not send the request.'); }
+    setBusyOpen('');
+  }
 
   const todayKey = dateKey(now);
   // One entry per day: the published shifts placed on it, the usual hours
@@ -178,6 +172,14 @@ export default function MyShifts() {
     if (!team || !thisWeek) return [];
     return teamRows.filter(r => r.days.some(d => !d.off && d.shifts.some(s => shiftPhase(s, d.key, clockOf(s)) === 'on')));
   }, [team, teamRows, clockOf, thisWeek]);
+  // "All times are shown in ..." - said only when it is true: every shift on
+  // the grid runs on one zone (each preset keeps its own).
+  const gridZone = useMemo(() => {
+    const zones = new Set(teamRows.flatMap(r => r.days.flatMap(d => d.shifts.map(s => s.timezone || data?.timeZone || ''))));
+    zones.delete('');
+    return zones.size === 1 ? zoneOptionLabel([...zones][0]) : '';
+  }, [teamRows, data]);
+  const openList = reqs?.settings?.openShifts ? reqs.openShifts || [] : [];
 
   return (
     <div>
@@ -274,97 +276,15 @@ export default function MyShifts() {
         <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>
       )}
       <ShiftRequestsList reqs={reqs} onDone={done} />
-      <OpenShifts reqs={reqs} onDone={done} />
+      {!team && <OpenShifts reqs={reqs} onDone={done} />}
       {ask && (
         <RequestDialog ask={ask} teammates={reqs?.teammates || []} todayKey={todayKey} onClose={() => setAsk(null)} onDone={done}
           teamShifts={reqs?.swapShifts || {}} />
       )}
 
       {data && team && (
-        <div style={{ marginTop: 22 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 10 }}>
-            <span className="wkc-chip"><Users size={14} /></span>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Team Shifts</span>
-            {teams.length > 1 ? (
-              <select className="form-select" value={team.id} onChange={e => setTeamId(e.target.value)} aria-label="Team" style={{ width: 'auto', fontSize: 12.5, padding: '4px 28px 4px 10px' }}>
-                {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.members.length}){t.isMember === false ? ' - you manage' : ''}</option>)}
-              </select>
-            ) : (
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this team' : ''}</span>
-            )}
-            {thisWeek && (
-              <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
-                {onNow.length === 0
-                  ? 'Nobody on shift right now'
-                  : `On shift now: ${onNow.map(r => r.isMe ? 'you' : firstName(r.name, r.email)).join(', ')}`}
-              </span>
-            )}
-          </div>
-          <div className="scroll-tabs" style={{ border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
-            <table style={{ width: '100%', minWidth: 640, borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', textAlign: 'left', padding: '10px 12px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', borderBottom: '1px solid var(--wk-line2)', minWidth: 150 }}>Member</th>
-                  {days.map(d => (
-                    <th key={d.key} style={{ padding: '10px 8px', textAlign: 'left', borderBottom: '1px solid var(--wk-line2)', background: d.isToday ? 'var(--wk-brand-tint)' : 'var(--card)', minWidth: 84 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: d.isToday ? 'var(--wk-brand)' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{DOW[d.date.getDay()]}</span>
-                      <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', marginLeft: 5 }}>{d.date.getDate()}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {teamRows.map(r => {
-                  // You, pinned first (the API sorts you to the top) and
-                  // marked so you find yourself at a glance (Neil, Sep 29):
-                  // the whole row tinted, an accent bar, your name in the
-                  // brand color and a filled "You" badge, then a firmer
-                  // rule before your teammates.
-                  const me = r.isMe;
-                  const onNowRow = onNow.some(o => o.email === r.email);
-                  const rowBg = me ? 'var(--wk-brand-tint)' : 'transparent';
-                  const rule = me ? '2px solid var(--wk-line2)' : '1px solid var(--line)';
-                  return (
-                    <tr key={r.email} aria-current={me ? 'true' : undefined}>
-                      <td style={{ position: 'sticky', left: 0, zIndex: 1, background: me ? 'var(--wk-brand-tint)' : 'var(--card)', padding: '9px 12px', borderBottom: rule, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200,
-                        boxShadow: me ? 'inset 3px 0 0 var(--wk-brand)' : 'none' }}>
-                        {onNowRow && <span title="On shift now" style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-green))', marginRight: 7, verticalAlign: 'middle' }} />}
-                        <span style={{ fontWeight: me ? 800 : 600, color: me ? 'var(--wk-brand)' : 'var(--ink)' }}>{r.name || r.email}</span>
-                        {me && <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', background: 'var(--wk-brand)', borderRadius: 999, padding: '1px 7px', marginLeft: 7, letterSpacing: '.03em', verticalAlign: 'middle' }}>YOU</span>}
-                      </td>
-                      {r.days.map(d => (
-                        <td key={d.key} style={{ padding: '8px 8px', borderBottom: rule, verticalAlign: 'top', background: me ? rowBg : (d.isToday ? 'hsla(var(--color-green),0.05)' : 'transparent'),
-                          boxShadow: me && d.isToday ? 'inset 0 0 0 999px hsla(var(--color-green),0.06)' : 'none' }}>
-                          {d.off ? (
-                            // The reason and note arrive only when the shift
-                            // settings share them with teammates.
-                            <span title={d.off.note || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#b45309' }}>
-                              <CalendarDays size={11} /> {d.off.type ? timeOffLabel(d.off.type) : 'Time off'}
-                            </span>
-                          ) : d.shifts.length === 0 ? (
-                            d.usual
-                              ? <span title="Usual hours. No shift is published for this day yet." style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Usual {compact12(d.usual.start)}-{compact12(d.usual.end)}</span>
-                              : <span style={{ fontSize: 12, color: 'var(--muted)' }}>Off</span>
-                          ) : d.shifts.map(sh => {
-                            const more = detailLines(sh);
-                            return (
-                              <div key={sh.id} title={[`${hhmmTo12(sh.start)} - ${hhmmTo12(sh.end)}${sh.label ? ` · ${sh.label}` : ''}`, ...more].join('\n')}
-                                style={{ borderLeft: `3px solid ${sh.color || 'var(--wk-brand)'}`, paddingLeft: 7, marginBottom: 4, lineHeight: 1.3 }}>
-                                <div style={{ fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{compact12(sh.start)}-{compact12(sh.end)}</div>
-                                {(sh.code || sh.label) && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{sh.code || sh.label}</div>}
-                                {more.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{more[0]}{more.length > 1 ? ` +${more.length - 1}` : ''}</div>}
-                              </div>
-                            );
-                          })}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <TeamShiftGrid teams={teams} team={team} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
+          openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek} timeZoneLabel={gridZone} />
       )}
 
       <MyAvailability />

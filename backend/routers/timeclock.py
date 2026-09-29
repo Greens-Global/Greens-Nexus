@@ -4941,8 +4941,11 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
         group_ids = list(dict.fromkeys(group_ids + sorted(run)))
     teams = []
     if group_ids:
-        names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
-                 for e in db.query(NexusEmployee).all() if e.work_email}
+        everyone = [e for e in db.query(NexusEmployee).all() if e.work_email]
+        names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip() for e in everyone}
+        # Profile photos for the team grid, the same ones the manager's
+        # schedule shows (Visesh, Sep 30: "there are no people pictures").
+        photos = {(e.work_email or "").lower(): getattr(e, "photo_url", "") or "" for e in everyone}
         members_by_group = {}
         for m in db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(group_ids)).all():
             members_by_group.setdefault(m.group_id, []).append((m.employee_email or "").lower())
@@ -4979,6 +4982,7 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
             teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
+                                       "photoUrl": photos.get(em, ""),
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
                                        "timeoff": away.get(em, [])} for em in ems]})
 

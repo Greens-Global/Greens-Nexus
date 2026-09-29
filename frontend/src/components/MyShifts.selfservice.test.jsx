@@ -81,13 +81,39 @@ describe('MyShifts availability and group scheduling', () => {
   it('pins me first in Team Shifts and marks my row', async () => {
     render(<MyShifts />);
     const mine = await screen.findByText('Me Here');
-    const row = mine.closest('tr');
+    const row = mine.closest('[data-member]');
     expect(row.getAttribute('aria-current')).toBe('true');
     expect(row.textContent).toContain('YOU');
-    const rows = row.parentElement.querySelectorAll('tr');
+    const rows = [...document.querySelectorAll('[data-member]')].filter(r => r.getAttribute('data-member') !== 'open');
     expect(rows[0]).toBe(row);                                   // first, above Bob
     expect(rows[1].textContent).toContain('Bob Brown');
     expect(rows[1].getAttribute('aria-current')).toBeNull();
+  });
+
+  it('lays the team out like Teams Shifts: photos, hours, colored blocks', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, dayNotes: [{ date: DAY, note: 'Inventory day' }],
+      teams: [{ id: 'g', name: 'Store', members: [
+        { ...sched.teams[0].members[0], photoUrl: 'https://x.test/me.jpg',
+          scheduled: [{ id: 'mine1', email: 'me@x.com', date: DAY, start: '09:00', end: '17:00', breakMin: 30, code: 'GST', label: 'Front desk', color: '#2563eb' }] },
+        sched.teams[0].members[1],
+      ] }] });
+    render(<MyShifts />);
+    const me = (await screen.findByText('Me Here')).closest('[data-member]');
+    expect(me.querySelector('img').getAttribute('src')).toBe('https://x.test/me.jpg');     // a photo
+    const bob = screen.getByText('Bob Brown').closest('[data-member]');
+    expect(bob.querySelector('img')).toBeNull();                                           // initials when there is none
+    expect(bob.textContent).toContain('BB');
+    expect(me.textContent).toContain('7.5 Hrs');                                           // my paid hours this week
+    expect(bob.textContent).toContain('8 Hrs');
+    const block = me.querySelector('[data-shift="mine1"]');
+    expect(block.textContent).toContain('GST');
+    expect(block.textContent).toContain('9 AM - 5 PM');
+    expect(block.style.borderLeft).toContain('4px solid');
+    const grid = screen.getByRole('table', { name: 'Store schedule' });
+    expect(grid.textContent).toContain('Week: 15.5 Hrs');
+    expect(grid.textContent).toContain('Day Notes');
+    expect(grid.textContent).toContain('Inventory day');
+    expect(grid.textContent).toContain('Open Shifts');
   });
 
   it('sums my week at a glance in paid hours', async () => {
@@ -129,12 +155,12 @@ describe('MyShifts shows only what is published (Sep 29 audit)', () => {
     timeMySchedule.mockResolvedValue(team({ scheduled: [], timeoff: [{ startDate: DAY, endDate: DAY, type: 'vacation', note: 'Back Monday' }] }));
     const { unmount } = render(<MyShifts />);
     const reason = await screen.findByText('Vacation');
-    expect(reason.closest('span').getAttribute('title')).toBe('Back Monday');
+    expect(reason.closest('[title]').getAttribute('title')).toBe('Back Monday');
     unmount();
     // Withheld by the settings (or confidential): plain "Time off".
     timeMySchedule.mockResolvedValue(team({ scheduled: [], timeoff: [{ startDate: DAY, endDate: DAY }] }));
     render(<MyShifts />);
-    const row = (await screen.findByText('Bob Brown')).closest('tr');
+    const row = (await screen.findByText('Bob Brown')).closest('[data-member]');
     expect(row.textContent).toContain('Time off');
     expect(row.textContent).not.toContain('Vacation');
   });
@@ -143,7 +169,7 @@ describe('MyShifts shows only what is published (Sep 29 audit)', () => {
     timeMySchedule.mockResolvedValue({ ...sched, teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0],
       { ...sched.teams[0].members[1], scheduled: [{ ...sched.teams[0].members[1].scheduled[0], note: 'Bring keys', breakMin: 30 }] }] }] });
     render(<MyShifts />);
-    const row = (await screen.findByText('Bob Brown')).closest('tr');
+    const row = (await screen.findByText('Bob Brown')).closest('[data-member]');
     expect(row.textContent).toContain('Bring keys +1');
   });
 });
@@ -194,11 +220,23 @@ describe('MyShifts self-service', () => {
     expect(await screen.findByText('Accepted. A manager will approve it next.')).toBeTruthy();
   });
 
-  it('requests an open shift', async () => {
+  it('requests an open shift from the Open Shifts row', async () => {
     shiftRequestsMine.mockResolvedValue(reqs({ openShifts: [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }] }));
     render(<MyShifts />);
-    expect(await screen.findByText('Early · 2 spots open')).toBeTruthy();
+    await screen.findByText('Me Here');
+    const open = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
+    expect(open.closest('[data-member]').getAttribute('data-member')).toBe('open');
+    expect(open.textContent).toContain('Early');
+    expect(open.textContent).toContain('2 spots');
     fireEvent.click(screen.getByText('Request'));
     await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));
+    expect(await screen.findByText('Request sent. A manager will approve it.')).toBeTruthy();
+  });
+
+  it('still lists open shifts for someone with no team', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [] });
+    shiftRequestsMine.mockResolvedValue(reqs({ teammates: [], openShifts: [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }] }));
+    render(<MyShifts />);
+    expect(await screen.findByText('Early · 2 spots open')).toBeTruthy();
   });
 });

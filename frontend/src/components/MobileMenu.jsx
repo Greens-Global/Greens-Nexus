@@ -10,14 +10,18 @@ import { NAV } from './Sidebar';
 // tap deep-links exactly where the in-page tab would. Modules absent here
 // (Dashboard, Tasks, Asset Management, Investor Relations…) navigate directly.
 export const SUBMENUS = {
-  // Staff have one Shifts page (their week + their team) - no submenu.
+  // Staff have My Shifts (their week + their team) and Requests.
   shifts: {
     manager: [
       { sub: 'mine', label: 'My Shifts' },
       { sub: 'schedule', label: 'Schedule' },
+      { sub: 'requests', label: 'Requests' },
       { sub: 'presets', label: 'Presets & Groups' },
     ],
-    employee: null,
+    employee: [
+      { sub: 'mine', label: 'My Shifts' },
+      { sub: 'requests', label: 'Requests' },
+    ],
   },
   inventory: {
     manager: [

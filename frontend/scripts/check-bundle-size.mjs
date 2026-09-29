@@ -126,7 +126,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // batch is about 180 KB in all (Reports with the column layouts, Packages,
 // Access, PFS Builder, Leasing). Needs the owner's nod like the bumps above
 // (Visesh).
-const TOTAL_KB     = 10000;
+// Sep 30, 2026: 10000 -> 10050. Shifts laid out like Teams Shifts (Visesh:
+// the team grid with photos and colored shift blocks, and a Requests page
+// with New Request) measured 9999 KB locally - 1 KB under the cap, and CI's
+// clean install reads higher than a local build, so the Cloudflare build
+// would have failed and left the old frontend serving. +14 KB for the
+// feature; the old team table came out as the grid went in. No new
+// dependency. Needs the owner's nod like the bumps above (Visesh).
+const TOTAL_KB     = 10050;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

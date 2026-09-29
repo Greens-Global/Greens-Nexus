@@ -439,7 +439,9 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
               .filter(models.ShiftRequest.status.in_(["approved", "declined"]), models.ShiftRequest.decided_by != "")
               .order_by(models.ShiftRequest.decided_at.desc()).limit(40).all() if _in_scope(r, scope)][:10]
     return {"pending": [_to_dict(r, names) for r in waiting], "recent": [_to_dict(r, names) for r in recent],
-            "settings": get_settings(db)}
+            "settings": get_settings(db),
+            # The settings are company-wide switches (save_settings).
+            "canConfigure": scope is None}
 
 
 class DecideIn(BaseModel):
