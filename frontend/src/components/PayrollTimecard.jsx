@@ -200,12 +200,18 @@ function NoteCell({ date, note, onSave, locked }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(saved);
   const [busy, setBusy] = useState(false);
+  // One save at a time: Enter saves, and the box then losing focus fired a
+  // second save of the same note mid-flight - the two raced into a 500.
+  const savingRef = useRef(false);
   useEffect(() => { if (!editing) setText(saved); }, [saved, editing]);
   const save = async () => {
+    if (savingRef.current) return;
     const t = text.trim();
     if (t === saved) { setEditing(false); return; }
+    savingRef.current = true;
     setBusy(true);
     const ok = await onSave(date, t);
+    savingRef.current = false;
     setBusy(false);
     if (ok) setEditing(false);
   };
