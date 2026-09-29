@@ -36,6 +36,7 @@ from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from database import get_db
 from auth import (get_current_user, require_level_or_module, require_administrator,
@@ -6933,7 +6934,16 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
         row = TimecardNote(id=rid, employee_email=em, date=day)
         db.add(row)
     row.note, row.updated_by, row.updated_at = text, user["email"], now
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two saves of the same new note raced (Enter, then the box losing
+        # focus): both found no row and both inserted, and the second hit the
+        # primary key - a 500 on dev (Sep 29). The row is there now; update it.
+        db.rollback()
+        row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
+        row.note, row.updated_by, row.updated_at = text, user["email"], now
+        db.commit()
     return {"date": day, "note": text, "by": user["email"], "at": now}
 
 

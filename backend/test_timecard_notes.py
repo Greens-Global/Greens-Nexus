@@ -108,6 +108,44 @@ class TimecardNotesTest(unittest.TestCase):
         self.assertEqual(card.get("payType"), "fixed")
         self.assertEqual(card["notes"]["2026-09-02"]["note"], "Was at the client site")
 
+    def test_two_saves_of_a_new_note_racing_do_not_500(self):
+        # Enter saved the note, then the box losing focus saved it again while
+        # the first request was in flight: both found no row, both inserted,
+        # and the second hit the primary key (500 on dev, Sep 29).
+        self.put(ADMIN, self.emp, "2026-09-03", "first save")      # the request that won
+
+        class MissFirstLookup:
+            """A session whose first TimecardNote lookup still sees no row -
+            the losing request's view before the winner committed."""
+            def __init__(self, db):
+                self.db, self.missed = db, False
+
+            def query(self, model, *a):
+                q = self.db.query(model, *a)
+                if model is TimecardNote and not self.missed:
+                    self.missed = True
+
+                    class Empty:
+                        def filter(self, *_):
+                            return self
+
+                        def first(self):
+                            return None
+                    return Empty()
+                return q
+
+            def __getattr__(self, name):
+                return getattr(self.db, name)
+
+        db = database.SessionLocal()
+        try:
+            r = set_timecard_note(TimecardNoteIn(email=self.emp, date="2026-09-03", note="second save"),
+                                  user=ADMIN, db=MissFirstLookup(db))
+        finally:
+            db.close()
+        self.assertEqual(r["note"], "second save")
+        self.assertEqual(self.read(self.emp, "2026-09-01", "2026-09-30")["2026-09-03"]["note"], "second save")
+
     def test_a_bad_date_is_refused(self):
         with self.assertRaises(HTTPException) as e:
             self.put(ADMIN, self.emp, "09/23/2026", "x")
