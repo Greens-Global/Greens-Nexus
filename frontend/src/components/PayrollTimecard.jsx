@@ -611,7 +611,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,
               Hrs/day, Non-OT, OT, OT 2×, Loc, Department, Pay rate, Wage - so HR
-              reads this card exactly like the one they use today. */}
+              reads this card exactly like the one they use today. Work Log is
+              ours, not SwipeClock's, so it rides at the far right, after Wage
+              (Neil, Sep 29: mid-row it crowded Hrs/day and overlapped). */}
           <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--wk-hover)' }}>
@@ -622,7 +624,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Category</th>
                 <th style={th}>Hours</th>
                 <th style={th}>Hrs/day</th>
-                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th style={th}>Non-OT</th>
                 <th style={th}>OT</th>
                 <th style={th}>OT 2×</th>
@@ -630,6 +631,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Department</th>
                 <th style={th}>Pay rate</th>
                 <th style={th}>Wage</th>
+                <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
               </tr>
             </thead>
@@ -742,11 +744,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
                     ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
                     : ''}</td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    {r.first !== false && (
-                      <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
-                    )}
-                  </td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
@@ -754,6 +751,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
                   <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    {r.first !== false && (
+                      <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
+                    )}
+                  </td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     {!self && !fin && (
                       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
@@ -787,7 +789,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
-                  <td style={td}></td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
                   <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
@@ -795,6 +796,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}></td>
                   <td style={td}></td>
                   <td style={td}>{fmtM(T.totalPay)}</td>
+                  <td style={td}></td>
                   <td style={td}></td>
                 </tr>
               </tfoot>
@@ -1058,8 +1060,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
               <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              {/* Far right, like the hourly card (Sep 29). */}
+              <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
             </tr>
           </thead>
           <tbody>
@@ -1161,12 +1164,12 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                         ? outCell(lastSeg)
                         : outCell(firstSeg)}
                   </td>
-                  <td style={{ ...td, textAlign: 'center' }}>
-                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
-                  </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
                   <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>
+                    <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
+                  </td>
                 </tr>
               );
 
@@ -1198,8 +1201,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       </td>
                       <td style={td}>{inCell(seg)}</td>
                       <td style={td}>{outCell(seg)}</td>
-                      <td style={td}></td>
                       <td style={{ ...td, textAlign: 'right', color: 'var(--muted)' }}>{hhmm(seg.workedMin)}</td>
+                      <td style={td}></td>
                       <td style={td}></td>
                       <td style={td}></td>
                     </tr>
@@ -1264,7 +1267,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <td style={td}>{r.action === 'add' && !isIn ? <span style={{ color: '#b45309', fontWeight: 700 }}>{t12(r.at)}</span> : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                     <td style={td}></td>
                     <td style={td}></td>
-                    <td style={td}></td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       {!self
                         ? <span style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -1273,6 +1275,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                           </span>
                         : <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700, fontStyle: 'italic' }}>pending approval</span>}
                     </td>
+                    <td style={td}></td>
                   </tr>
                 );
                 rows.push(
