@@ -1958,7 +1958,7 @@ class EntityIn(BaseModel):
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
-    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people) - source of truth
+    manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
 
 

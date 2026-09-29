@@ -12,7 +12,7 @@ import {
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
-import { usePeopleDirectory } from '../lib/queries';
+import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
@@ -3369,7 +3369,12 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   useEffect(() => {
     api.getGroupManager().then(r => setGroupMgr(r?.email || '')).catch(() => {});
   }, []);
-  const personName = email => people.find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || '';
+  // Company Manager(s) may also be external users (Sep 29) - offered in their
+  // own group of the picker. HR Contact and the group manager stay Nexus People.
+  const { data: withExternal = [] } = usePeopleDirectoryWithExternal();
+  const externals = withExternal.filter(p => p.external);
+  const personName = email => [...people, ...externals].find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || '';
+  const isExternal = email => externals.some(p => (p.email || '').toLowerCase() === (email || '').toLowerCase());
   async function saveGroupMgr(email) {
     setGroupMgr(email); setGroupMgrBusy(true);
     try { await api.setGroupManager(email); toastOk(email ? 'Group manager set.' : 'Group manager cleared.'); }
@@ -3498,6 +3503,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       {f.manager_emails.map(em => (
                         <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', borderRadius: 999, padding: '4px 6px 4px 10px', fontSize: 12 }}>
                           {personName(em) || em}
+                          {isExternal(em) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>External</span>}
                           <button type="button" onClick={() => set('manager_emails', f.manager_emails.filter(x => x !== em))}
                             title="Remove" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                             <X size={12} />
@@ -3509,7 +3515,14 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                   <select className="form-input" style={{ width: '100%' }} value=""
                     onChange={e => { const v = e.target.value; if (v && !f.manager_emails.includes(v)) set('manager_emails', [...f.manager_emails, v]); }}>
                     <option value="">+ add a manager</option>
-                    {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                    <optgroup label="Nexus People">
+                      {people.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                    </optgroup>
+                    {externals.some(p => !f.manager_emails.includes(p.email)) && (
+                      <optgroup label="External Users">
+                        {externals.filter(p => !f.manager_emails.includes(p.email)).map(p => <option key={p.email} value={p.email}>{p.name} ({p.email}) - External</option>)}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
                 {/* Signs every employee's timesheet last and finalizes it for
