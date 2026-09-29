@@ -132,6 +132,12 @@ describe('what is asked of the ledger', () => {
     expect(r.summary.map((f) => f.label)).toEqual(['Revenue', 'Expenses', 'Net Income', 'Net Margin', 'Net Change']);
   });
 
+  it('states a fall once: the amount and the percentage each in their own parentheses', async () => {
+    const api = fakeApi({ pnl: ({ from }) => stmt([{ account_no: '41000', title: 'Rental Income', amount: from === '2026-01-01' ? 700 : 1000 }]) });
+    const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), cols: 'prior_year' }, NOW));
+    expect(r.summary.at(-1)).toMatchObject({ label: 'Net Change', value: `(300.00) ${String.fromCharCode(0xb7)} (30.0%)`, tone: 'bad' });
+  });
+
   it('adds the cash closing balance to a trial balance when both books are asked for', async () => {
     const row = (closing) => ({ account_no: '10100', title: 'Operating', type: 'cash_bank', opening: 1, debit: 2, credit: 3, closing });
     const api = fakeApi({ tb: ({ book }) => ({ rows: [row(book === 'cash' ? 9 : 0)], totals: { opening: 1, debit: 2, credit: 3, closing: book === 'cash' ? 9 : 0 } }) });

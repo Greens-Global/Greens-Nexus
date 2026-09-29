@@ -104,7 +104,7 @@ export default function AccessTab() {
         </div>
         <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
           <ShieldCheck size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>A limit covers an entity and everything under it. A limited person works in Reports and Packages only: the dashboard tabs and the accounting app show consolidated figures, so they close. Every change is written to the audit log.</span>
+          <span>A limit covers an entity and everything under it. A limited person works in Reports, Packages and Leasing only: the dashboard tabs and the accounting app show consolidated figures, so they close. Every change is written to the audit log.</span>
         </div>
       </div>
       {editing && <EntityLimit person={editing} entities={entities} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}

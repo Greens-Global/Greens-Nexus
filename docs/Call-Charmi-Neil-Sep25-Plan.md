@@ -16,65 +16,62 @@ monitor = Nexus prod Accounting Reports and the accounting app Reports page.
 Status key: ☐ not built, 🔨 built and committed locally (not pushed, not on
 any site yet), ✅ live on PRODUCTION.
 
-## Status - 09/29/2026
+## Status - 09/29/2026: LIVE ON PRODUCTION
 
-Nothing is live on a site yet except the database fix for the September
-zeros (A3), which took effect when its migration was applied on 09/28.
-Everything else is built, tested and waiting on three pushes.
+Released 09/29/2026. Every item marked built below is on production
+(nexus.greensglobal.com and accounting.greensglobal.com).
 
-Where everything is:
-- Accounting database (production): all three migrations APPLIED -
-  `20260928100000_lms_core_same_month_tail.sql`,
+What went out:
+- Accounting database: three migrations applied
+  (`20260928100000_lms_core_same_month_tail.sql`,
   `20260928110000_nexus_reports_book_columns_entry.sql`,
-  `20260929100000_nexus_report_columns.sql`.
-- Accounting repo: branch `feature/nexus-reports-sep25` (3 commits on main
-  e3cc9a7) is on GitHub as a branch. `main` is untouched, so nothing is
-  deployed.
-- Nexus repo, local only:
-  - `feature/charmi-neil-sep25` - the whole batch with dev (ec0d6ae2)
-    merged in. A fast forward of `dev`.
-  - `release/charmi-neil-sep25` - production `main` (d5122233, the dev ->
-    main release of 09/29 04:42) with the batch merged in. A fast forward of
-    `main`; its files are identical to the dev branch's.
+  `20260929100000_nexus_report_columns.sql`).
+- Accounting app: `main` 62247ea. The first deploy built and then failed
+  handing the bundle over ("Artifact storage quota has been hit" on the
+  GitHub organization); the workflow now builds and deploys in one job and
+  uploads nothing.
+- Nexus: `dev` and `main` carry the whole batch. Production had taken all of
+  dev at 04:42 the same morning (PR #382), so nothing was held back.
+- Nine new Nexus tables exist on production with RLS on; no public table is
+  without RLS; the security advisor shows informational notes only.
 
-To release, in this order (the accounting app first, Nexus calls it):
-1. `git push origin feature/nexus-reports-sep25:main` in the accounting repo
-   (Cloudflare deploys it). Until this is live the new Nexus screens have
-   nothing to call, and the Cash book would show accrual figures.
-2. `git push origin feature/charmi-neil-sep25:dev` in the Nexus repo. Run
-   `get_advisors` on dev.
-3. `git push origin release/charmi-neil-sep25:main` in the Nexus repo. Run
-   `get_advisors` on prod. Nine new tables are created on boot with RLS on:
-   `accounting_saved_reports`, `accounting_report_packages`,
-   `accounting_user_prefs`, `pfs_profiles`, `pfs_lines`, `pfs_statements`,
-   `leases`, `lease_rates`, `lease_months`.
-4. After release, on production:
-   - Roles & Access: grant "Personal Financial Statements" to whoever builds
-     the statements with Charmi (nobody has it by default; administrators are
-     not let in by role, Global Admins are).
-   - People - Companies: check each company has its HR contact, since punch
-     and time-off requests now reach that person.
-   - F3: set the eight named people to Exempt.
+Checked on production against the real ledger:
+- September is no longer 0.00: This Month and Month-to-Date show figures.
+- By Month, By Entity and By Vendor each add up to the statement total; the
+  September column equals Month-to-Date.
+- Cash book, Accrual and Cash side by side, and vs Prior Year answer.
+- Balance Sheet balances, in total and in every entity column; current year
+  earnings equal the income statement's net income.
+- A drill-down opens the lines behind an amount and their net equals it.
+- Search works, "500" included (A1 did not come back; it takes 10 to 20
+  seconds over all dates), and the filter under a column narrows the result.
+- Packages, Leasing, PFS and Access open; the lease form lists the Intacct
+  customers.
+NOT checked: saving anything on production (a memorized report, a package, a
+lease, a guarantor, an access limit), and the PDFs with real figures.
 
-Bundle budget: the Shifts work and this batch together measure 9,902 KB, so
-the cap goes from 9,800 to 10,000 - that needs the owner's nod like the
-earlier bumps.
+Still to do on production, by a person:
+- Roles & Access: grant "Personal Financial Statements" to whoever builds
+  the statements with Charmi (nobody has it by default; administrators are
+  not let in by role, Global Admins are).
+- People - Companies: check each company has its HR contact, since punch
+  and time-off requests now reach that person.
+- F3: set the eight named people to Exempt.
 
-Verified locally (the dev branch and the release branch hold the same files):
-- 1,009 frontend tests, production build, the batch's backend tests (52), the
-  app starts.
-- Of the 118 backend test files, 111 pass; the 7 that fail (e-sign paper
-  return, roles and upload fields, external auth and users, policy config,
-  task batch mail) fail the same way on dev without this batch.
-- Every screen opened in a browser against a local stand-in for the
-  accounting service with made-up figures; the PDF with a column per month
-  opened and read.
-NOT verified: the new screens against the real ledger - nothing is deployed.
+Open:
+- Bundle budget is 10,000 KB (the build measures 9,902); needs the owner's
+  nod like the earlier bumps.
+- GitHub artifact storage for the organization is full. The accounting
+  deploy no longer needs it; anything else that uploads artifacts in a
+  private repository will fail until old artifacts are cleared.
+- Backend test files that fail on dev with or without this batch: e-sign
+  paper return, roles and upload fields, external auth and users, policy
+  config, task batch mail.
 
 
 ## A. Bugs seen live on production
 
-- ☐ A1 (cause not found yet - needs a look at the accounting database, which
+- ☐ A1 (09/29: works on production after the release, cause of the 09/25 error never found - needs a look at the accounting database, which
   the session was not allowed to read). What is built: the screen now shows
   the accounting service's own reason instead of "returned 500", and says so
   in plain words when a search runs out of time.
