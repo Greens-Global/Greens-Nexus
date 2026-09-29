@@ -807,6 +807,8 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
             # Group schedulers (Sep 29) - see the Postgres list.
             "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
+            # Confidential time off (Neil, Sep 29) - see the Postgres list.
+            "ALTER TABLE time_off_requests ADD COLUMN confidential INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1739,6 +1741,9 @@ def _run_migrations():
         "ALTER TABLE leases ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE lease_rates ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE lease_months ENABLE ROW LEVEL SECURITY",
+        # Confidential time off (Neil, Sep 29): the type, reason and decision
+        # note show only to the requester and their approver.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS confidential INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

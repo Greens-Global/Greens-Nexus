@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -851,14 +851,21 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           {...hoverCell(emp.email, ds)} onContextMenu={(e) => openMenu(e, emp.email, ds, null)}
                           style={{ borderLeft: '1px solid var(--line)', padding: 4, minHeight: 54, cursor: items.length ? 'default' : 'pointer', position: 'relative', ...dropStyle(emp.email, ds) }}
                           className="sched-cell">
+                          {/* Confidential time off (Sep 29): a neutral tint (the
+                              tint would name the type) and never the note - the
+                              grid is often up on a shared screen, so not even
+                              the approver's own view shows it here. */}
                           {off && !items.length && (
-                            <div style={{ background: TYPE_TINT[off.type] || TYPE_TINT.other, borderRadius: 6, padding: '6px 8px', height: '100%' }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239' }}>{off.status === 'approved' ? 'Off' : 'Requested off'}</div>
+                            <div title={off.confidential ? 'Confidential time off' : undefined}
+                              style={{ background: off.confidential ? TYPE_TINT.unpaid : (TYPE_TINT[off.type] || TYPE_TINT.other), borderRadius: 6, padding: '6px 8px', height: '100%' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                {off.status === 'approved' ? 'Off' : 'Requested off'}{off.confidential && <Lock size={10} aria-label="Confidential" />}
+                              </div>
                               <div style={{ fontSize: 10, color: '#9f1239' }}>
                                 {off.startDate !== off.endDate ? `${formatDate(off.startDate)} - ${formatDate(off.endDate)}`
                                   : off.startTime ? `${t12Full(off.startTime)} - ${t12Full(off.endTime)}` : 'All Day'}
                               </div>
-                              {off.note && <div title={off.note} style={{ fontSize: 10, color: '#9f1239', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{off.note}</div>}
+                              {off.note && !off.confidential && <div title={off.note} style={{ fontSize: 10, color: '#9f1239', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{off.note}</div>}
                             </div>
                           )}
                           {hol && !items.length && (

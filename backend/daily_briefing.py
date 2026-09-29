@@ -208,6 +208,17 @@ def _last_log(db: Session, email: str):
             .first())
 
 
+def _leave_labeler(db: Session, recipient: str):
+    """r -> the time-off type as `recipient`'s briefing may name it. A
+    confidential request (Neil, Sep 29) names its type only to the people who
+    may see it - its requester and approvers (timeclock._TimeoffPrivacy) -
+    and reads plain "time off" to anyone else. Lazy import: the timeclock
+    router is heavy and daily_briefing is imported by the scheduler loop."""
+    from routers.timeclock import _TimeoffPrivacy, REDACTED_TYPE
+    priv = _TimeoffPrivacy(db, recipient)
+    return lambda r: r.type if priv.can_see(r) else REDACTED_TYPE
+
+
 def _already_logged_today(db: Session, email: str, briefing_date: str) -> bool:
     return (db.query(models.NexusDailyBriefingLog)
             .filter(models.NexusDailyBriefingLog.employee_email == email,
@@ -515,6 +526,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
         # separate card each, which made the same "Approve X's time off" line
         # repeat and drowned out the rest of the section (Pranshu, Sep 15).
         by_employee = {}
+        leave = _leave_labeler(db, email)
         for r in (db.query(models.TimeOffRequest)
                   .filter(models.TimeOffRequest.status == "pending",
                           models.TimeOffRequest.employee_email.in_(list(my_reports))).all()):
@@ -526,7 +538,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             if len(reqs) == 1:
                 r = reqs[0]
                 rows.append({
-                    "title": f"Approve: {name}'s time off ({r.type})",
+                    "title": f"Approve: {name}'s time off ({leave(r)})",
                     "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}",
                     "url": f"{app_url()}/timeclock",
                     "module": "time_off",
@@ -536,7 +548,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                     "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
                 })
             else:
-                types = {r.type for r in reqs}
+                types = {leave(r) for r in reqs}
                 same_type = next(iter(types)) if len(types) == 1 else None
                 label = f"({same_type})" if same_type else f"({len(reqs)} requests)"
                 rows.append({
@@ -551,7 +563,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                     # dropped the one-click actions along with the repetition).
                     "sub_actions": [{
                         "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
-                                  ("" if same_type else f" ({r.type})"),
+                                  ("" if same_type else f" ({leave(r)})"),
                         "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
                     } for r in reqs],
                 })
@@ -802,13 +814,14 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
     today = briefing_date
     tomorrow = (datetime.strptime(briefing_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
     rows = []
+    leave = _leave_labeler(db, email)
     for r in (db.query(models.TimeOffRequest)
               .filter(models.TimeOffRequest.employee_email.in_(report_emails),
                       models.TimeOffRequest.status == "approved",
                       models.TimeOffRequest.start_date <= today,
                       models.TimeOffRequest.end_date >= today).all()):
         rows.append({
-            "title": f"Out today: {names.get(r.employee_email, r.employee_email)} ({r.type})",
+            "title": f"Out today: {names.get(r.employee_email, r.employee_email)} ({leave(r)})",
             "detail": f"Back after {_fmt_date(r.end_date)}",
             "url": "", "module": "team",
         })
