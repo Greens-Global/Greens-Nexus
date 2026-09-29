@@ -58,7 +58,7 @@ _DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules":
              "timeOffRequests": True}
 REMINDER_LEAD_MIN, REMINDER_LEAD_MAX = 15, 240
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
-_EMPLOYEE_ACTION = {"view": "timeclock", "sub": "shifts"}
+_EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
 _KIND_LABEL = {"open": "open shift", "swap": "swap", "offer": "offer"}
 

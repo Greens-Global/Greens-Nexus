@@ -8,7 +8,6 @@ import { SkeletonBlocks } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
-import MyShifts from '../components/MyShifts';
 import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
@@ -45,7 +44,6 @@ const TAB_META = {
   overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
   clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
-  shifts:    { title: 'My Shifts',  label: 'Shifts',     subtitle: 'When you are scheduled to work, week by week' },
   timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
 };
 // Work OS card-header title (sentence case, no uppercase tracking).
@@ -310,13 +308,20 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // setTab(...) call below just updates local state - the effects further
   // down mirror it out to activeSub/the URL in one place, so no call site had
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
-  const [tab, setTab] = useState(() => (TAB_META[activeSub] ? activeSub : initialTab));   // overview | clock | timesheet | timeoff
+  const [tab, setTab] = useState(() => (TAB_META[activeSub] ? activeSub : initialTab));
+  // Workday > Shifts moved into the Shifts module (Sep 29). Old links - a
+  // bookmark, a bell or schedule email sent before the move - land there.
+  useEffect(() => {
+    if (activeSub === 'shifts') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
+  }, [activeSub]);   // overview | clock | timesheet | timeoff
   useEffect(() => {
     if (TAB_META[activeSub] && activeSub !== tab) setTab(activeSub);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
-    if (onSubChange && activeSub !== tab) onSubChange(tab);
+    // Not while forwarding an old Shifts link - that would pull the address
+    // back to this view on its way out.
+    if (onSubChange && activeSub !== tab && activeSub !== 'shifts') onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   const [status, setStatus] = useState(null);
@@ -751,8 +756,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'clock', 'shifts', 'timeoff']
-          : ['overview', 'clock', 'timesheet', 'shifts', 'timeoff']
+          ? ['overview', 'clock', 'timeoff']
+          : ['overview', 'clock', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1036,9 +1041,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
 
       {/* Time off */}
-      {/* Shifts (Neil, Sep 23): read-only view of the week's shifts, set by
-          the manager in People > Shifts. */}
-      {tab === 'shifts' && <MyShifts />}
 
       {tab === 'timeoff' && (<>
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>

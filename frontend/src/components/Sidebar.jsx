@@ -46,14 +46,17 @@ export const NAV = [
   // grant. Watching needs a viewer grant; remote control + device/policy admin
   // need a full grant.
   { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor' },
-  // Shifts (Sep 29, Sagar): the schedule grid + presets/groups, moved out of
-  // People > Time into its own module. `grant` = the Access Group grant that
-  // opens it - the People (hr) grant, the audience the schedule API admits.
+  // Shifts (Sep 29, Sagar): its own module, moved out of People > Time.
+  // Everyone's module since Neil, Sep 29: each person sees their own week and
+  // their team's (My Shifts, formerly Workday > Shifts); managers and above
+  // get Manage - the schedule grid and presets/groups. The backend enforces
+  // the same line (routers/timeclock.py require_shift_manage).
   {
-    view: "shifts", code: "SFT", label: "Shifts", icon: CalendarClock, minRole: 'supervisor', grant: 'hr',
+    view: "shifts", code: "SFT", label: "Shifts", icon: CalendarClock,
     sub: [
-      { subview: "schedule", label: "Schedule",         icon: Calendar },
-      { subview: "presets",  label: "Presets & Groups", icon: ClipboardList },
+      { subview: "mine",     label: "My Shifts",        icon: CalendarClock },
+      { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },
+      { subview: "presets",  label: "Presets & Groups", icon: ClipboardList, minRole: 'manager' },
     ],
   },
   { divider: true },
