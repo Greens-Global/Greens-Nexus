@@ -88,6 +88,26 @@ class TimecardNotesTest(unittest.TestCase):
             self.put(MANAGER, self.other, "2026-09-23", "not mine")
         self.assertEqual(e.exception.status_code, 403)
 
+    def test_the_monthly_fixed_salary_card_carries_notes_too(self):
+        # Aarav (fixed salary) had no Notes column: the monthly card returned
+        # before the notes were attached (Sep 29).
+        from models import PayrollRate
+        from routers.timeclock import payroll_timecard
+        db = database.SessionLocal()
+        try:
+            db.add(PayrollRate(employee_email=self.emp, pay_type="fixed", currency="INR", monthly_salary=30000))
+            db.commit()
+        finally:
+            db.close()
+        self.put(ADMIN, self.emp, "2026-09-02", "Was at the client site")
+        db = database.SessionLocal()
+        try:
+            card = payroll_timecard(email=self.emp, start="2026-09-15", end="", user=ADMIN, _su={}, db=db)
+        finally:
+            db.close()
+        self.assertEqual(card.get("payType"), "fixed")
+        self.assertEqual(card["notes"]["2026-09-02"]["note"], "Was at the client site")
+
     def test_a_bad_date_is_refused(self):
         with self.assertRaises(HTTPException) as e:
             self.put(ADMIN, self.emp, "09/23/2026", "x")
