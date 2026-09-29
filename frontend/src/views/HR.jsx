@@ -35,7 +35,7 @@ import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES, countryName } from '../lib/countries';
-import LocationPickerMap from '../components/LocationPickerMap';
+import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
@@ -3688,8 +3688,23 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 // company's tab lands in the library too, so it is entered once and every
 // other company can pick it. Replaces the Sep 18 single-company `company` tag,
 // where claiming a site for one company took it away from every other.
-const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '' };
-const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '' });
+// address_verified: the coordinates came from an address picked in the search
+// (Sep 30) - the only way the form sets them. verifiedAt is the saved state.
+const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '', address_verified: false, verifiedAt: '' };
+const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '', address_verified: false, verifiedAt: s.addressVerifiedAt || '' });
+// The list badge: a site whose point came from the old map pin is re-checked
+// once by searching its address (Sep 30) - nothing moves until someone does.
+function SiteVerifyBadge({ s }) {
+  if (s.latitude && s.longitude && s.addressVerifiedAt) return null;
+  const noPoint = !(s.latitude && s.longitude);
+  return (
+    <span title={noPoint ? 'No location yet - edit the site and search its address.' : 'This site was placed with the old map pin. Edit it and search its address to confirm where it is.'}
+      style={{ display: 'inline-block', marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
+        background: 'rgba(180,83,9,0.12)', color: '#b45309' }}>
+      {noPoint ? 'No Location' : 'Verify Address'}
+    </span>
+  );
+}
 const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-';
 
 function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
@@ -3697,15 +3712,23 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
     <div><label style={FL}>{label}</label>
       <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
-  const initialLatLng = (f.latitude && f.longitude) ? [Number(f.latitude), Number(f.longitude)] : null;
   return (
     <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         {hint && <p style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
         <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-        <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { placeholder: 'search or pick a spot on the map' })}</div>
-        {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
-        {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
+        {/* Address and coordinates come only from an address picked in the
+            search on the right (Sep 30) - read-only here, never hand-typed. */}
+        <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { readOnly: true, placeholder: 'search the address on the right', style: { width: '100%', background: 'var(--mist)' } })}</div>
+        {field('LATITUDE', 'latitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
+        {field('LONGITUDE', 'longitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
+        <div style={{ gridColumn: '1 / -1', fontSize: 11.5, marginTop: -6, color: f.address_verified || (f.verifiedAt && f.latitude) ? 'hsl(var(--color-green))' : '#b45309' }}>
+          {f.address_verified && f.pin_adjusted ? 'Pin fine-tuned on the map from the address you picked. Save to keep it.'
+            : f.address_verified ? 'Location set from the address you picked. Drag the pin onto the exact building if needed, then save.'
+            : f.verifiedAt && f.latitude ? `Location verified from its address on ${formatDate(f.verifiedAt)}.`
+            : f.latitude ? 'This location came from the old map pin. Search the address to confirm it.'
+            : 'No location yet. Search the address to place this site.'}
+        </div>
         {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
         <div style={{ gridColumn: '1 / -1' }}>
           <label style={FL}>NOTES</label>
@@ -3713,9 +3736,19 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
         </div>
       </div>
       <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-        <label style={FL}>PICK LOCATION ON MAP</label>
-        <LocationPickerMap initialLatLng={initialLatLng}
-          onLocationPicked={(address, [lat, lng]) => { set('address', address); set('latitude', String(lat.toFixed(6))); set('longitude', String(lng.toFixed(6))); }} />
+        <label style={FL}>FIND THE ADDRESS</label>
+        {/* Fine-tuning the pin (Sep 30) is open once an address is chosen -
+            picked now, or already verified - never on an old map-pin site. */}
+        <WorkSiteAddressMap lat={f.latitude} lng={f.longitude} radiusM={f.radius_m}
+          adjustable={!!(f.address_verified || (f.verifiedAt && f.latitude))}
+          onPick={({ address, lat, lng }) => {
+            set('address', address); set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
+            set('address_verified', true); set('pin_adjusted', false);
+          }}
+          onAdjust={({ lat, lng }) => {
+            set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
+            set('address_verified', true); set('pin_adjusted', true);
+          }} />
       </div>
       <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
         <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
@@ -3780,7 +3813,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
       ) : mySites.map(s => (
         <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
           </div>
           <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
@@ -5029,7 +5062,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
         return (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
               <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
               <div style={{ fontSize: 11.5, color: used.length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet'}</div>
             </div>

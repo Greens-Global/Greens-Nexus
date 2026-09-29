@@ -2536,6 +2536,9 @@ class WorkSiteIn(BaseModel):
     # a company's Work Sites tab). Blank = library only.
     company:  Optional[str] = ""
     notes:    Optional[str] = ""
+    # True when latitude/longitude came from an address the person searched and
+    # picked (Sep 30) - the only way the screen sets them now.
+    address_verified: Optional[bool] = False
 
 
 class WorkSiteUpdate(BaseModel):
@@ -2545,6 +2548,7 @@ class WorkSiteUpdate(BaseModel):
     longitude: Optional[str] = None
     radius_m: Optional[int] = None
     notes:    Optional[str] = None
+    address_verified: Optional[bool] = None
 
 
 class CompanySitesIn(BaseModel):
@@ -2568,6 +2572,8 @@ def _serialize_site(s: HrWorkSite, companies=None) -> dict:
         "longitude": s.longitude, "radiusM": s.radius_m,
         "companies": sorted(companies or []),
         "notes": s.notes, "createdAt": s.created_at, "updatedAt": s.updated_at,
+        # '' = the point came from the old map pin; the UI asks for a re-check.
+        "addressVerifiedAt": s.address_verified_at or "", "addressVerifiedBy": s.address_verified_by or "",
     }
 
 
@@ -2660,6 +2666,8 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
         company="", notes=body.notes or "",
         created_by=user["email"], created_at=now, updated_at=now,
     )
+    if body.address_verified and row.latitude and row.longitude:
+        row.address_verified_at, row.address_verified_by = now, user["email"]
     db.add(row)
     # Added from a company = in the library for everyone AND on that company's
     # list (Neil, Sep 25: "if you add it from the company, it should go into
@@ -2678,11 +2686,21 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     _assert_site_editable(db, site_id, hr_scope(user, db))
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
-    for key, value in body.model_dump(exclude_unset=True).items():
+    before = (row.latitude or "", row.longitude or "")
+    fields = body.model_dump(exclude_unset=True)
+    verified = fields.pop("address_verified", None)
+    for key, value in fields.items():
         if value is None:
             continue
         setattr(row, key, value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    # Coordinates from a picked address mark the site verified; coordinates
+    # that changed any other way (an older client, the API) clear it, so the
+    # badge never vouches for a point nobody checked against an address.
+    if verified and row.latitude and row.longitude:
+        row.address_verified_at, row.address_verified_by = row.updated_at, user["email"]
+    elif (row.latitude or "", row.longitude or "") != before:
+        row.address_verified_at, row.address_verified_by = "", ""
     db.commit(); db.refresh(row)
     return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
 
