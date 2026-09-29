@@ -91,18 +91,45 @@ def _scheduled_groups(db: Session, email: str) -> list:
     return [g for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all() if email in _schedulers(g)]
 
 
+# Changing shifts is a manager's job (Neil, Sep 29: "Employees should not be
+# able to make changes to shifts for anytime and for any reason"). Every
+# route that writes a schedule, a preset, a group, a default assignment or
+# the shift-request settings - or decides a shift request - requires role
+# level >= SHIFT_MANAGE_LEVEL. An HR-module grant or being named a group's
+# scheduler no longer confers write on its own; both still confer READ.
+SHIFT_MANAGE_LEVEL = 3
+SHIFT_MANAGE_DENIED = "Only managers and above can change shifts."
+
+
+def can_manage_shifts(user: dict) -> bool:
+    return int(user.get("level", 0)) >= SHIFT_MANAGE_LEVEL
+
+
+def require_shift_manage(user: dict = Depends(get_current_user)):
+    if not can_manage_shifts(user):
+        raise HTTPException(status_code=403, detail=SHIFT_MANAGE_DENIED)
+    return user
+
+
 def _schedule_dep(team_level: str):
     """Schedule access (Sep 29, Teams "scheduling owner" per team): the team
     audience as before, PLUS anyone named a scheduler on a shift group, for
     that group's members only. The user dict carries `_sched_extra` (those
     members), which _visible_emails adds to the caller's scope - only on the
     schedule routes that use this dependency, never on timesheets or payroll.
-    `_group_scheduler` = schedule rights come ONLY from groups."""
+    `_group_scheduler` = schedule rights come ONLY from groups.
+
+    WRITE ("editor") additionally requires a manager (can_manage_shifts): a
+    group scheduler or HR-grant holder below manager keeps read-only access
+    to the published schedule."""
     threshold = _MODULE_LEVEL_RANK[team_level]
+    write = team_level == "editor"
 
     def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-        team_write = user["level"] >= 3 or _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"]
-        team = user["level"] >= 3 or _module_level(user["email"], "hr", db) >= threshold
+        manage = can_manage_shifts(user)
+        if write and not manage:
+            raise HTTPException(status_code=403, detail=SHIFT_MANAGE_DENIED)
+        team = manage or _module_level(user["email"], "hr", db) >= threshold
         gids = [g.id for g in _scheduled_groups(db, user["email"])]
         if not gids:
             if team:
@@ -110,7 +137,7 @@ def _schedule_dep(team_level: str):
             raise HTTPException(status_code=401, detail="Insufficient permissions")
         members = {(m.employee_email or "").lower() for m in
                    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id.in_(gids)).all() if m.employee_email}
-        return {**user, "_sched_extra": members, "_group_scheduler": not team_write}
+        return {**user, "_sched_extra": members, "_group_scheduler": not (manage or team)}
     return _check
 
 
@@ -4219,7 +4246,7 @@ def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(g
 
 
 @router.post("/shifts")
-def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def create_shift(body: ShiftIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     _check_span(body.start_hhmm, body.end_hhmm)
@@ -4235,7 +4262,7 @@ def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Se
 
 
 @router.patch("/shifts/{shift_id}")
-def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     if not s:
         raise HTTPException(404, "Shift not found")
@@ -4254,7 +4281,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team
 
 
 @router.delete("/shifts/{shift_id}")
-def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def delete_shift(shift_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     db.query(Shift).filter(Shift.id == shift_id).delete()
     db.query(ShiftAssignment).filter(ShiftAssignment.shift_id == shift_id).delete()
     db.commit()
@@ -4301,7 +4328,7 @@ def _clean_schedulers(db: Session, emails: list) -> str:
 
 
 @router.post("/shift-groups")
-def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
@@ -4319,7 +4346,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), 
 
 
 @router.patch("/shift-groups/{group_id}")
-def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
@@ -4363,7 +4390,7 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 
 
 @router.delete("/shift-groups/{group_id}")
-def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def delete_shift_group(group_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
@@ -4377,7 +4404,7 @@ class AssignIn(BaseModel):
 
 
 @router.post("/shift-assign")
-def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def assign_shift(body: AssignIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     """Bulk-assign a shift to a set of employees (typically a group's members).
     An empty shift_id clears the assignment."""
     now = _now_iso()
@@ -4573,24 +4600,44 @@ def _shift_conflicts(item: dict, others: list, timeoff: list, holidays: dict, av
     return out
 
 
-def _timeoff_dict(t) -> dict:
-    return {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
-            "type": t.type, "status": t.status, "note": t.note or "",
-            "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or ""}
+def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
+    """Time off as the schedule grid carries it. A confidential request shows
+    only to its viewers (_TimeoffPrivacy); everyone else gets "time off" with
+    no note - and the conflict warnings built from it say only that too."""
+    out = {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
+           "type": t.type, "status": t.status, "note": t.note or "",
+           "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or "",
+           "confidential": _is_confidential(t), "redacted": False}
+    if priv is not None and not priv.can_see(t):
+        out.update(type=REDACTED_TYPE, note="", redacted=True)
+    return out
 
 
 def _can_write_schedule(user: dict, db: Session) -> bool:
-    """True if the caller can BUILD schedules (level>=3, or an Access Group 'hr'
-    grant of 'editor') - the audience that sees unpublished DRAFT shifts and can
-    publish them. Read-only viewers ('hr' viewer) see only published shifts, which
-    matches Teams Shifts: staff see a schedule only once the manager shares it.
-    Mirrors the split between require_team_read (viewer) and require_team_write
-    (editor), both of which admit level>=3."""
-    from auth import _module_level, _MODULE_LEVEL_RANK
-    if user.get("_sched_extra") is not None:
-        return True   # a shift group's scheduler (require_schedule_*)
-    return (int(user.get("level", 0)) >= 3 or
-            _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"])
+    """True if the caller can BUILD schedules - the audience that sees
+    unpublished DRAFT shifts and can publish them. Everyone else reading the
+    grid sees only published shifts, which matches Teams Shifts: staff see a
+    schedule only once the manager shares it."""
+    # Managers only (Sep 29) - the same rule as require_schedule_write. A
+    # group scheduler or HR editor below manager now reads the PUBLISHED
+    # schedule, like staff, and sees no drafts.
+    return can_manage_shifts(user)
+
+
+def _open_row_mine(row, scope, user) -> bool:
+    """May this caller touch an OPEN shift (no employee)? Open slots belong
+    to no team, so a scoped manager (direct reports / a group) may change
+    only the open shifts they created; unscoped schedulers (administrators,
+    an unrestricted People grant) any of them (Sep 29 - before this, any
+    manager could edit, delete or publish every open shift company-wide)."""
+    return scope is None or (getattr(row, "created_by", "") or "").lower() == (user.get("email") or "").lower()
+
+
+def _row_in_scope(row, scope, user) -> bool:
+    em = (row.employee_email or "").lower()
+    if em:
+        return scope is None or em in scope
+    return _open_row_mine(row, scope, user)
 
 
 @router.get("/schedule")
@@ -4634,14 +4681,20 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                      (ScheduledShift.employee_email == ""))
     if not can_write:
         q = q.filter(ScheduledShift.published == 1)   # staff see only SHARED shifts
-    scheduled = [_sched_dict(r, presets, effective=can_write) for r in q.all()]
+    rows = q.all()
+    scheduled = [_sched_dict(r, presets, effective=can_write) for r in rows]
+    for r, sd in zip(rows, scheduled):
+        if not (r.employee_email or "").strip():
+            # Another manager's open slot shows, but read-only (Sep 29).
+            sd["canEdit"] = can_write and _open_row_mine(r, scope, user)
 
     tq = (db.query(TimeOffRequest)
           .filter(TimeOffRequest.status.in_(["approved", "pending"]),
                   TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
     if scope is not None:
         tq = tq.filter(TimeOffRequest.employee_email.in_(list(scope)))
-    timeoff = [_timeoff_dict(t) for t in tq.all()]
+    _priv = _TimeoffPrivacy(db, user.get("email"))
+    timeoff = [_timeoff_dict(t, _priv) for t in tq.all()]
 
     # Company holidays, per visible employee (Pranshu, Sep 22: "fetch the
     # holiday in shifts so that HR is aware of the holiday through shifts
@@ -4700,7 +4753,8 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
               db.query(ScheduledShift).filter(ScheduledShift.employee_email == em,
                                               ScheduledShift.work_date >= lo, ScheduledShift.work_date <= hi).all()
               if r.id != exclude_id]
-    off = [_timeoff_dict(t) for t in db.query(TimeOffRequest)
+    _priv = _TimeoffPrivacy(db, user.get("email"))
+    off = [_timeoff_dict(t, _priv) for t in db.query(TimeOffRequest)
            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status.in_(["approved", "pending"]),
                    TimeOffRequest.start_date <= date[:10], TimeOffRequest.end_date >= date[:10]).all()]
     item = {"id": exclude_id or "", "date": date[:10], "start": start[:5], "end": end[:5]}
@@ -4739,14 +4793,28 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # Each group carries its members with their default preset, the
     # PUBLISHED shifts placed on them, and their approved time off with the
     # type withheld (a teammate needs to know you are out, not why).
-    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+    member_of = [m.group_id for m in db.query(ShiftGroupMember)
                  .filter(ShiftGroupMember.employee_email == email).all()]
-    teams = []
+    manage = can_manage_shifts(user)
     # Admins can hide teammates' shifts from staff (Sep 29, Teams "see
     # coworkers' schedules"); swaps still work - routers/shift_requests.py
     # hands the swap dialog only the shifts it can target.
     from routers.shift_requests import get_settings as _sr_settings
-    if group_ids and _sr_settings(db).get("teamSchedules", True):
+    group_ids = list(member_of) if _sr_settings(db).get("teamSchedules", True) else []
+    # A manager also sees the teams they RUN (Shifts module, Sep 29): groups
+    # they are named scheduler of, and groups holding anyone in their scope
+    # (direct reports; everyone for an unscoped admin). Always shown to
+    # them, whatever the staff setting - it is their schedule to run.
+    if manage:
+        scope = _visible_emails(db, user)
+        run = {g.id for g in _scheduled_groups(db, email)}
+        for m in db.query(ShiftGroupMember).all():
+            em = (m.employee_email or "").lower()
+            if em and (scope is None or em in scope) and em != email:
+                run.add(m.group_id)
+        group_ids = list(dict.fromkeys(group_ids + sorted(run)))
+    teams = []
+    if group_ids:
         names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
                  for e in db.query(NexusEmployee).all() if e.work_email}
         members_by_group = {}
@@ -4771,21 +4839,24 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                           TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start).all()):
             away.setdefault((t.employee_email or "").lower(), []).append(
                 {"startDate": t.start_date, "endDate": t.end_date})
-        for g in db.query(ShiftGroup).filter(ShiftGroup.id.in_(group_ids)).order_by(ShiftGroup.name).all():
+        member_set = set(member_of)
+        # Your own teams first, then the ones you run; each by name.
+        for g in sorted(db.query(ShiftGroup).filter(ShiftGroup.id.in_(group_ids)).all(),
+                        key=lambda g: (g.id not in member_set, (g.name or "").lower())):
             ems = sorted(set(members_by_group.get(g.id, [])), key=lambda em: (em != email, names.get(em, em)))
-            teams.append({"id": g.id, "name": g.name,
+            teams.append({"id": g.id, "name": g.name, "isMember": g.id in member_set,
                           "members": [{"email": em, "name": names.get(em, em), "isMe": em == email,
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
                                        "timeoff": away.get(em, [])} for em in ems]})
 
     day_notes = [{"date": n.work_date, "note": n.note} for n in db.query(ScheduleDayNote)
                  .filter(ScheduleDayNote.work_date >= start, ScheduleDayNote.work_date <= end,
-                         ScheduleDayNote.group_id.in_([""] + group_ids)).order_by(ScheduleDayNote.work_date).all()
+                         ScheduleDayNote.group_id.in_([""] + list(set(member_of) | set(group_ids)))).order_by(ScheduleDayNote.work_date).all()
                  if n.note]
     return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
             "timeoff": timeoff, "holidays": _company_holidays_for_employee(db, email, start, end) or [],
-            "teams": teams, "dayNotes": day_notes,
-            "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)]}
+            "teams": teams, "dayNotes": day_notes, "canManage": manage,
+            "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)] if manage else []}
 
 
 class ScheduledShiftIn(BaseModel):
@@ -4855,6 +4926,8 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    if not _open_row_mine(row, scope, user):
+        raise HTTPException(403, "This open shift was posted by another manager.")
     assigned = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=em, work_date=row.work_date,
         shift_id=row.shift_id, start_hhmm=row.start_hhmm, end_hhmm=row.end_hhmm,
@@ -5020,8 +5093,8 @@ def _range_rows(db: Session, user: dict, d0: str, d1: str, emails: list, group_i
         if em:
             if (scope is not None and em not in scope) or (narrow and em not in narrow):
                 continue
-        elif not include_open or narrow:
-            continue
+        elif not include_open or narrow or not _open_row_mine(r, scope, user):
+            continue   # open slots: only ones this scheduler may touch (Sep 29)
         out.append(r)
     return out
 
@@ -5075,7 +5148,8 @@ def _copy_timeoff(db: Session, user: dict, body, s0: date, s1: date, span: int, 
             db.add(TimeOffRequest(id=str(uuid.uuid4()), employee_email=t.employee_email, type=t.type,
                                   start_date=a, end_date=b, start_time=getattr(t, "start_time", "") or "",
                                   end_time=getattr(t, "end_time", "") or "", note=t.note or "",
-                                  status="pending", created_at=now, requested_by=user["email"]))
+                                  status="pending", created_at=now, requested_by=user["email"],
+                                  confidential=1 if _is_confidential(t) else 0))
             held.setdefault(t.employee_email, []).append((a, b))
             n += 1
     return n
@@ -5290,7 +5364,7 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
         em = (r.employee_email or "").lower()
         if em and ((scope is not None and em not in scope) or (narrow and em not in narrow)):
             continue
-        if not em and narrow:
+        if not em and (narrow or not _open_row_mine(r, scope, user)):
             continue
         r.pending_json, r.pending_delete = "", 0
         n += 1
@@ -5486,7 +5560,7 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
     if not row:
         raise HTTPException(404, "Shift not found")
     scope = _visible_emails(db, user)
-    if row.employee_email and scope is not None and row.employee_email not in scope:
+    if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     cur = {"shiftId": row.shift_id, "start": row.start_hhmm, "end": row.end_hhmm,
@@ -5536,7 +5610,7 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_schedule_write)
     if not row:
         return {"ok": True, "pending": False}
     scope = _visible_emails(db, user)
-    if row.employee_email and scope is not None and row.employee_email not in scope:
+    if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
     if row.published:
         row.pending_delete = 1
@@ -5556,7 +5630,7 @@ def discard_scheduled_changes(sched_id: str, user: dict = Depends(require_schedu
     if not row:
         raise HTTPException(404, "Shift not found")
     scope = _visible_emails(db, user)
-    if row.employee_email and scope is not None and row.employee_email not in scope:
+    if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
     if not row.published:
         raise HTTPException(400, "This shift has never been published - edit or remove it instead.")
@@ -5595,8 +5669,10 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
                  (ScheduledShift.published == 0) | (ScheduledShift.pending_delete == 1) |
                  ((ScheduledShift.pending_json.isnot(None)) & (ScheduledShift.pending_json != ""))))
     if scope is not None:
+        # Their team's shifts, plus the open slots THEY posted (Sep 29).
         q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
-                     (ScheduledShift.employee_email == ""))
+                     ((ScheduledShift.employee_email == "") &
+                      (func.lower(ScheduledShift.created_by) == (user.get("email") or "").lower())))
     narrow = {e.strip().lower() for e in body.emails if e and e.strip()}
     if (body.group_id or "").strip():
         narrow |= {(m.employee_email or "").lower() for m in
@@ -7257,17 +7333,110 @@ def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_w
     return {"builtIn": list(TIMEOFF_TYPES), "custom": out, "requestsOn": _timeoff_requests_on(db)}
 
 
-def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
-    return {"id": r.id, "email": r.employee_email,
-            "name": (names or {}).get(r.employee_email, ""),
-            "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
-            "startTime": getattr(r, "start_time", "") or "",
-            "endTime": getattr(r, "end_time", "") or "",
-            "note": r.note or "", "status": r.status, "approver": r.approver or "",
-            "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
-            "createdAt": r.created_at,
-            "requestedBy": getattr(r, "requested_by", "") or "",
-            "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", "")}
+# ── Confidential time off (Neil, Sep 29) ─────────────────────────────────────
+# "make a personal leave confidential where it doesn't show the reason
+# publicly, but it would show to the manager or the approver only." Any type
+# can be confidential - a custom type IS a reason ("Jury Duty"), and so is
+# "sick" - so confidential hides the type as well as the note and the decision
+# note. Everyone else still sees that the person is out, and when: plain
+# "Time off" with the dates, status and part-day times.
+REDACTED_TYPE = "time off"
+
+
+def _is_confidential(r) -> bool:
+    return bool(getattr(r, "confidential", 0))
+
+
+class _TimeoffPrivacy:
+    """Who may read a confidential request, for ONE caller - built once per
+    request so a 300-row list costs one employee load, not 300.
+
+    Viewers: the requester; the request's approvers; and whoever recorded the
+    decision (`approver`). Approvers: the employee's direct manager; with no
+    manager on file, their company's HR contact (People -> Companies, the same
+    person _team_alert_recipients names); with neither, the administrators.
+    Only approvers may decide a confidential request, and nobody decides their
+    own. Filing on someone's behalf or copying a schedule does NOT make you a
+    viewer - that would leak it to every scheduler who copies a week."""
+
+    def __init__(self, db: Session, viewer_email: str):
+        self.db = db
+        self.viewer = (viewer_email or "").strip().lower()
+        self._emps = None
+        self._approvers = {}
+
+    def _emp(self, email: str):
+        if self._emps is None:
+            self._emps = {(e.work_email or "").strip().lower(): e
+                          for e in self.db.query(NexusEmployee).all() if e.work_email}
+        return self._emps.get(email)
+
+    def approvers(self, employee_email: str) -> list:
+        em = (employee_email or "").strip().lower()
+        if em in self._approvers:
+            return self._approvers[em]
+        from models import HrEntity
+        emp = self._emp(em)
+        mgr = ((emp.manager_email if emp else "") or "").strip().lower()
+        out = []
+        if mgr and mgr != em:
+            out = [mgr]
+        else:
+            company = ((getattr(emp, "company", "") if emp else "") or "")
+            ent = self.db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
+            hr = ((ent.hr_contact_email if ent else "") or "").strip().lower()
+            if hr and hr != em:
+                out = [hr]
+            else:
+                out = sorted({(r.email or "").strip().lower() for r in self.db.query(NexusRole)
+                              .filter(NexusRole.role.in_(["administrator", "owner"])).all()
+                              if r.email and (r.email or "").strip().lower() != em})
+        self._approvers[em] = out
+        return out
+
+    def can_see(self, r) -> bool:
+        if not _is_confidential(r):
+            return True
+        em = (r.employee_email or "").strip().lower()
+        return bool(self.viewer) and (self.viewer == em
+                                      or self.viewer in self.approvers(em)
+                                      or self.viewer == (r.approver or "").strip().lower())
+
+    def can_decide(self, r) -> bool:
+        em = (r.employee_email or "").strip().lower()
+        if not self.viewer or self.viewer == em:
+            return False
+        return not _is_confidential(r) or self.viewer in self.approvers(em)
+
+    def reviewer_names(self, r) -> str:
+        """Who decides it, for the "only X can decide this" line."""
+        names = []
+        for e in self.approvers(r.employee_email):
+            emp = self._emp(e)
+            n = f"{emp.first_name or ''} {emp.last_name or ''}".strip() if emp else ""
+            names.append(n or e.split("@")[0].replace(".", " ").title())
+        return ", ".join(names[:3]) + (" and others" if len(names) > 3 else "")
+
+
+def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" = None) -> dict:
+    out = {"id": r.id, "email": r.employee_email,
+           "name": (names or {}).get(r.employee_email, ""),
+           "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
+           "startTime": getattr(r, "start_time", "") or "",
+           "endTime": getattr(r, "end_time", "") or "",
+           "note": r.note or "", "status": r.status, "approver": r.approver or "",
+           "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
+           "createdAt": r.created_at,
+           "requestedBy": getattr(r, "requested_by", "") or "",
+           "requestedByName": (names or {}).get(getattr(r, "requested_by", "") or "", ""),
+           "confidential": _is_confidential(r), "redacted": False}
+    if priv is not None:
+        out["canDecide"] = priv.can_decide(r)
+        if _is_confidential(r):
+            out["reviewer"] = priv.reviewer_names(r)
+        if not priv.can_see(r):
+            out.update(type=REDACTED_TYPE, note="", decideNote="", redacted=True)
+    return out
 
 
 def _us_day(iso: str) -> str:
@@ -7317,6 +7486,14 @@ def _timeoff_window(st: str, et: str) -> str:
     return f" ({_hhmm12(st)} - {_hhmm12(et)})" if st and et else ""
 
 
+def _bell_kind(r) -> str:
+    """The request's type as a shared bell names it: "vacation" - or, for a
+    confidential request, "confidential time off" (never the type)."""
+    if _is_confidential(r):
+        return "confidential time off"
+    return r.type or "time off"
+
+
 class TimeOffIn(BaseModel):
     type: str
     start_date: str
@@ -7324,6 +7501,7 @@ class TimeOffIn(BaseModel):
     note: Optional[str] = ""
     start_time: Optional[str] = ""   # HH:MM - partial day; both empty = full day
     end_time: Optional[str] = ""
+    confidential: Optional[bool] = False   # type + note shown only to the requester and approver
 
 
 @router.post("/timeoff")
@@ -7346,16 +7524,19 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=user["email"], type=body.type,
                          start_date=body.start_date, end_date=body.end_date,
                          start_time=st, end_time=et,
-                         note=(body.note or "").strip()[:400], created_at=now)
+                         note=(body.note or "").strip()[:400], created_at=now,
+                         confidential=1 if body.confidential else 0)
     db.add(row)
     who = _display_name(db, user["email"])
+    # A bell's text reaches every recipient alike (manager, HR contact, Global
+    # Admins), so a confidential request never names its type there.
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-off request",
-                       body=f"{who} requested {body.type} "
+                       body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
 class TimeOffOnBehalfIn(TimeOffIn):
@@ -7393,28 +7574,30 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                          start_date=body.start_date, end_date=body.end_date,
                          start_time=st, end_time=et,
                          note=(body.note or "").strip()[:400], created_at=now,
-                         requested_by=user["email"])
+                         requested_by=user["email"], confidential=1 if body.confidential else 0)
     db.add(row)
     filer = _display_name(db, user["email"])
     if target != user["email"]:
+        # The employee's own copy may name the type - it is theirs.
         _hr_notify(db, target, "Time-off request filed for you",
                    f"{filer} requested {body.type} time off {_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)} "
-                   "on your behalf - you'll hear once it's decided.",
+                   "on your behalf" + (" (confidential)" if row.confidential else "") + " - you'll hear once it's decided.",
                    ref_id=row.id, action={"view": "timeclock", "sub": ""})
     _notify_team_alert(db, employee_email=target, actor_email=user["email"],
                        title="Time-off request",
-                       body=f"{filer} filed a {body.type} request for {emp.first_name} {emp.last_name}: "
+                       body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
 
 @router.get("/timeoff/mine")
 def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
             .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
-    return [_ser_timeoff(r) for r in rows]
+    priv = _TimeoffPrivacy(db, user["email"])
+    return [_ser_timeoff(r, priv=priv) for r in rows]
 
 
 @router.get("/timeoff")
@@ -7429,7 +7612,8 @@ def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
     rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
-    return [_ser_timeoff(r, names) for r in rows]
+    priv = _TimeoffPrivacy(db, user["email"])
+    return [_ser_timeoff(r, names, priv) for r in rows]
 
 
 class TimeOffDecision(BaseModel):
@@ -7448,6 +7632,13 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only decide your own team's requests.")
+    # Nobody decides their own time off (a manager's scope includes themself),
+    # and a confidential request is decided only by its approvers.
+    priv = _TimeoffPrivacy(db, user["email"])
+    if (row.employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+        raise HTTPException(403, "You can't approve or reject your own time off - your manager or HR decides it.")
+    if not priv.can_decide(row):
+        raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")
     if row.status != "pending":
         raise HTTPException(409, f"Already {row.status}")
     row.status = body.status
@@ -7460,7 +7651,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=priv)
 
 
 @router.post("/timeoff/{req_id}/cancel")
@@ -7482,9 +7673,9 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time off cancelled",
-                           body=f"{_display_name(db, user['email'])} cancelled their {row.type} request "
+                           body=f"{_display_name(db, user['email'])} cancelled their {_bell_kind(row)} request "
                                 f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
     db.commit()
-    return _ser_timeoff(row)
+    return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))

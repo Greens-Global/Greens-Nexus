@@ -54,11 +54,15 @@ class OpenShiftTests(unittest.TestCase):
                                             work_email=em, status="active", deleted_at=""))
             db.add(models.NexusGroup(id=GRANT, name="grant", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=GRANT, email=ADMIN))
+            # Changing shifts needs a manager (Sep 29); the hr:editor grant
+            # keeps the company-wide scope these tests exercise.
+            db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
             db.add(models.Shift(id=SHIFT, code="GST", name="Store", start_hhmm="09:00", end_hhmm="17:00", color="#3b82f6"))
             db.commit()
         finally:
             db.close()
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
 
     def tearDown(self):
         self._cleanup()
@@ -68,10 +72,12 @@ class OpenShiftTests(unittest.TestCase):
         else:
             os.environ["NEXUS_DEV_EMAIL"] = self._email
         cache.module_grants.invalidate()
+        auth.invalidate_role_cache()
 
     def _cleanup(self):
         db = database.SessionLocal()
         try:
+            db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).delete(synchronize_session=False)
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("openshift.%")).delete(synchronize_session=False))
             db.query(models.NexusGroup).filter(models.NexusGroup.id == GRANT).delete(synchronize_session=False)

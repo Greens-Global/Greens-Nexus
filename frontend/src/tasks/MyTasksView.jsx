@@ -7,7 +7,7 @@ import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, Lay
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle } from './theme';
-import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
+import { Avatar, EmptyState, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
 import CreateTaskModal from './CreateTaskModal';
@@ -21,6 +21,7 @@ import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { selectionAfterClick } from './rowSelection';
 import BulkActionBar from './BulkActionBar';
 import DueBadge from './DueBadge';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -86,13 +87,12 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
-  useClickOutside(ref, () => setOpen(false), open);
   const toggle = (email) => onChange(value.includes(email) ? value.filter((e) => e !== email) : [...value, email]);
   const filtered = q.trim() ? matchPeople(people, q)
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
+    <div>
+      <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
         {value.length ? (
           <>
             <div style={{ display: 'flex' }}>{value.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} /></span>)}</div>
@@ -110,21 +110,23 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
           }}><Plus size={12} /></span>
         )}
       </button>
-      {open && (
-        <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50 }}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(filtered, (u) => toggle(u.email))}
-            style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
-          <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
-            {filtered.map((u) => (
-              <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" className="nx-check" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
-              </label>
-            ))}
-            {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
-          </div>
+      {/* Portaled so the table's scroller can't clip it. React events still
+          bubble through the portal, so the click guard keeps the row from
+          opening the task. */}
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} role="dialog" onClick={(e) => e.stopPropagation()}
+        style={{ width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)' }}>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+          onKeyDown={onEnterPickFirst(filtered, (u) => toggle(u.email))}
+          style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+        <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
+          {filtered.map((u) => (
+            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" className="nx-check" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
+            </label>
+          ))}
+          {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
         </div>
-      )}
+      </AnchoredMenu>
     </div>
   );
 }

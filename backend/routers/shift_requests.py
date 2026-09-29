@@ -43,8 +43,8 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user
 from database import get_db
-from routers.timeclock import (require_team_write, require_schedule_write, _visible_emails, _team_alert_recipients,
-                               _require_unscoped_team, _sched_dict, _hm12)
+from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
+                               _team_alert_recipients, _require_unscoped_team, _sched_dict, _hm12)
 
 router = APIRouter(prefix="/timeclock/shift-requests", tags=["Shift Requests"])
 
@@ -58,7 +58,7 @@ _DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules":
              "timeOffRequests": True}
 REMINDER_LEAD_MIN, REMINDER_LEAD_MAX = 15, 240
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
-_EMPLOYEE_ACTION = {"view": "timeclock", "sub": "shifts"}
+_EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
 _KIND_LABEL = {"open": "open shift", "swap": "swap", "offer": "offer"}
 
@@ -124,7 +124,7 @@ def read_settings(user: dict = Depends(get_current_user), db: Session = Depends(
 
 
 @router.put("/settings")
-def save_settings(body: SettingsIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def save_settings(body: SettingsIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     _require_unscoped_team(user, db)   # company-wide switches, like shift groups
     lead = body.reminderLeadMinutes
     if lead is not None and not REMINDER_LEAD_MIN <= lead <= REMINDER_LEAD_MAX:
@@ -201,11 +201,15 @@ def _to_dict(r: models.ShiftRequest, names: dict) -> dict:
 
 
 def _notify_approvers(db: Session, r: models.ShiftRequest, names: dict, actor: str) -> None:
+    from auth import level_for
     people = {r.requester_email} | ({r.target_email} if r.target_email else set())
     sent = set()
     for p in people:
         for rec in _team_alert_recipients(db, p, actor):
-            if rec not in sent and rec not in people:
+            # Only people who can actually decide it (managers and above,
+            # Sep 29) - an HR contact below manager would get a request
+            # they are refused on.
+            if rec not in sent and rec not in people and level_for(rec, db) >= SHIFT_MANAGE_LEVEL:
                 sent.add(rec)
                 _bell(db, rec, "Shift request to approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
 
@@ -385,8 +389,11 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
     the last few decided ones for context."""
     scope = _visible_emails(db, user)
     names = _names(db)
+    me = user["email"].lower()
+    # A manager's own swap/offer/pickup waits on ANOTHER manager (Sep 29).
     waiting = [r for r in db.query(models.ShiftRequest).filter(models.ShiftRequest.status == "pending_manager")
-               .order_by(models.ShiftRequest.created_at).all() if _in_scope(r, scope)]
+               .order_by(models.ShiftRequest.created_at).all()
+               if _in_scope(r, scope) and me not in (r.requester_email, r.target_email)]
     recent = [r for r in db.query(models.ShiftRequest)
               .filter(models.ShiftRequest.status.in_(["approved", "declined"]), models.ShiftRequest.decided_by != "")
               .order_by(models.ShiftRequest.decided_at.desc()).limit(40).all() if _in_scope(r, scope)][:10]
@@ -439,6 +446,10 @@ def decide(req_id: str, body: DecideIn, user: dict = Depends(require_schedule_wr
     r = _own(db, req_id)
     if not _in_scope(r, _visible_emails(db, user)):
         raise HTTPException(403, "This request is for people outside your team.")
+    # Nobody decides a request they are part of - not even a manager on
+    # their own shift (Sep 29). Another manager (theirs) approves it.
+    if actor in (r.requester_email, r.target_email):
+        raise HTTPException(403, "You can't decide a shift request you're part of - another manager reviews it.")
     if r.status != "pending_manager":
         raise HTTPException(409, "This request is not waiting on a manager.")
     names = _names(db)

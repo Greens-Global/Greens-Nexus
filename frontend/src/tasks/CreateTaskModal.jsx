@@ -12,6 +12,7 @@ import { CustomFieldInput } from './TaskDetailDrawer';
 import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
+import AnchoredMenu from '../components/AnchoredMenu';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -125,6 +126,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const libRef = useRef(null);
   const scanRef = useRef(null);
   const [photoMenu, setPhotoMenu] = useState(false);
+  const photoBtnRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);
 
   // ABC scanner → capture a photo, OCR it server-side, append the text to the title.
@@ -233,8 +235,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         {/* Phone only - desktop already has the Attachments field in view without
             scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
         {isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
-            <button type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto' }}>
+            <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
             <button type="button" title="Attach file" aria-label="Attach file" onClick={() => fileRef.current?.click()}
               style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
@@ -244,13 +246,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             {attachments.length > 0 && (
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
             )}
-            {photoMenu && (
-              /* Opens upward - the footer is pinned to the bottom of the modal. */
-              <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
-                <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-                <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
-              </div>
-            )}
+            {/* Flips upward on its own - the footer is pinned to the bottom of
+                the modal - and a tap outside now closes it. */}
+            <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
+              style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
+              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
+              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+            </AnchoredMenu>
             {/* capture="environment" opens the rear camera on a phone. */}
             <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
             <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />

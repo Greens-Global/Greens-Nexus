@@ -144,14 +144,11 @@ const VIEW_MIN_ROLES = {
   // can see regardless of the viewer's own Egnyte permissions. Gated at
   // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
   'egnyte':             'supervisor',
-  // Shifts (Sep 29): its own module, opened by the People (hr) grant - see
-  // VIEW_GRANT below and the NAV entry's `grant` in Sidebar.jsx.
-  'shifts':             'supervisor',
 };
 
-// A view whose Access Group grant has another module's id. Shifts left People >
-// Time for its own module (Sep 29) but kept its audience: the People grant.
-const VIEW_GRANT = { shifts: 'hr' };
+// A view whose Access Group grant has another module's id (none today:
+// Shifts, the one entry, became everyone's module on Sep 29).
+const VIEW_GRANT = {};
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -425,7 +422,7 @@ const DEFAULT_SUBS = {
   accounting:        "overview",
   egnyte:            "browse",
   "employee-tracking": "coverage",
-  shifts:            "schedule",
+  shifts:            "mine",   // everyone's week; managers pick Manage
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
   // click, not just after switching tabs once (see TimeClock.jsx's own

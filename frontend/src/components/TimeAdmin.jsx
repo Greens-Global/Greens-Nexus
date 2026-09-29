@@ -4,7 +4,7 @@ import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
   CalendarDays, Activity, Inbox, Banknote, CalendarOff,
-  Search,
+  Search, Lock,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -23,6 +23,17 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
+// Confidential time off (Sep 29): the server blanks the type and note for
+// anyone but the requester and approver ("redacted") - show plain "Time off".
+const timeoffLabel = (r) => (r.redacted ? 'Time off' : r.type);
+function ConfidentialMark() {
+  return (
+    <span title="Confidential - the type and note are visible only to the employee and their approver"
+      aria-label="Confidential" style={{ display: 'inline-flex', color: 'var(--muted)', flexShrink: 0 }}>
+      <Lock size={11} />
+    </span>
+  );
+}
 
 // ── HR → Time: team timesheets, corrections, payroll export ──────────────────
 // Single-screen review (the SwipeClock manager expectation): every employee's
@@ -341,7 +352,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     setOboBusy(true);
     try {
       await api.timeOffOnBehalf({ employee_email: obo.email, type: obo.type,
-        start_date: obo.start, end_date: obo.end, note: obo.note });
+        start_date: obo.start, end_date: obo.end, note: obo.note, confidential: !!obo.confidential });
       toastOk('Request filed - the employee has been notified.');
       setObo(null);
       loadTimeoff();
@@ -682,8 +693,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     background: ds === today ? 'var(--wk-brand-tint)' : 'var(--card)' }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</div>
                     {entries.slice(0, 3).map(r => (
-                      <div key={r.id} title={`${r.name || r.email} - ${r.type} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
-                        style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: TYPE_COLOR[r.type] || '#6b7280',
+                      <div key={r.id} title={`${r.name || r.email} - ${timeoffLabel(r)} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
+                        style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: (!r.redacted && TYPE_COLOR[r.type]) || '#6b7280',
                           borderRadius: 4, padding: '1px 5px', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           opacity: r.status === 'pending' ? 0.55 : 1 }}>
                         {(r.name || r.email).split(' ')[0]}
@@ -921,7 +932,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {view === 'timeoff' && (
         <>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-          <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '' })}
+          <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
             <Plus size={13} /> Request on Behalf
           </button>
@@ -947,8 +958,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
-                <span style={{ fontSize: 12, textTransform: 'capitalize' }}>{r.type}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note}>
+                <span style={{ fontSize: 12, textTransform: r.redacted ? 'none' : 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
                   {r.startDate} → {r.endDate}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ' · “' + r.note + '”' : ''}
                   {r.requestedBy && r.requestedBy !== r.email && (
                     <span style={{ fontStyle: 'italic' }}> · filed by {r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')}</span>
@@ -957,7 +970,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 <span style={{ fontSize: 12, fontWeight: 700 }}>{partial ? `${Math.round((partMin / 480) * 100) / 100}` : (isNaN(days) ? '-' : days)}</span>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '-'}</span>
                 <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                  {r.status === 'pending' ? (<>
+                  {r.status === 'pending' && r.canDecide === false ? (
+                    // Your own request, or a confidential one that is not
+                    // yours to decide (Sep 29): say who decides instead.
+                    <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'right' }}
+                      title={r.confidential ? 'Confidential - only the approver can decide it' : undefined}>
+                      {r.reviewer ? `Pending - ${r.reviewer} decides` : 'Pending - your manager decides'}
+                    </span>
+                  ) : r.status === 'pending' ? (<>
                     <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
                     <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')} style={{ fontSize: 11, padding: '4px 10px' }}>Approve</button>
                   </>) : (
@@ -1128,7 +1148,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 {myOff.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No requests on record.</div>}
                 {myOff.map(t => (
                   <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12 }}>
-                    <span style={{ fontWeight: 700, textTransform: 'capitalize', width: 80 }}>{t.type}</span>
+                    <span style={{ fontWeight: 700, textTransform: t.redacted ? 'none' : 'capitalize', width: 80, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {timeoffLabel(t)}{t.confidential && <ConfidentialMark />}
+                    </span>
                     <span style={{ color: 'var(--muted)', flex: 1 }}>{t.startDate} → {t.endDate}{t.note ? ` · “${t.note}”` : ''}</span>
                     <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
                       background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)',
@@ -1216,6 +1238,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               <div><label style={FL}>Note</label>
                 <input className="form-input" placeholder="e.g. called in sick this morning" value={obo.note}
                   onChange={e => setObo(p => ({ ...p, note: e.target.value }))} style={{ width: '100%' }} /></div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!obo.confidential} onChange={e => setObo(p => ({ ...p, confidential: e.target.checked }))} style={{ marginTop: 2 }} />
+                <span>
+                  <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    Others see only that they're out. The type and note are visible only to them and their approver.
+                  </span>
+                </span>
+              </label>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                 Filed as a normal pending request in their name - they get a notification, and it still needs an approval.
               </div>

@@ -97,6 +97,56 @@ export function compactLayout(items) {
   return items.map(it => best.find(p => p.i === it.i) || it);
 }
 
+// Reading order: the order a phone stacks widgets in (DashboardGrid's
+// single column) - top to bottom, then left to right.
+export const readingOrder = (items) => [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+
+// Lay `order` out so its reading order is exactly `order`: each item goes at
+// the first free spot at or after the previous item's (y, x). Unlike placeAll
+// no item may jump back into an earlier hole - that would reorder the phone
+// stack behind the user's back.
+function flowInOrder(order) {
+  const placed = [];
+  let cy = 0, cx = 0;
+  for (const it of order) {
+    const w = Math.max(1, Math.min(it.w || 2, COLS));
+    const h = Math.max(1, it.h || 2);
+    let spot = null;
+    for (let y = cy; y < cy + 500 && !spot; y++) {
+      for (let x = y === cy ? cx : 0; x <= COLS - w && !spot; x++) {
+        const cand = { ...it, x, y, w, h };
+        if (!placed.some(p => collides(cand, p))) spot = cand;
+      }
+    }
+    spot = spot || { ...it, x: 0, y: cy + 1, w, h };   // unreachable backstop
+    placed.push(spot);
+    cy = spot.y; cx = spot.x + 1;
+  }
+  return placed;
+}
+
+// Phone reordering (Sep 28): a phone shows the board as one column, so
+// "move up/down" means swapping a widget with its neighbor in reading order.
+// Same-size neighbors just trade places, leaving the desktop arrangement
+// otherwise untouched; anything else re-flows the board in the new order so
+// the desktop reading order always matches what the phone showed.
+export function moveInOrder(items, id, dir) {
+  const order = readingOrder(items);
+  const idx = order.findIndex(it => it.i === id);
+  const j = idx + dir;
+  if (idx < 0 || j < 0 || j >= order.length) return items;
+  const next = [...order];
+  [next[idx], next[j]] = [next[j], next[idx]];
+  const a = order[idx], b = order[j];
+  const swapped = items.map(it => it.i === a.i ? { ...it, x: b.x, y: b.y }
+    : it.i === b.i ? { ...it, x: a.x, y: a.y } : it);
+  const clean = !swapped.some(p => swapped.some(q => collides(p, q)))
+    && readingOrder(swapped).every((it, k) => it.i === next[k].i);
+  if (clean) return swapped;
+  const flowed = flowInOrder(next);
+  return items.map(it => flowed.find(p => p.i === it.i) || it);
+}
+
 // One target now - see the DEFAULTS comment above. `widgetTier`: 'manager' |
 // 'supervisor' | 'employee' - CustomDashboard.jsx computes it from role +
 // the 'manager-dashboard' grant (same tiering canSeeWidget() uses). Drives
@@ -168,6 +218,7 @@ export function useDashboards(widgetTier) {
   };
   const removeWidget = (i) => setLayout(layout.filter(w => w.i !== i));
   const autoFit = () => setLayout(compactLayout(layoutRef.current));
+  const moveWidget = (i, dir) => setLayout(moveInOrder(layoutRef.current, i, dir));
   const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w));
 
   const switchView = (id) => {
@@ -249,7 +300,7 @@ export function useDashboards(widgetTier) {
 
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
-    setEditing, setLayout, addWidget, removeWidget, autoFit, updateWidgetConfig,
+    setEditing, setLayout, addWidget, removeWidget, autoFit, moveWidget, updateWidgetConfig,
     switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, clearDefaultView, removeView, renameView, reload: load,
   };
 }

@@ -176,7 +176,7 @@ export function zoneOptionLabel(tz) {
   const offset = namePart('shortOffset') || namePart('short');
   const name = namePart('long');
   if (!offset && !name) return zoneLabel(tz);   // Intl unsupported for this zone - last resort
-  return `${offset ? `(${offset}) ` : ''}${name || cityOf(tz)} — ${cityOf(tz)}`;
+  return `${offset ? `(${offset}) ` : ''}${name || cityOf(tz)} - ${cityOf(tz)}`;
 }
 
 // Grouped by continent/region (the tz's first path segment) for <optgroup> -
@@ -187,10 +187,9 @@ export const ZONE_GROUPS = (() => {
   return map;
 })();
 
-// The system's own zone - always shown first, labeled "Local" rather than a
-// city/country (Pranshu, Sep 9: someone in India should just see "Local
-// 6:13 PM", not "India - Kolkata" for their own time). Detected once, not
-// user-editable - it follows whatever the OS/browser reports.
+// The system's own zone - always shown first, as a bare time: no city/country
+// (Pranshu, Sep 9) and no "Local" label either (Neil, Sep 28). Detected once,
+// not user-editable - it follows whatever the OS/browser reports.
 export const LOCAL_TZ = canonicalTz(Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
 
 // The two EXTRA zones layered on top of Local are what My Profile's picker
@@ -223,18 +222,74 @@ export function setZones(tzs) {
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
-/** Subscribe to the current world-clock zone selection (Local first, always
- * present, then the up-to-MAX_ZONES picks from My Profile); re-renders on
- * change. */
-export function useWorldClockZones() {
+/** Subscribe to the up-to-MAX_ZONES extra zones picked in My Profile (the
+ * viewer's own zone is not in it); re-renders on change. Feed it to
+ * headerClocks for what the greeting shows. */
+export function useWorldClockPicks() {
   const [zones, setZonesState] = useState(_current);
   useEffect(() => {
     const on = () => setZonesState(_current);
     window.addEventListener(EVENT, on);
     return () => window.removeEventListener(EVENT, on);
   }, []);
-  return [
-    { tz: LOCAL_TZ, label: 'Local' },
-    ...zones.map((tz) => ({ tz, label: zoneLabel(tz) })),
-  ];
+  return zones;
+}
+
+// California is the company's home clock (Neil, Sep 28): anyone whose clock
+// reads differently sees California time next to their own; anyone on
+// California time sees one bare time and nothing else.
+export const CALIFORNIA_TZ = canonicalTz('America/Los_Angeles') || 'America/Los_Angeles';
+
+const _offsetFmt = new Map();
+// Minutes east of UTC for `tz` at the instant `d`, read off the zone's own
+// wall clock - follows DST with no rules table.
+export function tzOffsetMinutes(tz, d = new Date()) {
+  let fmt = _offsetFmt.get(tz);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    _offsetFmt.set(tz, fmt);
+  }
+  const p = {};
+  for (const part of fmt.formatToParts(d)) p[part.type] = part.value;
+  const wall = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+  return Math.round((wall - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+}
+
+// "PDT" in summer, "PST" in winter - from Intl, never hardcoded.
+export function tzAbbrev(tz, d = new Date()) {
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+      .formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || '';
+  } catch { return ''; }
+}
+
+/** The clocks the Dashboard greeting shows, in order:
+ *  1. the viewer's own time - no label;
+ *  2. California time, labeled, with its PDT/PST abbreviation - only when the
+ *     viewer's clock reads differently right now. Compared by UTC offset at
+ *     this instant, not by zone name: Vancouver or Tijuana (same clock as
+ *     California) count as California, and the weeks when the US and another
+ *     country have switched DST on different dates show both;
+ *  3. the My Profile picks, skipping any that would repeat a time already
+ *     shown (a Los Angeles pick adds nothing on top of California).
+ *  `home: true` marks the entries the phone's one-line header keeps. */
+export function headerClocks(picks = [], now = new Date(), localTz = LOCAL_TZ) {
+  const localOff = tzOffsetMinutes(localTz, now);
+  const caOff = tzOffsetMinutes(CALIFORNIA_TZ, now);
+  const clocks = [{ tz: localTz, label: '', abbr: '', home: true }];
+  const shown = new Set([localOff]);
+  if (caOff !== localOff) {
+    clocks.push({ tz: CALIFORNIA_TZ, label: 'California', abbr: tzAbbrev(CALIFORNIA_TZ, now), home: true });
+    shown.add(caOff);
+  }
+  for (const tz of picks) {
+    const off = tzOffsetMinutes(tz, now);
+    if (shown.has(off)) continue;
+    shown.add(off);
+    clocks.push({ tz, label: zoneLabel(tz), abbr: '', home: false });
+  }
+  return clocks;
 }

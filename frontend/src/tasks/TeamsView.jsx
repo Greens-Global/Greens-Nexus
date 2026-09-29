@@ -19,6 +19,7 @@ import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
 import CreateTaskModal from './CreateTaskModal';
 import { emailToName } from '../lib/utils';
+import AnchoredMenu from '../components/AnchoredMenu';
 
 // Curated team icons (keys match the export's deptIcons set).
 const DEPT_ICONS = [
@@ -785,16 +786,16 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, position: 'relative' }}>
             {shown.map((email) => <Avatar key={email} email={email} name={nameOf(email)} size={40} />)}
-            <span ref={addRef} style={{ position: 'relative' }}>
-              <button onClick={() => setAddOpen((o) => !o)} title="Add Member" style={{
+            <span ref={addRef}>
+              <button onClick={() => setAddOpen((o) => !o)} title="Add Member" aria-haspopup="dialog" aria-expanded={addOpen} style={{
                 width: 40, height: 40, borderRadius: '50%', border: `1px dashed ${NX.border}`, background: 'transparent',
                 color: NX.dim, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
               }}><UserPlus size={16} /></button>
-              {addOpen && (
-                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 8 }}>
-                  <AddMemberInline team={team} people={people.filter((p) => !members.includes(p.email))} onDone={() => setAddOpen(false)} />
-                </div>
-              )}
+              {/* A tap in PersonSelect's own portaled list still counts as inside. */}
+              <AnchoredMenu anchorRef={addRef} open={addOpen} onClose={() => setAddOpen(false)} align="end" role="dialog" aria-label="Add Member"
+                style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 8 }}>
+                <AddMemberInline team={team} people={people.filter((p) => !members.includes(p.email))} onDone={() => setAddOpen(false)} />
+              </AnchoredMenu>
             </span>
           </div>
           {members.length === 0 && <p style={{ marginTop: 8, fontSize: 12, color: NX.faint }}>No members yet.</p>}

@@ -8,6 +8,8 @@ import TimeInsights from './TimeInsights';
 import { MonitoringAlertsPanel } from './MonitoringAlerts';
 import LiveView from './LiveView';
 import Locations from '../views/Locations';
+import { WorkforceViewBar, ViewNotice } from './workforce/WorkforceViews';
+import { WorkforceViewProvider, useWorkforceView, useWorkforceViews } from './workforce/viewContext';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -406,7 +408,9 @@ function LiveCoverage({ onOpenPerson }) {
     return () => { alive = false; clearInterval(iv); };
   }, []);
 
-  const people = (data && data.people) || [];
+  const { inView } = useWorkforceView();
+  const everyone = (data && data.people) || [];
+  const people = everyone.filter(p => inView(p.email));
   const gaps = people.filter(p => p.status === 'gap').length;
 
   return (
@@ -425,6 +429,7 @@ function LiveCoverage({ onOpenPerson }) {
         Everyone clocked in right now and how their screen is being captured - desktop agent, in-browser Chrome share,
         or a gap that needs attention. Refreshes automatically.
       </p>
+      {data && <ViewNotice shown={people.length} total={everyone.length} noun="clocked in" />}
       {data === null ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
@@ -432,7 +437,7 @@ function LiveCoverage({ onOpenPerson }) {
       ) : data === false ? (
         <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load coverage.</div>
       ) : people.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No one is clocked in right now.</div>
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{everyone.length ? 'No one in this view is clocked in right now.' : 'No one is clocked in right now.'}</div>
       ) : people.map(p => {
         const m = COV_META[p.status] || COV_META.gap;
         const frame = (p.secsSinceFrame != null)
@@ -570,7 +575,9 @@ export function MonitoringPolicy({ companyId }) {
 // Activity/Insights (apps, sites, active vs idle, productivity) for a chosen day.
 function ActivityInsights() {
   const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
-  const [people, setPeople] = useState([]);
+  const [everyone, setPeople] = useState([]);
+  const { inView } = useWorkforceView();
+  const people = everyone.filter(p => inView(p.email));
   useEffect(() => {
     api.getPeopleDirectory()
       .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
@@ -584,6 +591,7 @@ function ActivityInsights() {
         <div style={{ flex: 1 }} />
         <input className="form-input" type="date" value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 12, width: 150 }} />
       </div>
+      <ViewNotice shown={people.length} total={everyone.length} />
       <TimeInsights start={day} end={day} people={people} />
     </div>
   );
@@ -591,6 +599,8 @@ function ActivityInsights() {
 
 export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false }) {
   const [sub, setSub] = useState(initialSub);
+  // Saved team views (Sep 29) - one picker in the header filters every tab.
+  const views = useWorkforceViews();
   const [shotReq, setShotReq] = useState({ email: '', date: '' });   // Coverage -> Screenshots deep-link
   useEffect(() => {
     if (initialSub) setSub(initialSub);
@@ -600,15 +610,17 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
   }, [initialSub]);
 
   return (
+    <WorkforceViewProvider value={views.ctx}>
     <div style={module
       ? { fontFamily: 'Inter,sans-serif', animation: 'fadeIn var(--transition-normal) ease-in-out' }
       : { fontFamily: 'Inter,sans-serif', maxWidth: 640, margin: '0 auto' }}>
       {module && (
-        <div className="view-header" style={{ marginBottom: 0 }}>
+        <div className="view-header" style={{ marginBottom: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div className="view-title-group">
             <h2>Workforce Analytics</h2>
             <p>Disclosed monitoring - coverage, activity, locations, screenshots, and company computers</p>
           </div>
+          <WorkforceViewBar state={views} />
         </div>
       )}
       <style>{`@keyframes nexusDotPulse {
@@ -647,5 +659,6 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
 
       {sub === 'computers' && <AgentInstall />}
     </div>
+    </WorkforceViewProvider>
   );
 }

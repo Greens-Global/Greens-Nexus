@@ -807,6 +807,8 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
             # Group schedulers (Sep 29) - see the Postgres list.
             "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
+            # Confidential time off (Neil, Sep 29) - see the Postgres list.
+            "ALTER TABLE time_off_requests ADD COLUMN confidential INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1739,6 +1741,9 @@ def _run_migrations():
         "ALTER TABLE leases ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE lease_rates ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE lease_months ENABLE ROW LEVEL SECURITY",
+        # Confidential time off (Neil, Sep 29): the type, reason and decision
+        # note show only to the requester and their approver.
+        "ALTER TABLE time_off_requests ADD COLUMN IF NOT EXISTS confidential INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2759,3 +2764,7 @@ from routers import security_settings  # noqa: E402
 app.include_router(security_settings.router)  # Settings > Global > Security: step-up, session lifetimes, guest sign-in (security_config.py)
 from routers import equipment_reminder_settings  # noqa: E402
 app.include_router(equipment_reminder_settings.router)  # Equipment Reminders timing - see equipment_reminder_config.py
+from routers import workforce_views  # noqa: E402
+app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
+from routers import weather as weather_router  # noqa: E402
+app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)

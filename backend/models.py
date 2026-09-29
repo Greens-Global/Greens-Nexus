@@ -2437,6 +2437,10 @@ class TimeOffRequest(Base):
     # only valid on a single-day request (start_date == end_date).
     start_time     = Column(String, default="")
     end_time       = Column(String, default="")
+    # Confidential (Neil, Sep 29): the type, note and decision note show only
+    # to the requester and the people who decide it (timeclock._TimeoffPrivacy);
+    # everyone else sees plain "Time off" with the dates.
+    confidential   = Column(Integer, default=0)
 
 
 class DashboardView(Base):

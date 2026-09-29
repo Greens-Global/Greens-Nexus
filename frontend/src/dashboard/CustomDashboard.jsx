@@ -1,6 +1,6 @@
-import { useState, Suspense } from 'react';
+import { useState, useRef, Suspense } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
-import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal } from 'lucide-react';
+import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
@@ -11,6 +11,12 @@ import { WidgetGallery, ConfigModal } from './WidgetGallery';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { useIsMobile } from '../lib/useIsMobile';
+import AnchoredMenu from '../components/AnchoredMenu';
+
+// Portrait phones, plus phones held sideways (touch screen, short viewport).
+const PHONE_QUERY = '(max-width: 640px), (pointer: coarse) and (max-height: 500px)';
+const phoneBarBtn = { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, border: 'none', background: 'transparent', fontSize: 14, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '0 8px', whiteSpace: 'nowrap' };
+const phoneBarSep = { width: 1, background: 'var(--wk-line2)', alignSelf: 'stretch' };
 
 // Small, reliable name dialog (replaces window.prompt, which wouldn't let the
 // user type / was silently blocked). Auto-focuses; Enter submits, Esc cancels.
@@ -74,11 +80,19 @@ export default function CustomDashboard() {
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);
+  const menuBtn = useRef(null);
   // View picker + Customize crowded/overlapped the session chip on a phone
   // (Pranshu, Sep 22: "fix the customize and view area for mobile") - the
   // fixed-width select plus a right-justified row wrapped into a jagged
   // staircase instead of a clean stack at narrow widths.
   const isMobile = useIsMobile();
+  // A phone in EITHER orientation (Neil, Sep 28: Customize only worked held
+  // sideways). Portrait trips the 640px breakpoint; landscape is a touch
+  // screen too short for the desktop grid's drag + resize. Either way the
+  // board stacks to one column with up/down arrows and the edit actions ride
+  // a bottom bar instead of the header's scrolling toolbar, where Save and
+  // Done were cut off past the screen edge.
+  const isPhone = useIsMobile(PHONE_QUERY);
   const [nameModal, setNameModal] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -131,24 +145,24 @@ export default function CustomDashboard() {
   const save = () => {
     if (canEditInPlace) return wrap(() => d.save(), 'Layout saved')();
     openName({
-      title: 'Save your dashboard', initial: 'My view', cta: 'Save view',
+      title: 'Save Your Dashboard', initial: 'My view', cta: 'Save View',
       onSubmit: wrap(async (name) => { const v = await d.saveAsNew(name); await d.setDefaultView(v.id); }, 'View saved'),
     });
   };
   const saveAsNew = () => openName({
-    title: 'Save as a new view', initial: '', cta: 'Create view',
+    title: 'Save as a New View', initial: '', cta: 'Create View',
     onSubmit: wrap(name => d.saveAsNew(name), 'View created'),
   });
   const rename = () => openName({
-    title: 'Rename view', initial: d.activeView?.name || '', cta: 'Rename',
+    title: 'Rename View', initial: d.activeView?.name || '', cta: 'Rename',
     onSubmit: wrap(name => d.renameView(d.activeId, name), 'Renamed'),
   });
   const createNew = () => openName({
-    title: 'Create a new view', label: 'Starts from the default layout - customize it after', initial: '', cta: 'Create view',
+    title: 'Create a New View', label: 'Starts from the default layout - customize it after', initial: '', cta: 'Create View',
     onSubmit: wrap(name => d.createNewView(name), 'View created - customize away'),
   });
   const publish = () => openName({
-    title: 'Publish to your department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
+    title: 'Publish to Your Department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
     onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
   });
   const makeDefault = wrap(async () => { setMenu(false); if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
@@ -168,6 +182,7 @@ export default function CustomDashboard() {
   const guardedDone = () => { if (confirmDiscard()) { d.setEditing(false); d.reload(); } };
 
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
+  const saveLabel = d.dirty ? 'Save' : 'Saved';
 
   // Delete: your own personal views always; a department view only if you're a
   // manager AND you're the one who published it - members can never delete a
@@ -180,18 +195,18 @@ export default function CustomDashboard() {
   // buttons). Sections: manage this view / make a copy of this layout / delete.
   const menuSections = [
     [
-      ...(canRename ? [{ label: 'Rename view', icon: Pencil, on: rename }] : []),
-      ...(isOwnPersonal ? [{ label: 'Set as my default', icon: Star, on: makeDefault }] : []),
+      ...(canRename ? [{ label: 'Rename View', icon: Pencil, on: rename }] : []),
+      ...(isOwnPersonal ? [{ label: 'Set as My Default', icon: Star, on: makeDefault }] : []),
       // Escape hatch: a saved default view otherwise hides the designed Home forever.
       ...(d.views.some(v => v.scope === 'personal' && v.isDefault)
-        ? [{ label: 'Make Home my default', icon: LayoutGrid, on: wrap(async () => { setMenu(false); await d.clearDefaultView(); guardedSwitch(null); }, 'Home is your landing view again') }] : []),
+        ? [{ label: 'Make Home My Default', icon: LayoutGrid, on: wrap(async () => { setMenu(false); await d.clearDefaultView(); guardedSwitch(null); }, 'Home is your landing view again') }] : []),
     ],
     [
-      { label: 'Save as new view', icon: Copy, on: saveAsNew },
-      ...(d.canPublish ? [{ label: 'Publish to department', icon: Share2, on: publish }] : []),
+      { label: 'Save as New View', icon: Copy, on: saveAsNew },
+      ...(d.canPublish ? [{ label: 'Publish to Department', icon: Share2, on: publish }] : []),
     ],
     [
-      ...(canDelete ? [{ label: 'Delete view', icon: Trash2, on: del, danger: true }] : []),
+      ...(canDelete ? [{ label: 'Delete View', icon: Trash2, on: del, danger: true }] : []),
     ],
   ].filter(s => s.length > 0);
 
@@ -205,9 +220,13 @@ export default function CustomDashboard() {
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {toast && (
-        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
+        <div role="status" style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
-          color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
+          color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c',
+          // Phone: float it just above the bottom bar - the top of a long
+          // scrolled page is where nobody is looking after tapping Save.
+          ...(isPhone ? { position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(80px + env(safe-area-inset-bottom))',
+            margin: 0, zIndex: 395, whiteSpace: 'nowrap', background: 'var(--card)', border: '1px solid var(--wk-line2)', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } : null) }}>{toast.t}</div>
       )}
 
       {/* Controls: view picker + Customize + the "…" view menu. Used to sit in
@@ -247,12 +266,19 @@ export default function CustomDashboard() {
               <option value="__new__">＋ New view…</option>
             </select>
             {d.editing ? (
-              <>
-                <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add widget</button>
-                <button className="secondary-btn" style={btn} onClick={d.autoFit} title="Slide widgets up and left to fill blank space"><Wand2 size={14} /> Auto-fit</button>
-                <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {d.dirty ? 'Save' : 'Saved'}</button>
-                <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
-              </>
+              // On a phone these live in the bottom bar (below) instead.
+              !isPhone && (
+                <>
+                  <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add Widget</button>
+                  <button className="secondary-btn" style={btn} onClick={d.autoFit} title="Slide widgets up and left to fill blank space"><Wand2 size={14} /> Auto-Fit</button>
+                  <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {saveLabel}</button>
+                  <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
+                </>
+              )
+            ) : isPhone ? (
+              // Icon only on a phone (Neil, Sep 28) - the word crowded the
+              // toolbar row; the label stays for screen readers and long-press.
+              <button className="secondary-btn" style={{ ...btn, padding: '7px 10px' }} onClick={() => d.setEditing(true)} title="Customize" aria-label="Customize"><SlidersHorizontal size={16} /></button>
             ) : (
               <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
             )}
@@ -266,27 +292,28 @@ export default function CustomDashboard() {
         // its own distinct button at the row's right corner - not merged
         // with the chip (Pranshu, Sep 15 2nd follow-up).
         const viewMenu = (
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options"><MoreHorizontal size={15} /></button>
-            {menu && (
-              <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6, zIndex: 50, minWidth: 220 }}>
-                <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
-                </div>
-                {menuSections.map((section, si) => (
-                  <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                    {section.map((m, i) => (
-                      <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                        <m.icon size={14} /> {m.label}
-                      </button>
-                    ))}
-                  </div>
-                ))}
+          <>
+            <button ref={menuBtn} className="secondary-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={menu}><MoreHorizontal size={15} /></button>
+            {/* Portaled: on a phone the toolbar is a horizontal scroller, which
+                clipped the old in-place menu at its bottom edge. */}
+            <AnchoredMenu anchorRef={menuBtn} open={menu} onClose={() => setMenu(false)} align="end" minWidth={220}
+              style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
+              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
               </div>
-            )}
-          </div>
+              {menuSections.map((section, si) => (
+                <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
+                  {section.map((m, i) => (
+                    <button key={i} role="menuitem" onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                      <m.icon size={14} /> {m.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </AnchoredMenu>
+          </>
         );
         return d.loading ? (
           <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
@@ -302,6 +329,11 @@ export default function CustomDashboard() {
              as default) can never make "Good morning" disappear. */
           <>
             <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} menu={viewMenu} /></div>
+            {d.editing && isPhone && (
+              <p style={{ margin: '0 2px 18px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>
+                Use the arrows to reorder, the gear to change what a widget shows. The new order carries over to desktop.
+              </p>
+            )}
             <DashboardGrid
               layout={d.layout}
               editing={d.editing}
@@ -309,11 +341,33 @@ export default function CustomDashboard() {
               renderWidget={renderWidget}
               onRemove={d.removeWidget}
               onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
+              canConfigure={(it) => !!WIDGETS[it.type]?.configurable}
               limitsFor={(it) => WIDGETS[it.type]?.limits}
+              stacked={isPhone}
+              onMove={d.moveWidget}
             />
+            {/* Room for the bottom bar, so it never covers the last widget. */}
+            {d.editing && isPhone && <div aria-hidden style={{ height: 'calc(92px + env(safe-area-inset-bottom))' }} />}
           </>
         );
       })()}
+
+      {/* Phone edit bar: always on screen, in thumb reach, never clipped -
+          the same floating-pill idiom as the Tasks/Tickets phone bar. */}
+      {d.editing && isPhone && !d.loading && (
+        <div role="toolbar" aria-label="Customize dashboard" style={{
+          position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(16px + env(safe-area-inset-bottom))',
+          width: 'min(calc(100vw - 32px), 420px)', height: 54, display: 'flex', alignItems: 'stretch', zIndex: 390,  // under .mobile-menu (400) and modals (500)
+          background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, boxShadow: '0 10px 30px rgba(0,0,0,0.22)', overflow: 'hidden',
+          fontFamily: 'var(--wk-font)',
+        }}>
+          <button onClick={() => setGallery(true)} style={{ ...phoneBarBtn, flex: 1.25, color: 'var(--ink)' }}><Plus size={18} /> Add Widget</button>
+          <span style={phoneBarSep} />
+          <button onClick={save} disabled={!d.dirty} style={{ ...phoneBarBtn, color: d.dirty ? 'hsl(var(--color-blue))' : 'var(--muted)', cursor: d.dirty ? 'pointer' : 'default' }}><Save size={17} /> {saveLabel}</button>
+          <span style={phoneBarSep} />
+          <button onClick={guardedDone} style={{ ...phoneBarBtn, background: 'var(--wk-brand, hsl(var(--color-blue)))', color: '#fff' }}><Check size={18} /> Done</button>
+        </div>
+      )}
 
       {gallery && <WidgetGallery canSee={canSeeWidget} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}

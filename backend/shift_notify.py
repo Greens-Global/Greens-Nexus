@@ -33,7 +33,8 @@ from database import SessionLocal
 REMINDER_LEAD_MIN = 60   # default; admins change it in the Requests inbox settings
 REMINDER_SCAN_SEC = 5 * 60
 _DEFAULT_TZ = "America/Los_Angeles"
-MY_SHIFTS_ACTION = {"view": "timeclock", "sub": "shifts"}
+# My Shifts lives in the Shifts module now (Sep 29), not a Workday tab.
+MY_SHIFTS_ACTION = {"view": "shifts", "sub": "mine"}
 
 
 def _t12(hhmm: str) -> str:
@@ -109,7 +110,7 @@ def email_html(first_name: str, items: list, actor_name: str) -> tuple:
     n = len(items)
     subject = f"Your schedule was updated - {_plural(n, 'change')}"
     band = theme.color("#0f3d2e")
-    url = f"{app_url()}/timeclock/shifts"
+    url = f"{app_url()}/shifts/mine"
     hello = f"Hi {escape(first_name)}," if first_name else "Hi,"
     who = escape(actor_name) if actor_name else "Your manager"
     rows = "".join(_row_html(i) for i in items)
@@ -172,7 +173,7 @@ def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: 
             id=str(uuid.uuid4()), type="custom_alert", recipient=em,
             title="Your schedule was updated", body=f"{_summary(items).capitalize()} ({span}).",
             ref_id=f"schedule-publish:{d0}:{d1}", item_name="", requested_by=actor,
-            action='{"view": "timeclock", "sub": "shifts"}', actioned=False, read_by="", created_at=now))
+            action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
         emp = people.get(em)
         if emp is not None and (emp.status or "active") == "active":
             batch.append((em, *email_html((emp.first_name or "").strip(), items, actor_name)))
@@ -197,7 +198,7 @@ def notify_team(db: Session, emails: set, actor_email: str, d0: str, d1: str) ->
             id=str(uuid.uuid4()), type="custom_alert", recipient=em,
             title="Schedule published", body=f"The schedule for {span} was published. Open My Shifts to see yours.",
             ref_id=f"schedule-publish-team:{d0}:{d1}", item_name="", requested_by=actor,
-            action='{"view": "timeclock", "sub": "shifts"}', actioned=False, read_by="", created_at=now))
+            action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
         n += 1
     db.commit()
     return n
