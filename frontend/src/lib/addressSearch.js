@@ -62,3 +62,12 @@ export async function searchAddresses(query) {
   }
   return [];
 }
+
+/** Straight-line metres between two [lat, lng] points - how far a fine-tuned
+ *  pin sits from its address point. */
+export function metersBetween(a, b) {
+  const rad = (d) => (d * Math.PI) / 180;
+  const dLat = rad(b[0] - a[0]), dLng = rad(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
