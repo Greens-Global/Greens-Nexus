@@ -215,7 +215,9 @@ def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> 
     else:
         action = {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
                   "start": r.period_start, "payType": r.pay_type}
-    _tc()._hr_notify(db, to, title, body, action=action)
+    # A timesheet waiting on someone is a priority notice: the bar across the
+    # top of their screen until they act (Neil, call of 09/29).
+    _tc()._hr_notify(db, to, title, body, action=action, priority=1)
 
 
 def _label(r: TimesheetReview) -> str:

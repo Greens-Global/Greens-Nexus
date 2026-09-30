@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, Check, Search, ShieldCheck, X } from 'lucide-react';
+import { Building2, Check, Download, Search, ShieldCheck, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
@@ -23,6 +23,10 @@ import { control, entityOptions } from './reportControls';
 // Sep 30 (Charmi, call of 09/29): "Select All" in the entity picker, then
 // untick the few that do not apply; and a Last Opened column - when each
 // person last opened Accounting, and how many times.
+//
+// Sep 30 (Visesh): "Bring From Intacct" reads who may see which entities in
+// Intacct itself, matches the Intacct users to Nexus people by email, shows
+// the two side by side, and sets the ticked people's Nexus limits to match.
 
 const LEVELS = { viewer: 'Viewer', editor: 'Editor', full: 'Full', owner: 'Owner' };
 
@@ -33,6 +37,7 @@ export default function AccessTab() {
   const [entities, setEntities] = useState([]);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);   // { email, entities }
+  const [importing, setImporting] = useState(false);
   const [q, setQ] = useState('');
 
   const load = useCallback(() => api.getAccountingAccess()
@@ -68,6 +73,10 @@ export default function AccessTab() {
             <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
             <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a person or an entity" aria-label="Search a person or an entity" style={{ ...control, width: '100%', paddingLeft: 28 }} />
           </div>
+          <button type="button" className="secondary-btn" onClick={() => setImporting(true)} title="Read who may see which entities in Intacct and set the same limits here"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+            <Download size={13} /> Bring From Intacct
+          </button>
         </div>
         {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginBottom: 10 }}>{error}</div>}
 
@@ -116,7 +125,99 @@ export default function AccessTab() {
         </div>
       </div>
       {editing && <EntityLimit person={editing} entities={entities} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {importing && <IntacctImport names={names} onClose={() => setImporting(false)} onApplied={() => { setImporting(false); load(); }} />}
     </AsyncSection>
+  );
+}
+
+// Entity access as Intacct has it, beside what Nexus has. Tick who to bring
+// over; Apply sets their Nexus limit to the Intacct list.
+function IntacctImport({ names, onClose, onApplied }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [picked, setPicked] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.getAccountingAccessFromIntacct()
+      .then((d) => { if (!alive) return; setData(d); setPicked(new Set((d?.people || []).filter((p) => p.matched && p.differs).map((p) => p.email))); })
+      .catch((e) => { if (alive) { setData({ people: [], notes: [] }); setError(e?.message || 'Could not read Intacct.'); } });
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const people = data?.people || [];
+  const matched = people.filter((p) => p.matched);
+  const toggle = (email) => setPicked((s) => { const n = new Set(s); if (n.has(email)) n.delete(email); else n.add(email); return n; });
+  const list = (codes) => (codes.length ? codes.map((c) => names.get(c) ? `${names.get(c)} (${c})` : c).join(', ') : 'All entities');
+  const apply = () => {
+    if (!picked.size || busy) return;
+    setBusy(true);
+    setError('');
+    api.applyAccountingAccessFromIntacct([...picked])
+      .then((r) => { setResult(r); setTimeout(onApplied, 1200); })
+      .catch((e) => { setError(e?.message || 'Could not apply.'); setBusy(false); });
+  };
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Entity access from Intacct" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1100px, 96vw)', maxHeight: '92vh' }}>
+        <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0 }}>Entity Access From Intacct</h3>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Who may see which entities in Intacct, matched to Nexus people by email. Tick who to bring over; Apply sets their Nexus limit to the Intacct list. An unrestricted Intacct user gets every entity here too.
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '6px 18px 10px', display: 'grid', gap: 8 }}>
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
+          {(data?.notes || []).map((n) => <div key={n} style={{ fontSize: '0.78rem', color: '#92400e' }}>{n}</div>)}
+          {!data && !error && <SkeletonBlocks count={4} />}
+          {data && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                <span>{people.length} Intacct {people.length === 1 ? 'user' : 'users'} · {matched.length} matched to Nexus people · {picked.size} ticked</span>
+                {matched.length > 0 && (
+                  <button type="button" onClick={() => setPicked(picked.size === matched.length ? new Set() : new Set(matched.map((p) => p.email)))}
+                    style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.76rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
+                    {picked.size === matched.length ? 'Clear All' : 'Select All Matched'}
+                  </button>
+                )}
+              </div>
+              <div className="acct-lines-wrap" style={{ maxHeight: 'calc(92vh - 240px)' }}>
+                <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                  <thead>
+                    <tr><th scope="col" aria-label="Pick" style={{ width: 30 }} /><th scope="col">Intacct User</th><th scope="col">Nexus Person</th><th scope="col">In Intacct</th><th scope="col">In Nexus Now</th></tr>
+                  </thead>
+                  <tbody>
+                    {people.map((p) => (
+                      <tr key={`${p.login}-${p.email}`} style={{ opacity: p.matched ? 1 : 0.6 }}>
+                        <td>{p.matched ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
+                        <td title={p.email || undefined}>{p.intacctName || p.login}{p.login && p.intacctName ? <span className="acct-code" style={{ marginLeft: 8 }}>{p.login}</span> : null}{p.status && !/active/i.test(p.status) ? <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.status}</span> : null}</td>
+                        <td>{p.matched ? <>{p.name}{!p.hasGrant && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · no Accounting access yet</span>}</> : <span style={{ color: 'var(--text-muted)' }}>{p.email ? 'Not in Nexus People' : 'No email in Intacct'}</span>}</td>
+                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>{list(p.entities)}{p.departments?.length ? <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}</td>
+                        <td style={{ whiteSpace: 'normal', maxWidth: 360, color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: '0.72rem', color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
+                      </tr>
+                    ))}
+                    {!people.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '18px 10px' }}>Intacct returned no users.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          {result && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{result.applied.length} {result.applied.length === 1 ? 'person' : 'people'} now limited as Intacct has them.</div>}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary-btn" onClick={apply} disabled={!picked.size || busy || !!result}>{busy ? 'Applying...' : `Apply to ${picked.size || ''} ${picked.size === 1 ? 'Person' : 'People'}`.replace('  ', ' ')}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

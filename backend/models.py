@@ -439,6 +439,11 @@ class NexusNotification(Base):
     # Global-Admin-only when armed. Stamped by _notify / create_notification.
     company     = Column(String, default="", index=True)
     created_at  = Column(String, nullable=False)
+    # Priority (Neil, call of 09/29): 1 = shown as a bar across the top of
+    # every screen until acted on (a timecard due, a timesheet to review, a
+    # punch fix waiting); 0 = the quiet bell. The system stamps it on those
+    # flows; a manager can raise one by hand.
+    priority    = Column(Integer, default=0)
 
 
 class InventoryRequest(Base):

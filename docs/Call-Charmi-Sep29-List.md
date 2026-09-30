@@ -11,8 +11,19 @@ the same room.
 
 Opening verdict: "A major improvement. This is like 90% to where we need to be."
 
-Nothing below is built yet. Times are positions in the recording.
-"Seen" = confirmed on the shared screen. "Heard" = said on the call only.
+Times are positions in the recording. "Seen" = confirmed on the shared
+screen. "Heard" = said on the call only.
+
+**Status 09/30/2026:** every item below is BUILT (Nexus branch
+`feature/accounting-call-sep29`, accounting app `main`). B1-B3 are fixed in
+the accounting app's SQL and internal API (migration
+`20260930100000_entity_columns_picked.sql`); F13 needs
+`20260930110000_fin_loans_ledger.sql`. Deploy state is in the session notes
+and the memory file `project_call_charmi_sep29.md`. Not verified on screen
+against the live ledger yet: B2's drill-down after the fix, F2's email from a
+real mailbox (Graph application access to the sender's mailbox), and F14
+against Intacct's real USERRESTRICTION object (field names are read from
+Intacct's own catalog at run time and every refusal is shown on screen).
 
 ## Priority Called Out on the Call
 

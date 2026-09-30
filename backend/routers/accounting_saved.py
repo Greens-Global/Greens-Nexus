@@ -18,17 +18,20 @@ person with the Full level on Accounting (or an administrator) sets them.
 Everything here is Nexus's own database, read and written in sync endpoints so
 FastAPI runs them in the threadpool.
 """
+import asyncio
+import html as _html
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
-from auth import _LEVELS, _MODULE_LEVEL_RANK, get_current_user, require_module_grant
+from auth import _LEVELS, _MODULE_LEVEL_RANK, company_of, get_current_user, require_module_grant
 from database import get_db
 from routers.accounting import ACCOUNTING_SCOPE_MODULE, ACCOUNTING_SCOPE_TYPE
 
@@ -95,6 +98,111 @@ def mark_opened(user: dict = Depends(get_current_user), db: Session = Depends(ge
         db.add(models.AccountingUserPref(email=me, prefs={}, updated_at=_now(), last_opened_at=_now(), opens=1))
     db.commit()
     return {"ok": True}
+
+
+# ── Sending a statement on (Charmi, call of 09/29) ──────────────────────────
+# Export grew "send by email" and "share": the statement file is built on
+# the screen (PDF or Excel, exactly what was on it) and comes here as the
+# attachment. Email goes from the sender's OWN mailbox through Graph
+# (application permission), so the lender sees the controller's name and
+# replies land with her; if Graph refuses that mailbox, the Nexus mailbox
+# sends it with reply-to set to her instead of dropping the mail. Share is a
+# memorized report made visible to the team plus a bell notification to the
+# person, who opens it under Saved Reports.
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_ATTACH_MAX = 3_000_000   # Graph inline attachments cap the message at about 4 MB
+_FILE_TYPES = {"pdf": "application/pdf", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "csv": "text/csv"}
+
+
+@router.post("/reports/email")
+async def email_report(
+    to: str = Form(...), subject: str = Form(...), message: str = Form(""), file: UploadFile = File(...),
+    user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+):
+    from graph_mail import DEFAULT_FROM_EMAIL, GraphMailError, graph_configured, send_mail
+    recipients = [x.strip().lower() for x in re.split(r"[,;\s]+", to or "") if x.strip()]
+    if not recipients or any(not _EMAIL.match(x) for x in recipients) or len(recipients) > 20:
+        raise HTTPException(status_code=400, detail="Give one or more email addresses, separated by commas.")
+    subject = (subject or "").strip()[:200]
+    if not subject:
+        raise HTTPException(status_code=400, detail="Give the email a subject.")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="The statement file is empty.")
+    if len(raw) > _ATTACH_MAX:
+        raise HTTPException(status_code=413, detail="That statement is too large to email (3 MB at most). Send the PDF, or narrow the report.")
+    name = (file.filename or "statement.pdf").rsplit("/", 1)[-1][:120]
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext not in _FILE_TYPES:
+        raise HTTPException(status_code=400, detail="Only a PDF, Excel or CSV statement can be sent.")
+    if not graph_configured():
+        raise HTTPException(status_code=503, detail="Email is not set up on this server.")
+    me = user["email"].lower()
+    sender = me
+    text = (message or "").strip()[:4000]
+    body_html = "".join(f"<p style=\"margin:0 0 10px;font-family:Segoe UI,Arial,sans-serif;font-size:14px\">{_html.escape(line) or '&nbsp;'}</p>" for line in text.splitlines()) if text else ""
+    body_html += f"<p style=\"margin:12px 0 0;font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#6b7280\">Statement attached: {_html.escape(name)}. Sent from Greens Nexus.</p>"
+    attachments = [(name, _FILE_TYPES[ext], raw)]
+
+    def _send():
+        try:
+            return send_mail(from_email=me, to=recipients, cc=None, subject=subject, html=body_html, attachments=attachments), me
+        except GraphMailError as e:
+            # The sender's mailbox refused (no application access to it): the
+            # Nexus mailbox carries it, with replies going to the sender.
+            if DEFAULT_FROM_EMAIL and DEFAULT_FROM_EMAIL.lower() != me and ("403" in str(e) or "404" in str(e) or "ErrorAccessDenied" in str(e)):
+                return send_mail(from_email=DEFAULT_FROM_EMAIL, to=recipients, cc=[me], subject=subject, html=body_html, reply_to=me, attachments=attachments), DEFAULT_FROM_EMAIL
+            raise
+    try:
+        _, sender = await asyncio.to_thread(_send)
+    except GraphMailError as e:
+        raise HTTPException(status_code=424, detail=f"The email was not sent: {str(e)[:300]}")
+    db.add(models.AuditLog(timestamp=_now(), user_email=me, user_role=user.get("role", ""), action="accounting_report_emailed",
+                           resource_type="accounting_report", resource_id=name, details=json.dumps({"to": recipients, "from": sender, "subject": subject})))
+    db.commit()
+    return {"ok": True, "to": recipients, "from": sender}
+
+
+class ShareBody(BaseModel):
+    recipient: str
+    name: str
+    config: dict[str, Any]
+    message: Optional[str] = ""
+
+
+@router.post("/reports/share", status_code=201)
+def share_report(body: ShareBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Share the view on screen with a teammate: memorize it shared with the
+    team (under the name given, replacing the caller's own of that name) and
+    tell the person on their bell, with a click that opens Reports."""
+    me = user["email"].lower()
+    recipient = (body.recipient or "").strip().lower()
+    if not _EMAIL.match(recipient):
+        raise HTTPException(status_code=400, detail="Pick a person to share with.")
+    if recipient == me:
+        raise HTTPException(status_code=400, detail="That is you.")
+    name = _name(body.name)
+    config = _config(body.config)
+    row = (db.query(models.AccountingSavedReport)
+           .filter(models.AccountingSavedReport.owner_email == me, models.AccountingSavedReport.name == name).first())
+    now = _now()
+    if row:
+        row.config, row.shared, row.updated_at = config, True, now
+    else:
+        row = models.AccountingSavedReport(id=str(uuid.uuid4()), owner_email=me, name=name, config=config, shared=True, created_at=now, updated_at=now)
+        db.add(row)
+    note = (body.message or "").strip()[:600]
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type="accounting_report_shared", recipient=recipient,
+        title=f"A report was shared with you: {name}",
+        body=(note + " " if note else "") + "Open Accounting, Reports, then Saved Reports.",
+        ref_id=row.id, item_name=name, requested_by=me,
+        action=json.dumps({"view": "accounting", "sub": "reports"}), actioned=False, read_by="",
+        company=company_of(me, db), created_at=now, priority=0,
+    ))
+    db.commit()
+    db.refresh(row)
+    return {"report": _report_out(row, me), "recipient": recipient}
 
 
 # ── Memorized reports ────────────────────────────────────────────────────────
@@ -203,6 +311,7 @@ def _package_out(p: models.AccountingReportPackage, me: str, reports: dict) -> d
         # list as missing so the package owner sees the gap instead of a
         # package that silently lost a statement.
         items.append({"reportId": it.get("reportId"), "title": it.get("title") or (r.name if r else ""), "missing": r is None,
+                      "adjustments": it.get("adjustments") if isinstance(it.get("adjustments"), list) else [],
                       "config": (r.config if r and isinstance(r.config, dict) else None)})
     return {"id": p.id, "name": p.name, "description": p.description or "", "items": items, "shared": bool(p.shared),
             "owner": p.owner_email, "mine": p.owner_email == me, "createdAt": p.created_at, "updatedAt": p.updated_at}
@@ -211,6 +320,26 @@ def _package_out(p: models.AccountingReportPackage, me: str, reports: dict) -> d
 class PackageItem(BaseModel):
     reportId: str
     title: Optional[str] = ""
+    # Add-backs and comments on the statement's lines (Neil, call of 09/29: a
+    # $100,000 gate booked as Repairs and Maintenance, explained and taken
+    # back out before the package goes to the lender).
+    adjustments: Optional[list[dict[str, Any]]] = None
+
+
+def _adjustments(rows: Optional[list]) -> list[dict]:
+    out = []
+    for a in (rows or [])[:80]:
+        if not isinstance(a, dict) or not str(a.get("account") or "").strip():
+            continue
+        try:
+            amount = round(float(a.get("amount") or 0), 2)
+        except (TypeError, ValueError):
+            amount = 0.0
+        note = str(a.get("note") or "").strip()[:300]
+        if amount == 0 and not note:
+            continue
+        out.append({"account": str(a["account"]).strip()[:40], "amount": amount, "note": note})
+    return out
 
 
 class PackageBody(BaseModel):
@@ -227,7 +356,7 @@ def _items(body: PackageBody, reports: dict) -> list[dict]:
     for it in body.items:
         if it.reportId not in reports:
             raise HTTPException(status_code=400, detail="A package can only hold memorized reports you can open.")
-        out.append({"reportId": it.reportId, "title": (it.title or "").strip()[:120]})
+        out.append({"reportId": it.reportId, "title": (it.title or "").strip()[:120], "adjustments": _adjustments(it.adjustments)})
     return out
 
 
@@ -337,6 +466,88 @@ def list_entity_access(user: dict = Depends(_manage_access), db: Session = Depen
 
 class EntityAccessBody(BaseModel):
     entities: list[str] = []
+
+
+# ── Entity access as Intacct has it (Visesh, 09/30: "bring entity based access
+# from Intacct", the last item of the 09/29 call) ────────────────────────────
+# Intacct restricts a user to entities; the accounting app reads those
+# restrictions live (/api/internal/intacct/user-entities) and this matches
+# the Intacct users to Nexus people by email. Nothing changes until Apply is
+# pressed with the people ticked; then each one's Nexus limit becomes the
+# Intacct list (an unrestricted Intacct user = every entity here too). The
+# audit log records every change as usual.
+def _intacct_preview(db: Session, data: dict) -> list[dict]:
+    people = {e.lower(): p for e, p in ((r.work_email or "", r) for r in db.query(models.NexusEmployee).all()) if e}
+    holders = _holders(db)
+    limits = _limits(db)
+    out = []
+    for u in data.get("users") or []:
+        email = (u.get("email") or "").strip().lower()
+        person = people.get(email)
+        name = ""
+        if person:
+            name = (person.display_name or "").strip() or f"{person.first_name or ''} {person.last_name or ''}".strip()
+        current = limits.get(email, []) if email else []
+        wanted = sorted({str(c).strip() for c in (u.get("entities") or []) if str(c).strip()})
+        out.append({
+            "login": u.get("login") or u.get("id") or "", "intacctName": u.get("name") or "", "email": email, "status": u.get("status") or "",
+            "type": u.get("type") or "", "name": name, "matched": bool(person), "hasGrant": email in holders,
+            "entities": wanted, "departments": u.get("departments") or [], "current": current, "differs": bool(person) and wanted != current,
+        })
+    out.sort(key=lambda r: (not r["matched"], not r["differs"], r["name"] or r["intacctName"] or r["login"]))
+    return out
+
+
+@router.get("/access/intacct")
+async def entity_access_from_intacct(user: dict = Depends(_manage_access), db: Session = Depends(get_db)):
+    """What Intacct says each user may see, beside what Nexus has - a preview."""
+    from routers import accounting as _acct
+    data = await _acct._acct_get("/api/internal/intacct/user-entities", {})
+    rows = await asyncio.to_thread(_intacct_preview, db, data)
+    return {"people": rows, "notes": data.get("notes") or [], "readAt": data.get("generated_at") or ""}
+
+
+class IntacctApplyBody(BaseModel):
+    emails: list[str]
+
+
+@router.post("/access/intacct/apply")
+async def apply_entity_access_from_intacct(body: IntacctApplyBody, user: dict = Depends(_manage_access), db: Session = Depends(get_db)):
+    """Set the ticked people's Nexus limits to what Intacct has for them. Read
+    from Intacct again now, so what is applied is what Intacct says at this
+    moment, not what a screen showed earlier."""
+    from routers import accounting as _acct
+    wanted = {e.strip().lower() for e in body.emails if e and e.strip()}
+    if not wanted:
+        raise HTTPException(status_code=400, detail="Tick at least one person.")
+    data = await _acct._acct_get("/api/internal/intacct/user-entities", {})
+    rows = await asyncio.to_thread(_intacct_preview, db, data)
+    me = user["email"].lower()
+
+    def _apply() -> list[dict]:
+        done = []
+        now = _now()
+        for r in rows:
+            if r["email"] not in wanted or not r["matched"]:
+                continue
+            if r["email"] == me and user["level"] < _LEVELS["administrator"]:
+                continue
+            codes = r["entities"][:400]
+            before = r["current"]
+            (db.query(models.NexusAccessScope)
+             .filter(models.NexusAccessScope.email == r["email"], models.NexusAccessScope.module_id == ACCOUNTING_SCOPE_MODULE)
+             .delete(synchronize_session=False))
+            for code in codes:
+                db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=r["email"], module_id=ACCOUNTING_SCOPE_MODULE,
+                                               scope_type=ACCOUNTING_SCOPE_TYPE, scope_id=code, created_by=me, created_at=now))
+            db.add(models.AuditLog(timestamp=now, user_email=me, user_role=user.get("role", ""),
+                                   action="accounting_entity_access_set", resource_type="accounting_access", resource_id=r["email"],
+                                   details=json.dumps({"before": before, "after": codes, "source": "intacct", "login": r["login"]})))
+            done.append({"email": r["email"], "entities": codes})
+        db.commit()
+        return done
+    applied = await asyncio.to_thread(_apply)
+    return {"applied": applied}
 
 
 @router.put("/access/{email}")

@@ -734,6 +734,65 @@ async function generalLedger(api, config, book, drillCur) {
   return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Date / Account' };
 }
 
+// ── Adjustments on a statement (packages) ────────────────────────────────────
+// Add-backs and comments per line before a package goes out (Neil, call of
+// 09/29: a $100,000 gate booked as Repairs and Maintenance). `adjustments`:
+// [{ account, amount, note }], amount in the statement's own sign (a negative
+// amount on an expense takes it out). On a Total Only income statement or
+// balance sheet the columns become As Reported, Adjustment, Adjusted and
+// Note, with every section total and subtotal moved by what its accounts
+// moved. Any other layout gets the Note column only.
+export function withAdjustments(result, adjustments) {
+  const list = (adjustments || []).filter((a) => a && a.account && (Number(a.amount) || (a.note || '').trim()));
+  if (!list.length || !result) return result;
+  const byCode = new Map(list.map((a) => [a.account, { amount: round2(a.amount), note: (a.note || '').trim() }]));
+  const noteOf = (r) => (r.kind === 'account' ? byCode.get(r.code)?.note || '' : '');
+  const amountCols = result.columns.filter((c) => c.type === 'amount');
+  const canAmount = amountCols.length === 1 && result.mode === 'single' && ['pnl', 'balance-sheet'].includes(result.config.report) && list.some((a) => Number(a.amount));
+  if (!canAmount) {
+    return { ...result, adjusted: true, columns: [...result.columns, { key: 'note', label: 'Note', type: 'text' }], rows: result.rows.map((r) => ({ ...r, values: [...r.values, noteOf(r)] })) };
+  }
+  const at = result.columns.indexOf(amountCols[0]);
+  const delta = {};   // section key -> what its accounts moved
+  const rows = result.rows.map((r) => {
+    if (r.kind !== 'account') return r;
+    const d = byCode.get(r.code)?.amount || 0;
+    if (r.section) delta[r.section] = round2((delta[r.section] || 0) + d);
+    return { ...r, delta: d };
+  });
+  const d = (k) => delta[k] || 0;
+  const sectionOf = (label) => rows.find((r) => r.kind === 'section' && r.section === label);
+  const base = (label) => rows.find((r) => r.label === label)?.values[at] || 0;
+  const subtotal = {
+    'Gross Profit': d('revenue') - d('cogs'),
+    'Operating Income': d('revenue') - d('cogs') - d('expense'),
+    'Net Income': d('revenue') - d('cogs') - d('expense') + d('other_income') - d('other_expense'),
+    'Total Liabilities and Equity': d('liability') + d('equity'),
+    'Out of balance by': d('asset') - d('liability') - d('equity'),
+  };
+  const income = () => (sectionOf('revenue')?.values[at] || 0) + (sectionOf('other_income')?.values[at] || 0) + d('revenue') + d('other_income');
+  const out = rows.map((r) => {
+    const reported = r.values[at];
+    let move = 0;
+    if (r.kind === 'account') move = r.delta || 0;
+    else if (r.kind === 'section') move = d(r.section);
+    else if (r.kind === 'margin') {
+      const net = base('Net Income') + subtotal['Net Income'];
+      const inc = income();
+      const margin = Math.abs(inc) < 0.005 ? Number.NaN : net / inc;
+      return { ...r, values: [reported, Number.NaN, margin, ''] };
+    } else move = subtotal[r.label] || 0;
+    return { ...r, values: [reported, round2(move), round2((reported || 0) + move), noteOf(r)] };
+  });
+  const columns = [
+    { key: 'reported', label: 'As Reported', type: 'amount', drill: amountCols[0].drill },
+    { key: 'adjustment', label: 'Adjustment', type: 'variance' },
+    { key: 'adjusted', label: 'Adjusted', type: 'amount', emphasis: true },
+    { key: 'note', label: 'Note', type: 'text' },
+  ];
+  return { ...result, adjusted: true, columns, rows: out, summary: [] };
+}
+
 /** What one cell shows. `raw` keeps numbers as numbers (for a spreadsheet). */
 export function cellText(row, column, value, raw = false) {
   if (column.type === 'text') return value == null ? '' : String(value);

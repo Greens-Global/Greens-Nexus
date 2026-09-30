@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Maximize2, Minimize2, Search, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { FolderUp, Loader2, Mail, Maximize2, Minimize2, Search, Share2, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
 import SavedReportsManager from './SavedReportsManager';
+import SendReportDialog from './SendReportDialog';
 import { takePendingDrill } from './drill';
 import { useAccountingPrefs } from './prefs';
 import {
@@ -193,6 +194,9 @@ export default function ReportsTab({ search = null }) {
       .finally(() => setSavingChange(false));
   };
   const [managing, setManaging] = useState(false);
+  // Export -> Email / Save to Egnyte / Share (Charmi, 09/29 call).
+  const [sending, setSending] = useState(null);   // 'email' | 'egnyte' | 'share'
+  const [sent, setSent] = useState(null);         // { text, url? }
   const deleteSaved = (r) => api.deleteAccountingSavedReport(r.id).then(loadSaved).catch((e) => { setSavedState({ loading: false, error: e?.message || 'Could not delete the report.' }); throw e; });
   const shareSaved = (r, shared) => api.updateAccountingSavedReport(r.id, { shared }).then(loadSaved).catch((e) => { setSavedState({ loading: false, error: e?.message || 'Could not change sharing.' }); throw e; });
   const renameSaved = (r, name) => api.updateAccountingSavedReport(r.id, { name }).then(loadSaved);
@@ -302,6 +306,9 @@ export default function ReportsTab({ search = null }) {
             { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
             { key: 'pdf', label: 'PDF', hint: 'Laid out like a page of a package', onPick: () => shown && exportPdf(shown), busy: pdfBusy },
+            { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, statement attached', Icon: Mail, onPick: () => setSending('email') },
+            { key: 'egnyte', group: 'send', label: 'Save to Egnyte...', hint: 'Into a folder you name', Icon: FolderUp, onPick: () => setSending('egnyte') },
+            { key: 'share', group: 'send', label: 'Share With a Teammate...', hint: 'Memorized for the team, with a bell notice', Icon: Share2, onPick: () => setSending('share') },
           ]} />
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
             style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>
@@ -330,6 +337,17 @@ export default function ReportsTab({ search = null }) {
             </form>
           )}
         </div>
+      )}
+
+      {sent && (
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+          <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open in Egnyte</a></>}</span>
+          <button type="button" onClick={() => setSent(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
+        </div>
+      )}
+      {sending && shown && (
+        <SendReportDialog mode={sending} result={shown} entities={entities} title={activeSaved?.name || def.label} config={storable(config)}
+          onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
       )}
 
       {managing && (

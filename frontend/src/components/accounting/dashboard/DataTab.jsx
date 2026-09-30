@@ -8,11 +8,17 @@ import { useDash } from './DashContext';
 // covenants, intercompany balances, brokerage holdings, partner capital, cap
 // rates, the close checklist, the filing calendar and close history. One grid
 // per table; a row saves when you leave a field. Editors and up.
+//
+// Sep 30 (Neil, call of 09/29): Loans replaces the loans spreadsheet. A loan
+// is set up once with its number, kind (external, intercompany, given) and
+// GL account; with "Balance from" set to Ledger the principal is read from
+// Intacct as of the month shown and cannot be typed. Rate and maturity are
+// typed, and the rate is fixed or variable.
 
 const GRIDS = [
-  { id: 'loans', title: 'Loans', table: 'fin_loans', key: 'loans', desc: 'Mortgages and credit lines: balance, rate, maturity, monthly principal and interest, DSCR and the covenant minimum.',
-    cols: [['lender', 'Lender', 'text'], ['entity_code', 'Entity / property', 'entity'], ['balance', 'Balance', 'number'], ['rate_pct', 'Rate %', 'number', '0.01'], ['maturity', 'Maturity', 'date'], ['monthly_pi', 'Monthly P&I', 'number'], ['dscr', 'DSCR', 'number', '0.01'], ['covenant_min', 'Covenant min', 'number', '0.01'], ['is_active', 'Active', 'check']],
-    blank: () => ({ lender: '', entity_code: '', balance: 0, rate_pct: 0, maturity: null, monthly_pi: 0, dscr: null, covenant_min: null, is_active: true, notes: '' }) },
+  { id: 'loans', title: 'Loans', table: 'fin_loans', key: 'loans', desc: 'Every loan - external, intercompany, and loans given - set up once: loan number, lender, entity, and the GL account the principal sits on. With Balance from set to Ledger, the balance is read from Intacct as of the month shown; rate, fixed or variable, maturity, monthly principal and interest, DSCR and the covenant minimum are typed.',
+    cols: [['loan_no', 'Loan #', 'text'], ['kind', 'Kind', 'select', ['external', 'intercompany', 'given'], { external: 'External', intercompany: 'Intercompany', given: 'Loan given' }], ['lender', 'Lender', 'text'], ['entity_code', 'Entity / property', 'entity'], ['gl_account', 'GL account', 'text'], ['balance_source', 'Balance from', 'select', ['manual', 'ledger'], { manual: 'Kept by hand', ledger: 'Ledger' }], ['balance', 'Balance', 'balance'], ['rate_pct', 'Rate %', 'number', '0.01'], ['rate_type', 'Rate', 'select', ['fixed', 'variable'], { fixed: 'Fixed', variable: 'Variable' }], ['maturity', 'Maturity', 'date'], ['monthly_pi', 'Monthly P&I', 'number'], ['dscr', 'DSCR', 'number', '0.01'], ['covenant_min', 'Covenant min', 'number', '0.01'], ['is_active', 'Active', 'check']],
+    blank: () => ({ loan_no: '', kind: 'external', lender: '', entity_code: '', gl_account: '', balance_source: 'ledger', balance: 0, rate_pct: 0, rate_type: 'fixed', maturity: null, monthly_pi: 0, dscr: null, covenant_min: null, is_active: true, notes: '' }) },
   { id: 'intercompany', title: 'Intercompany', table: 'fin_intercompany', key: 'intercompany', desc: 'Due-from and due-to pairs. Matched when both sides agree; the dashboard flags any difference before consolidation.',
     cols: [['from_code', 'Due from (owed to)', 'entity'], ['to_code', 'Due to (owes)', 'entity'], ['description', 'Description', 'text'], ['due_from', "On the from-entity's books", 'number'], ['due_to', "On the to-entity's books", 'number']],
     blank: () => ({ from_code: '', to_code: '', description: '', due_from: 0, due_to: 0 }) },
@@ -90,8 +96,10 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
     if (JSON.stringify(next) === last.current) return;
     if (isNew && def.cols.some(([k, , t]) => t === 'text' && REQUIRED.includes(k) && !String(next[k] ?? '').trim())) return;
     const payload = { ...next };
+    delete payload.ledger_balance;
+    delete payload.ledger_asof;
     for (const [k, , t] of def.cols) {
-      if (t === 'number') payload[k] = payload[k] === '' || payload[k] == null ? null : Number(payload[k]);
+      if (t === 'number' || t === 'balance') payload[k] = payload[k] === '' || payload[k] == null ? null : Number(payload[k]);
       if (t === 'date' && !payload[k]) payload[k] = null;
       if (t === 'json' && typeof payload[k] === 'string') { try { payload[k] = JSON.parse(payload[k]); } catch { window.alert('Schedule must be JSON, e.g. [[4,15],[6,15]]'); return; } }
     }
@@ -104,12 +112,25 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
   const setAndSave = (k, v) => { const next = { ...draft, [k]: v }; setDraft(next); save(next); };
   const style = { ...input, width: '100%', boxSizing: 'border-box', opacity: saving ? 0.6 : 1 };
 
-  const field = ([k, label, t, extra]) => {
+  const field = ([k, label, t, extra, names]) => {
     const v = draft[k];
     switch (t) {
       case 'check': return <input type="checkbox" checked={!!v} onChange={(e) => setAndSave(k, e.target.checked)} aria-label={label} />;
       case 'entity': return <select value={v ?? ''} onChange={(e) => setAndSave(k, e.target.value)} aria-label={label} style={style}><option value="">- none -</option>{roots.map((e) => <option key={e.code} value={e.code}>{e.name || e.code} ({e.code})</option>)}</select>;
-      case 'select': return <select value={v ?? ''} onChange={(e) => setAndSave(k, e.target.value)} aria-label={label} style={style}>{extra.map((o) => <option key={o} value={o}>{o}</option>)}</select>;
+      case 'select': return <select value={v ?? ''} onChange={(e) => setAndSave(k, e.target.value)} aria-label={label} style={style}>{extra.map((o) => <option key={o} value={o}>{names?.[o] || o}</option>)}</select>;
+      case 'balance': {
+        // A ledger-sourced loan shows the figure the ledger gave as of the month shown; only a hand-kept one is typed.
+        if (draft.balance_source === 'ledger') {
+          const has = draft.ledger_balance != null;
+          const hint = has ? `From the ledger as of ${draft.ledger_asof || 'the month shown'}` : draft.gl_account ? 'No balance on that account in this entity yet' : 'Give the loan its GL account';
+          return (
+            <span aria-label={label} title={hint} style={{ display: 'block', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: has ? 'var(--text-primary)' : 'var(--text-muted)', fontSize: '0.8rem' }}>
+              {has ? Number(draft.ledger_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : draft.gl_account ? 'Not on the ledger' : 'Needs a GL account'}
+            </span>
+          );
+        }
+        return <input type="number" step="0.01" value={v == null ? '' : String(v)} onChange={(e) => set(k, e.target.value)} onBlur={() => save(draft)} aria-label={label} style={{ ...style, textAlign: 'right' }} />;
+      }
       case 'json': return <input value={typeof v === 'string' ? v : JSON.stringify(v ?? [])} onChange={(e) => set(k, e.target.value)} onBlur={() => save(draft)} placeholder="monthly: [1] · dates: [[4,15],[6,15]]" aria-label={label} style={{ ...style, fontFamily: 'monospace' }} />;
       case 'number': return <input type="number" step={extra ?? '0.01'} value={v == null ? '' : String(v)} onChange={(e) => set(k, e.target.value)} onBlur={() => save(draft)} aria-label={label} style={{ ...style, textAlign: 'right' }} />;
       case 'date': return <input type="date" value={v ? String(v).slice(0, 10) : ''} onChange={(e) => set(k, e.target.value || null)} onBlur={() => save(draft)} aria-label={label} style={style} />;

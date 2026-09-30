@@ -52,11 +52,13 @@ vi.mock('../../api', () => ({
     getAccountingSavedReports: vi.fn(async () => []),
     saveAccountingReport: vi.fn(async (body) => ({ id: 'r1', ...body, mine: true })),
     updateAccountingSavedReport: vi.fn(async (id, body) => ({ id, ...body })),
+    shareAccountingReport: vi.fn(async (body) => ({ report: { id: 'r7', name: body.name }, recipient: body.recipient })),
+    emailAccountingReport: vi.fn(async () => ({ ok: true, to: ['lender@bank.com'], from: 'me@greensglobal.com' })),
     deleteAccountingSavedReport: vi.fn(async () => ({})),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async (prefs) => ({ prefs })),
     getRolesDirectory: vi.fn(async () => []),
-    getPeopleDirectory: vi.fn(async () => []),
+    getPeopleDirectory: vi.fn(async () => [{ email: 'urmi.gor@greensglobal.com', name: 'Urmi Gor' }]),
   },
 }));
 vi.mock('./LedgerSearch', () => ({
@@ -315,6 +317,7 @@ describe('ReportsTab controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
     expect(within(screen.getByRole('menu', { name: 'Export' })).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'ExcelTotals in bold, columns fitted, live formulas', 'CSVPlain values, one row per line', 'PDFLaid out like a page of a package',
+      'Email...From your own mailbox, statement attached', 'Save to Egnyte...Into a folder you name', 'Share With a Teammate...Memorized for the team, with a bell notice',
     ]);
     fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'Fill the screen' }));
@@ -344,6 +347,22 @@ describe('ReportsTab controls', () => {
     fireEvent.change(within(dialog).getByLabelText('New name'), { target: { value: 'GG Cash Income' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save name' }));
     await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenCalledWith('r9', { name: 'GG Cash Income' }));
+  });
+
+  it('shares the view on screen with a teammate from the Export menu', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Share With a Teammate/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Share With a Teammate' });
+    const who = within(dialog).getByLabelText('Share With');
+    await waitFor(() => expect(who.options.length).toBe(2));
+    fireEvent.change(who, { target: { value: 'urmi.gor@greensglobal.com' } });
+    fireEvent.change(within(dialog).getByLabelText('Saved As'), { target: { value: 'September P&L' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Share' }));
+    await waitFor(() => expect(api.shareAccountingReport).toHaveBeenCalled());
+    expect(api.shareAccountingReport.mock.calls[0][0]).toMatchObject({ recipient: 'urmi.gor@greensglobal.com', name: 'September P&L', config: { report: 'pnl' } });
+    await screen.findByText(/Shared "September P&L"/);
   });
 
   it('shows the search is working from the first keystroke', async () => {

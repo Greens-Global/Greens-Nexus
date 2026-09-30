@@ -385,17 +385,19 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 
 
 def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
-               action: Optional[dict] = None) -> None:
+               action: Optional[dict] = None, priority: int = 0) -> None:
     """Server-side bell notification (items.py pattern). Empty recipient = noop -
     HR events must always target a person, never broadcast to all managers.
-    `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there."""
+    `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there.
+    `priority=1` puts it in the bar across the top of the recipient's screen
+    until they act (Neil, call of 09/29: timecards due, timesheet adjustments)."""
     if not (recipient or "").strip():
         return
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
         title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
         action=json.dumps(action) if action else "", actioned=False, read_by="",
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(), priority=1 if priority else 0,
     ))
 
 
