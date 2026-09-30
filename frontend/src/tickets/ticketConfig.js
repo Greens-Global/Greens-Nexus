@@ -15,7 +15,7 @@
 // field list are.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { SLA_TARGET_HOURS, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS } from './ticketMeta';
+import { SLA_TARGET_HOURS, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, HELP_TOPICS } from './ticketMeta';
 
 const EVENT = 'nexus:ticket-taxonomy-config';
 let _loaded = false;
@@ -59,6 +59,10 @@ function applyConfig(cfg) {
       if (typeof override.hint === 'string') TICKET_TYPE_META[key].hint = override.hint;
       if (Array.isArray(override.fields)) TYPE_FIELDS[key] = override.fields;
     }
+  }
+  if (Array.isArray(cfg?.helpTopics)) {
+    HELP_TOPICS.length = 0;
+    HELP_TOPICS.push(...cfg.helpTopics);
   }
   if (Array.isArray(cfg?.typeOrder)) {
     TICKET_TYPE_ORDER.length = 0;

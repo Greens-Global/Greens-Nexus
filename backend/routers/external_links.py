@@ -54,6 +54,7 @@ require_links_delete = require_level_or_module(_ROLE_LEVEL["administrator"], "ex
 SERVICE_AREA_KEYS = (
     "email", "collab", "tasks", "files", "knowledge", "storageops", "finance",
     "hr", "assets", "network", "security", "web", "hardware", "general",
+    "facilities",   # Buildings & Maintenance - the curated maintenance help topics (Sep 30)
 )
 
 

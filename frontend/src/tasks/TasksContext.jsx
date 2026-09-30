@@ -56,6 +56,7 @@ const CAMEL_TO_SNAKE = {
   companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles', serviceArea: 'service_area',
+  resolutionNote: 'resolution_note',
   // Project-template options (save-as-template / use / duplicate) - see
   // backend ProjectTemplateBody, UseTemplateBody and DuplicateProjectBody.
   includeTasks: 'include_tasks', includeSubtasks: 'include_subtasks',

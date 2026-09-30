@@ -542,15 +542,15 @@ export const DOCS = [
         steps: [
           'Open Tickets and click the Unassigned tile (or the Assigned to Me tab).',
           'Click a row to open the full thread, attachments and history.',
-          'Set yourself as the assignee and move the state to In Progress.',
+          'Set yourself as the assignee. The status moves to In Progress on its own.',
         ],
       },
       {
         title: 'Resolve a Ticket',
         steps: [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
-          'Click Mark Resolved and add the resolution.',
-          'The requester is notified and can confirm or reopen it.',
+          'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
+          'The requester is notified. They confirm it with a 1 to 5 star rating, or reopen it with a reason.',
         ],
       },
       {
@@ -566,7 +566,9 @@ export const DOCS = [
       { name: 'Tabs', desc: 'All, My Requests, Assigned to Me, and (only when something is waiting) To Route and To Approve.' },
       { name: 'Tiles', desc: 'Live counts for Open, Unassigned, SLA Breached, Resolved and Closed. Click one to filter the list.' },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
-      { name: 'Ticket Types', desc: 'Incident, Service Request, Access Request, Bug Report, Feature Request, Change and more. Each asks only its own questions.' },
+      { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
+      { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Other takes a short typed answer.' },
+      { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },
       { name: 'Export', desc: 'Export the currently filtered tickets to CSV.' },
@@ -1215,8 +1217,9 @@ export const DOCS = [
         title: 'Submit a Ticket',
         steps: [
           'Open Support and click Submit a Ticket.',
-          'Pick the type of request. Only that type\'s questions appear.',
-          'Fill them in, attach a screenshot if it helps, and submit. It is routed to the right person automatically.',
+          'Give it a title and a short description.',
+          'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words.',
+          'Pick the type (each one says what it means), answer its questions, attach a photo if it helps, and click Create Ticket.',
         ],
       },
       {
@@ -1230,8 +1233,9 @@ export const DOCS = [
       {
         title: 'Follow Up on Your Ticket',
         steps: [
-          'Find it in My Open Tickets (search by ticket number or title).',
-          'Click the row to open the full thread and reply.',
+          'Find it in My Open Tickets (search by ticket number or title). A blue dot means something changed since you last opened it.',
+          'Click the row to open the full thread and reply. While it is still Open, click the pencil to edit it.',
+          'When it is resolved, click Confirm and rate how it was handled, or Reopen and say why.',
         ],
       },
     ],
@@ -1240,7 +1244,8 @@ export const DOCS = [
       { name: 'Report a Bug', desc: 'For anything broken in Nexus itself.' },
       { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
       { name: 'Privacy Policy & Terms', desc: 'What Nexus collects, and the terms of use.' },
-      { name: 'My Open Tickets', desc: 'Everything you raised that is not closed yet. Sort, search and page through it.' },
+      { name: 'My Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated. Sort, search and page through it.' },
+      { name: 'My Closed Tickets', desc: 'Your finished tickets. Reopen one if the same problem comes back.' },
       { name: 'Documentation', desc: 'This guide.' },
     ],
     manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Support is the requester\'s side.'] },

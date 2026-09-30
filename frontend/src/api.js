@@ -518,6 +518,7 @@ export const api = {
   renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
   setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
+  moveTicketDepartment: (deptId, move) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ move }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
@@ -563,6 +564,8 @@ export const api = {
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
   getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
   addTicketComment: (id, data) => req(`/task-tickets/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
+  // The requester opened their ticket - clears its unread dot on Support.
+  markTicketSeen: (id) => req(`/task-tickets/${id}/seen`, { method: "POST" }),
   deleteTicketComment: (cid) => req(`/task-tickets/comments/${cid}`, { method: "DELETE" }),
   getTicketAttachments: (id) => req(`/task-tickets/${id}/attachments`),
   addTicketAttachment: (id, data) => req(`/task-tickets/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
