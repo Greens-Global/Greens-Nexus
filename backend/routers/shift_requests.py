@@ -438,7 +438,10 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
     recent = [r for r in db.query(models.ShiftRequest)
               .filter(models.ShiftRequest.status.in_(["approved", "declined"]), models.ShiftRequest.decided_by != "")
               .order_by(models.ShiftRequest.decided_at.desc()).limit(40).all() if _in_scope(r, scope)][:10]
+    # Faces for the inbox cards (Visesh, 09/30: "no pictures here").
+    photos = {(e.work_email or "").lower(): (e.photo_url or "") for e in db.query(models.NexusEmployee).all() if e.work_email and getattr(e, "photo_url", "")}
     return {"pending": [_to_dict(r, names) for r in waiting], "recent": [_to_dict(r, names) for r in recent],
+            "photos": photos,
             "settings": get_settings(db),
             # The settings are company-wide switches (save_settings).
             "canConfigure": scope is None}

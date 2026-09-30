@@ -7,6 +7,7 @@
 // note; the on/off switches live here too.
 import { useEffect, useState } from 'react';
 import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock } from 'lucide-react';
+import { Avatar } from './ShiftScheduleExtras';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
@@ -64,7 +65,9 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
     catch (e) { toastErr?.(e.message || 'Could not save the settings.'); setTick((t) => t + 1); }
   }
 
-  const row = { border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' };
+  const row = { border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'grid', gridTemplateColumns: '36px 1fr', columnGap: 10 };
+  const photos = data?.photos || {};
+  const face = (email, name) => <Avatar name={name || email} photoUrl={photos[(email || '').toLowerCase()] || ''} size={36} />;
   const shell = inline
     ? { outer: { fontFamily: 'Inter,sans-serif' }, card: { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, padding: 18 } }
     : { outer: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' },
@@ -92,6 +95,8 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
               const [label, Icon] = KIND[r.kind] || [r.kind, Hand];
               return (
                 <div key={r.id} style={row}>
+                  {face(r.requester?.email, r.requester?.name)}
+                  <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
                     <Icon size={12} /> {label} <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· asked {formatDateTime(r.createdAt + 'Z')}</span>
                   </div>
@@ -103,6 +108,7 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                       onChange={(e) => setNotes((n) => ({ ...n, [r.id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
                     <button type="button" className="primary-btn" disabled={busyId === r.id} onClick={() => decide(r, true)} style={{ fontSize: 12.5 }}>Approve</button>
                     <button type="button" className="secondary-btn" disabled={busyId === r.id} onClick={() => decide(r, false)} style={{ fontSize: 12.5 }}>Decline</button>
+                  </div>
                   </div>
                 </div>
               );
@@ -119,6 +125,8 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                 const hours = t.startTime && t.endTime ? `, ${hhmm12(t.startTime)} - ${hhmm12(t.endTime)}` : '';
                 return (
                   <div key={t.id} style={row}>
+                    {face(t.email, t.name)}
+                    <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
                       <CalendarOff size={12} /> {t.redacted ? 'Time off' : `Time off · ${t.type}`}
                       {t.confidential && (
@@ -137,9 +145,10 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                       </div>
                     )}
                     {t.canDecide === false ? (
-                      // Confidential and not yours to decide, or your own request.
+                      // Confidential and not yours to decide, or your own request:
+                      // the people who CAN decide it are named.
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-                        {t.reviewer ? `${t.reviewer} decides this request.` : 'Your manager decides this request.'}
+                        {t.own ? `Your own request - ${t.reviewer || 'your manager'} decides it; nobody approves their own time off.` : `${t.reviewer || 'Their manager'} decides this request.`}
                       </div>
                     ) : (
                     <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
@@ -149,6 +158,7 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                       <button type="button" className="secondary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, false)} style={{ fontSize: 12.5 }}>Decline</button>
                     </div>
                     )}
+                    </div>
                   </div>
                 );
               })}

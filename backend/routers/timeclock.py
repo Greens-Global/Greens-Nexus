@@ -7683,8 +7683,13 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
            "confidential": _is_confidential(r), "redacted": False}
     if priv is not None:
         out["canDecide"] = priv.can_decide(r)
-        if _is_confidential(r):
+        # Who decides it, whenever the viewer cannot: a confidential request,
+        # or the viewer's own (nobody approves their own time off - Visesh,
+        # 09/30: "no approval or decline for me"; the approvers are named).
+        if _is_confidential(r) or not out["canDecide"]:
             out["reviewer"] = priv.reviewer_names(r)
+        if priv.viewer and priv.viewer == (r.employee_email or "").strip().lower():
+            out["own"] = True
         if not priv.can_see(r):
             out.update(type=REDACTED_TYPE, note="", decideNote="", redacted=True)
     return out
