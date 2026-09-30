@@ -43,8 +43,11 @@ describe('Time Clock tile', () => {
     apiMock.timeStatus.mockResolvedValue({ lastPunch: { kind: 'in', at }, staleOpenShift: false, days: { [localKey(NOW)]: { workedMin: 120 } } });
     render(<TimeClockWidget />);
     expect(await screen.findByText('Clocked In')).toBeTruthy();
+    expect(screen.getByText(/in at 9:00 AM/)).toBeTruthy();       // the last punch, on the status line
     expect(screen.getAllByText('3h 30m')).toHaveLength(2); // today and last 7 days both 3h 30m in this fixture
     expect(screen.getByText(/Open Time Clock/)).toBeTruthy();
+    // The whole tile is the click target - no separate button.
+    expect(screen.queryByRole('button', { name: /Open Time Clock/ })?.className).toContain('dk-stat');
   });
 
   it('shows Clocked Out with a Punch In hand-off, and On Break pauses the live count', async () => {
@@ -60,10 +63,22 @@ describe('Time Clock tile', () => {
     expect(screen.getAllByText('1h 00m')).toHaveLength(2); // live session paused: today stays 1h 00m
   });
 
+  it('flags a shift the server closed as stale instead of calling it clocked in', async () => {
+    apiMock.timeStatus.mockResolvedValue({ lastPunch: { kind: 'in', at: '2026-09-20T15:00:00' }, staleOpenShift: true, days: {} });
+    render(<TimeClockWidget />);
+    expect(await screen.findByText('Shift Not Closed')).toBeTruthy();
+    expect(screen.getByText(/Open Time Clock/)).toBeTruthy();
+  });
+
   it('tells exempt roles they need not track time', async () => {
     apiMock.timeStatus.mockResolvedValue({ timeTrackingExempt: true, days: {} });
     render(<TimeClockWidget />);
     expect(await screen.findByText(/not required for your role/)).toBeTruthy();
+  });
+
+  it('is registered as a two-row stat tile', () => {
+    expect(WIDGETS['time-clock'].size).toEqual({ w: 3, h: 2 });
+    expect(WIDGETS['time-clock'].limits.maxH).toBe(2);
   });
 });
 
