@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderUp, Mail, Maximize2, Minimize2, Search, Share2, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { FolderUp, Loader2, Mail, Maximize2, Minimize2, Search, Share2, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { api } from '../../api';
-import { SkeletonBlocks, Spinner } from '../AsyncState';
+import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
@@ -263,7 +263,7 @@ export default function ReportsTab({ search = null }) {
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
           {waiting
-            ? <Spinner size={14} label="Searching" style={{ position: 'absolute', left: 9, top: 8 }} />
+            ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
           <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
             placeholder="Search vendor, customer, invoice, amount, memo..."

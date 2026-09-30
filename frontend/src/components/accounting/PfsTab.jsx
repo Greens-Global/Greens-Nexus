@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Database, FileDown, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Check, Database, FileDown, Loader2, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
-import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
+import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDate, formatDateTime } from '../../lib/datetime';
@@ -193,7 +193,7 @@ export default function PfsTab({ canEdit = false }) {
                   <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
                   <button type="button" className="primary-btn" onClick={produce} disabled={producing || working || !statement}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-                    {producing ? <Spinner size={14} /> : <FileDown size={14} />} Produce PDF
+                    {producing ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} Produce PDF
                   </button>
                 </div>
               </div>
