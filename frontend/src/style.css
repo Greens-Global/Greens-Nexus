@@ -2288,31 +2288,98 @@ html { overflow-x: hidden; }
   [style*="minmax(3"] { grid-template-columns: 1fr !important; }
 }
 
-/* ── Accounting -> Reports: dense statement table (Neil, Sep 25) ─────────────
-   Sized to its content like Intacct / the finance app, never cut: the wrapper
-   scrolls sideways, the Account column is sticky, rows take --acct-row-py
-   (density toggle), code + name sit on one line. */
+/* ── Accounting typography (Nexus Typography Brief, 09/29/2026) ─────────────
+   Two typefaces: Libre Caslon Text sets page, report and section titles;
+   Inter sets everything else and EVERY figure. Figures carry tabular digits
+   (tnum), the flat-top one (cv05) is on everywhere, and every amount
+   reserves an invisible closing-parenthesis slot so the cents of positives,
+   negatives, zero and the total sit in one column (Excel's Accounting format
+   does the same). Labels are Inter 11px uppercase, tracked. Numbers go
+   through <Amount /> (components/accounting/Amount.jsx), never per-view. */
+:root {
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Libre Caslon Text', Georgia, 'Times New Roman', serif;
+}
+body { font-feature-settings: "cv05"; }
+
+.num, td.amount, .kpi-value {
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "cv05";
+  text-align: right;
+  white-space: nowrap;
+}
+/* The reserved ) slot: a pseudo-element, so it is never copied into Excel. */
+.num::after { content: ")"; visibility: hidden; }
+.num.neg::after { content: none; }
+.kpi-value { font-size: 24px; line-height: 30px; font-weight: 600; }
+
+.acct-display {
+  font-family: var(--font-display); font-weight: 400; font-style: normal;
+  font-size: 34px; line-height: 40px; letter-spacing: -0.005em;
+}
+.acct-heading {
+  font-family: var(--font-display); font-weight: 400; font-style: normal;
+  font-size: 22px; line-height: 28px;
+}
+.acct-label {
+  font-family: var(--font-ui); font-weight: 500; font-size: 11px; line-height: 16px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  font-feature-settings: "case", "tnum", "cv05"; color: var(--text-secondary);
+}
+th.num.acct-label, .acct-label.num { text-align: right; }
+/* KPI cards: a colored left accent bar, the label above the figure. */
+.acct-kpi { padding: 10px 14px; border: 1px solid var(--border-color); border-left: 3px solid var(--wk-brand, #2b45e1); border-radius: 8px; background: var(--bg-card); min-width: 150px; }
+.acct-kpi .acct-label { display: block; margin-bottom: 2px; }
+.acct-kpi .kpi-value { display: block; }
+.acct-kpi.is-good { border-left-color: var(--ok-fg, #15803d); }
+.acct-kpi.is-muted { border-left-color: var(--border-color); }
+.acct-kpi.is-muted .kpi-value { color: var(--text-secondary); }
+
+/* Density (the brief): Comfortable = 14px text, 36px rows (default);
+   Compact = 13px text, 28px rows. Saved per person, every accounting table
+   follows it (--acct-font / --acct-row-py are set on the table). */
+
+/* ── Accounting -> Reports: the statement table (Neil, Sep 25; the brief, Sep 29)
+   Sized to its content like Intacct, never cut: the wrapper scrolls sideways,
+   the Account column and the header row are sticky, the final total sticks
+   to the bottom, rows take --acct-row-py (density), code + name sit on one
+   line. Statement conventions: a single rule above every subtotal and a
+   double rule under the final result, spanning the number columns only;
+   child accounts indented 24px; only group headers and totals bold. */
 .acct-report-wrap { overflow: auto; max-height: 78vh; border: 1px solid var(--border-color); border-radius: 10px; }
-.acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; --acct-row-py: 5px; }
+.acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 100%; font-family: var(--font-ui); font-size: var(--acct-font, 14px); line-height: 20px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; --acct-row-py: 8px; }
 .acct-report th {
   position: sticky; top: 0; z-index: 3; background: var(--bg-secondary);
-  text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
-  color: var(--text-muted); padding: 7px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap;
+  text-align: left; font-family: var(--font-ui); font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
+  font-feature-settings: "case", "tnum", "cv05";
+  color: var(--text-secondary); padding: 7px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap;
 }
 .acct-report th.acct-head { position: sticky; left: 0; z-index: 4; min-width: 220px; }
-.acct-report td { padding: var(--acct-row-py) 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; vertical-align: middle; line-height: 1.35; }
+.acct-report th.acct-num { text-align: right; }
+.acct-report th.acct-num::after { content: ")"; visibility: hidden; }
+.acct-report td { padding: var(--acct-row-py) 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; vertical-align: middle; line-height: 20px; }
 .acct-report tr:last-child td { border-bottom: none; }
 .acct-report td.acct-label { position: sticky; left: 0; z-index: 1; background: var(--bg-card); overflow: hidden; text-overflow: ellipsis; }
-.acct-report td.acct-indent { padding-left: 30px; }
+.acct-report td.acct-indent { padding-left: 34px; }
 .acct-report .acct-num { text-align: right; }
 .acct-report tbody tr:hover td { background: var(--bg-secondary); }
 .acct-report .acct-code { color: var(--text-muted); margin-right: 8px; }
-.acct-report .acct-section td { background: var(--bg-secondary); font-weight: 700; cursor: pointer; }
-.acct-report .acct-section td.acct-label { padding-left: 6px; }
+/* A section heading reads in Libre Caslon (the brief's Heading role, at its 20px floor inside a table). */
+.acct-report .acct-section td { background: var(--bg-card); font-weight: 600; cursor: pointer; }
+.acct-report .acct-section td.acct-label { padding-left: 6px; font-family: var(--font-display); font-weight: 400; font-size: 20px; line-height: 28px; letter-spacing: 0; }
 .acct-report .acct-fold { border: none; background: none; padding: 0 4px 0 0; margin: 0; cursor: pointer; color: var(--text-muted); display: inline-flex; vertical-align: middle; }
-.acct-report .acct-count { margin-left: 8px; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
-.acct-report .acct-subtotal td { font-weight: 700; border-top: 2px solid var(--border-color); }
-.acct-report .acct-grand td { font-weight: 800; border-top: 3px double var(--border-color); background: var(--wk-brand-tint, #e8ecfd); }
+.acct-report .acct-count { margin-left: 8px; font-family: var(--font-ui); font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
+.acct-report .acct-subtotal td { font-weight: 600; }
+.acct-report .acct-subtotal td.acct-num { border-top: 1px solid var(--text-secondary); }
+.acct-report .acct-grand td { font-weight: 600; background: var(--bg-card); position: sticky; bottom: 0; z-index: 2; }
+.acct-report .acct-grand td.acct-num { border-top: 1px solid var(--text-secondary); border-bottom: 3px double var(--text-secondary); }
+.acct-report .acct-grand td.acct-label { z-index: 3; }
+/* A Total column beside many months or entities stays in view while the rest scrolls. */
+.acct-report th.acct-pin, .acct-report td.acct-pin { position: sticky; right: 0; z-index: 2; background: var(--bg-card); box-shadow: -1px 0 0 var(--border-color); }
+.acct-report th.acct-pin { z-index: 4; background: var(--bg-secondary); }
+.acct-report .acct-grand td.acct-pin { z-index: 3; }
+.acct-report tr.acct-focus td { background: var(--wk-brand-tint, #e8ecfd); }
 .acct-report .acct-drill { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px; }
 .acct-report .acct-drill:hover { text-decoration-color: var(--wk-brand, #2b45e1); color: var(--wk-brand, #2b45e1); }
 .acct-report .acct-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
@@ -2324,10 +2391,10 @@ html { overflow-x: hidden; }
    under every heading, ONE typeface, banded rows, and a hover that fills the
    whole row so a line can be followed across a 48-inch monitor. */
 .acct-lines-wrap { overflow: auto; max-height: 72vh; border: 1px solid var(--border-color); border-radius: 10px; }
-.acct-lines { table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 12.5px; font-family: inherit; font-variant-numeric: tabular-nums; --acct-row-py: 5px; }
+.acct-lines { table-layout: fixed; border-collapse: separate; border-spacing: 0; font-family: var(--font-ui); font-size: var(--acct-font, 14px); font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; --acct-row-py: 8px; }
 .acct-lines th {
   position: sticky; top: 0; z-index: 3; background: var(--bg-secondary); color: var(--text-secondary);
-  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; text-align: left;
+  font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; text-align: left; font-feature-settings: "case", "tnum", "cv05";
   padding: 6px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .acct-lines thead tr:first-child th { overflow: visible; }
@@ -2343,8 +2410,10 @@ html { overflow-x: hidden; }
 .acct-lines tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-lines tbody tr:hover td { background: var(--wk-brand-tint, #e8ecfd); }
 .acct-lines .acct-num { text-align: right; }
+.acct-lines th.acct-num::after { content: ")"; visibility: hidden; }
 .acct-lines .acct-code { color: var(--text-muted); margin-right: 8px; }
-.acct-lines .acct-grand td { font-weight: 800; border-top: 3px double var(--border-color); border-bottom: none; background: var(--bg-secondary); position: sticky; bottom: 0; }
+.acct-lines .acct-grand td { font-weight: 600; border-top: 1px solid var(--text-secondary); border-bottom: none; background: var(--bg-secondary); position: sticky; bottom: 0; }
+.acct-lines .acct-grand td.acct-num { border-bottom: 3px double var(--text-secondary); }
 .acct-lines .acct-drill { border: none; background: none; padding: 0; margin: 0; font: inherit; color: var(--wk-brand, #2b45e1); cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px; }
 .acct-lines .acct-drill:hover { text-decoration-color: var(--wk-brand, #2b45e1); }
 .acct-lines .acct-resize { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }

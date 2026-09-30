@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Pencil, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { api } from '../../api';
+import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
@@ -110,9 +111,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <option value="all">All, Including Ended</option>
           </select>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>
-            <span>Expected <strong>{money(sum.expectedToDate)}</strong></span>
-            <span>Received <strong>{money(sum.receivedToDate)}</strong></span>
-            <span>Owed <strong style={{ color: sum.owed ? 'var(--bad-fg, #dc2626)' : undefined }}>{money(sum.owed)}</strong></span>
+            <span>Expected <strong><Amount value={sum.expectedToDate} /></strong></span>
+            <span>Received <strong><Amount value={sum.receivedToDate} /></strong></span>
+            <span>Owed <strong><Amount value={sum.owed} /></strong></span>
             {canEdit && (
               <button type="button" className="primary-btn" onClick={() => setEditing({ lease: blank() })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
                 <Plus size={14} /> New Lease
@@ -231,7 +232,7 @@ function Outstanding({ rows, year }) {
                   <td style={{ fontWeight: 600 }}>{l.propertyName}</td>
                   <td>{l.tenantName}</td>
                   <td style={{ whiteSpace: 'normal' }}>{r.monthsBehind} - {months.join(', ')}</td>
-                  <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}>{money(r.owed)}</td>
+                  <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}><Amount value={r.owed} /></td>
                   <td className="acct-num">{r.lateFees ? money(r.lateFees) : '-'}</td>
                   <td style={{ whiteSpace: 'normal' }}>{[l.contactName, l.phone].filter(Boolean).join(' · ') || '-'}</td>
                   <td style={{ textAlign: 'right' }}>
@@ -242,7 +243,7 @@ function Outstanding({ rows, year }) {
                 </tr>
               );
             })}
-            <tr className="acct-grand"><td colSpan={3}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td><td className="acct-num">{money(sorted.reduce((s, r) => s + r.owed, 0))}</td><td className="acct-num">{money(sorted.reduce((s, r) => s + r.lateFees, 0))}</td><td colSpan={2} /></tr>
+            <tr className="acct-grand"><td colSpan={3}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.owed, 0)} /></td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.lateFees, 0)} /></td><td colSpan={2} /></tr>
           </tbody>
         </table>
       </div>

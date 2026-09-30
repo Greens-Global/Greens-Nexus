@@ -134,7 +134,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: slim ? 6 : 16, alignItems: slim ? 'center' : undefined }}>
         <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } : undefined}>
-          <h2 style={slim ? { fontSize: '1.15rem', margin: 0 } : undefined}>Accounting</h2>
+          <h2 className="acct-display" style={{ margin: 0 }}>Accounting</h2>
           <p style={slim ? { margin: 0, fontSize: '0.8rem' } : undefined}>{subtitle}</p>
         </div>
         {access && sub !== 'reports' && (
