@@ -14,7 +14,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { setPendingOpen } from '../lib/pendingOpen';
-import { TICKET_STATUS_META, CLOSED_STATES, slaState } from '../tickets/ticketMeta';
+import { TICKET_STATUS_META, CLOSED_STATES, slaState, ticketNoShort } from '../tickets/ticketMeta';
 import { DashCard, navigate } from './widgets.jsx';
 import { Row, noteStyle } from './workdayWidgets.jsx';
 
@@ -37,7 +37,7 @@ export function ticketQueueRows(tickets = [], myEmail = '', onDesk = false) {
   const decorate = (t) => {
     const sla = slaState(t);
     return {
-      id: t.id, title: `${t.code ? `${t.code} · ` : ''}${t.subject || 'Untitled ticket'}`,
+      id: t.id, title: `${ticketNoShort(t.code) ? `${ticketNoShort(t.code)} · ` : ''}${t.subject || 'Untitled ticket'}`,
       meta: `${PRIORITY_LABEL[t.priority] || t.priority || 'Medium'} · ${TICKET_STATUS_META[t.status]?.label || t.status || 'Open'}`,
       status: sla === 'breached' ? 'overdue' : sla === 'at_risk' ? 'pending' : 'info',
       statusLabel: sla === 'breached' ? 'SLA breached' : sla === 'at_risk' ? 'At risk' : (PRIORITY_LABEL[t.priority] || ''),
