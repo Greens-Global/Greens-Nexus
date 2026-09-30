@@ -224,6 +224,14 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   // A person's usual hours on a day (their default preset, on its weekdays).
   // Not a shift: nothing is on the schedule until one is placed, so it is
   // shown faintly and never counted - the same as on their own My Shifts.
+  // Put one person on a preset (their "usual hours"), or take them off one.
+  const setUsual = async (email, shiftId) => {
+    try {
+      await api.timeShiftAssign({ shift_id: shiftId || '', emails: [email] });
+      toastOk?.(shiftId ? `${names[email] || email} is on ${(data?.shifts || []).find((p) => p.id === shiftId)?.name || 'that preset'} as their usual hours.` : `${names[email] || email} has no usual hours now.`);
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not change the usual hours.'); }
+  };
   // A person's availability on a day: weekdays are 0 = Monday, as the rows store them.
   const availOn = (email, d) => (data?.availability?.[email] || []).find((a) => a.weekday === (d.getDay() + 6) % 7) || null;
   const usualOn = (email, d) => {
@@ -843,7 +851,18 @@ const GRID = { display: 'grid', gridTemplateColumns: '190px repeat(7, minmax(120
                           {emp.name || emp.email}
                           {emp.email === me && <span style={{ fontSize: 9.5, fontWeight: 800, color: '#fff', background: 'var(--wk-brand)', borderRadius: 999, padding: '1px 6px', marginLeft: 6, letterSpacing: '.03em', verticalAlign: 'middle' }}>YOU</span>}
                         </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{fmtHrs(empWeekMin(emp.email))}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {fmtHrs(empWeekMin(emp.email))}
+                          {/* One person's usual hours (Visesh, 09/30: "how do I change an individual's timings"): a preset per person, not only per group. */}
+                          {canManage && (
+                            <select value={data?.usual?.[emp.email] || ''} aria-label={`Usual hours for ${emp.name || emp.email}`} title="Usual hours - the preset this person is on. Shown faintly on empty days; never counted until a shift is placed."
+                              onClick={(e) => e.stopPropagation()} onChange={(e) => setUsual(emp.email, e.target.value)}
+                              style={{ fontSize: 10, height: 18, padding: '0 2px', border: '1px solid var(--line)', borderRadius: 5, background: 'var(--card)', color: 'var(--muted)', maxWidth: 120 }}>
+                              <option value="">No usual hours</option>
+                              {(data?.shifts || []).map((p) => <option key={p.id} value={p.id}>{p.name} {t12(p.start)}-{t12(p.end)}</option>)}
+                            </select>
+                          )}
+                        </div>
                         {data.availability?.[emp.email]?.length > 0 && (
                           <div title={`Availability: ${availText(data.availability[emp.email])}`}
                             style={{ fontSize: 10, color: '#b45309', fontWeight: 600 }}>Limited availability</div>

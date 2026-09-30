@@ -7,6 +7,7 @@ import { render, screen, fireEvent, waitFor, createEvent, within } from '@testin
 // out of the hour totals, and can discard either.
 
 const timeSchedule = vi.fn();
+const timeShiftAssign = vi.fn(async () => ({ ok: true, assigned: 1 }));
 const timeSchedDelete = vi.fn();
 const timeSchedDiscard = vi.fn();
 const timeSchedPublish = vi.fn();
@@ -36,6 +37,7 @@ vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) 
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
+    timeShiftAssign: (...a) => timeShiftAssign(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
     timeSchedPublish: (...a) => timeSchedPublish(...a), timeSchedCreate: (...a) => timeSchedCreate(...a), timeSchedUpdate: (...a) => timeSchedUpdate(...a),
@@ -573,6 +575,20 @@ describe('Audit fixes (Sep 29): usual hours, company-wide settings, confidential
     expect(document.querySelector(`[data-cell="amy@greensglobal.com|${plusDays(monday, 5)}"]`).textContent).not.toContain('Usual');   // Saturday
     expect(document.querySelector(`[data-cell="bob@greensglobal.com|${plusDays(monday, 1)}"]`).textContent).not.toContain('Usual');
     expect(screen.getByText('Week: 8 Hrs')).toBeTruthy();   // the one placed shift
+  });
+
+  it('puts one person on a preset from their row - usual hours per person, not only per group', async () => {
+    const d = data([shift()]);
+    timeSchedule.mockResolvedValue({ ...d, usual: { 'amy@greensglobal.com': 'p1' } });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('GST');
+    const pick = screen.getByLabelText('Usual hours for Bob Brown');
+    expect(pick.value).toBe('');
+    fireEvent.change(pick, { target: { value: 'p1' } });
+    await waitFor(() => expect(timeShiftAssign).toHaveBeenCalledWith({ shift_id: 'p1', emails: ['bob@greensglobal.com'] }));
+    // Taking someone off their preset sends an empty id.
+    fireEvent.change(screen.getByLabelText('Usual hours for Amy Adams'), { target: { value: '' } });
+    await waitFor(() => expect(timeShiftAssign).toHaveBeenCalledWith({ shift_id: '', emails: ['amy@greensglobal.com'] }));
   });
 
   it('offers the settings only to someone who can save them', async () => {
