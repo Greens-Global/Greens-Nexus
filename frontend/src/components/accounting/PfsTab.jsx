@@ -53,7 +53,8 @@ const money = (n) => {
 };
 const pct = (n) => `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+// The brief's Label role, for form and block labels.
+const label = { fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: '16px', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
 
@@ -148,7 +149,7 @@ export default function PfsTab({ canEdit = false }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 270px) 1fr', gap: 12, alignItems: 'start' }}>
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
-            <strong style={{ fontSize: '0.86rem' }}>Guarantors</strong>
+            <h3 className="acct-card-title">Guarantors</h3>
             {canEdit && (
               <button type="button" className="secondary-btn" onClick={() => setCreating(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
                 <Plus size={13} /> New Guarantor
@@ -179,7 +180,7 @@ export default function PfsTab({ canEdit = false }) {
             <>
               <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <div style={{ minWidth: 0, marginRight: 6 }}>
-                  <div style={{ fontSize: '0.98rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.displayName || profile.name}</div>
+                  <h3 className="acct-heading is-sm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.displayName || profile.name}</h3>
                 </div>
                 <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
                   {SECTIONS.map((s) => (
@@ -243,7 +244,7 @@ export default function PfsTab({ canEdit = false }) {
 function Summary({ statement, past, nameOf, onReprint }) {
   const block = (title, rows, total, totalLabel) => (
     <div style={{ ...card, padding: 12 }}>
-      <div style={label}>{title}</div>
+      <h3 className="acct-heading is-sm" style={{ marginBottom: 6 }}>{title}</h3>
       <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
         <tbody>
           {rows.map((r) => <tr key={r.label}><td>{r.label}</td><td className="acct-num"><Amount value={r.amount} /></td></tr>)}
@@ -255,12 +256,11 @@ function Summary({ statement, past, nameOf, onReprint }) {
   );
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-        {[['Total Assets', statement.totals.assets], ['Total Liabilities', statement.totals.liabilities], ['Net Worth', statement.totals.netWorth]].map(([k, v], i) => (
-          <div key={k} style={{ ...card, padding: '12px 14px', borderColor: i === 2 ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' }}>
-            <div style={label}>{k}</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: i === 2 && v < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{money(v)}</div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>As of {formatDate(statement.asOf)}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {[['Total Assets', statement.totals.assets, 'is-good'], ['Total Liabilities', statement.totals.liabilities, 'is-muted'], ['Net Worth', statement.totals.netWorth, '']].map(([k, v, tone]) => (
+          <div key={k} className={`acct-kpi ${tone}`} style={{ minWidth: 220 }} title={`As of ${formatDate(statement.asOf)}`}>
+            <span className="acct-caps">{k}</span>
+            <Amount value={v} className="kpi-value" />
           </div>
         ))}
       </div>
@@ -269,7 +269,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
         {block('Liabilities', statement.summary.liabilities, statement.totals.liabilities, 'Total Liabilities')}
       </div>
       <div style={{ ...card, padding: 12 }}>
-        <div style={label}>Statements Produced</div>
+        <h3 className="acct-heading is-sm" style={{ marginBottom: 6 }}>Statements Produced</h3>
         {!past.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>None yet. Produce PDF keeps the statement exactly as it was sent.</div>}
         {past.length > 0 && (
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
@@ -467,7 +467,7 @@ function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, on
         return (
           <div key={c.key} style={{ ...card, padding: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: rows.length ? 6 : 0 }}>
-              <strong style={{ fontSize: '0.86rem' }}>{c.label}</strong>
+              <h3 className="acct-heading is-sm">{c.label}</h3>
               {canEdit && <button type="button" className="secondary-btn" onClick={() => onAdd(c.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px' }}><Plus size={12} /> Add</button>}
             </div>
             {rows.length > 0 && (

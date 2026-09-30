@@ -63,7 +63,7 @@ export function Panel({ title, sub, right, children, style, bodyStyle, flash, on
     <div style={{ ...card, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', outline: flash ? `2px solid ${BRAND}` : 'none', ...style }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ margin: 0, fontSize: '0.86rem', fontWeight: 700, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h3>
+          <h3 className="acct-card-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h3>
           {sub ? <div style={{ marginTop: 2, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{sub}</div> : null}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -141,7 +141,7 @@ export function SectionTabs({ tabs, value, onChange, style }) {
 export function GroupRow({ title, cols }) {
   return (
     <tr style={{ background: 'var(--bg-secondary)' }}>
-      <td colSpan={cols} style={{ padding: '6px 10px', fontSize: '0.66rem', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{title}</td>
+      <td colSpan={cols} className="acct-caps" style={{ padding: '6px 10px', display: 'table-cell' }}>{title}</td>
     </tr>
   );
 }
