@@ -590,7 +590,6 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const viewLabel = VIEWS.find(([k]) => k === view)?.[1] || 'Week';
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
 
-  const DAY_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const DAY_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const GRID = { display: 'grid', gridTemplateColumns: '190px repeat(7, minmax(120px, 1fr))' };
 
