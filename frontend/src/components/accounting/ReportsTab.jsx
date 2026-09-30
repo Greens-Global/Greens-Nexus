@@ -527,7 +527,7 @@ function StatementRow({ row, columns, open, colW, scale, pinTotal, focused, onTo
   if (row.kind === 'section') {
     return (
       <tr className={`acct-section${focused ? ' acct-focus' : ''}`} onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
-        <td className="acct-caps">
+        <td className="acct-label">
           <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${row.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
             <Chevron size={13} />
           </button>
@@ -558,7 +558,7 @@ function StatementRow({ row, columns, open, colW, scale, pinTotal, focused, onTo
   }
   return (
     <tr className={row.kind === 'grand' ? 'acct-grand' : row.kind === 'subtotal' || row.kind === 'margin' ? 'acct-subtotal' : undefined} style={row.kind === 'warn' ? { color: 'var(--bad-fg, #dc2626)' } : undefined}>
-      <td className="acct-caps">{row.label}</td>
+      <td className="acct-label">{row.label}</td>
       {cells}
     </tr>
   );
