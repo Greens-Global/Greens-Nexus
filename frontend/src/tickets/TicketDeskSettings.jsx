@@ -25,7 +25,8 @@
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, ChevronUp, Pencil, X } from 'lucide-react';
+import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
+import DragList from './DragList';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
@@ -69,7 +70,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // their specific department. Lives here (not People -> Companies) so setting
 // it doesn't require an HR module grant - same reasoning as /ticket-companies
 // and /ticket-departments existing as their own read endpoints.
-function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete, onMove, defaultOpen = false }) {
+function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete, onReorder, defaultOpen = false }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   // Collapsed by default - a company with a lot of departments (a real one
@@ -127,19 +128,14 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
       )}
       {(hasDepts && !open) ? null : (
         <>
-          {depts.map((d, i) => (
-            <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              {/* The order the Submit a Ticket dropdown lists them in (Neil,
-                  Sep 30: IT first, then Construction, Admin, Operations). */}
-              <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-                {[['up', ChevronUp, i === 0], ['down', ChevronDown, i === depts.length - 1]].map(([dir, Icon, off]) => (
-                  <button key={dir} disabled={off} onClick={() => onMove(d.id, dir).catch((e) => alert(e.message || 'Could not move department.'))}
-                    title={`Move ${d.name} ${dir}`} aria-label={`Move ${d.name} ${dir}`}
-                    style={{ border: 'none', background: 'none', cursor: off ? 'default' : 'pointer', color: NX.dim, opacity: off ? 0.25 : 1, display: 'grid', placeItems: 'center', width: 16, height: 12, padding: 0 }}>
-                    <Icon size={12} />
-                  </button>
-                ))}
-              </div>
+          {/* Drag the grip to set the order the Submit a Ticket dropdown lists
+              them in (Neil, Sep 30: IT first, then Construction, Admin,
+              Operations). Saved the moment it is dropped. */}
+          <DragList items={depts} getKey={(d) => d.id} label="department" gap={6}
+            onReorder={(next) => onReorder(companyId, next).catch((e) => alert(e.message || 'Could not reorder departments.'))}
+            renderItem={(d, handle) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {handle}
               {editId === d.id ? (
                 <input autoFocus value={editName} maxLength={40}
                   onChange={(e) => setEditName(e.target.value)}
@@ -165,7 +161,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
                 <X size={13} />
               </button>
             </div>
-          ))}
+          )} />
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40}
               onKeyDown={(e) => e.key === 'Enter' && add()}
@@ -287,9 +283,10 @@ export default function TicketDeskSettings() {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.renameTicketDepartment(deptId, name).then((rows) => mergeDepts(companyId, rows));
   };
-  const moveDept = (deptId, dir) => {
-    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
-    return api.moveTicketDepartment(deptId, dir).then((rows) => mergeDepts(companyId, rows));
+  // Shown in the new order at once; the server's list (same order) replaces it.
+  const reorderDepts = (companyId, next) => {
+    mergeDepts(companyId, next);
+    return api.reorderTicketDepartments(companyId, next.map((d) => d.id)).then((rows) => mergeDepts(companyId, rows));
   };
   const deleteDept = (deptId) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
@@ -363,7 +360,7 @@ export default function TicketDeskSettings() {
     >
       <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
         depts={depts.filter((d) => d.companyId === company.id)}
-        onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} onMove={moveDept} />
+        onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} onReorder={reorderDepts} />
     </DeskRoster>
   ) : (
     <DeskRoster

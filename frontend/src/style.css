@@ -1272,9 +1272,10 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 /* Hover (Neil, Sep 30): a subtle tint of the brand color on whichever tile
    the pointer is on, the icon picking up the same color, and a corner arrow
    that says "this whole tile opens" - the old "Open" label read as the only
-   clickable part. Deliberately faint: it follows the pointer, not shouts. */
-.support-card:hover { background: color-mix(in srgb, var(--wk-brand) 5%, var(--card)); }
-.support-card:hover .support-icon { background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); color: var(--wk-brand); }
+   clickable part. A clear green wash plus a brand outline (Pranshu, Sep 30:
+   the first 5% tint read as barely there). */
+.support-card:hover { background: color-mix(in srgb, var(--wk-brand) 14%, var(--card)); outline: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); outline-offset: -1px; }
+.support-card:hover .support-icon { background: color-mix(in srgb, var(--wk-brand) 24%, var(--card)); color: var(--wk-brand); }
 .support-card-arrow {
   position: absolute; top: 16px; right: 16px;
   color: var(--muted); opacity: 0.45;
