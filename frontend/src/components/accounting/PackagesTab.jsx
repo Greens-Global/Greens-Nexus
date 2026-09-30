@@ -125,7 +125,7 @@ export default function PackagesTab() {
   };
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-  const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+  const label = { fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: '16px', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
   const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
   const describe = (r) => {
     const c = resolveConfig(r.config);
@@ -137,7 +137,7 @@ export default function PackagesTab() {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 300px) 1fr', gap: 12, alignItems: 'start' }} className="acct-packages">
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <strong style={{ fontSize: '0.86rem' }}>Packages</strong>
+            <h3 className="acct-card-title">Packages</h3>
             <button type="button" className="secondary-btn" onClick={() => { setDraft(blank()); setNote(''); setError(''); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
               <Plus size={13} /> New Package
             </button>

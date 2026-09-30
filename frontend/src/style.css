@@ -2340,6 +2340,36 @@ th.num.acct-caps, .acct-caps.num { text-align: right; }
    Compact = 13px text, 28px rows. Saved per person, every accounting table
    follows it (--acct-font / --acct-row-py are set on the table). */
 
+/* ── The whole Accounting module, one look (Visesh, 09/30: "an overall pass") ──
+   Scoped to .acct-module (the Accounting view's root) so every tab follows
+   the brief without each screen re-stating it: the page header is one line
+   (Display title, the tab's sentence beside it, the search on the right);
+   a panel or card title is Inter 15/20 600; a statement or page section
+   heading is Libre Caslon (.acct-heading); every column header and form
+   label is the tracked 11px label; every figure is Inter tabular; cards
+   share one radius, border and padding; and nothing sits in a gap it does
+   not need. */
+.acct-module .view-header { margin-bottom: 10px; align-items: center; }
+.acct-module .view-title-group { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.acct-module .view-title-group p { margin: 0; font-size: 13px; line-height: 20px; color: var(--text-secondary); }
+.acct-module .modal-header h3, .acct-module .acct-card-title, .acct-module h3:not(.acct-heading):not(.acct-display) {
+  font-family: var(--font-ui); font-size: 15px; line-height: 20px; font-weight: 600; letter-spacing: 0; margin: 0;
+}
+.acct-module h3.acct-heading { font-family: var(--font-display); font-size: 22px; line-height: 28px; font-weight: 400; }
+.acct-module h3.acct-heading.is-sm { font-size: 20px; line-height: 26px; }
+.acct-module .kpi-value { text-align: left; }
+/* Form and metadata labels across the tabs. */
+.acct-module label.acct-caps, .acct-module .acct-caps { display: inline-block; }
+/* The Data tab grids and any plain table inside the module read like the ledger grid. */
+.acct-module .req-table { font-family: var(--font-ui); font-size: 14px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; }
+.acct-module .req-table th { font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); font-feature-settings: "case", "tnum", "cv05"; padding: 8px 10px; }
+.acct-module .req-table td { padding: 6px 10px; }
+.acct-module .req-table input, .acct-module .req-table select { font-family: var(--font-ui); font-size: 14px; }
+/* Section tabs and control strips: the same height and type everywhere. */
+.acct-module select, .acct-module input[type="text"], .acct-module input[type="date"], .acct-module input[type="number"], .acct-module textarea { font-family: var(--font-ui); font-feature-settings: "cv05"; }
+/* Dark mode: figures keep full contrast; the label gray stays a label. */
+:root[data-theme="dark"] .acct-module .num, :root[data-theme="dark"] .acct-module .kpi-value { color: var(--text-primary); }
+
 /* ── Accounting -> Reports: the statement table (Neil, Sep 25; the brief, Sep 29)
    Sized to its content like Intacct, never cut: the wrapper scrolls sideways,
    the Account column and the header row are sticky, the final total sticks
@@ -2348,7 +2378,14 @@ th.num.acct-caps, .acct-caps.num { text-align: right; }
    double rule under the final result, spanning the number columns only;
    child accounts indented 24px; only group headers and totals bold. */
 .acct-report-wrap { overflow: auto; max-height: 78vh; border: 1px solid var(--border-color); border-radius: 10px; }
-.acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 100%; font-family: var(--font-ui); font-size: var(--acct-font, 14px); line-height: 20px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; --acct-row-py: 8px; }
+.acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 0; margin: 0 auto; font-family: var(--font-ui); font-size: var(--acct-font, 14px); line-height: 20px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; --acct-row-py: 8px; }
+/* A statement is as wide as its columns need (QuickBooks-style, centered in
+   its card) - the figure sits beside the name, never a screen away. Columns
+   keep a floor so short statements still read as a statement. */
+.acct-report th.acct-head { min-width: 360px; }
+.acct-report th.acct-num, .acct-report td.acct-num { min-width: 150px; padding-left: 18px; padding-right: 14px; }
+.acct-report-wrap { display: flex; justify-content: center; }
+.acct-report-wrap > .acct-report { flex: 0 1 auto; }
 .acct-report th {
   position: sticky; top: 0; z-index: 3; background: var(--bg-secondary);
   text-align: left; font-family: var(--font-ui); font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
