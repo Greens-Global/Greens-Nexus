@@ -12,8 +12,8 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({ isExternal: false, can: () => false, myGrantedModules: new Set(), myEmail: 'me@example.com' }),
 }));
-// Every API the form touches resolves empty: no departments, no application
-// directory, no people - so step 1 has nothing required and step 2 opens.
+// Every API the form touches resolves empty: no departments, no work sites,
+// no people - so the one-step form asks only for a title and what it is about.
 vi.mock('../api', () => {
   const empty = () => Promise.resolve([]);
   return { api: new Proxy({}, { get: () => empty }) };
@@ -29,8 +29,7 @@ afterEach(() => { cleanup(); createTicket.mockClear(); document.querySelectorAll
 
 async function openDetails(onClose = vi.fn()) {
   render(<CreateTicketModal onClose={onClose} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
-  return { onClose, title: await screen.findByPlaceholderText('What is the issue?') };
+  return { onClose, title: await screen.findByPlaceholderText(/What is the issue\?/) };
 }
 
 // Past the 250 ms debounce.
@@ -83,11 +82,14 @@ describe('CreateTicketModal suggested articles', () => {
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'Still Need Help' }));
     expect(screen.queryByTestId('ticket-deflection')).toBeNull();
+    // What it is about - no department here, so a short typed answer.
+    fireEvent.change(screen.getByPlaceholderText(/Front gate keypad/), { target: { value: 'Time off' } });
     // The default Incident type's one required question.
     fireEvent.click(screen.getByText('One User'));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
     expect(createTicket).toHaveBeenCalledTimes(1);
     expect(createTicket.mock.calls[0][0].subject).toBe('Need PTO next week');
+    expect(createTicket.mock.calls[0][0].application).toBe('Time off');
     expect(onClose).toHaveBeenCalled();
   });
 });

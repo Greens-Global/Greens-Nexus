@@ -1,5 +1,5 @@
 import { useState, useRef, Suspense } from 'react';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -125,11 +125,7 @@ export default function CustomDashboard() {
     }
     const Comp = def.render;
     return (
-      <Suspense fallback={
-        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
-          Loading…
-        </div>
-      }>
+      <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState compact /></div>}>
         <Comp
           config={it.config || {}} kpis={d.kpis} notifications={notifications}
           markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}

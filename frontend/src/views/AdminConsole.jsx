@@ -54,19 +54,21 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronDown, Tag, Shield,
-  Headset, Bell, Mail, Building2, Loader2, Timer,
+  Headset, Bell, Mail, Building2, Timer,
   Activity, Signature, Check, Eye, X,
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
+  Tags,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import ModuleTabs from '../components/ModuleTabs';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { ModalLoading, SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { useIsMobile } from '../lib/useIsMobile';
 import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
+import TicketHelpTopicsSettings from '../tickets/TicketHelpTopicsSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 
@@ -105,13 +107,7 @@ const TaskNotifySettingsWrapped = lazy(async () => {
   return { default: () => <TasksProvider><TaskNotifySettings /></TasksProvider> };
 });
 
-function ModalFallback() {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Loader2 size={22} style={{ color: '#fff', animation: 'spin 1s linear infinite' }} />
-    </div>
-  );
-}
+const ModalFallback = ModalLoading;
 
 function SectionFallback() {
   return <SkeletonBlocks count={2} height={44} borderRadius={10} />;
@@ -148,7 +144,7 @@ const GLOBAL_SECTIONS = [
     keywords: 'geofence location address time clock punch map' },
   { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
-    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields' },
+    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with' },
   { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
     keywords: 'email mailbox reminders overdue batch replies delivery log' },
@@ -279,6 +275,8 @@ const SERVICE_DESK_TABS = [
   { key: 'routing',       label: 'Routing & Escalation', Icon: Headset, Panel: TicketDeskSettings },
   { key: 'notifications', label: 'Notifications',        Icon: Bell,    Panel: TicketNotifySettings },
   { key: 'sla',           label: 'SLA & Ticket Types',   Icon: Timer,   Panel: TicketTaxonomySettings },
+  // Department -> "What do you need help with?" choices (Pranshu, Sep 30).
+  { key: 'topics',        label: 'Help Topics',          Icon: Tags,    Panel: TicketHelpTopicsSettings },
 ];
 
 function ServiceDeskSection({ defaultOpen }) {
@@ -509,7 +507,7 @@ function EmailSignatureSection({ toastOk, toastErr, defaultOpen }) {
             </select>
           </div>
           {previewBusy && !data ? (
-            <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />
+            <Spinner size="inline" />
           ) : data && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 14 }}>
@@ -544,7 +542,7 @@ function EmailSignatureSection({ toastOk, toastErr, defaultOpen }) {
 
               <button className="primary-btn" onClick={saveTemplate} disabled={saveBusy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: saveBusy ? 0.6 : 1 }}>
-                {saveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+                {saveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
               </button>
             </>
           )}
@@ -595,7 +593,7 @@ function EmailSignatureSection({ toastOk, toastErr, defaultOpen }) {
         </div>
         <button className="primary-btn" onClick={saveOverrides} disabled={overridesSaveBusy}
           style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: overridesSaveBusy ? 0.6 : 1 }}>
-          {overridesSaveBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Save
+          {overridesSaveBusy ? <Spinner size={14} /> : <Check size={14} />} Save
         </button>
       </div>
 
@@ -788,7 +786,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {fields.logoUrl && <img src={fields.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />}
               <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
-                {logoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                {logoBusy ? <Spinner size={13} /> : <Upload size={13} />}
                 {fields.logoUrl ? 'Replace' : 'Upload'}
                 <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
                   onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />

@@ -6,6 +6,41 @@
 @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .spin { animation: spin 0.8s linear infinite; }
 @keyframes pulse   { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* ── The Nexus loader: one green sweep ring (Spinner in AsyncState.jsx) ────
+   Sized by --s so a single element serves buttons (20px) through the sign-in
+   screen (88px). The arc stretches and gathers while the whole ring turns;
+   nothing else in the app should spin. `.nxl-in` is the arrival (fade + grow,
+   slowing as it lands), `.nx-rise` the content that replaces a loader, and
+   `.nx-skel` the matching skeleton block. Reduced motion holds the ring
+   still and breathes its opacity instead. */
+.nxl { --s: 20px; width: var(--s); height: var(--s); display: inline-grid; place-items: center; color: var(--loader); flex: none; vertical-align: middle; line-height: 0; }
+.nxl svg { width: 100%; height: 100%; display: block; overflow: visible; animation: nxl-turn 1.9s linear infinite; }
+.nxl circle { fill: none; stroke: currentColor; stroke-width: 4.6; }
+.nxl-sm circle { stroke-width: 5.8; }
+.nxl-track { opacity: .18; }
+.nxl-arc { stroke-linecap: round; stroke-dasharray: 1 126; animation: nxl-dash 1.45s cubic-bezier(.65, 0, .35, 1) infinite; }
+.primary-btn .nxl, .btn-primary .nxl, .nxl-inherit { color: currentColor; }
+@keyframes nxl-turn { to { transform: rotate(360deg); } }
+@keyframes nxl-dash {
+  0%   { stroke-dasharray: 1 126;  stroke-dashoffset: 0; }
+  50%  { stroke-dasharray: 86 126; stroke-dashoffset: -22; }
+  100% { stroke-dasharray: 86 126; stroke-dashoffset: -125; }
+}
+.nxl-in { animation: nxl-in .28s cubic-bezier(.16, 1, .3, 1) both; }
+@keyframes nxl-in { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+.nx-rise { animation: nx-rise .44s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes nx-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.nx-skel { display: block; border-radius: 8px; background: linear-gradient(100deg, var(--skel) 36%, var(--skel-sheen) 50%, var(--skel) 64%); background-size: 320% 100%; animation: nx-sheen 1.7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 90ms); }
+@keyframes nx-sheen { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .nxl svg, .nxl-arc, .nx-skel { animation: none; }
+  .nxl-arc { stroke-dasharray: 86 126; }
+  .nxl-in, .nx-rise { animation: fadeIn .2s ease-out both; }
+  .nxl, .nxl.nxl-in { animation: nxl-breathe 2s ease-in-out infinite; }
+}
+@keyframes nxl-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
 @keyframes pdfEditorIn { from { opacity: 0; transform: scale(0.965) translateY(10px); } to { opacity: 1; transform: none; } }
 
 :root {
@@ -59,6 +94,11 @@
   --color-blue:   215,75%,45%;
   --color-orange: 30,80%,48%;
   --color-green:  142,60%,35%;
+
+  /* loader ring and skeleton blocks (see .nxl / .nx-skel above) */
+  --loader:     #248f4b;
+  --skel:       #e4eee8;
+  --skel-sheen: #ffffff;
   --color-purple: 271,60%,48%;
   --color-red:    350,65%,48%;
   --color-gold:   42,80%,42%;
@@ -118,6 +158,9 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
+  --loader:     #3fbe6f;
+  --skel:       #1a2a20;
+  --skel-sheen: #2a4533;
   --body-bg: linear-gradient(145deg, #0a0e1a 0%, #0f1629 100%);
   --paper:   #0d1117;
   --card:    #161b27;
@@ -1226,9 +1269,19 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 }
 /* The keyboard path the card now has: Tab lands here, Enter/Space opens it. */
 .support-card:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
-/* "Open" is a label inside the tile now, not its own control - it takes the
-   card's hover rather than offering a second target. */
-.support-card:hover .link-btn { color: var(--ink); }
+/* Hover (Neil, Sep 30): a subtle tint of the brand color on whichever tile
+   the pointer is on, the icon picking up the same color, and a corner arrow
+   that says "this whole tile opens" - the old "Open" label read as the only
+   clickable part. A clear green wash plus a brand outline (Pranshu, Sep 30:
+   the first 5% tint read as barely there). */
+.support-card:hover { background: color-mix(in srgb, var(--wk-brand) 14%, var(--card)); outline: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); outline-offset: -1px; }
+.support-card:hover .support-icon { background: color-mix(in srgb, var(--wk-brand) 24%, var(--card)); color: var(--wk-brand); }
+.support-card-arrow {
+  position: absolute; top: 16px; right: 16px;
+  color: var(--muted); opacity: 0.45;
+  transition: opacity 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+.support-card:hover .support-card-arrow { opacity: 1; color: var(--wk-brand); transform: translate(2px, -2px); }
 .support-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 .support-icon {
   width: 42px; height: 42px;
@@ -1509,6 +1562,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   box-shadow: var(--shadow-lg);
   z-index: 2;
 }
+/* Support tiles also tint on hover (see .support-card:hover above). */
+.support-card {
+  transition: transform 0.2s cubic-bezier(.16,1,.3,1), box-shadow 0.2s cubic-bezier(.16,1,.3,1), background-color 0.2s ease, z-index 0s;
+}
+.support-icon { transition: background-color 0.2s ease, color 0.2s ease; }
 
 /* Large panels: subtle 2px lift */
 .dash-card,
@@ -2580,9 +2638,9 @@ button, [role="button"], select { touch-action: manipulation; }
 .skel {
   display: inline-block;
   border-radius: 7px;
-  background: linear-gradient(90deg, var(--line) 30%, var(--mist) 50%, var(--line) 70%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
+  background: linear-gradient(100deg, var(--skel) 36%, var(--skel-sheen) 50%, var(--skel) 64%);
+  background-size: 320% 100%;
+  animation: nx-sheen 1.7s ease-in-out infinite;
 }
 
 /* ── E-Sign template editor - paper document (WYSIWYG block editing) ────────── */
@@ -4010,18 +4068,6 @@ button, [role="button"], select { touch-action: manipulation; }
   z-index: 2;
 }
 [data-theme="dark"] .pdf-editor-loading { background: #1e1e2e; }
-.pdf-editor-spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid color-mix(in srgb, var(--text-secondary) 25%, transparent);
-  border-top-color: hsl(var(--color-blue));
-  border-radius: 50%;
-  animation: pdf-editor-spin 0.7s linear infinite;
-}
-@keyframes pdf-editor-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .pdf-editor-spinner { animation-duration: 2s; }
-}
 
 /* ── Egnyte module ───────────────────────────────────────────────────────────
    Hover, the two-pane layout, and the listing grid. Everything else in

@@ -2,12 +2,12 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
-  Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
-  ChevronDown, Globe, Globe2, BookMarked, Download,
+  ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -15,7 +15,7 @@ import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
-import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -36,6 +36,9 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES, countryName } from '../lib/countries';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
+import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
+import { googleMapsUrl } from '../lib/addressSearch';
+import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
@@ -502,7 +505,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.first_name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />}
+            {busy ? <Spinner size={14} /> : <Plus size={14} />}
             {editing ? 'Save Changes' : 'Add Employee'}
           </button>
         </div>
@@ -564,7 +567,7 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
         )}
         <button className="secondary-btn" onClick={start} disabled={busy || active}
           style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-          {(busy || active) ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
+          {(busy || active) ? <Spinner size={12} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
         </button>
       </div>
       <div style={{ fontSize: 12.5, color: job?.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
@@ -668,7 +671,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
       const r = await api.setGeofence(employee.id, { work_site_ids: ids });
       setData(d => ({ ...(d || {}), geofence: r }));
       const names = sites.filter(x => ids.includes(x.id)).map(x => x.name || 'Unnamed site');
-      toastOk(ids.length ? `${firstName} may punch at ${names.join(', ')}. Anywhere else is Out of Location.` : `${firstName} may punch from any company work site.`);
+      toastOk(ids.length ? `${firstName}'s usual sites: ${names.join(', ')}. A punch at any company work site still counts as on-site.` : `${firstName} may punch from any company work site.`);
     } catch (e) { toastErr(e?.message || 'Could not save the work sites.'); }
     finally { setBusy(false); }
   };
@@ -716,7 +719,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                     <Icon size={15} style={{ color: on ? 'var(--pine)' : 'var(--muted)' }} />
                     <span style={{ fontSize: 13.5, fontWeight: 700 }}>{o.title}</span>
                     {on && (busy
-                      ? <Loader2 size={13} style={{ marginLeft: 'auto', animation: 'spin 1s linear infinite' }} />
+                      ? <Spinner size={13} style={{ marginLeft: 'auto' }} />
                       : <CheckCircle size={14} style={{ marginLeft: 'auto', color: 'var(--pine)' }} />)}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{o.body}</div>
@@ -733,17 +736,17 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
 
           {!remote && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Work sites {firstName} can punch from</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Work Sites</div>
               {sites.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
-                      ? `Punches at any of these ${allowed.length} site${allowed.length === 1 ? '' : 's'} are on-site, whichever one ${firstName} is at. Anywhere else is Out of Location.`
-                      : 'Any company work site counts. Click sites to allow only those.'}
+                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} sites are`} ${firstName}'s usual site${allowed.length === 1 ? '' : 's'} and win where two sites overlap. A punch at any company work site counts as on-site; outside all of them is Out of Location.`
+                      : 'Any company work site counts as on-site. Click sites to mark the usual ones - they only matter where two sites overlap.'}
                   </span>
                   {allowed.length > 0 && canEdit && (
                     <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
-                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Allow Any Site</button>
+                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Sites</button>
                   )}
                 </div>
               )}
@@ -920,11 +923,11 @@ function DocumentsSection({ employeeId, toastOk, toastErr }) {
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
-          {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} Upload
+          {uploading ? <Spinner size={12} /> : <Plus size={12} />} Upload
           <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
       </div>
-      {docs === null ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+      {docs === null ? <Spinner size={15} />
         : docs.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No documents yet.</div>
         : docs.map(d => (
           <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
@@ -1003,7 +1006,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
               <option value="IN">India</option>
             </select>
             <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' - none selected: no mailbox'}</label>
-            {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
+            {skus === null ? <Spinner size={16} /> : (
               <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
                 {skus.map((s, i) => {
                   const out = s.available <= 0;
@@ -1057,7 +1060,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
             <button className="primary-btn" onClick={run} disabled={busy || !email.trim()}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'hsl(var(--color-green))' }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
+              {busy ? <Spinner size={14} /> : <CheckCircle size={14} />}
               {busy ? 'Provisioning…' : 'Provision now'}
             </button>
           </>) : <button className="primary-btn" onClick={onClose}>Done</button>}
@@ -1360,7 +1363,7 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
   const isExternal = identityType === 'external' || identityType === 'guest';
 
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
-  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
 
   // onChanged refreshes the parent employee record too - assigning a job role
   // now also rewrites the person's job TITLE (server-side), so the card header
@@ -1657,7 +1660,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 } catch (err) { toastErr(err?.message || 'Could not push to M365.'); }
                 setPushBusy(false);
               }}>
-              {pushBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Network size={13} />} Push to M365
+              {pushBusy ? <Spinner size={13} /> : <Network size={13} />} Push to M365
             </button>
             {e.personalEmail && (
               <button className="secondary-btn" disabled={welcomeBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
@@ -1668,7 +1671,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                   catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
                   setWelcomeBusy(false);
                 }}>
-                {welcomeBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Mail size={13} />} Resend welcome
+                {welcomeBusy ? <Spinner size={13} /> : <Mail size={13} />} Resend welcome
               </button>
             )}
           </>
@@ -1897,7 +1900,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />} Add Candidate
+            {busy ? <Spinner size={14} /> : <Plus size={14} />} Add Candidate
           </button>
         </div>
       </div>
@@ -2032,7 +2035,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
               <History size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Stage history
             </div>
             {history === null ? (
-              <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+              <Spinner size={16} />
             ) : history.map((h, i) => (
               <div key={i} style={{ display: 'flex', gap: 10, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--line)' }}>
                 <span style={{ fontWeight: 700, color: `hsl(${(STAGE_META[h.toStage] || STAGE_META.applied).hue})`, flexShrink: 0 }}>
@@ -2059,7 +2062,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
             {next && (
               <button className="primary-btn" onClick={() => onStage(c, next, note)} disabled={busy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: next === 'hired' ? 'hsl(var(--color-green))' : undefined }}>
-                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
+                {busy ? <Spinner size={14} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
                 {next === 'hired' ? 'Mark Hired' : `Move to ${STAGE_META[next].label}`}
               </button>
             )}
@@ -2104,7 +2107,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   }
 
   if (loadErr) return <ErrorBanner message="Couldn't load candidates right now." onRetry={loadCandidates} />;
-  if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
+  if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
 
   const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
   const closed = candidates.filter(c => ['hired', 'rejected'].includes(c.stage));
@@ -2444,7 +2447,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
 
           <button className="primary-btn" onClick={save} disabled={!dirty || busy}
             style={{ marginTop: 16, width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: dirty ? 1 : 0.5 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <CheckCircle size={14} />} Save changes
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save changes
           </button>
 
           {reports.length > 0 && (
@@ -2987,7 +2990,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!canSave || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!canSave || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />} Submit
+            {busy ? <Spinner size={14} /> : <Plus size={14} />} Submit
           </button>
         </div>
       </div>
@@ -3079,7 +3082,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
     ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
       .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
         name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.redacted ? 'Time off' : (r.type || ''),
+        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
       })),
   ].filter(e => e.start && e.end);
 
@@ -3158,7 +3161,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
   }
 
   if (loadErr) return <ErrorBanner message="Couldn't load leave requests right now." onRetry={loadLeave} />;
-  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
+  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
 
   const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
   const pending = visible.filter(r => r.status === 'pending').length;
@@ -3219,7 +3222,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
                     </button>
                     <button className="primary-btn" onClick={() => decide(r, 'approve')} disabled={busyId === r.id}
                       style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      {busyId === r.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />} Approve
+                      {busyId === r.id ? <Spinner size={12} /> : <CheckCircle size={12} />} Approve
                     </button>
                   </div>
                 )}
@@ -3294,7 +3297,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         </button>
       </div>
       {loadErr ? <ErrorBanner message="Couldn't load departments right now." onRetry={load} />
-        : depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
+        : depts === null ? <LoadingState compact />
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
@@ -3556,7 +3559,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       ? <img src={f.logo_url} alt="" style={{ height: 44, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--line)', background: '#fff' }} />
                       : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: 'var(--muted)' }}>No logo</div>}
                     <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
-                      {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
+                      {logoBusy ? <Spinner size={12} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
                       <input type="file" accept="image/*,video/mp4,video/quicktime,.mov" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
                     </label>
                   </div>
@@ -3593,7 +3596,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
               <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+                {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
               </button>
             </div>
           </>
@@ -3603,7 +3606,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           editingEntity
             ? (
               <div style={{ padding: '18px 4px', maxWidth: 640 }}>
-                <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+                <Suspense fallback={<LoadingState compact />}>
                   <MonitoringPolicy companyId={editingEntity.id} />
                 </Suspense>
               </div>
@@ -3689,71 +3692,168 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 // other company can pick it. Replaces the Sep 18 single-company `company` tag,
 // where claiming a site for one company took it away from every other.
 // address_verified: the coordinates came from an address picked in the search
-// (Sep 30) - the only way the form sets them. verifiedAt is the saved state.
-const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '', address_verified: false, verifiedAt: '' };
-const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '', address_verified: false, verifiedAt: s.addressVerifiedAt || '' });
+// (Sep 30). verifiedAt is the saved state.
+// Google Maps link (Sep 30): location_source 'google_link' + map_link = the
+// point came from a pasted Google Maps link (or coordinates) - the accurate
+// path for addresses the search misplaces. loc_changed = the point was set in
+// this edit, so the source/link are sent (a radius-only edit leaves them).
+const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '', address_verified: false, verifiedAt: '', verifiedBy: '',
+  location_source: '', map_link: '', link_point: null, loc_changed: false, loc_mode: 'link' };
+const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '', address_verified: false,
+  verifiedAt: s.addressVerifiedAt || '', verifiedBy: s.addressVerifiedBy || '',
+  location_source: s.locationSource || '', map_link: s.mapLink || '', link_point: null, loc_changed: false,
+  loc_mode: s.locationSource === 'address' ? 'address' : 'link',
+  saved_point: s.latitude && s.longitude && Number.isFinite(Number(s.latitude)) ? [Number(s.latitude), Number(s.longitude)] : null });
+// What a save sends: never the form-only keys, and the location source/link
+// only when the point was set in this edit.
+const siteBody = f => {
+  const { link_point, loc_changed, loc_mode, verifiedAt, verifiedBy, saved_point, pin_adjusted, location_source, map_link, ...rest } = f;   // eslint-disable-line no-unused-vars
+  return { ...rest, radius_m: Number(f.radius_m) || 150, ...(loc_changed ? { location_source, map_link } : {}) };
+};
 // The list badge: a site whose point came from the old map pin is re-checked
 // once by searching its address (Sep 30) - nothing moves until someone does.
 function SiteVerifyBadge({ s }) {
+  if (s.latitude && s.longitude && s.locationSource === 'google_link') {
+    return (
+      <a href={s.mapLink && /^https?:/i.test(s.mapLink) ? s.mapLink : googleMapsUrl(s.latitude, s.longitude)} target="_blank" rel="noreferrer"
+        onClick={e => e.stopPropagation()} title="Placed from a Google Maps link - open it"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
+          background: 'rgba(37,99,235,0.1)', color: '#1d4ed8', textDecoration: 'none' }}>
+        <Link2 size={10} /> Google Maps
+      </a>
+    );
+  }
   if (s.latitude && s.longitude && s.addressVerifiedAt) return null;
   const noPoint = !(s.latitude && s.longitude);
   return (
-    <span title={noPoint ? 'No location yet - edit the site and search its address.' : 'This site was placed with the old map pin. Edit it and search its address to confirm where it is.'}
+    <span title={noPoint ? 'No location yet - edit the site and paste its Google Maps link.' : 'This site was placed with the old map pin. Edit it and paste its Google Maps link (or search its address) to confirm where it is.'}
       style={{ display: 'inline-block', marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
         background: 'rgba(180,83,9,0.12)', color: '#b45309' }}>
-      {noPoint ? 'No Location' : 'Verify Address'}
+      {noPoint ? 'No Location' : 'Verify Location'}
     </span>
   );
 }
 const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-';
 
-function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
+// Radius guidance (competitor research, Sep 30): phone GPS drifts ~50 m, so a
+// fence under 100 m flags people who are on-site; most sites want 100-300 m.
+const RADIUS_PRESETS = [100, 150, 200, 300, 500];
+const ftText = m => `${Math.round(m * 3.28084).toLocaleString('en-US')} ft`;
+
+function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '' }) {
+  const [checkPoints, setCheckPoints] = useState(null);
+  const [focus, setFocus] = useState(null);
+  const linkMode = f.loc_mode !== 'address';
+  const r = Number(f.radius_m) || 0;
   const field = (label, key, props = {}) => (
     <div><label style={FL}>{label}</label>
       <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
+  const modeBtn = (mode, label) => {
+    const on = (mode === 'link') === linkMode;
+    return (
+      <button type="button" aria-pressed={on} onClick={() => set('loc_mode', mode)}
+        style={{ flex: 1, padding: '6px 10px', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+          background: on ? 'var(--card)' : 'transparent', color: on ? 'var(--ink)' : 'var(--muted)', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' }}>
+        {label}
+      </button>
+    );
+  };
+  const status = f.loc_changed && f.location_source === 'google_link'
+    ? (f.pin_adjusted ? 'Pin fine-tuned from the Google Maps link point. Save to keep it.' : 'Location set from the Google Maps link. Save to keep it.')
+    : f.address_verified && f.pin_adjusted ? 'Pin fine-tuned on the map from the address you picked. Save to keep it.'
+    : f.address_verified ? 'Location set from the address you picked. Drag the pin onto the exact building if needed, then save.'
+    : f.location_source === 'google_link' && f.latitude ? `Set from a Google Maps link${f.verifiedAt ? ` on ${formatDate(f.verifiedAt)}` : ''}${f.verifiedBy ? ` by ${f.verifiedBy}` : ''}.`
+    : f.verifiedAt && f.latitude ? `Location verified from its address on ${formatDate(f.verifiedAt)}.`
+    : f.latitude ? 'This location came from the old map pin. Paste its Google Maps link (or search the address) to confirm it.'
+    : 'No location yet. Paste the Google Maps link of the building to place this site.';
+  const good = f.address_verified || f.loc_changed || (f.verifiedAt && f.latitude);
   return (
     <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         {hint && <p style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
         <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-        {/* Address and coordinates come only from an address picked in the
-            search on the right (Sep 30) - read-only here, never hand-typed. */}
-        <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { readOnly: true, placeholder: 'search the address on the right', style: { width: '100%', background: 'var(--mist)' } })}</div>
+        {/* A searched address fills this and stays read-only; a site placed
+            from a Google Maps link keeps an address HR can type (it is a
+            label - the point comes from the link). */}
+        <div style={{ gridColumn: '1 / -1' }}>{linkMode
+          ? field('ADDRESS', 'address', { placeholder: 'e.g. 469 Bohemian Hwy, Sebastopol, CA 95472' })
+          : field('ADDRESS', 'address', { readOnly: true, placeholder: 'search the address on the right', style: { width: '100%', background: 'var(--mist)' } })}</div>
         {field('LATITUDE', 'latitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
         {field('LONGITUDE', 'longitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
-        <div style={{ gridColumn: '1 / -1', fontSize: 11.5, marginTop: -6, color: f.address_verified || (f.verifiedAt && f.latitude) ? 'hsl(var(--color-green))' : '#b45309' }}>
-          {f.address_verified && f.pin_adjusted ? 'Pin fine-tuned on the map from the address you picked. Save to keep it.'
-            : f.address_verified ? 'Location set from the address you picked. Drag the pin onto the exact building if needed, then save.'
-            : f.verifiedAt && f.latitude ? `Location verified from its address on ${formatDate(f.verifiedAt)}.`
-            : f.latitude ? 'This location came from the old map pin. Search the address to confirm it.'
-            : 'No location yet. Search the address to place this site.'}
+        <div style={{ gridColumn: '1 / -1', fontSize: 11.5, marginTop: -6, color: good ? 'hsl(var(--color-green))' : '#b45309' }}>
+          {status}
+          {f.location_source === 'google_link' && f.map_link && /^https?:/i.test(f.map_link) && (
+            <> <a href={f.map_link} target="_blank" rel="noreferrer" style={{ color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, whiteSpace: 'nowrap' }}>Open Link <ExternalLink size={10} /></a></>
+          )}
         </div>
-        {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={FL}>GEOFENCE RADIUS</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="range" min={50} max={1000} step={10} value={Math.min(1000, Math.max(50, r || 150))} aria-label="Geofence radius slider"
+              onChange={e => set('radius_m', Number(e.target.value))} style={{ flex: 1, accentColor: 'hsl(217,91%,50%)' }} />
+            <input className="form-input" type="number" min={25} max={5000} value={f.radius_m} aria-label="Geofence radius in meters"
+              onChange={e => set('radius_m', e.target.value)} style={{ width: 84 }} />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>m</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+            {RADIUS_PRESETS.map(v => (
+              <button key={v} type="button" onClick={() => set('radius_m', v)} aria-pressed={r === v}
+                style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${r === v ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: r === v ? 'rgba(37,99,235,0.1)' : 'var(--card)',
+                  color: r === v ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v} m</button>
+            ))}
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${ftText(r)} across the building` : ''}</span>
+          </div>
+          <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+            {r > 0 && r < 100
+              ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 100 m, normal phone GPS drift will mark people who are on-site as Out of Location.</>
+              : 'Most sites work well at 100-300 m. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
+          </p>
+        </div>
         <div style={{ gridColumn: '1 / -1' }}>
           <label style={FL}>NOTES</label>
           <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
         </div>
       </div>
       <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-        <label style={FL}>FIND THE ADDRESS</label>
-        {/* Fine-tuning the pin (Sep 30) is open once an address is chosen -
-            picked now, or already verified - never on an old map-pin site. */}
+        <div role="group" aria-label="How to place the site" style={{ display: 'flex', gap: 4, padding: 3, borderRadius: 9, background: 'var(--mist)', marginBottom: 10 }}>
+          {modeBtn('link', 'Google Maps Link')}
+          {modeBtn('address', 'Search Address')}
+        </div>
+        {linkMode && (
+          <WorkSiteLinkPanel link={f.map_link} point={f.link_point} savedPoint={siteId ? f.saved_point : null}
+            onResolved={({ link, point }) => {
+              set('latitude', point.lat.toFixed(6)); set('longitude', point.lng.toFixed(6));
+              set('location_source', 'google_link'); set('map_link', link); set('link_point', point);
+              set('loc_changed', true); set('address_verified', false); set('pin_adjusted', false);
+              if (!f.address.trim() && point.label) set('address', point.label);
+              setFocus({ lat: point.lat, lng: point.lng, key: Date.now() });
+            }} />
+        )}
+        {/* Fine-tuning the pin (Sep 30) is open once the point came from an
+            address or a Google Maps link - never on an old map-pin site. */}
         <WorkSiteAddressMap lat={f.latitude} lng={f.longitude} radiusM={f.radius_m}
-          adjustable={!!(f.address_verified || (f.verifiedAt && f.latitude))}
+          showSearch={!linkMode} focus={focus} checkPoints={checkPoints}
+          anchorLabel={f.location_source === 'google_link' && linkMode ? 'the Google Maps point' : 'the address'}
+          adjustable={!!(f.address_verified || f.loc_changed || (f.verifiedAt && f.latitude))}
           onPick={({ address, lat, lng }) => {
             set('address', address); set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
             set('address_verified', true); set('pin_adjusted', false);
+            set('location_source', 'address'); set('map_link', ''); set('link_point', null); set('loc_changed', true);
           }}
           onAdjust={({ lat, lng }) => {
             set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
-            set('address_verified', true); set('pin_adjusted', true);
+            if (f.location_source !== 'google_link') set('address_verified', true);
+            set('pin_adjusted', true); set('loc_changed', true);
+            if (!f.location_source) set('location_source', 'address');
           }} />
+        <WorkSiteFenceCheck lat={f.latitude} lng={f.longitude} radiusM={f.radius_m} siteId={siteId}
+          moved={!!siteId} onPoints={setCheckPoints} />
       </div>
       <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
         <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
         <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+          {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
         </button>
       </div>
     </div>
@@ -3778,7 +3878,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
     try {
-      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      const body = siteBody(f);
       // New from here = into the library AND onto this company's list.
       if (mode === 'new') await api.createWorkSite({ ...body, company: entity.id }); else await api.updateWorkSite(mode, body);
       await onChanged(); toastOk('Work site saved.'); setMode(null);
@@ -3801,7 +3901,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
 
   if (mode) {
     const shared = mode !== 'new' && (sites.find(s => s.id === mode)?.companies || []).length > 1;
-    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save}
+    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save} siteId={mode === 'new' ? '' : mode}
       hint={mode === 'new' ? `Saved to the Work Site Library and added to ${entity.name}.` : shared ? 'Other companies use this site too - changes apply to them as well.' : ''} />;
   }
 
@@ -4111,7 +4211,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
             {Array.from({ length: HOLIDAY_YEAR_RANGE }, (_, i) => new Date().getFullYear() + i).map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
+            {suggestBusy ? <Spinner size={13} /> : <CalendarDays size={13} />} Load holidays
           </button>
         </div>
         {noData && (
@@ -4152,7 +4252,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
                 <button ref={copyBtnRef} className="secondary-btn" onClick={() => setCopyPickerOpen(v => !v)} disabled={copyBusy}
                   title="Copy this holiday set forward to one or more future years - looks up the real date for movable holidays instead of just adding a year"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                  {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to year(s)
+                  {copyBusy ? <Spinner size={12} /> : <CalendarDays size={12} />} Copy to year(s)
                 </button>
                 <AnchoredMenu anchorRef={copyBtnRef} open={copyPickerOpen} onClose={() => setCopyPickerOpen(false)} role="dialog" minWidth={180}
                   style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12 }}>
@@ -4173,7 +4273,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
             <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
               title="Save this holiday set as a reusable policy other companies can pull in"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
+              {policyBusy ? <Spinner size={12} /> : <BookMarked size={12} />} Create policy from these holidays
             </button>
             {holidays.length > 0 && (
               <>
@@ -4297,7 +4397,7 @@ function HolidayPolicyPanel({ entity, entities = [], onApplied, toastOk, toastEr
             </div>
           </div>
           <button className="secondary-btn" onClick={() => apply(p)} disabled={busyId === p.id} style={{ fontSize: 11.5, padding: '4px 10px' }}>
-            {busyId === p.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : `Apply to ${entity.name}`}
+            {busyId === p.id ? <Spinner size={11} /> : `Apply to ${entity.name}`}
           </button>
           {isOwner(p) && (
             <>
@@ -4711,7 +4811,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
+          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Apply</button>
         </div>
       </div>
       {guard.confirming && (
@@ -4788,7 +4888,7 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
       {guard.confirming && (
@@ -4851,7 +4951,7 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
       {guard.confirming && (
@@ -4936,7 +5036,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         </div>
 
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
           <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
@@ -4994,7 +5094,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
           </button>
         </div>
       </div>
@@ -5023,7 +5123,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
     try {
-      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      const body = siteBody(f);
       if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
       await load(); toastOk('Work site saved.'); setMode(null);
     } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
@@ -5040,7 +5140,7 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   if (sites === null) return <SkeletonBlocks count={3} height={48} borderRadius={10} />;
   if (mode) {
     const used = mode === 'new' ? [] : (sites.find(s => s.id === mode)?.companies || []);
-    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save}
+    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save} siteId={mode === 'new' ? '' : mode}
       hint={mode === 'new' ? 'Saved to the library - add it to companies from each company\'s Work Sites tab.' : used.length > 1 ? 'Several companies use this site - changes apply to all of them.' : ''} />;
   }
   const needle = q.trim().toLowerCase();
@@ -5678,7 +5778,7 @@ export default function HR({ activeSub, onSubChange }) {
             </div>
             {(loading || (showingDeleted && deletedLoading)) ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+                <Spinner size="section" />
               </div>
             ) : showingDeleted && deletedEmployees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>

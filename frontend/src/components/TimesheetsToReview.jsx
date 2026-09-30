@@ -16,15 +16,21 @@ import { formatDate } from '../lib/datetime';
 
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
-export default function TimesheetsToReview({ onOpen, toastOk, toastErr }) {
+// `onCount` (optional) hears how many are waiting - null when the list could
+// not be loaded - so the People > Time "To Review" tile shows the same number.
+export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount }) {
   const [rows, setRows] = useState([]);
   const [busyId, setBusyId] = useState('');
   const [backFor, setBackFor] = useState('');   // review id whose Send Back note is open
   const [note, setNote] = useState('');
 
   const load = useCallback(() => {
-    api.timesheetReviewWaiting().then(r => setRows(Array.isArray(r?.reviews) ? r.reviews : [])).catch(() => {});
-  }, []);
+    api.timesheetReviewWaiting().then(r => {
+      const list = Array.isArray(r?.reviews) ? r.reviews : [];
+      setRows(list);
+      onCount?.(list.length);
+    }).catch(() => onCount?.(null));
+  }, [onCount]);
   useEffect(() => {
     load();
     window.addEventListener('nexus:timesheet-review-changed', load);

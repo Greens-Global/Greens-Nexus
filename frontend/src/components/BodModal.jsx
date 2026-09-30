@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { Sunrise, Sunset, Coffee, Play, X, Send, Loader2, MessageSquare } from 'lucide-react';
+import { Sunrise, Sunset, Coffee, Play, X, Send, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { bodDurable, newBodId } from '../lib/bodQueue';
 import { msalInstance } from '../msalInstance';
@@ -9,6 +9,7 @@ import { useRole } from '../contexts/RoleContext';
 import { cleanName, emailToName } from '../lib/utils';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { Spinner } from './AsyncState';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
@@ -389,7 +390,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             <label style={FL}>Posts to</label>
             {loading ? (
               <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Finding your team chat…
+                <Spinner size={12} /> Finding your team chat…
               </div>
             ) : bound ? (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
@@ -424,7 +425,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
           )}
           <button className="primary-btn" onClick={send} disabled={busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} {M.cta}
+            {busy ? <Spinner size={13} /> : <Send size={13} />} {M.cta}
           </button>
         </div>
       </div>

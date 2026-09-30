@@ -7,12 +7,14 @@
 // Loaded lazily from widgets.jsx like panels.jsx / workdayWidgets.jsx. Row and
 // noteStyle come from workdayWidgets.jsx so every list tile reads the same.
 import { useState, useEffect } from 'react';
+
+import { LoadingState } from '../components/AsyncState';
 import { Ticket as TicketIcon, Timer, UserMinus, ShoppingCart } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { setPendingOpen } from '../lib/pendingOpen';
-import { TICKET_STATUS_META, CLOSED_STATES, slaState } from '../tickets/ticketMeta';
+import { TICKET_STATUS_META, CLOSED_STATES, slaState, ticketNoShort } from '../tickets/ticketMeta';
 import { DashCard, navigate } from './widgets.jsx';
 import { Row, noteStyle } from './workdayWidgets.jsx';
 
@@ -35,7 +37,7 @@ export function ticketQueueRows(tickets = [], myEmail = '', onDesk = false) {
   const decorate = (t) => {
     const sla = slaState(t);
     return {
-      id: t.id, title: `${t.code ? `${t.code} · ` : ''}${t.subject || 'Untitled ticket'}`,
+      id: t.id, title: `${ticketNoShort(t.code) ? `${ticketNoShort(t.code)} · ` : ''}${t.subject || 'Untitled ticket'}`,
       meta: `${PRIORITY_LABEL[t.priority] || t.priority || 'Medium'} · ${TICKET_STATUS_META[t.status]?.label || t.status || 'Open'}`,
       status: sla === 'breached' ? 'overdue' : sla === 'at_risk' ? 'pending' : 'info',
       statusLabel: sla === 'breached' ? 'SLA breached' : sla === 'at_risk' ? 'At risk' : (PRIORITY_LABEL[t.priority] || ''),
@@ -75,7 +77,7 @@ export function TicketQueueWidget() {
   return (
     <DashCard title="My Ticket Queue" sub={sub} action={<TicketIcon size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.mine.length === 0 && state.unassigned.length === 0 ? (
         <div style={noteStyle}>{state.onDesk ? 'No open tickets assigned to you, and nothing unassigned.' : 'No open tickets assigned to you.'}</div>
       ) : (
@@ -135,7 +137,7 @@ export function TimeExceptionsWidget() {
     <DashCard title="Time Exceptions" sub={state.loading || state.denied ? undefined : blocking ? `${blocking} blocking sign-off` : `Last ${EXCEPTION_WINDOW_DAYS} days`}
       action={<Timer size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.denied ? (
         <div style={noteStyle}>This tile needs Time editor access in People.</div>
       ) : state.rows.length === 0 ? (
@@ -171,7 +173,7 @@ export function outRows(approved = [], now = new Date()) {
     if (s <= today && today <= e) {
       const back = new Date(new Date(`${e}T12:00:00`).getTime() + DAY_MS);
       const partial = r.startTime && r.endTime ? `${r.startTime} - ${r.endTime}` : '';
-      todayRows.push({ id: `to-${r.id}`, title: who, meta: `${r.redacted ? 'Time off' : (TIMEOFF_TYPES[r.type] || r.type || 'Time off')}${partial ? ` · ${partial}` : ''} · back ${formatDate(back)}`, statusLabel: partial ? 'Partial' : 'Out', status: partial ? 'pending' : 'overdue', end: e });
+      todayRows.push({ id: `to-${r.id}`, title: who, meta: `${TIMEOFF_TYPES[r.type] || r.type || 'Time off'}${partial ? ` · ${partial}` : ''} · back ${formatDate(back)}`, statusLabel: partial ? 'Partial' : 'Out', status: partial ? 'pending' : 'overdue', end: e });
     }
     // Every remaining day of the request inside the window counts - including
     // the rest of a range that already started, so someone out through Monday
@@ -206,7 +208,7 @@ export function OutTodayWidget() {
     <DashCard title="Out Today" sub={state.loading ? undefined : state.today.length ? `${state.today.length} out` : 'Everyone is in'}
       action={<UserMinus size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : (
         <>
           {state.today.length === 0 ? (
@@ -266,7 +268,7 @@ export function PendingPurchasesWidget() {
     <DashCard title="Pending Purchases" sub={state.loading ? undefined : state.rows.length ? `${state.rows.length} pending · ${usd.format(total)}` : undefined}
       action={<ShoppingCart size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No pending purchase requests.</div>
       ) : (

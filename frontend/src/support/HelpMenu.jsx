@@ -15,6 +15,7 @@
 //     a Message (the same trick Support.jsx uses), so there is one ticket form
 // The widget's code loads on first open (or on hover of the button).
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { ModalLoading } from '../components/AsyncState';
 import { CircleHelp } from 'lucide-react';
 
 const loadWidget = () => import('./HelpWidget');
@@ -139,7 +140,7 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
         </WidgetBoundary>
       )}
       {composing && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           <TicketComposer onClose={() => setComposing(false)} />
         </Suspense>
       )}

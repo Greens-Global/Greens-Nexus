@@ -52,6 +52,62 @@ DEFAULT_APPROVAL_TYPES = frozenset({"service_request", "change_request", "access
 _TYPE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
+# "What do you need help with?" - the intake form's second question, driven by
+# the department picked above it (Neil, Sep 30: "if the department is IT, the
+# options should come up as they relate to IT. If the department is
+# construction, the options should come up as they relate to construction and
+# maintenance"). It replaced a single list of every External Links app, which
+# put a plumbing leak behind a scroll through finance and HR software.
+#
+# `departments` are matched against the ticket department's NAME, lowercased
+# (ticket departments are per-company rows an admin can rename, so a key
+# would not survive). A department with no group asks the question as a short
+# free-text answer instead. `area` is the service area the topic files under -
+# it decides the follow-up questions (Which facility? Which device?) and the
+# desk's triage buckets; see service_area_for in routers/tickets.py.
+# "Other" is not listed: the form always offers it, with a required short
+# answer (max TOPIC_MAX_LEN characters).
+TOPIC_MAX_LEN = 50
+DEFAULT_HELP_TOPICS = [
+    {"label": "IT Support", "departments": ["it", "it support", "information technology", "technology"],
+     "topics": [
+         {"name": "Nexus", "area": "tasks"},
+         {"name": "Microsoft 365 (Outlook, Teams, OneDrive)", "area": "email"},
+         {"name": "Sage Intacct", "area": "finance"},
+         {"name": "Egnyte", "area": "files"},
+         {"name": "Cubby", "area": "storageops"},
+         {"name": "Login or Password", "area": "email"},
+         {"name": "Computer or Laptop", "area": "hardware"},
+         {"name": "Printer or Scanner", "area": "hardware"},
+         {"name": "Phone", "area": "collab"},
+         {"name": "Internet or Wi-Fi", "area": "network"},
+         {"name": "Cameras or Gate Access", "area": "security"},
+     ]},
+    {"label": "Construction & Maintenance",
+     "departments": ["construction", "maintenance", "construction & maintenance",
+                     "construction and maintenance", "facilities", "facility maintenance"],
+     "topics": [{"name": n, "area": "facilities"} for n in (
+         "Lights or Electrical", "Plumbing or Water Leak", "Heating or Cooling (HVAC)",
+         "Doors, Gates or Locks", "Roof or Ceiling Leak", "Building Damage or Repair",
+         "Parking Lot or Paving", "Landscaping or Snow Removal", "Pest Control",
+         "Cleaning", "Signs",
+     )]},
+    {"label": "Admin", "departments": ["admin", "administration", "office admin"],
+     "topics": [{"name": n, "area": "general"} for n in (
+         "Office Supplies", "Mail or Deliveries", "Office Space or Furniture",
+         "Company Documents or Forms", "Travel", "Vendors or Contracts",
+     )]},
+    {"label": "Operations", "departments": ["operations", "ops", "storage operations"],
+     "topics": [
+         {"name": "Tenant or Unit Issue", "area": "storageops"},
+         {"name": "Move-In or Move-Out", "area": "storageops"},
+         {"name": "Rates or Pricing", "area": "storageops"},
+         {"name": "Gate Codes", "area": "security"},
+         {"name": "Site Supplies", "area": "general"},
+     ]},
+]
+
+
 class TaxonomyError(ValueError):
     """A save patch the server refuses - the router turns it into a 400."""
 
@@ -78,6 +134,8 @@ _DEFAULTS = {
     # (same "nothing to choose from" fallback the department/application
     # pickers already use), not "every company".
     "companyField": {"enabled": False, "companyIds": []},
+    # See DEFAULT_HELP_TOPICS. Replaced wholesale by a saved list.
+    "helpTopics": DEFAULT_HELP_TOPICS,
 }
 
 
@@ -104,6 +162,39 @@ def _validate_types_patch(types: Any) -> None:
             raise TaxonomyError(f"requiresApproval for ticket type {key!r} must be true or false.")
 
 
+def _clean_help_topics(groups: Any) -> list:
+    if not isinstance(groups, list):
+        raise TaxonomyError("helpTopics must be a list.")
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            raise TaxonomyError("Each help-topic group must be an object.")
+        depts = [str(d).strip().lower() for d in (g.get("departments") or []) if str(d).strip()]
+        topics = []
+        for tp in g.get("topics") or []:
+            name = str((tp or {}).get("name") or "").strip() if isinstance(tp, dict) else ""
+            if not name:
+                continue
+            if len(name) > TOPIC_MAX_LEN:
+                raise TaxonomyError(f"Help topic {name!r} is too long ({TOPIC_MAX_LEN} characters max).")
+            topics.append({"name": name, "area": str(tp.get("area") or "general").strip().lower()})
+        out.append({"label": str(g.get("label") or "").strip(), "departments": depts, "topics": topics})
+    return out
+
+
+def topic_area(db: Session, name: str) -> str:
+    """The service area of a curated help topic, or "" when `name` is not one
+    (an External Links app, or an "Other" answer typed by the requester)."""
+    key = (name or "").strip().lower()
+    if not key:
+        return ""
+    for g in get_config(db).get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            if (tp.get("name") or "").strip().lower() == key:
+                return tp.get("area") or "general"
+    return ""
+
+
 def get_config(db: Session) -> dict:
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
     if not row or not row.value:
@@ -120,6 +211,8 @@ def get_config(db: Session) -> dict:
     _fill_approval_defaults(merged["types"])
     if isinstance(cfg.get("typeOrder"), list):
         merged["typeOrder"] = cfg["typeOrder"]
+    if isinstance(cfg.get("helpTopics"), list):
+        merged["helpTopics"] = cfg["helpTopics"]
     cf = cfg.get("companyField") or {}
     merged["companyField"] = {
         "enabled": bool(cf.get("enabled")),
@@ -144,6 +237,8 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
         _fill_approval_defaults(merged["types"])
     if "typeOrder" in patch:
         merged["typeOrder"] = patch["typeOrder"]
+    if "helpTopics" in patch:
+        merged["helpTopics"] = _clean_help_topics(patch["helpTopics"])
     if "companyField" in patch and isinstance(patch["companyField"], dict):
         incoming = patch["companyField"]
         merged["companyField"] = {

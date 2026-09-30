@@ -4,7 +4,7 @@ import { generateJSON, generateHTML } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import {
-  X, Loader2, Eye, EyeOff, Bold, Italic, Underline, List, ListOrdered,
+  X, Eye, EyeOff, Bold, Italic, Underline, List, ListOrdered,
   Table as TableIcon, ImagePlus, SeparatorHorizontal, Undo, Redo, Check, AlertCircle, Award,
   Users, FileDown, Printer, Send, History, RotateCcw,
   AlignLeft, AlignCenter, AlignRight, AlignJustify, Link2, Link2Off, FileSearch,
@@ -31,6 +31,7 @@ import DefineMergeFieldModal from './DefineMergeFieldModal';
 import TemplateFieldsPanel from './TemplateFieldsPanel';
 import VariableLibrary from './VariableLibrary';
 import AnchoredMenu from './AnchoredMenu';
+import { Spinner } from './AsyncState';
 
 const FONT_GROUPS = {
   'Sans-serif': ['Inter', 'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Segoe UI', 'Calibri', 'Roboto', 'Open Sans', 'Lato', 'Montserrat'],
@@ -1625,7 +1626,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
 
   if (loading || !doc) return (
     <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}>
-      <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+      <Spinner size="section" />
     </div>
   );
 
@@ -1640,7 +1641,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           onKeyDown={e => e.key === 'Enter' && e.target.blur()}
           style={{ flex: '1 1 260px', fontSize: 16, fontWeight: 700, border: 'none', background: 'none', outline: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--ink)' }} />
         <span style={{ fontSize: 11.5, color: saveStatus === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 70 }}>
-          {saveStatus === 'saving' && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+          {saveStatus === 'saving' && <Spinner size={12} />}
           {saveStatus === 'saved' && <Check size={12} />}
           {saveStatus === 'error' && <AlertCircle size={12} />}
           {SAVE_LABEL[saveStatus]}
@@ -1684,13 +1685,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                       style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 8, fontFamily: 'Inter, sans-serif' }} />
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', marginBottom: 10 }}>
                       {newLhLogoUrl ? <img src={newLhLogoUrl} alt="" style={{ height: 26, maxWidth: 90, objectFit: 'contain' }} />
-                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}>{newLhLogoBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />} Upload logo (optional)</span>}
+                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}>{newLhLogoBusy ? <Spinner size={13} /> : <Upload size={13} />} Upload logo (optional)</span>}
                       <input type="file" accept="image/*" style={{ display: 'none' }}
                         onChange={e => { const f = e.target.files?.[0]; if (f) uploadLhLogo(f); e.target.value = ''; }} />
                     </label>
                     <button disabled={newLhBusy || newLhLogoBusy} onClick={createLetterhead}
                       style={{ width: '100%', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 0', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      {newLhBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />} Add & use
+                      {newLhBusy ? <Spinner size={13} /> : <Check size={13} />} Add & use
                     </button>
                   </div>
                 )}
@@ -1793,7 +1794,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           <div style={{ position: 'relative' }}>
             <button onClick={() => setImportPopoverOpen(o => !o)} disabled={importing} title="Import Document"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: importing ? 0.6 : 1 }}>
-              {importing ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />} {importing ? 'Importing…' : 'Import'}
+              {importing ? <Spinner size={14} /> : <Upload size={14} />} {importing ? 'Importing…' : 'Import'}
             </button>
             {importPopoverOpen && (
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 }}>
@@ -1820,7 +1821,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         {kind === 'document' && !preview && (
           <button onClick={() => { setPreview(true); openPdfPreview(); }} disabled={pdfPreviewLoading}
             className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: pdfPreviewLoading ? 0.6 : 1 }}>
-            {pdfPreviewLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />} Preview & Send
+            {pdfPreviewLoading ? <Spinner size={14} /> : <Send size={14} />} Preview & Send
           </button>
         )}
         {kind === 'document' && preview && (
@@ -1831,7 +1832,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             </button>
             <button onClick={saveAsTemplate} disabled={savingTemplate} title="Save as Template"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: savingTemplate ? 0.6 : 1 }}>
-              {savingTemplate ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <FileStack size={14} />} Save as Template
+              {savingTemplate ? <Spinner size={14} /> : <FileStack size={14} />} Save as Template
             </button>
             <button onClick={() => doExport('pdf')} disabled={!!exporting} title="Export PDF"
               style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif', opacity: exporting ? 0.6 : 1 }}>
@@ -1874,7 +1875,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
         <div ref={previewBoxRef}
           style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 340, ...(previewFill || {}) }}>
           {pdfPreviewLoading ? (
-            <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
           ) : pdfPreviewUrl ? (
             <iframe title="Document Preview" src={pdfPreviewUrl} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, width: '100%', minHeight: 0 }} />
           ) : null}
@@ -1917,7 +1918,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 finally { setUnlocking(false); }
               }}
               style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {unlocking ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LockOpen size={13} />} Unlock to Edit
+              {unlocking ? <Spinner size={13} /> : <LockOpen size={13} />} Unlock to Edit
             </button>
           </div>
         )}
@@ -2086,7 +2087,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           )}
           <ToolbarBtn title="Find {{variables}} written on the page and turn them into real merge fields"
             disabled={detecting} onClick={detectVariables}>
-            {detecting ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Wand2 size={15} />}
+            {detecting ? <Spinner size={15} /> : <Wand2 size={15} />}
           </ToolbarBtn>
           {kind === 'template' && (
             <ToolbarBtn title="Template Fields - set the type of answer each variable takes"
@@ -2592,7 +2593,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
             </div>
             <div style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
               {!versions ? (
-                <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+                <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
               ) : versions.length === 0 ? (
                 <div style={{ padding: '20px 8px', color: 'var(--muted)', fontSize: 12.5 }}>No saved versions yet.</div>
               ) : versions.map((v, i) => (
@@ -2604,7 +2605,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   {i !== 0 && (
                     <button onClick={() => restoreVersion(v)} disabled={!!restoringId}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, opacity: restoringId ? 0.6 : 1 }}>
-                      {restoringId === v.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={12} />} Restore
+                      {restoringId === v.id ? <Spinner size={12} /> : <RotateCcw size={12} />} Restore
                     </button>
                   )}
                 </div>

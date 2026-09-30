@@ -26,7 +26,7 @@ import MyAvailability from './MyAvailability';
 // Below their own week, their team (Neil, Sep 23: "Shifts should show all
 // team shifts based on what team you are on as well as your own"): one
 // week grid per shift group the manager put them in (Shifts > Manage >
-// Presets & Groups - the same grouping bulk assignment and the BOD/EOD chat
+// Presets & Teams - the same grouping bulk assignment and the BOD/EOD chat
 // key on), every member a row, the person themself first, laid out like the
 // Teams Shifts schedule (TeamShiftGrid.jsx - photos, colored shift blocks,
 // open shifts, day notes). What a teammate's row carries - why they are off,
@@ -106,10 +106,14 @@ export default function MyShifts() {
     for (const s of data.scheduled || []) (placed[s.date] ||= []).push(s);
     const off = data.timeoff || [];
     const hol = {};
-    for (const h of data.holidays || []) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
+    // A list of {date, name}; an older API sent {date: {name}} - read both, so
+    // a holiday week can never crash the screen again (Sep 30).
+    const holList = Array.isArray(data.holidays) ? data.holidays
+      : Object.entries(data.holidays || {}).map(([date, h]) => ({ date, ...(h && typeof h === 'object' ? h : { name: String(h || '') }) }));
+    for (const h of holList) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
     // Day notes from the manager (Sep 29), e.g. "Inventory day".
     const dayNote = {};
-    for (const n of data.dayNotes || []) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
+    for (const n of (Array.isArray(data.dayNotes) ? data.dayNotes : [])) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
     return Array.from({ length: 7 }, (_, i) => {
       const d = addDays(weekStart, i);
       const key = dateKey(d);
@@ -294,7 +298,7 @@ export default function MyShifts() {
         <span>
           Shifts are set by your manager. Only shifts they have published appear here - ask them if something looks wrong.
           {data?.shift && ' Usual hours are your regular schedule, shown on days with no published shift.'}
-          {data && teams.length === 0 && ' Your team will show here once your manager adds you to a group.'}
+          {data && teams.length === 0 && ' Your team will show here once your manager adds you to a team.'}
         </span>
       </div>
     </div>

@@ -209,14 +209,10 @@ def _last_log(db: Session, email: str):
 
 
 def _leave_labeler(db: Session, recipient: str):
-    """r -> the time-off type as `recipient`'s briefing may name it. A
-    confidential request (Neil, Sep 29) names its type only to the people who
-    may see it - its requester and approvers (timeclock._TimeoffPrivacy) -
-    and reads plain "time off" to anyone else. Lazy import: the timeclock
-    router is heavy and daily_briefing is imported by the scheduler loop."""
-    from routers.timeclock import _TimeoffPrivacy, REDACTED_TYPE
-    priv = _TimeoffPrivacy(db, recipient)
-    return lambda r: r.type if priv.can_see(r) else REDACTED_TYPE
+    """r -> the time-off type as `recipient`'s briefing names it. A
+    confidential request (Neil, Sep 30) still shows its type to everyone -
+    only its note is private, and the briefing never carries notes."""
+    return lambda r: r.type or "time off"
 
 
 def _already_logged_today(db: Session, email: str, briefing_date: str) -> bool:
@@ -896,7 +892,7 @@ _SECTION_META = {
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
     "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
-    "pending":         ("Still to Do",                         "#b45309", "Still to do"),
+    "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light

@@ -25,6 +25,7 @@ import './style.css'
 import App from './App.jsx'
 import LoginPage from './views/LoginPage'
 import RootErrorBoundary from './components/RootErrorBoundary'
+import { Spinner } from './components/AsyncState'
 import DialogGuard from './components/DialogGuard'
 import { DialogHost } from './ui/dialog'
 import { installErrorReporter } from './lib/errorReporter'
@@ -81,11 +82,10 @@ function BootConnecting() {
       background: 'var(--wk-bg, #f6f7fb)', color: 'var(--wk-dim, #676879)',
       fontFamily: "'Figtree','Inter',system-ui,sans-serif" }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ width: 26, height: 26, margin: '0 auto 14px', borderRadius: '50%',
-          border: '3px solid #dfe3ec', borderTopColor: 'hsl(142 60% 35%)',
-          animation: 'nx-boot-spin 0.8s linear infinite' }} />
-        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Reconnecting…</div>
-        <style>{`@keyframes nx-boot-spin{to{transform:rotate(360deg)}}`}</style>
+        <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+          <Spinner size="page" label="Reconnecting" />
+          <div style={{ fontSize: 14, fontWeight: 600 }}>Reconnecting…</div>
+        </div>
       </div>
     </div>
   );

@@ -356,7 +356,8 @@ class ShiftAuditTests(unittest.TestCase):
         self.assertEqual(len(bells), 1)
         self.assertNotIn("Surgery", bells[0])
         self.assertNotIn("Reason", bells[0])
-        self.assertIn("confidential time off", bells[0])
+        # The type still shows (Neil, Sep 30: "time off medical", never the detail).
+        self.assertIn("sick", bells[0])
 
     # ── Holidays ─────────────────────────────────────────────────────────
     def test_holidays_for_the_grid_match_the_per_person_lookup(self):

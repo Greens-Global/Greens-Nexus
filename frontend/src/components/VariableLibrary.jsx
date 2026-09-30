@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoadingState } from './AsyncState';
 import { X, Search, Variable, Plus } from 'lucide-react';
 import { api } from '../api';
 import { tokenGroup, groupLabel, VARIABLE_DRAG_TYPE } from '../lib/mergeFieldTypes';
@@ -101,7 +102,7 @@ export default function VariableLibrary({ open, onClose, onInsert, localVariable
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px 16px' }}>
         {variables === null && (
-          <p style={{ fontSize: 12, color: 'var(--muted)', padding: 12 }}>Loading variables…</p>
+          <LoadingState compact label="Loading variables…" />
         )}
         {error && (
           <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', padding: 12 }}>{error}</p>

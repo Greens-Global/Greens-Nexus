@@ -10,11 +10,11 @@
 //     routers/hr.py, i.e. IT Admin+ or a People Editor grant, and no
 //     company-limited People access.
 import { useState, useSyncExternalStore, lazy, Suspense } from 'react';
-import { UserCog, DoorOpen, RefreshCw, Loader2, Wrench } from 'lucide-react';
+import { UserCog, DoorOpen, RefreshCw, Wrench } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 
 const ActAsPicker = lazy(() => import('../components/ActAsModal').then(m => ({ default: m.ActAsPicker })));
 
@@ -88,7 +88,6 @@ function ToolCard({ icon: Icon, title, sub, children, testId }) {
   );
 }
 
-const spin = { animation: 'spin 1s linear infinite' };
 
 export default function SettingsTools() {
   const { can, myGrantedModules, canAccessModule, hrScope, actingAs, startActAs, stopActAs } = useRole();
@@ -141,7 +140,7 @@ export default function SettingsTools() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <button className="primary-btn" onClick={runM365Sync} disabled={sync.busy}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {sync.busy ? <Loader2 size={14} style={spin} /> : <RefreshCw size={14} />}
+                  {sync.busy ? <Spinner size={14} /> : <RefreshCw size={14} />}
                   {sync.busy ? 'Syncing…' : 'Sync Now'}
                 </button>
                 {sync.busy && <span aria-live="polite" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sync.label}</span>}

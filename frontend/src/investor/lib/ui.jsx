@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isBypassing } from '../../lib/dialogGuard';
-import { Loader, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { statusColor, statusLabel } from './format';
 import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
+import { Spinner } from '../../components/AsyncState';
 
 // ── Status as colored text + small solid dot ─────────────────────────────────
 // This is the ONLY status treatment in the module - tinted chip/pill badges
@@ -30,7 +31,7 @@ export function ThinBar({ value = 0, max = 0, color = 'hsl(var(--color-blue))', 
 export function LoadingState({ label = 'Loading…' }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '48px 0', color: 'var(--muted)', fontSize: 13 }}>
-      <Loader size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> {label}
+      <Spinner size={15} /> {label}
     </div>
   );
 }

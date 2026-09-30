@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Folder, FileText, ChevronRight, Loader2, X, AlertTriangle } from 'lucide-react';
+import { Folder, FileText, ChevronRight, X, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
+import { Spinner } from './AsyncState';
 
 // ── Shared Egnyte file picker modal (Documents module) ───────────────────────
 // Used from both DocumentsBrowser.jsx's CreateDocModal and DocumentBuilder.jsx's
@@ -67,7 +68,7 @@ export default function EgnyteBrowser({ onPick, onClose }) {
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 8, minHeight: 200 }}>
           {loading && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
           )}
           {!loading && error && (
             <div style={{ padding: '30px 20px', textAlign: 'center' }}>
@@ -90,7 +91,7 @@ export default function EgnyteBrowser({ onPick, onClose }) {
                 <button key={f.path} onClick={() => f.supported && pickFile(f)} disabled={!f.supported || !!fetchingPath}
                   title={f.supported ? '' : 'Unsupported file type for import'}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '8px 10px', borderRadius: 8, cursor: f.supported ? 'pointer' : 'default', fontSize: 13, color: f.supported ? 'var(--ink)' : 'var(--muted)', opacity: f.supported ? 1 : 0.55 }}>
-                  {fetchingPath === f.path ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} /> : <FileText size={15} style={{ flexShrink: 0 }} />}
+                  {fetchingPath === f.path ? <Spinner size={15} style={{ flexShrink: 0 }} /> : <FileText size={15} style={{ flexShrink: 0 }} />}
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
                 </button>
               ))}

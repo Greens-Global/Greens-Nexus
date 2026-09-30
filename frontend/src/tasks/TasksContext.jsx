@@ -56,6 +56,7 @@ const CAMEL_TO_SNAKE = {
   companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles', serviceArea: 'service_area',
+  resolutionNote: 'resolution_note',
   // Project-template options (save-as-template / use / duplicate) - see
   // backend ProjectTemplateBody, UseTemplateBody and DuplicateProjectBody.
   includeTasks: 'include_tasks', includeSubtasks: 'include_subtasks',
@@ -95,6 +96,11 @@ export function TasksProvider({ children }) {
   const [intakeForms, setIntakeForms] = useState(seed?.intakeForms || []);
   const [changelog, setChangelog] = useState(seed?.changelog || []);
   const [loading, setLoading] = useState(!seed);
+  // Tickets are not part of the first paint (FIRST_PAINT), so `loading` says
+  // nothing about them. A ticket drawer opened from an email link waits on
+  // THIS - a fresh list has landed - before deciding the ticket is not there
+  // (TicketDrawer shows its "Opening your ticket" screen until then).
+  const [ticketsLoaded, setTicketsLoaded] = useState(false);
   const commentCache = useRef({});   // taskId -> comment[]
   // Last server timestamp a task fetch is known-good as of - see refetchTasks.
   // A ref, not state: read inside a stable useCallback, must not itself
@@ -108,7 +114,7 @@ export function TasksProvider({ children }) {
     applyRef.current = {
       tasks: (v) => { setTasks(v?.tasks || []); sinceRef.current = v?.serverTime || ''; },
       projects: setProjects, portfolios: setPortfolios, teams: setTeams,
-      tickets: setTickets, ticketComponents: setTicketComponents,
+      tickets: (v) => { setTickets(v); setTicketsLoaded(true); }, ticketComponents: setTicketComponents,
       savedViews: setSavedViews, ticketViews: setTicketViews, rules: setRules,
       templates: setTemplates, projectTemplates: setProjectTemplates,
       customFields: setCustomFields, customStatuses: setCustomStatuses,
@@ -493,7 +499,7 @@ export function TasksProvider({ children }) {
   );
 
   const value = {
-    loading, myEmail, nameOf,
+    loading, ticketsLoaded, myEmail, nameOf,
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
     projectTemplates,
     customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,

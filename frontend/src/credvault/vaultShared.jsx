@@ -2,6 +2,7 @@
    1:1 port of the standalone credential-vault-dev app's components, translated
    from Tailwind to the Nexus inline-style idiom + the scoped credvault.css. */
 import React, { useState, useRef, useMemo, useEffect } from "react";
+import { LoadingState } from '../components/AsyncState';
 import {
   ShieldCheck, Eye, EyeOff, Copy, Check, X, RefreshCw, Users,
   Building2, Calculator, HardHat, Landmark, Server, Activity, Lock,
@@ -387,7 +388,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify your identi
   if (!channel) return (
     <Modal onClose={onClose}>
       <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title={title} subtitle={subtitle} />
-      {!targets ? <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Loading…</div> : (
+      {!targets ? <LoadingState compact /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <button onClick={() => sendCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
             <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />

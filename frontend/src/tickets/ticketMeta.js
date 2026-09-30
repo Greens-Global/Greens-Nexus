@@ -13,17 +13,20 @@ export const today = () => new Date().toISOString().slice(0, 10);
 // picker at intake. With six types on offer a requester needs to be told the
 // difference in the words they would use themselves, not left to infer it from
 // a label - that is the whole job of putting six types in front of them.
+// Hints were rewritten for the five intake types (Neil, Sep 30: "you and I
+// know what a bug is, incident, service, feature. Most people do not") - they
+// show under each option IN the Type dropdown, not just once one is picked.
 export const TICKET_TYPE_META = {
-  bug:             { label: 'Bug Report',      icon: Bug,           color: NX.red,    hint: 'Something works, but it gives the wrong result.' },
-  incident:        { label: 'Incident',        icon: AlertOctagon,  color: NX.amber,  hint: 'Something has stopped working and you cannot carry on.' },
+  bug:             { label: 'Bug Report',      icon: Bug,           color: NX.red,    hint: 'An app or Nexus works, but does something wrong - a wrong number, a button that does nothing.' },
+  incident:        { label: 'Incident',        icon: AlertOctagon,  color: NX.amber,  hint: 'Something is broken or stopped working - a system, a device, or something at a building.' },
   service_request: { label: 'Service Request', icon: Wrench,        color: NX.blue,   hint: 'You need something set up, installed or provided.' },
-  feature_request: { label: 'Feature Request', icon: Lightbulb,     color: NX.green },
+  feature_request: { label: 'Feature Request', icon: Lightbulb,     color: NX.green,  hint: 'An idea for something new, or a way to make something work better.' },
   task:            { label: 'Task',            icon: ClipboardList, color: NX.purple },
   question:        { label: 'Question',        icon: HelpCircle,    color: NX.dim },
   change_request:  { label: 'Change / Enhancement', icon: RefreshCw, color: NX.amber, hint: 'Something already works - you want it changed or improved.' },
-  access_request:  { label: 'Access Request',  icon: KeyRound,      color: NX.teal,   hint: 'You need an account, a permission, or access removed.' },
+  access_request:  { label: 'Access Request',  icon: KeyRound,      color: NX.teal,   hint: 'You need an account or a permission added, changed or removed.' },
   request:         { label: 'Request',         icon: Ticket,        color: NX.blue },
-  other:           { label: 'Other',           icon: Ticket,        color: NX.dim,    hint: 'Not sure which of the above - we will sort it out.' },
+  other:           { label: 'Other',           icon: Ticket,        color: NX.dim,    hint: 'None of these fit - the team will sort it out.' },
 };
 // Selectable types at intake, in the order a requester sees them. Everything
 // NOT in this list still lives in TICKET_TYPE_META/TYPE_FIELDS so tickets
@@ -47,7 +50,15 @@ export const TICKET_TYPE_META = {
 // ticket. `task` in particular asked for assignee/project/sprint/estimate,
 // duplicating the Task module and contradicting triage routing (tickets arrive
 // unassigned). Escalate a ticket into a task instead.
-export const TICKET_TYPE_ORDER = ['incident', 'bug', 'service_request', 'access_request', 'change_request', 'other'];
+//
+// ── Five (Neil, Sep 30 2026): "less is more" ─────────────────────────────────
+// Incident first - it is about half of all tickets - then Bug Report, Feature
+// Request, Access Request and Other. Service Request and Change / Enhancement
+// are out of intake: nobody could say how a service request differs from an
+// incident, and a feature request already covers "make it better". Both stay
+// defined above so tickets already raised as one keep rendering. An admin can
+// still add a type back in Settings, but these five are the default.
+export const TICKET_TYPE_ORDER = ['incident', 'bug', 'feature_request', 'access_request', 'other'];
 
 // Screen recording is for showing a problem happening - a bug or an incident.
 // The rest are asks, not something to demonstrate on screen, so the Record
@@ -160,13 +171,17 @@ export const TYPE_FIELDS = {
     // already captured one still show it.
     { key: 'approver', label: 'Approver', type: 'person', retired: true },
   ],
+  // Back in intake (Neil, Sep 30) and rewritten the same way as the rest: two
+  // plain questions. "Module" is what "What do you need help with?" already
+  // asks, and the business-value / target-users set was a product manager's
+  // template, not something a requester fills in honestly. Keys kept.
   feature_request: [
-    { key: 'module', label: 'Module', type: 'text', req: true },
-    { key: 'currentProblem', label: 'Current Problem', type: 'textarea', full: true, req: true },
-    { key: 'proposedSolution', label: 'Proposed Solution', type: 'textarea', full: true, req: true },
-    { key: 'businessValue', label: 'Business Value', type: 'radio', options: ['Saves Time', 'Reduces Errors', 'Automation', 'Compliance', 'Reporting'], req: true },
-    { key: 'expectedBenefit', label: 'Expected Benefit', type: 'textarea', full: true },
-    { key: 'targetUsers', label: 'Target Users', type: 'multiperson' },
+    { key: 'module', label: 'Module', type: 'text', req: true, retired: true },
+    { key: 'currentProblem', label: 'What is hard or missing today?', type: 'textarea', full: true, req: true },
+    { key: 'proposedSolution', label: 'What would you like it to do?', type: 'textarea', full: true },
+    { key: 'businessValue', label: 'Business Value', type: 'radio', options: ['Saves Time', 'Reduces Errors', 'Automation', 'Compliance', 'Reporting'], req: true, retired: true },
+    { key: 'expectedBenefit', label: 'Expected Benefit', type: 'textarea', full: true, retired: true },
+    { key: 'targetUsers', label: 'Target Users', type: 'multiperson', retired: true },
   ],
   task: [
     { key: 'project', label: 'Project', type: 'project', req: true },
@@ -284,19 +299,20 @@ export const LINK_TYPES = [
 ];
 export const linkTypeLabel = (k) => (LINK_TYPES.find((l) => l.key === k) || {}).label || k;
 
-// ── Ticket status metadata (sentence-case labels; NX colors) ─────────────────
+// ── Ticket status metadata (Title Case labels - Neil, Sep 30: "In Progress",
+// "On Hold", never "In progress"; NX colors) ────────────────────────────────
 export const TICKET_STATUS_META = {
   new:         { label: 'New',         color: NX.blue,   tint: 'rgba(37,99,235,0.15)' },
   open:        { label: 'Open',        color: NX.purple, tint: 'rgba(124,58,237,0.15)' },
-  in_progress: { label: 'In progress', color: NX.amber,  tint: 'rgba(217,119,6,0.16)' },
+  in_progress: { label: 'In Progress', color: NX.amber,  tint: 'rgba(217,119,6,0.16)' },
   // Waiting states are separate from On hold because they answer "waiting on
   // WHOM", and that is the difference between a clock that should keep running
   // and one that should not: SLA pauses while the ball is in someone else's
   // court. Rolling all three into On hold hid which tickets the team could
   // actually move.
-  waiting_user:   { label: 'Waiting for user',   color: NX.blue, tint: 'rgba(37,99,235,0.12)' },
-  waiting_vendor: { label: 'Waiting for vendor', color: NX.dim,  tint: NX.border2 },
-  on_hold:     { label: 'On hold',     color: NX.dim,    tint: NX.border2 },
+  waiting_user:   { label: 'Waiting for User',   color: NX.blue, tint: 'rgba(37,99,235,0.12)' },
+  waiting_vendor: { label: 'Waiting for Vendor', color: NX.dim,  tint: NX.border2 },
+  on_hold:     { label: 'On Hold',     color: NX.dim,    tint: NX.border2 },
   resolved:    { label: 'Resolved',    color: NX.green,  tint: 'rgba(22,163,74,0.15)' },
   closed:      { label: 'Closed',      color: NX.faint,  tint: NX.border2 },
   reopened:    { label: 'Reopened',    color: NX.red,    tint: 'rgba(220,38,38,0.15)' },
@@ -324,8 +340,8 @@ export function slaState(t) {
   return 'ok';
 }
 export const SLA_META = {
-  breached: { label: 'SLA breached', color: NX.red, tint: 'rgba(220,38,38,0.14)', Icon: ShieldAlert },
-  at_risk:  { label: 'Due soon',     color: NX.amber, tint: 'rgba(217,119,6,0.16)', Icon: Timer },
+  breached: { label: 'SLA Breached', color: NX.red, tint: 'rgba(220,38,38,0.14)', Icon: ShieldAlert },
+  at_risk:  { label: 'Due Soon',     color: NX.amber, tint: 'rgba(217,119,6,0.16)', Icon: Timer },
 };
 
 // ── Comment staleness - a SEPARATE signal from the SLA due date: "nobody has
@@ -346,7 +362,7 @@ export function commentStale(t) {
 // this is "nobody's said anything," not "the due date passed"; the two must
 // never read as the same signal.
 export const COMMENT_STALE_META = {
-  label: 'Needs a comment', color: NX.purple, tint: 'rgba(147,51,234,0.14)', Icon: MessageSquareWarning,
+  label: 'Needs a Comment', color: NX.purple, tint: 'rgba(147,51,234,0.14)', Icon: MessageSquareWarning,
 };
 
 // ── Ticket numbers ───────────────────────────────────────────────────────────
@@ -361,11 +377,18 @@ export const normalizeCode = (code) => {
   const digits = String(code || '').replace(/\D/g, '');
   return digits ? digits.padStart(TICKET_CODE_DIGITS, '0') : '';
 };
+// The number as a person reads it (Oct 1: "#00027" is just ticket 27): the
+// zero padding stays in storage, where it keeps codes sorting as text - sort
+// on normalizeCode, never on these display strings.
+export const displayCode = (code) => {
+  const digits = String(code || '').replace(/\D/g, '');
+  return digits ? String(Number(digits)) : '';
+};
 // Blank stays blank rather than becoming "Ticket #" - a ticket with no number
 // should look like it has none, not like it has an empty one.
-export const ticketNo = (code) => (normalizeCode(code) ? `Ticket #${normalizeCode(code)}` : '');
-// Compact form for tight spots (chips, table cells, option lists): "#000001".
-export const ticketNoShort = (code) => (normalizeCode(code) ? `#${normalizeCode(code)}` : '');
+export const ticketNo = (code) => (displayCode(code) ? `Ticket #${displayCode(code)}` : '');
+// Compact form for tight spots (chips, table cells, option lists): "#1".
+export const ticketNoShort = (code) => (displayCode(code) ? `#${displayCode(code)}` : '');
 
 // ── Approvals ────────────────────────────────────────────────────────────────
 // Types whose admin switch says "Requires Approval" (the taxonomy config's
@@ -385,7 +408,7 @@ export const APPROVER_FIELD_BY_TYPE = {
 };
 
 export const APPROVAL_META = {
-  pending:  { label: 'Awaiting approval', color: NX.amber, tint: 'rgba(217,119,6,0.16)' },
+  pending:  { label: 'Awaiting Approval', color: NX.amber, tint: 'rgba(217,119,6,0.16)' },
   approved: { label: 'Approved',          color: NX.green, tint: 'rgba(22,163,74,0.15)' },
   rejected: { label: 'Rejected',          color: NX.red,   tint: 'rgba(220,38,38,0.15)' },
 };
@@ -428,6 +451,8 @@ export const SERVICE_AREAS = [
   { key: 'security',   label: 'Security & Cameras' },
   { key: 'web',        label: 'Website & Marketing' },
   { key: 'hardware',   label: 'Hardware & Remote Help' },
+  // The maintenance help topics (Sep 30) - lights, plumbing, doors, roofs.
+  { key: 'facilities', label: 'Buildings & Maintenance' },
   { key: 'general',    label: 'General' },
 ];
 export const serviceAreaLabel = (k) => (SERVICE_AREAS.find((a) => a.key === k) || {}).label || '';
@@ -458,7 +483,9 @@ export const serviceAreaLabel = (k) => (SERVICE_AREAS.find((a) => a.key === k) |
 //
 // `optionsFrom: 'sites'` is resolved at render from the work-site list
 // (/ticket-sites) - a typed site cannot be filtered, grouped or joined.
-const PLACE = ['incident'];          // where is the broken thing - only when something IS broken
+const PLACE = ['incident'];
+// Every type there is - for the questions that apply whatever the type.
+const ALL_TYPES = Object.keys(TICKET_TYPE_META);          // where is the broken thing - only when something IS broken
 export const SERVICE_FIELDS = {
   email: [
     // Whose mailbox is misbehaving. Not asked on a service or access request:
@@ -494,10 +521,20 @@ export const SERVICE_FIELDS = {
   web: [
     { key: 'svc_url', label: 'Which page?', type: 'text', full: true, placeholder: 'https://' },
   ],
+  // A maintenance issue is always somewhere, whatever its type - "my light is
+  // out" is useless to the crew without the site (Neil, Sep 30: "think that
+  // this is actually intended mostly for maintenance"). So unlike the
+  // incident-only PLACE questions above, these ask on every type, Other too.
+  facilities: [
+    { key: 'svc_facility', label: 'Which site?', type: 'select', optionsFrom: 'sites', req: true, types: ALL_TYPES },
+    { key: 'svc_unit', label: 'Where exactly? (unit, office, room)', type: 'text', types: ALL_TYPES },
+  ],
 };
 
 // Every intake type a service field applies to when it does not name its own.
-const SERVICE_DEFAULT_TYPES = TICKET_TYPE_ORDER.filter((t) => t !== 'other');
+// Every DEFINED type, not just the ones intake offers today: a Service Request
+// raised before it left intake (Sep 30) still reads back its area answers.
+const SERVICE_DEFAULT_TYPES = Object.keys(TICKET_TYPE_META).filter((t) => t !== 'other');
 
 // Does this service question apply to this ticket type?
 export const serviceFieldApplies = (f, type) => (f.types || SERVICE_DEFAULT_TYPES).includes(type);
@@ -524,3 +561,38 @@ export const withDynamicOptions = (fields, { sites = [] } = {}) => fields.map((f
   const options = sites.map((s) => s.name).filter(Boolean);
   return { ...f, options, req: f.req && options.length > 0 };
 });
+
+
+// ── "What do you need help with?" ───────────────────────────────────────────
+// The second intake question, and its options depend on the department picked
+// first (Neil, Sep 30: IT gets IT things, Construction gets maintenance things -
+// "construction and maintenance doesn't need to scroll through all these admin
+// applications"). The groups come from the server's ticket taxonomy config
+// (ticket_taxonomy.DEFAULT_HELP_TOPICS - one list, so the server derives the
+// same service area from a topic that this form previews) and are filled into
+// HELP_TOPICS in place by ticketConfig.js, like the rest of the taxonomy.
+//
+// A department with no group gets a short typed answer instead of a list.
+// "Other" is always offered, and always demands that short answer: picking it
+// used to let a ticket through saying nothing about what it was for.
+export const HELP_TOPICS = [];
+export const OTHER_TOPIC = '__other';
+export const TOPIC_MAX_LEN = 50;
+
+/** The help-topic group for a department name, or null. */
+export function helpGroupFor(deptName) {
+  const d = (deptName || '').trim().toLowerCase();
+  if (!d) return null;
+  return HELP_TOPICS.find((g) => (g.departments || []).includes(d)) || null;
+}
+
+/** The service area a picked topic files under ("" = not a curated topic). */
+export function topicArea(name) {
+  const n = (name || '').trim().toLowerCase();
+  if (!n) return '';
+  for (const g of HELP_TOPICS) {
+    const hit = (g.topics || []).find((tp) => (tp.name || '').trim().toLowerCase() === n);
+    if (hit) return hit.area || 'general';
+  }
+  return '';
+}

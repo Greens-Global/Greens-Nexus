@@ -24,7 +24,9 @@
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
+import DragList from './DragList';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
@@ -68,7 +70,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // their specific department. Lives here (not People -> Companies) so setting
 // it doesn't require an HR module grant - same reasoning as /ticket-companies
 // and /ticket-departments existing as their own read endpoints.
-function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete, defaultOpen = false }) {
+function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete, onReorder, defaultOpen = false }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   // Collapsed by default - a company with a lot of departments (a real one
@@ -126,8 +128,14 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
       )}
       {(hasDepts && !open) ? null : (
         <>
-          {depts.map((d) => (
-            <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          {/* Drag the grip to set the order the Submit a Ticket dropdown lists
+              them in (Neil, Sep 30: IT first, then Construction, Admin,
+              Operations). Saved the moment it is dropped. */}
+          <DragList items={depts} getKey={(d) => d.id} label="department" gap={6}
+            onReorder={(next) => onReorder(companyId, next).catch((e) => alert(e.message || 'Could not reorder departments.'))}
+            renderItem={(d, handle) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {handle}
               {editId === d.id ? (
                 <input autoFocus value={editName} maxLength={40}
                   onChange={(e) => setEditName(e.target.value)}
@@ -153,7 +161,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
                 <X size={13} />
               </button>
             </div>
-          ))}
+          )} />
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40}
               onKeyDown={(e) => e.key === 'Enter' && add()}
@@ -257,7 +265,7 @@ export default function TicketDeskSettings() {
     );
   }
   if (agents === null || byCompany === null || companies === null || depts === null) {
-    return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+    return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
   }
 
   const setCompanyRoster = (companyId, next) => setByCompany((b) => ({ ...b, [companyId]: next }));
@@ -274,6 +282,11 @@ export default function TicketDeskSettings() {
   const renameDept = (deptId, name) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.renameTicketDepartment(deptId, name).then((rows) => mergeDepts(companyId, rows));
+  };
+  // Shown in the new order at once; the server's list (same order) replaces it.
+  const reorderDepts = (companyId, next) => {
+    mergeDepts(companyId, next);
+    return api.reorderTicketDepartments(companyId, next.map((d) => d.id)).then((rows) => mergeDepts(companyId, rows));
   };
   const deleteDept = (deptId) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
@@ -347,7 +360,7 @@ export default function TicketDeskSettings() {
     >
       <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
         depts={depts.filter((d) => d.companyId === company.id)}
-        onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} />
+        onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} onReorder={reorderDepts} />
     </DeskRoster>
   ) : (
     <DeskRoster

@@ -19,10 +19,11 @@ import {
   ChevronDown, ChevronRight, Building2, Users, Clock, FileSignature,
   FolderOpen, BookOpen, KeyRound, Ticket, CheckSquare, HardHat, Package,
   Home, Landmark, FlaskConical, Shield, Link2, Megaphone, Settings2, Archive,
-  Boxes, Loader2,
+  Boxes,
 } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT } from '../tasks/theme';
+import { Spinner, LoadingState } from '../components/AsyncState';
 
 const ICONS = {
   Globe, Server, Database: DatabaseIcon, Plug,
@@ -38,7 +39,7 @@ const IconFor = ({ name, size = 16, style }) => {
 const card = { background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12 };
 
 function ArchitectureTab({ info }) {
-  if (!info) return <div style={{ padding: '30px 0', textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading…</div>;
+  if (!info) return <LoadingState />;
   return (
     <>
       <p style={{ fontSize: 12.5, color: NX.dim, margin: '0 0 16px' }}>{info.intro}</p>
@@ -154,7 +155,7 @@ function DomainCard({ domain, query }) {
 
 function DataDictionaryTab({ dict }) {
   const [query, setQuery] = useState('');
-  if (!dict) return <div style={{ padding: '30px 0', textAlign: 'center', color: NX.faint, fontSize: 13 }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+  if (!dict) return <div style={{ padding: '30px 0', textAlign: 'center', color: NX.faint, fontSize: 13 }}><Spinner size={16} /></div>;
   return (
     <>
       <p style={{ fontSize: 12.5, color: NX.dim, margin: '0 0 12px' }}>

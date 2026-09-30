@@ -6,7 +6,7 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play, MousePointer2, Check } from 'lucide-react';
+import { Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -24,7 +24,7 @@ import {
 } from './recordingDraft';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
-import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, SearchSelect, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
+import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
@@ -36,17 +36,19 @@ import {
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
+  OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
 } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
+import TicketOpening from './TicketOpening';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -76,7 +78,7 @@ const TICKET_COLUMNS = [
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
   // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'State', width: 180, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'state', label: 'Status', width: 180, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'priority', label: 'Priority', width: 180, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
   { key: 'due', label: 'Due Date', width: 110, sort: (t) => t.slaDueOn || '' },
   { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
@@ -84,25 +86,14 @@ const TICKET_COLUMNS = [
   { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
-// ── Applications ─────────────────────────────────────────────────────────────
-// The app a ticket is about comes from the External Links directory - the
-// rebuilt start.greensglobal.com, which already knows which departments use
-// which app and (since this change) which service area each one belongs to.
-// Read live: a hardcoded copy would go stale the first time someone adds a
-// link in Manage, with nothing to signal that it had.
-const OTHER_APP = 'Other / not listed';
-
-function useTicketApps() {
-  const [apps, setApps] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    api.getExternalLinks()
-      .then((rows) => { if (alive) setApps(Array.isArray(rows) ? rows : []); })
-      .catch(() => { if (alive) setApps([]); });
-    return () => { alive = false; };
-  }, []);
-  return apps;
-}
+// ── What do you need help with? ──────────────────────────────────────────────
+// Replaced the Application picker (every External Links app, grouped by the
+// department that used it) on Neil's walkthrough, Sep 30: "these are not core
+// applications within the company... if I have a physical maintenance issue,
+// why am I scrolling through a big list of random items". The options now come
+// from the department picked above it (HELP_TOPICS, see ticketMeta.js), and the
+// answer is still stored on the ticket's `application` - so reports, CSV and
+// every ticket raised before this keep their value.
 
 // Work-site names for the Facility / Site service questions.
 function useTicketSites() {
@@ -117,54 +108,60 @@ function useTicketSites() {
   return sites;
 }
 
-// The service area an app belongs to, for the client-side preview of what the
-// server will derive on save. "" for no app; an app the directory doesn't know
-// (including "Other / not listed") is General - mirrors service_area_for in
-// backend/routers/tickets.py.
-function areaForApp(apps, application) {
-  const name = (application || '').trim();
+// The service area a ticket about this topic files under, for the client-side
+// preview of what the server derives on save (service_area_for in
+// backend/routers/tickets.py): a curated topic's own area, and General for
+// anything typed.
+function areaForTopic(topic) {
+  const name = (topic || '').trim();
   if (!name) return '';
-  const row = apps.find((a) => (a.name || '').toLowerCase() === name.toLowerCase());
-  if (!row) return 'general';
-  return row.service_area || 'general';
+  return topicArea(name) || 'general';
 }
 
-// Searchable app picker, grouped by whether the department that was picked in
-// step 1 actually uses the app.
-//
-// Grouped, never filtered. A hard department filter is a dead end - the app you
-// need not being on your department's list would leave you unable to file the
-// ticket you came to file - and the two department lists are not even the same
-// namespace: External Links carries free-text department strings, a ticket
-// routes on an HrDepartment id. So they are matched by name, the matches float
-// to the top under their own caption, and everything else stays reachable
-// below. No name match just means no grouping, not an empty list.
-function ApplicationSelect({ apps, value, onChange, deptName, invalid }) {
-  const options = useMemo(() => {
-    const dept = (deptName || '').trim().toLowerCase();
-    const named = apps.map((a) => a.name).filter(Boolean);
-    const uses = (a) => dept && (a.departments || []).some((d) => String(d).trim().toLowerCase() === dept);
-    const mine = dept ? apps.filter(uses).map((a) => a.name).filter(Boolean) : [];
-    const mineSet = new Set(mine);
-    const rest = named.filter((n) => !mineSet.has(n));
-    const byName = (a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' });
-    const opt = (n) => ({ id: n, label: n });
-    return [
-      ...(mine.length ? [{ id: '__hdr_mine', label: `Used by ${deptName}`, header: true },
-        ...mine.slice().sort(byName).map(opt)] : []),
-      ...(rest.length ? [...(mine.length ? [{ id: '__hdr_all', label: 'All applications', header: true }] : []),
-        ...rest.slice().sort(byName).map(opt)] : []),
-      { id: '__hdr_other', label: 'Not on the list', header: true },
-      opt(OTHER_APP),
-    ];
-  }, [apps, deptName]);
+// Is `value` one of this department's listed topics? (case-insensitive)
+function listedTopic(group, value) {
+  const v = (value || '').trim().toLowerCase();
+  return v ? (group?.topics || []).find((tp) => (tp.name || '').trim().toLowerCase() === v) : null;
+}
+
+// The picker plus, for "Other" (or a department with no list), the short typed
+// answer it requires - max TOPIC_MAX_LEN characters, a name for the thing
+// rather than a second description (Neil: "it cannot be like a huge long
+// sentence... max 50 characters").
+function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false }) {
+  const group = helpGroupFor(deptName);
+  const listed = listedTopic(group, value);
+  // "Other" picked but nothing typed yet is a real state the value alone
+  // cannot express ("" also means "nothing picked").
+  const [otherPicked, setOtherPicked] = useState(!!(value && !listed));
+  useEffect(() => { if (listed) setOtherPicked(false); }, [listed]);
+  useEffect(() => { if (value && !listed) setOtherPicked(true); }, [value, listed]);
+  const showText = !group || otherPicked;
+  const textInput = (
+    <div style={{ position: 'relative' }}>
+      <input value={listed ? '' : (value || '')} maxLength={TOPIC_MAX_LEN} disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={group ? 'Tell us what it is, in a few words' : 'e.g. Front gate keypad, Outlook, Payroll report'}
+        style={{ ...inputStyle, paddingRight: 52, ...(invalid ? { borderColor: NX.red } : null) }} />
+      <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: NX.faint, pointerEvents: 'none' }}>
+        {(listed ? 0 : (value || '').length)}/{TOPIC_MAX_LEN}
+      </span>
+    </div>
+  );
+  if (!group) return textInput;
   return (
-    <SearchSelect
-      value={value || ''} options={options} onPick={onChange}
-      placeholder="Select application" searchPlaceholder="Search applications…"
-      emptyText="No applications in the directory yet."
-      buttonStyle={{ ...inputStyle, width: '100%', cursor: 'pointer', justifyContent: 'space-between',
-        ...(invalid ? { borderColor: NX.red } : null) }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <TicketSelect value={listed ? listed.name : (otherPicked ? OTHER_TOPIC : '')} disabled={disabled}
+        invalid={invalid && !otherPicked}
+        placeholder="Select one" searchPlaceholder="Search…"
+        options={[['', 'Select one'], ...group.topics.map((tp) => [tp.name, tp.name]), [OTHER_TOPIC, 'Other']]}
+        onChange={(v) => {
+          if (v === OTHER_TOPIC) { setOtherPicked(true); onChange(''); return; }
+          setOtherPicked(false);
+          onChange(v);
+        }} />
+      {showText && textInput}
+    </div>
   );
 }
 
@@ -188,6 +185,10 @@ const GROUP_BY_OPTIONS = [
 const statusOptions = () => TICKET_STATUS_ORDER.map((s) => [s, TICKET_STATUS_META[s].label]);
 const priorityOptions = () => PRIORITY_ORDER.map((p) => [p, PRIORITY_META[p].label]);
 const typeOptions = () => TICKET_TYPE_ORDER.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
+// Same list, each with its plain-English definition under it in the open
+// dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
+// ticket) actually picks one.
+const typeIntakeOptions = () => TICKET_TYPE_ORDER.map((ty) => ({ id: ty, label: TICKET_TYPE_META[ty].label, desc: TICKET_TYPE_META[ty].hint || '' }));
 const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA breached'], ['at_risk', 'Due soon'], ['ok', 'On track']];
 // Open/Unassigned are buckets, not statuses - they must be listed or the
 // control renders blank when a summary tile selects one.
@@ -204,7 +205,7 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Application', 'Service Area', 'Company', 'Department', 'State', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Description'];
+  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
     t.application || '', serviceAreaLabel(t.serviceArea) || '',
@@ -212,7 +213,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
-    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.description || '',
+    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', t.description || '',
   ]);
   const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -731,7 +732,25 @@ export default function TicketsView() {
   const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selected.has(id));
   const someSelected = !allSelected && allVisibleIds.some((id) => selected.has(id));
   const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(allVisibleIds));
-  const bulkPatch = async (patch) => { await Promise.all(selIds.map((id) => updateTicket(id, patch).catch(() => {}))); clearSel(); };
+  // Resolving needs a written resolution now (Neil, Sep 30), so every quick
+  // path into Resolved/Closed - the row's status cell, a board drag, the bulk
+  // bar - opens the Resolve dialog instead of saving straight away.
+  const [resolveReq, setResolveReq] = useState(null);   // { ids, status }
+  const guardedUpdate = (id, patch) => {
+    const tk = tickets.find((x) => x.id === id);
+    if (patch?.status && needsResolution(tk, patch.status)) {
+      setResolveReq({ ids: [id], status: patch.status });
+      return Promise.resolve(tk);
+    }
+    return updateTicket(id, patch);
+  };
+  const bulkPatch = async (patch) => {
+    if (patch?.status && selIds.some((id) => needsResolution(tickets.find((x) => x.id === id), patch.status))) {
+      setResolveReq({ ids: selIds, status: patch.status });
+      return;
+    }
+    await Promise.all(selIds.map((id) => updateTicket(id, patch).catch(() => {}))); clearSel();
+  };
   const bulkDelete = async () => {
     if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
     await Promise.all(selIds.map((id) => deleteTicket(id).catch(() => {}))); clearSel();
@@ -892,7 +911,7 @@ export default function TicketsView() {
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
-          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => updateTicket(id, { status }).catch(() => {})} />
+          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => guardedUpdate(id, { status }).catch(() => {})} />
         ) : visible.length === 0 ? (
           <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
             hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. Choose ${isMobile ? 'Create' : 'New Ticket'} to report a problem or ask for help.`} />
@@ -907,7 +926,7 @@ export default function TicketsView() {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -927,7 +946,7 @@ export default function TicketsView() {
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -969,7 +988,7 @@ export default function TicketsView() {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -991,7 +1010,7 @@ export default function TicketsView() {
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={updateTicket} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -1020,7 +1039,7 @@ export default function TicketsView() {
           <TicketSelect command placeholder="Assign to…" searchPlaceholder="Search people…"
             options={[['', 'Unassign'], ...people.map((p) => [p.email, p.name || p.email])]}
             style={{ ...compactSelStyle, maxWidth: 140 }} onChange={(v) => bulkPatch({ assigneeId: v })} />
-          <button style={compactBtnStyle} onClick={() => bulkPatch({ status: 'resolved', resolution: 'fixed' })}><CheckCircle2 size={13} /> Resolve</button>
+          <button style={compactBtnStyle} onClick={() => bulkPatch({ status: 'resolved' })}><CheckCircle2 size={13} /> Resolve</button>
           <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>
           <button style={{ ...compactBtnStyle, background: 'transparent', padding: 6 }} onClick={clearSel} title="Clear selection"><X size={14} /></button>
         </div>
@@ -1048,6 +1067,19 @@ export default function TicketsView() {
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
       {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
+      {resolveReq && (
+        <TicketActionDialog mode="resolve" targetStatus={resolveReq.status}
+          ticket={resolveReq.ids.length === 1 ? tickets.find((x) => x.id === resolveReq.ids[0]) : null}
+          onSubmit={async (p) => {
+            // Bulk: one resolution for all of them, each still refused
+            // server-side on its own if something is wrong with it.
+            const results = await Promise.allSettled(resolveReq.ids.map((id) => updateTicket(id, p)));
+            const failed = results.filter((r) => r.status === 'rejected');
+            if (resolveReq.ids.length > 1) clearSel();
+            if (failed.length) throw new Error(failed[0].reason?.message || 'Could not resolve.');
+          }}
+          onClose={() => setResolveReq(null)} />
+      )}
       {tour && (
         <GuidedTour
           steps={buildTicketTourSteps({ setScope, setView, isMobile })}
@@ -1485,7 +1517,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
               display: 'inline-flex', alignItems: 'center', gap: 8,
             }}>
-            {recording ? <Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={17} />}
+            {recording ? <Spinner size="inline" /> : <CircleDot size={17} />}
             {recording ? 'Recording…' : 'Record screen'}
           </button>
           <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
@@ -1559,7 +1591,6 @@ export function CreateTicketModal({ onClose }) {
     requesterId: myEmail || null, companyId: '', hrDepartmentId: '', application: '',
   });
   const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
-  const [step, setStep] = useState(seed ? 2 : 1);        // 1 = routing (company/dept/type), 2 = details
   const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1568,14 +1599,13 @@ export function CreateTicketModal({ onClose }) {
   // tickets that already captured one still render it, but nobody is asked
   // for them again.
   const typeFieldDefs = useMemo(() => intakeFields(form.type), [form.type]);
-  // The application directory and the work-site list the service questions use.
-  const apps = useTicketApps();
+  // The work-site list the Which site? / Which facility? questions use.
   const sites = useTicketSites();
   // Derived, not asked. The server derives it again on save from the same
-  // mapping - this copy only lets step 2 say which questions it is about to ask
-  // and why, so the requester is never made to classify their own problem.
-  const serviceArea = useMemo(() => areaForApp(apps, form.application), [apps, form.application]);
-  // Driven by BOTH the application's service area and the ticket type: "which
+  // topic list - this copy only lets the form ask the follow-up questions that
+  // area needs, so the requester is never made to classify their own problem.
+  const serviceArea = useMemo(() => areaForTopic(form.application), [form.application]);
+  // Driven by BOTH the topic's service area and the ticket type: "which
   // facility?" is the right question for a camera that has stopped working and
   // noise on a request to reword a report. See SERVICE_FIELDS' `types`.
   const svcFieldDefs = useMemo(
@@ -1583,12 +1613,10 @@ export function CreateTicketModal({ onClose }) {
     [serviceArea, form.type, sites]);
   // Company field on intake (Sep 19, Pranshu: "End user don't have the
   // ability to choose company... admin have the control to turn on/off the
-  // company field"). Off (the default): unchanged from before this setting
-  // existed - no picker, departments come pre-scoped to the requester's own
-  // company. On: `enabledCompanies` is the admin-picked subset a requester
-  // may choose from - a picker only actually shows when there's a real
-  // choice to make (2+); exactly one auto-fills silently, same "nothing to
-  // choose from" reasoning the department/application fields already use.
+  // company field"). Off (the default): no picker, departments come
+  // pre-scoped to the requester's own company. On: `enabledCompanies` is the
+  // admin-picked subset a requester may choose from - a picker only shows
+  // when there's a real choice to make (2+); exactly one auto-fills silently.
   const enabledCompanies = COMPANY_FIELD.enabled
     ? companies.filter((c) => COMPANY_FIELD.companyIds.includes(c.id)) : [];
   const showCompanyPicker = enabledCompanies.length > 1;
@@ -1599,49 +1627,33 @@ export function CreateTicketModal({ onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [COMPANY_FIELD.enabled, enabledCompanies.length && enabledCompanies[0]?.id]);
   // Departments narrow to whichever company is in play: the requester's own
-  // (the field is off, or on with nothing picked yet) or the one they just
-  // chose. allDepts itself is already the right SET (see the load effect
-  // above) - this only picks the right SLICE of it.
+  // (the field is off, or on with nothing picked yet) or the one they chose.
   const deptOptions = COMPANY_FIELD.enabled
     ? allDepts.filter((d) => d.companyId === form.companyId)
     : allDepts;
-  // The chosen department's NAME - what the app list groups on, since External
-  // Links stores department strings rather than HrDepartment ids.
+  // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
 
-  // ── Step 1 validation ──
-  // Department is only demanded when the chosen company actually has departments -
-  // requiring a choice with nothing to choose from would be an inescapable form.
-  // Application is demanded on the same terms: only once the directory has
-  // actually loaded. Requiring it while the list is still in flight (or after
-  // the lookup failed) would be the same inescapable form. Company follows
-  // the same rule - only demanded when there's an actual picker shown.
-  const missingStep1 = useMemo(() => {
-    const out = new Set();
-    if (showCompanyPicker && !form.companyId) out.add('companyId');
-    if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
-    if (apps.length > 0 && !form.application) out.add('application');
-    return out;
-  }, [showCompanyPicker, form.companyId, form.hrDepartmentId, deptOptions, apps, form.application]);
-
-  // ── Step 2 validation ──
-  // Recomputed each render, so red marks clear as soon as a field is filled. Only
-  // the CURRENT type's fields are checked - leftovers from a previously selected
-  // type are never submitted.
+  // ── Validation ──
+  // One step now (Neil, Sep 30: "consolidate step one and step 2... there's
+  // no need to have multi-step actually on this"), so one list. Recomputed
+  // each render, so red marks clear as soon as a field is filled; only the
+  // CURRENT type's fields are checked - leftovers from a previously selected
+  // type are never submitted. Department is only demanded when there are
+  // departments to choose from (an inescapable form otherwise), company only
+  // when its picker is shown. What it is about is always demanded: "Other"
+  // with nothing typed told the team nothing.
   const missing = useMemo(() => {
     const out = new Set();
     if (!form.subject.trim()) out.add('subject');
+    if (showCompanyPicker && !form.companyId) out.add('companyId');
+    if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
+    if (!form.application.trim()) out.add('application');
     for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
       if (f.req && isBlankFieldValue(tf[f.key])) out.add(f.key);
     }
     return out;
-  }, [form.subject, typeFieldDefs, svcFieldDefs, tf]);
-
-  const goNext = () => {
-    if (missingStep1.size) { setShowErrors(true); return; }
-    setShowErrors(false);   // step 2 starts clean
-    setStep(2);
-  };
+  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, svcFieldDefs, tf]);
 
   // ── Mobile capture shortcuts (mirrors CreateTaskModal) ──
   // Photo / attach / scan sit in the footer so they're one tap away on a phone.
@@ -1694,7 +1706,7 @@ export function CreateTicketModal({ onClose }) {
       // Persist the current type's fields AND the current service area's,
       // dropping blanks. Both live on the same typeFields JSON - the `svc_`
       // prefix is what keeps the two sets from colliding. Leftovers from a
-      // type or an app the user moved away from are never submitted, because
+      // type or a topic the user moved away from are never submitted, because
       // only the CURRENT definitions are walked.
       const typeFields = {};
       for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
@@ -1703,9 +1715,9 @@ export function CreateTicketModal({ onClose }) {
       const created = await createTicket({
         subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
         // Requester defaults to the current user; SLA due date is derived from
-        // priority; the service area is derived server-side from application.
+        // priority; the service area is derived server-side from the topic.
         requesterId: form.requesterId || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
-        application: form.application || '',
+        application: form.application.trim(),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
       });
@@ -1753,8 +1765,8 @@ export function CreateTicketModal({ onClose }) {
       {text}
     </span>
   );
-  const shell = (text, { onBack, footer, extras, children }) => { const title = heading(text); return (isMobile ? (
-    <BottomSheet title={title} onClose={onClose} onBack={onBack}>
+  const shell = (text, { footer, extras, children }) => { const title = heading(text); return (isMobile ? (
+    <BottomSheet title={title} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>
       {/* Pinned to the bottom of the sheet's scroll area: the ticket form is long,
           and Create Ticket must not scroll out of reach. Negative margins + padding
@@ -1773,125 +1785,15 @@ export function CreateTicketModal({ onClose }) {
     <Modal title={title} onClose={onClose} footer={footer}>{children}</Modal>
   )); };
 
-  // ── Step 1: who the ticket is for and what kind it is. Everything downstream
-  // (which intake fields to ask) depends on Type, so it's settled up front. ──
-  if (step === 1) {
-    return shell(isMobile ? 'New Ticket' : 'New Ticket · Step 1 of 2', {
-      footer: (
-        <>
-          {showErrors && missingStep1.size > 0 && (
-            <span style={{ fontSize: 12.5, color: NX.red, marginRight: 'auto', fontWeight: 600 }}>
-              {missingStep1.size > 1 ? 'Fill in the required fields to continue'
-                : missingStep1.has('application') ? 'Select an application to continue'
-                : missingStep1.has('companyId') ? 'Select a company to continue'
-                : 'Select a department to continue'}
-            </span>
-          )}
-          <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
-          <button style={btn('primary')} onClick={goNext}>Next</button>
-        </>
-      ),
-      children: (<>
-        <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
-          Where does this ticket belong, and what kind is it? The next step asks for details specific to the type you pick.
-        </div>
-        {/* Company picker (Sep 19, Pranshu) - hidden by default. A requester
-            normally works for exactly one company, the server knows which
-            (tickets.company_for), and asking was a question with a single
-            right answer they could still get wrong - so this only appears
-            at all once an admin has turned it on AND picked 2+ companies to
-            offer (Settings > Tickets > SLA & Types). The departments below
-            are always that chosen company's, never a mix. */}
-        {showCompanyPicker && (
-          <div style={field}>
-            <label style={label}>Company <span style={{ color: NX.red }}>*</span></label>
-            <TicketSelect value={form.companyId} onChange={(v) => { set('companyId', v); set('hrDepartmentId', ''); }}
-              placeholder="Select company" searchPlaceholder="Search companies…" emptyText="No companies to choose from."
-              invalid={showErrors && missingStep1.has('companyId')} style={sel}
-              options={[['', 'Select company'], ...enabledCompanies.map((c) => [c.id, c.name])]} />
-            {showErrors && missingStep1.has('companyId') && <div style={requiredHint}>Required</div>}
-          </div>
-        )}
-        <div style={field}>
-          <label style={label}>Department {deptOptions.length > 0 && <span style={{ color: NX.red }}>*</span>}</label>
-          <TicketSelect value={form.hrDepartmentId} onChange={(v) => set('hrDepartmentId', v)}
-            placeholder={deptOptions.length ? 'Select department' : 'No departments to choose from'}
-            searchPlaceholder="Search departments…" emptyText="No departments to choose from."
-            invalid={showErrors && missingStep1.has('hrDepartmentId')} style={sel}
-            options={[['', deptOptions.length ? 'Select department' : 'No departments to choose from'],
-              ...deptOptions.map((d) => [d.id, d.name])]} />
-          {showErrors && missingStep1.has('hrDepartmentId') && <div style={requiredHint}>Required</div>}
-          {deptOptions.length === 0 && (
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-              No departments set up for your company - you can continue without one.
-            </div>
-          )}
-        </div>
-        {/* Which app this is about. Picked from the External Links directory,
-            so it is the same value everywhere rather than a typed string, and
-            it is what decides the service area (and therefore which service
-            questions step 2 asks). Changing it clears any service answers that
-            belonged to the previous app's area - keeping them would submit an
-            answer to a question this ticket was never asked. */}
-        <div style={field}>
-          <label style={label}>Application {apps.length > 0 && <span style={{ color: NX.red }}>*</span>}</label>
-          <ApplicationSelect apps={apps} value={form.application} deptName={deptName}
-            invalid={showErrors && missingStep1.has('application')}
-            onChange={(name) => {
-              set('application', name);
-              // Only when the AREA changes: swapping one storage app for
-              // another asks the same questions, and throwing away the
-              // facility they already picked would be gratuitous. Moving from
-              // storage to email genuinely leaves stale answers behind.
-              if (areaForApp(apps, name) !== serviceArea) {
-                setTf((prev) => Object.fromEntries(
-                  Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
-              }
-            }} />
-          {showErrors && missingStep1.has('application') && <div style={requiredHint}>Required</div>}
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-            {apps.length === 0 ? 'No applications in the directory yet - you can continue without one.'
-              : serviceArea ? `Goes to ${serviceAreaLabel(serviceArea)}.`
-              : deptName ? `${deptName}'s apps are listed first. Search to find any other.`
-              : 'Search by name, or pick "Other / not listed".'}
-          </div>
-        </div>
-        <div style={field}>
-          <label style={label}>Type <span style={{ color: NX.red }}>*</span></label>
-          <TicketSelect value={form.type} options={typeOptions()} style={sel} onChange={(v) => {
-            set('type', v);
-            // Clear the outgoing type's own fields, but KEEP the service
-            // answers. A different type may ask fewer of them (see
-            // SERVICE_FIELDS' `types`) - one that no longer applies is simply
-            // not rendered and never submitted, because both the form and the
-            // save walk the current definitions. Holding the value means
-            // switching type and back does not cost the answer.
-            setTf((prev) => Object.fromEntries(
-              Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
-          }} />
-          {/* Six types only work if the difference is spelled out. The hint is
-              the plain-English "is this me?" for whichever one is selected. */}
-          {TICKET_TYPE_META[form.type]?.hint && (
-            <div style={{ fontSize: 12, color: NX.dim, marginTop: 5 }}>{TICKET_TYPE_META[form.type].hint}</div>
-          )}
-          {/* Admin switch per type (Settings > Ticket Manager > SLA & Ticket
-              Types) - read from the loaded taxonomy, never a hardcoded list. */}
-          {typeRequiresApproval(form.type) && (
-            <div style={{ fontSize: 11.5, color: NX.amber, marginTop: 4 }}>
-              This type needs approval before the team can start work on it.
-            </div>
-          )}
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
-            {typeFieldDefs.length + svcFieldDefs.length} extra question{typeFieldDefs.length + svcFieldDefs.length === 1 ? '' : 's'} on the next step.
-          </div>
-        </div>
-      </>),
-    });
-  }
+  const req = <span style={{ color: NX.red }}>*</span>;
+  const sub = (text) => <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{text}</div>;
+  const err = (k) => showErrors && missing.has(k);
 
-  // ── Step 2: the ticket itself, shaped by the type chosen in step 1. ──
-  return shell(isMobile ? 'New Ticket' : 'New Ticket · Step 2 of 2', {
-    onBack: isMobile ? () => { setStep(1); setShowErrors(false); } : undefined,
+  // ── One step: what's wrong, which team, what it's about, what kind. ──
+  // Order per Neil (Sep 30): a title, a brief description, then the team and
+  // the thing, then the type - the choices that shape the rest of the form
+  // come before the questions they add.
+  return shell('Create a Ticket', {
     // Phone only - same trio as Create a Task, so raising a ticket from a phone
     // can capture a photo of the problem without leaving the form.
     extras: (<>
@@ -1908,8 +1810,8 @@ export function CreateTicketModal({ onClose }) {
           {/* Flips upward on its own - the footer is pinned to the bottom of the modal. */}
           <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
-            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
-            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
+            <button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
           </AnchoredMenu>
           {/* capture="environment" opens the rear camera on a phone. */}
           <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onFiles} />
@@ -1926,46 +1828,22 @@ export function CreateTicketModal({ onClose }) {
             {missing.size} required field{missing.size > 1 ? 's' : ''} still empty
           </span>
         )}
-        <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={() => { setStep(1); setShowErrors(false); }}>Back</button>
+        <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Ticket'}</button>
       </>
     ),
     children: (<>
-      {/* Recap of step 1 - the choices shaping this form stay visible and editable. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 10px', marginBottom: 14, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8 }}>
-        <TicketTypeIcon type={form.type} size={14} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{TICKET_TYPE_META[form.type].label}</span>
-        <span style={{ fontSize: 12.5, color: NX.dim }}>
-          {deptName || 'No department'}
-        </span>
-        {form.application && (
-          <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ color: NX.faint }}>·</span>
-            <span style={{ color: NX.ink, fontWeight: 600 }}>{form.application}</span>
-            {/* Derived, shown, not asked - so it is visible and correctable
-                (by going Back and re-picking) without being a second dropdown
-                that means almost the same thing as the one above it. */}
-            {serviceArea && <span style={chip(NX.dim, NX.border2)}>{serviceAreaLabel(serviceArea)}</span>}
-          </span>
-        )}
-        <button type="button" onClick={() => { setStep(1); setShowErrors(false); }}
-          style={{ ...btn('ghost'), marginLeft: 'auto', padding: '2px 6px', fontSize: 12, color: NX.blue, fontWeight: 600 }}>Change</button>
-      </div>
-
       <div style={field}>
-        <label style={label}>Priority</label>
-        <TicketSelect value={form.priority} onChange={(v) => set('priority', v)} options={priorityOptions()} style={sel} />
-      </div>
-      <div style={field}>
-        <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
-        <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue?"
-          style={{ ...inputStyle, ...(showErrors && missing.has('subject') ? { borderColor: NX.red } : null) }}
+        <label style={label}>Title {req}</label>
+        <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue? e.g. Light out in the front office"
+          style={{ ...inputStyle, ...(err('subject') ? { borderColor: NX.red } : null) }}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
-        {showErrors && missing.has('subject') && <div style={requiredHint}>Required</div>}
+        {err('subject') && <div style={requiredHint}>Required</div>}
       </div>
       <div style={field}>
         <label style={label}>Description</label>
-        <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} placeholder="Add detail…" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+        <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3}
+          placeholder="A few words on what is happening" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
       </div>
 
       {/* Self-service before a ticket (Neil, Sep 26): guide articles that
@@ -1974,9 +1852,95 @@ export function CreateTicketModal({ onClose }) {
           "This Solved My Problem" closes the form without creating one. */}
       <TicketDeflection subject={form.subject} description={form.description} onSolved={onClose} />
 
-      {/* Type-specific details - the point of the ticket, so it's prominent. */}
+      {/* Company picker (Sep 19, Pranshu) - hidden by default; appears only
+          once an admin has turned it on AND picked 2+ companies to offer
+          (Settings > Tickets > SLA & Types). The departments below are
+          always that chosen company's, never a mix. */}
+      {showCompanyPicker && (
+        <div style={field}>
+          <label style={label}>Company {req}</label>
+          <TicketSelect value={form.companyId} onChange={(v) => { set('companyId', v); set('hrDepartmentId', ''); set('application', ''); }}
+            placeholder="Select company" searchPlaceholder="Search companies…" emptyText="No companies to choose from."
+            invalid={err('companyId')} style={sel}
+            options={[['', 'Select company'], ...enabledCompanies.map((c) => [c.id, c.name])]} />
+          {err('companyId') && <div style={requiredHint}>Required</div>}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+        <div style={field}>
+          <label style={label}>Department {deptOptions.length > 0 && req}</label>
+          <TicketSelect value={form.hrDepartmentId} onChange={(v) => {
+            set('hrDepartmentId', v);
+            // A new team has its own list - the old pick (and any follow-up
+            // answers that came with it) belonged to the other one.
+            set('application', '');
+            setTf((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
+          }}
+            placeholder={deptOptions.length ? 'Select department' : 'No departments to choose from'}
+            searchPlaceholder="Search departments…" emptyText="No departments to choose from."
+            invalid={err('hrDepartmentId')} style={sel}
+            options={[['', deptOptions.length ? 'Select department' : 'No departments to choose from'],
+              ...deptOptions.map((d) => [d.id, d.name])]} />
+          {err('hrDepartmentId') && <div style={requiredHint}>Required</div>}
+          {/* Neil, Sep 30: "put down in simple English under that... people
+              need to understand which team is going to resolve this". */}
+          {sub(deptOptions.length === 0
+            ? 'No departments set up for your company - you can continue without one.'
+            : 'Which team needs to help you?')}
+        </div>
+        <div style={field}>
+          <label style={label}>What Do You Need Help With? {req}</label>
+          <HelpTopicField key={form.hrDepartmentId || 'none'} deptName={deptName} value={form.application}
+            invalid={err('application')}
+            onChange={(name) => {
+              set('application', name);
+              // Only when the AREA changes: swapping one maintenance topic for
+              // another asks the same questions, and throwing away the site
+              // they already picked would be gratuitous.
+              if (areaForTopic(name) !== serviceArea) {
+                setTf((prev) => Object.fromEntries(
+                  Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
+              }
+            }} />
+          {err('application') && <div style={requiredHint}>Required</div>}
+          {sub(helpGroupFor(deptName) ? 'Pick the closest match, or Other to type it.' : 'Name it in a few words.')}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
+        <div style={field}>
+          <label style={label}>Type {req}</label>
+          <TicketSelect value={form.type} options={typeIntakeOptions()} style={sel} onChange={(v) => {
+            set('type', v);
+            // Clear the outgoing type's own fields, but KEEP the service
+            // answers. A different type may ask fewer of them (see
+            // SERVICE_FIELDS' `types`) - one that no longer applies is simply
+            // not rendered and never submitted, because both the form and the
+            // save walk the current definitions.
+            setTf((prev) => Object.fromEntries(
+              Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
+          }} />
+          {/* The definition of whichever type is picked - the same one each
+              option carries in the open list. */}
+          {TICKET_TYPE_META[form.type]?.hint && sub(TICKET_TYPE_META[form.type].hint)}
+          {/* Admin switch per type (Settings > Ticket Manager > SLA & Ticket
+              Types) - read from the loaded taxonomy, never a hardcoded list. */}
+          {typeRequiresApproval(form.type) && (
+            <div style={{ fontSize: 11.5, color: NX.amber, marginTop: 4 }}>
+              This type needs approval before the team can start work on it.
+            </div>
+          )}
+        </div>
+        <div style={field}>
+          <label style={label}>Priority</label>
+          <TicketSelect value={form.priority} onChange={(v) => set('priority', v)} options={priorityOptions()} style={sel} />
+        </div>
+      </div>
+
+      {/* Type-specific details. */}
       {typeFieldDefs.length > 0 && (
-        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginTop: 2 }}>
+        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginTop: 2, marginBottom: 10 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
             <TicketTypeIcon type={form.type} size={14} /> {TICKET_TYPE_META[form.type].label} Details
           </div>
@@ -1985,20 +1949,18 @@ export function CreateTicketModal({ onClose }) {
               <div key={f.key} style={{ ...field, marginBottom: 0, gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
                 <label style={label}>{f.label}{f.req && <span style={{ color: NX.red }}> *</span>}</label>
                 <TypeFieldInput field={f} value={tf[f.key]} onChange={(v) => setTfVal(f.key, v)} people={people} projects={projects}
-                  invalid={showErrors && missing.has(f.key)} />
-                {showErrors && missing.has(f.key) && <div style={requiredHint}>Required</div>}
+                  invalid={err(f.key)} />
+                {err(f.key) && <div style={requiredHint}>Required</div>}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Application-specific details. Driven by the service area the chosen
-          app maps to, so the requester answers questions about the thing they
-          already named rather than picking a second category first. Most areas
-          ask nothing at all and this block simply doesn't appear. */}
+      {/* Follow-ups for what it is about (Which site? Which device?). Most
+          topics ask nothing and this block simply doesn't appear. */}
       {svcFieldDefs.length > 0 && (
-        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginTop: 10 }}>
+        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginBottom: 10 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10 }}>
             {serviceAreaLabel(serviceArea)} Details
           </div>
@@ -2007,8 +1969,8 @@ export function CreateTicketModal({ onClose }) {
               <div key={f.key} style={{ ...field, marginBottom: 0, gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
                 <label style={label}>{f.label}{f.req && <span style={{ color: NX.red }}> *</span>}</label>
                 <TypeFieldInput field={f} value={tf[f.key]} onChange={(v) => setTfVal(f.key, v)} people={people} projects={projects}
-                  invalid={showErrors && missing.has(f.key)} />
-                {showErrors && missing.has(f.key) && <div style={requiredHint}>Required</div>}
+                  invalid={err(f.key)} />
+                {err(f.key) && <div style={requiredHint}>Required</div>}
               </div>
             ))}
           </div>
@@ -2018,12 +1980,11 @@ export function CreateTicketModal({ onClose }) {
       <div style={field}>
         <label style={label}>Attachments</label>
         {/* Framed as a benefit to the requester (faster triage), not an
-            instruction - "please record" reads as a chore; this reads as
-            useful. Only shown when recording is actually offered for this
+            instruction. Only shown when recording is actually offered for this
             ticket type (NO_RECORDING_TYPES hides the Record button itself). */}
         {!NO_RECORDING_TYPES.includes(form.type) && (
           <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 8, lineHeight: 1.4 }}>
-            A quick screen recording shows us exactly what's happening - usually faster than typing it out.
+            A photo or a quick screen recording shows us exactly what's happening - usually faster than typing it out.
           </div>
         )}
         <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
@@ -2039,6 +2000,131 @@ export function CreateTicketModal({ onClose }) {
       </div>
     </>),
   });
+}
+
+// ── Resolve / Confirm / Reopen (Neil, Sep 30) ────────────────────────────────
+// The three moves that close the loop on a ticket, each asking for the one
+// thing that makes it useful later:
+//   resolve - the desk writes what was done ("when you close a ticket, you
+//             need to put in what the resolution of the ticket is"). Required,
+//             and the server refuses a resolve without it.
+//   confirm - the requester rates how it was handled, 1-5 stars ("you need to
+//             give them stars... comments are optional"). Stars required.
+//   reopen  - the requester says why it is not fixed.
+// A dialog rather than window.prompt so the rating can be stars and the note
+// can be more than one line. `onSubmit(patch)` does the save and returns a
+// promise; the caller decides how (the TasksContext store, or Support's api).
+export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', onSubmit, onClose }) {
+  const [note, setNote] = useState(ticket?.resolutionNote || '');
+  const [resolution, setResolution] = useState(ticket?.resolution || 'fixed');
+  const [rating, setRating] = useState(0);
+  const [hover, setHover] = useState(0);
+  const [comment, setComment] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showErr, setShowErr] = useState(false);
+  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1 : !reason.trim();
+  const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
+    : mode === 'confirm' ? 'Confirm Resolution' : 'Reopen Ticket';
+  const go = async () => {
+    if (busy) return;
+    if (invalid) { setShowErr(true); return; }
+    setBusy(true);
+    const patch = mode === 'resolve'
+      ? { status: targetStatus, resolution, resolutionNote: note.trim() }
+      : mode === 'confirm'
+        ? { status: 'closed', csatRating: rating, csatComment: comment.trim() }
+        : { status: 'reopened', reopen_reason: reason.trim() };
+    try { await onSubmit(patch); onClose(); }
+    catch (e) { alert(e?.message || String(e)); setBusy(false); }
+  };
+  return (
+    <Modal title={title} onClose={onClose} width={480} footer={
+      <>
+        <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
+        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy}>
+          {busy ? 'Saving…' : mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
+            : mode === 'confirm' ? 'Confirm' : 'Reopen'}
+        </button>
+      </>
+    }>
+      {ticket && (
+        <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
+          <b style={{ color: NX.ink }}>{ticketNoShort(ticket.code)}</b> · {ticket.subject}
+        </div>
+      )}
+      {mode === 'resolve' && (<>
+        <div style={field}>
+          <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
+          <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
+            placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
+          {showErr && invalid && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
+        </div>
+        <div style={field}>
+          <label style={label}>Outcome</label>
+          <TicketSelect value={resolution} onChange={setResolution}
+            options={TICKET_RESOLUTION.map((r) => [r.key, r.label])} />
+        </div>
+      </>)}
+      {mode === 'confirm' && (<>
+        <div style={field}>
+          <label style={label}>How was your ticket handled? <span style={{ color: NX.red }}>*</span></label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onMouseLeave={() => setHover(0)}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={() => setHover(n)}
+                style={{ border: 'none', background: 'none', padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                <Star size={28} style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
+              </button>
+            ))}
+            {rating > 0 && <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
+          </div>
+          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to confirm.</div>}
+        </div>
+        {ticket?.resolutionNote && (
+          <div style={{ fontSize: 12.5, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
+            <b style={{ color: NX.ink }}>Resolution:</b> {ticket.resolutionNote}
+          </div>
+        )}
+        <div style={field}>
+          <label style={label}>Comments (optional)</label>
+          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+            placeholder="Anything the team should know?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+        </div>
+      </>)}
+      {mode === 'reopen' && (
+        <div style={field}>
+          <label style={label}>Why are you reopening it? <span style={{ color: NX.red }}>*</span></label>
+          <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
+            placeholder="e.g. The light went out again this morning."
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
+          {showErr && invalid && <div style={requiredHint}>Required</div>}
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>The ticket goes back to the team with its full history.</div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// Does moving this ticket to `status` need the Resolve dialog? Any move INTO
+// Resolved/Closed from a status that is still being worked.
+export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && !CLOSED_STATES.includes(t?.status);
+
+// The drawer's Help With field: a pick saves at once, a typed "Other" answer
+// saves when the field loses focus - never one save per keystroke (each save
+// is an audit row and a requester notification).
+function DrawerHelpTopic({ value, deptName, onCommit }) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  const group = helpGroupFor(deptName);
+  return (
+    <div onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget) && v.trim()) onCommit(v.trim()); }}>
+      <HelpTopicField deptName={deptName} value={v} onChange={(n) => {
+        setV(n);
+        if (listedTopic(group, n)) onCommit(n);
+      }} />
+    </div>
+  );
 }
 
 // ── Edit drawer (modal) ───────────────────────────────────────────────────────
@@ -2068,15 +2154,16 @@ function readOnlyFieldValue(f, value, nameOf) {
 // drawer's own permission model (isRequester/privileged/etc. below) already
 // scopes what a non-desk person can see/do, same as it would inside the
 // module for someone without the desk grant.
-export function TicketDrawer({ ticketId, onClose }) {
-  const { tickets, tasks, projects = [], loading: tasksLoading,
+// `startEditing` opens straight into the title/description editor - the
+// Support list's pencil (Neil, Sep 30) lands here.
+export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
+  const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
   // list rather than patching one field locally.
   const onDecided = () => refresh?.();
   const people = usePeople();
-  const apps = useTicketApps();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
@@ -2095,11 +2182,36 @@ export function TicketDrawer({ ticketId, onClose }) {
   // A linked task opened in place, over the ticket - so working on it does not
   // mean closing the ticket and hunting for the task in the Task module.
   const [openTaskId, setOpenTaskId] = useState(null);
+  // Title/description editor, and the resolve/confirm/reopen dialog - up
+  // here with the other hooks for the same reason as requestingControl.
+  const [editing, setEditing] = useState(startEditing);
+  const [draft, setDraft] = useState(null);   // { subject, description } while editing
+  const [dialog, setDialog] = useState(null); // { mode, targetStatus }
+  // What the requester had last seen before THIS open - new replies since
+  // then get the dot on the Conversation tab and a "New" tag in the thread
+  // (Neil, Sep 30: "there's a comment I've added on conversation, but I'm
+  // not able to see that there's a new item").
+  const [seenBefore, setSeenBefore] = useState(undefined);
+  const [newReplies, setNewReplies] = useState(0);
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
+  // Nothing here saves on its own. Every field edit, and the reply being
+  // written on Conversation, is held until Done - then goes out as ONE save,
+  // so the requester gets one email and one Teams message for the whole visit
+  // instead of one per field (Pranshu, Oct 1: "till the time I click on Done
+  // it should not update the ticket, nor post the mail or message").
+  const [pending, setPending] = useState({});
+  const [reply, setReply] = useState({ body: '', internal: false });
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
-    api.getMyTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
+    // Every company's departments, not just the viewer's own: a ticket is
+    // filed under the REQUESTER's company, and filtering by the viewer's
+    // left the Department field blank for anyone looking at a ticket from
+    // another company - "the department didn't get selected" on Neil's
+    // walkthrough (Sep 30), though it had saved. Filtered to the ticket's
+    // company below.
+    api.getTicketDepartments().then(setAllDepts).catch(() => setAllDepts([]));
   }, []);
   // Lets a recording started from this drawer's Attachments tab know, on
   // Stop, whether it should bring the app back here - see setOpenTicketId in
@@ -2112,6 +2224,19 @@ export function TicketDrawer({ ticketId, onClose }) {
     return () => clearOpenTicketId(ticketId);
   }, [ticketId]);
   const t = tickets.find((x) => x.id === ticketId);
+  const meIsRequester = !!t && (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  useEffect(() => {
+    if (!t || !meIsRequester || seenBefore !== undefined) return;
+    const before = t.requesterSeenAt || '';
+    setSeenBefore(before);
+    api.markTicketSeen(t.id).catch(() => {});
+    if (t.requesterUpdateAt && t.requesterUpdateAt > before) {
+      api.getTicketComments(t.id).then((rows) => {
+        const me = (myEmail || '').toLowerCase();
+        setNewReplies((rows || []).filter((c) => (c.authorId || '').toLowerCase() !== me && (c.createdAt || '') > before).length);
+      }).catch(() => {});
+    }
+  }, [t, meIsRequester, seenBefore, myEmail]);
   // Live fields always; a retired one only when this ticket actually holds an
   // answer for it. Rendering retired fields unconditionally would give new
   // tickets permanently empty rows for questions nobody was asked.
@@ -2134,7 +2259,11 @@ export function TicketDrawer({ ticketId, onClose }) {
     const seen = new Set();
     return [...own, ...orphans].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
   })();
-  if (!t) return null;
+  // Opened from an email link before the ticket list has landed: show the
+  // "Opening your ticket" screen rather than nothing (Oct 1 - it read as the
+  // link not working). Once the list is in, a ticket that still is not there
+  // (deleted, or not yours to see) renders nothing, as before.
+  if (!t) return ticketsLoaded ? null : <TicketOpening onClose={onClose} />;
 
   // Before a ticket is "in_progress" (with an assignee), the requester has
   // full edit access and anyone else can triage/self-assign it (working
@@ -2222,7 +2351,61 @@ export function TicketDrawer({ ticketId, onClose }) {
   const slaBreached = !!(t.slaDueOn && t.slaDueOn < today());
   const canEscalate = !CLOSED_STATES.includes(t.status)
     && ((isRequester && slaBreached) || isAssignee || privileged);
+  // Saves at once - kept for the links and tasks below, which are their own
+  // records and never mail the requester.
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
+  // The ticket as it will be once Done is clicked: what is saved, with the
+  // held edits on top. Permissions above still read the SAVED ticket - that
+  // is what the server checks the save against.
+  const v = { ...t, ...pending };
+  // Hold an edit for Done. Putting a field back the way it was drops it, so
+  // Done with nothing really changed saves (and sends) nothing.
+  const stage = (p) => setPending((cur) => {
+    const next = { ...cur, ...p };
+    for (const k of Object.keys(p)) {
+      if (JSON.stringify(next[k] ?? '') === JSON.stringify(t[k] ?? '')) delete next[k];
+    }
+    return next;
+  });
+  const hasReply = !isEmptyDoc(reply.body);
+  const dirty = Object.keys(pending).length > 0 || hasReply;
+  // Done: everything held, plus the reply, in one save. `extra` is a dialog's
+  // own change (Confirm / Reopen) that goes out with the rest.
+  const commit = async (extra = {}) => {
+    const body = { ...pending, ...extra };
+    if (hasReply) { body.comment = reply.body; body.comment_internal = reply.internal; }
+    if (!Object.keys(body).length) return;
+    await updateTicket(t.id, body);
+    setPending({});
+    setReply({ body: '', internal: false });
+  };
+  const done = async () => {
+    if (saving) return;
+    if (!dirty) { onClose(); return; }
+    setSaving(true);
+    try { await commit(); onClose(); }
+    catch (e) { alert(`Could not update ticket: ${e.message || e}`); setSaving(false); }
+  };
+  const closeDrawer = () => {
+    if (dirty && !window.confirm('Discard your changes to this ticket? Nothing has been saved or sent yet.')) return;
+    onClose();
+  };
+  // A move into Resolved/Closed goes through the Resolve dialog (it needs a
+  // written resolution); every other status move is held like any other edit.
+  // Moving back out of a held Resolved drops the resolution written for it
+  // (staging the saved values un-holds them).
+  const setStatus = (val) => (needsResolution(t, val) ? setDialog({ mode: 'resolve', targetStatus: val })
+    : stage({ status: val, ...(CLOSED_STATES.includes(val) ? {} : { resolution: t.resolution, resolutionNote: t.resolutionNote }) }));
+  // Title and description are the requester's while the ticket is still Open
+  // (and the desk's always) - the same rule as every other Overview field.
+  const canEditText = fullAccess;
+  const startEdit = () => { setDraft({ subject: v.subject || '', description: v.description || '' }); setEditing(true); };
+  const saveEdit = () => {
+    const d = draft || {};
+    if (!(d.subject || '').trim()) { alert('The title cannot be empty.'); return; }
+    stage({ subject: d.subject.trim(), description: d.description || '' });
+    setEditing(false); setDraft(null);
+  };
   const escalate = () => {
     if (!window.confirm('Escalate this ticket? The department head will get an email that it needs urgent attention.')) return;
     escalateTicket(t.id)
@@ -2231,11 +2414,7 @@ export function TicketDrawer({ ticketId, onClose }) {
   };
   // Same "ask a reason" pattern as the approval-reject flow - the Outlook
   // reopened-ticket email includes it, so the assignee/dept lead knows why.
-  const reopen = () => {
-    const reason = window.prompt('Why are you reopening this ticket?');
-    if (reason === null) return;
-    patch({ status: 'reopened', reopen_reason: reason.trim() });
-  };
+  const reopen = () => setDialog({ mode: 'reopen' });
   // ticket → many tasks: union of the spawned list + the legacy single linkedTaskId
   const taskIds = [...(t.taskIds || []), ...(t.linkedTaskId && !(t.taskIds || []).includes(t.linkedTaskId) ? [t.linkedTaskId] : [])];
   const spawnTask = async () => {
@@ -2265,7 +2444,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
     {/* While a linked task is open on top, Escape (which Modal also listens
         for) closes the task first rather than the ticket underneath it. */}
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : onClose())} footer={
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : closeDrawer())} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -2278,24 +2457,62 @@ export function TicketDrawer({ ticketId, onClose }) {
           // status jump" the requester is carved out of above; their only
           // status moves are Confirm Resolution / Reopen below, once there
           // actually is a resolution to confirm or reopen.
-          canEditStatus && (
-            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+          canEditStatus && !CLOSED_STATES.includes(v.status) && (
+            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => setDialog({ mode: 'resolve', targetStatus: 'resolved' })}><CheckCircle2 size={14} /> Mark Resolved</button>
           )
         ) : (
           <>
+            {/* The requester confirms with a rating; the desk just closes it
+                out (the resolution was written when it was resolved). */}
             {t.status === 'resolved' && (
-              <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'closed' })}
+              <button style={{ ...btn('outline'), color: NX.green }}
+                onClick={() => (isRequester && !privileged && !isAssignee ? setDialog({ mode: 'confirm' }) : stage({ status: 'closed' }))}
                 title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
             )}
             <button style={btn('outline')} onClick={reopen}>Reopen</button>
           </>
         )}
-        <button style={btn('primary')} onClick={onClose}>Done</button>
+        {dirty && (
+          <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
+            Unsaved changes
+          </span>
+        )}
+        <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={done} disabled={saving}
+          title={dirty ? 'Save every change and send one update to the requester' : undefined}>
+          {saving ? 'Saving…' : 'Done'}
+        </button>
       </>
     }>
       <div style={{ marginBottom: 6 }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink }}>{t.subject}</div>
-        {t.description && <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{t.description}</p>}
+        {editing && canEditText ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <input autoFocus value={(draft ?? { subject: v.subject }).subject ?? ''} placeholder="Title"
+              onChange={(e) => setDraft((d) => ({ ...(d || { description: v.description || '' }), subject: e.target.value }))}
+              style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
+            <textarea value={(draft ?? { description: v.description }).description ?? ''} rows={4} placeholder="Describe the issue"
+              onChange={(e) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: e.target.value }))}
+              style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
+              <button style={btn('primary')} onClick={saveEdit} title="Saved with everything else when you click Done">Apply</button>
+            </div>
+          </div>
+        ) : (<>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>{v.subject}</div>
+            {canEditText && (
+              <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
+                style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
+            )}
+          </div>
+          {v.description
+            ? <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{v.description}</p>
+            : canEditText && (
+              <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
+                <Plus size={13} /> Add a Description
+              </button>
+            )}
+        </>)}
         {(t.images || []).length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             {t.images.map((url, i) => (
@@ -2308,11 +2525,16 @@ export function TicketDrawer({ ticketId, onClose }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0 16px' }}>
-        <TicketStatusChip status={t.status} />
-        <PriorityChip priority={t.priority} />
+        <TicketStatusChip status={v.status} />
+        <PriorityChip priority={v.priority} />
         <ApprovalChip ticket={t} />
         {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
       </div>
+      {t.resolutionNote && CLOSED_STATES.includes(t.status) && (
+        <div style={{ fontSize: 13, color: NX.ink, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.30)', borderRadius: 8, padding: '8px 11px', margin: '-4px 0 14px', whiteSpace: 'pre-wrap' }}>
+          <b>Resolution:</b> {t.resolutionNote}
+        </div>
+      )}
 
       {/* Approval gate - the decision blocks triage, so it leads the drawer,
           always visible regardless of which tab is open. */}
@@ -2325,11 +2547,16 @@ export function TicketDrawer({ ticketId, onClose }) {
         {/* Segmented control - same mode-switch grammar as the rest of the module */}
         <div style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, flexWrap: 'wrap' }}>
           {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => setTab(k)} style={{
+            <button key={k} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
               ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7,
               background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
               boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-            }}><Icon size={14} />{lab}</button>
+            }}><Icon size={14} />{lab}
+              {k === 'conversation' && newReplies > 0 && (
+                <span title={`${newReplies} new repl${newReplies === 1 ? 'y' : 'ies'}`}
+                  style={{ minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: NX.red, color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
+              )}
+            </button>
           ))}
         </div>
 
@@ -2338,13 +2565,14 @@ export function TicketDrawer({ ticketId, onClose }) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
           <label style={label}>Type</label>
-          <TicketSelect value={t.type || 'request'} onChange={(v) => patch({ type: v })} options={typeOptions()}
+          <TicketSelect value={v.type || 'request'} onChange={(val) => stage({ type: val })}
+            options={TICKET_TYPE_ORDER.includes(v.type) ? typeIntakeOptions() : [...typeIntakeOptions(), { id: v.type, label: TICKET_TYPE_META[v.type]?.label || v.type }]}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Status</label>
           {canEditStatus ? (
-            <TicketSelect value={t.status} onChange={(v) => patch({ status: v })} options={statusOptions()}
+            <TicketSelect value={v.status} onChange={setStatus} options={statusOptions()}
               style={sel} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
@@ -2354,7 +2582,7 @@ export function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>Priority</label>
-          <TicketSelect value={t.priority} onChange={(v) => patch({ priority: v })} options={priorityOptions()}
+          <TicketSelect value={v.priority} onChange={(val) => stage({ priority: val })} options={priorityOptions()}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
@@ -2375,7 +2603,7 @@ export function TicketDrawer({ ticketId, onClose }) {
             <label style={label}>Assign To</label>
             {/* Locked until the request is approved - the backend refuses it anyway,
                 so showing an open picker would only produce a 409 the user can't act on. */}
-            <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
+            <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
               disabled={!canWorking || t.approvalStatus === 'pending'}
               placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
           </div>
@@ -2392,22 +2620,26 @@ export function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
-            <TicketSelect value={t.companyId || ''} onChange={(v) => patch({ companyId: v, hrDepartmentId: '' })}
+            <TicketSelect value={v.companyId || ''} onChange={(val) => stage({ companyId: val, hrDepartmentId: '' })}
               style={sel} placeholder="Select company" searchPlaceholder="Search companies…"
               options={[['', 'Select company'], ...companies.map((c) => [c.id, c.name])]} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {companies.find((c) => c.id === t.companyId)?.name || '-'}
+              {companies.find((c) => c.id === v.companyId)?.name || '-'}
             </div>
           )}
         </div>
         <div style={field}>
           <label style={label}>Department</label>
-          <TicketSelect value={t.hrDepartmentId || ''} onChange={(v) => patch({ hrDepartmentId: v })} style={sel}
-            disabled={!t.companyId || !canWorking} searchPlaceholder="Search departments…"
-            placeholder={t.companyId ? 'Select department' : 'Select a company first'}
-            options={[['', t.companyId ? 'Select department' : 'Select a company first'],
-              ...allDepts.filter((d) => d.companyId === t.companyId).map((d) => [d.id, d.name])]} />
+          <TicketSelect value={v.hrDepartmentId || ''} onChange={(val) => stage({ hrDepartmentId: val })} style={sel}
+            disabled={!v.companyId || !canWorking} searchPlaceholder="Search departments…"
+            placeholder={v.companyId ? 'Select department' : 'Select a company first'}
+            options={[['', v.companyId ? 'Select department' : 'Select a company first'],
+              ...allDepts.filter((d) => d.companyId === v.companyId).map((d) => [d.id, d.name]),
+              // Filed against a department since removed from the desk list -
+              // still show what it was filed under rather than a blank.
+              ...(v.hrDepartmentId && allDepts.length && !allDepts.some((d) => d.id === v.hrDepartmentId)
+                ? [[v.hrDepartmentId, 'Removed department']] : [])]} />
         </div>
         {/* What the ticket is about. fullAccess, NOT canWorking: `application`
             is not one of the backend's _WORKING_FIELDS, so a triaging third
@@ -2415,13 +2647,13 @@ export function TicketDrawer({ ticketId, onClose }) {
             Re-pointing a mis-filed ticket is the requester's, the assignee's
             or a manager's to do - which is exactly what fullAccess is. */}
         <div style={field}>
-          <label style={label}>Application</label>
+          <label style={label}>Help With</label>
           {fullAccess ? (
-            <ApplicationSelect apps={apps} value={t.application || ''}
-              deptName={allDepts.find((d) => d.id === t.hrDepartmentId)?.name || ''}
-              onChange={(name) => patch({ application: name })} />
+            <DrawerHelpTopic key={`${t.id}:${v.hrDepartmentId || ''}`} value={v.application || ''}
+              deptName={allDepts.find((d) => d.id === v.hrDepartmentId)?.name || ''}
+              onCommit={(name) => { if (name !== (v.application || '')) stage({ application: name }); }} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{t.application || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.application || '-'}</div>
           )}
         </div>
         {/* Derived from the application by the server, and re-derived whenever
@@ -2431,10 +2663,10 @@ export function TicketDrawer({ ticketId, onClose }) {
         <div style={field}>
           <label style={label}>Service Area</label>
           {fullAccess ? (
-            <TicketSelect value={t.serviceArea || ''} onChange={(v) => patch({ serviceArea: v })} style={sel}
+            <TicketSelect value={v.serviceArea || ''} onChange={(val) => stage({ serviceArea: val })} style={sel}
               placeholder="Not set" options={[['', 'Not set'], ...serviceAreaOptions()]} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(v.serviceArea) || '-'}</div>
           )}
         </div>
         {/* NOT gated on canSeeAssignSla (Pranshu, Sep 17 2026: "I want SLA due
@@ -2461,10 +2693,10 @@ export function TicketDrawer({ ticketId, onClose }) {
             </div>
           )}
         </div>
-        {CLOSED_STATES.includes(t.status) && (
+        {CLOSED_STATES.includes(v.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
-            <TicketSelect value={t.resolution || ''} onChange={(v) => patch({ resolution: v })} style={sel}
+            <TicketSelect value={v.resolution || ''} onChange={(val) => stage({ resolution: val })} style={sel}
               disabled={!canWorking} placeholder="- pick -"
               options={[['', '- pick -'], ...TICKET_RESOLUTION.map((r) => [r.key, r.label])]} />
           </div>
@@ -2479,9 +2711,9 @@ export function TicketDrawer({ ticketId, onClose }) {
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
-                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                  <TypeFieldInput field={f} value={v.typeFields?.[f.key]} onChange={(val) => stage({ typeFields: { ...(v.typeFields || {}), [f.key]: val } })} people={people} projects={projects} />
                 ) : (
-                  <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
+                  <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, v.typeFields?.[f.key], nameOf)}</div>
                 )}
               </div>
             ))}
@@ -2491,15 +2723,15 @@ export function TicketDrawer({ ticketId, onClose }) {
 
       {shownSvcFields.length > 0 && (
         <div style={field}>
-          <label style={label}>{serviceAreaLabel(t.serviceArea) || 'Application'} Details</label>
+          <label style={label}>{serviceAreaLabel(t.serviceArea) || 'Help Topic'} Details</label>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             {withDynamicOptions(shownSvcFields, { sites }).map((f) => (
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
-                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                  <TypeFieldInput field={f} value={v.typeFields?.[f.key]} onChange={(val) => stage({ typeFields: { ...(v.typeFields || {}), [f.key]: val } })} people={people} projects={projects} />
                 ) : (
-                  <div style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
+                  <div style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, v.typeFields?.[f.key], nameOf)}</div>
                 )}
               </div>
             ))}
@@ -2518,21 +2750,35 @@ export function TicketDrawer({ ticketId, onClose }) {
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
       </div>
 
-      {CLOSED_STATES.includes(t.status) && (
+      {CLOSED_STATES.includes(v.status) && (
         <div style={field}>
           <label style={label}>Satisfaction (CSAT)</label>
-          <CsatWidget ticket={t} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => patch({ csatRating: rating })}
-            onComment={(comment) => patch({ csatComment: comment })} />
+          <CsatWidget ticket={v} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => stage({ csatRating: rating })}
+            onComment={(comment) => stage({ csatComment: comment })} />
         </div>
       )}
 
         </>)}
-        {tab === 'conversation' && <TicketConversation ticketId={t.id} nameOf={nameOf} />}
+        {tab === 'conversation' && (
+          <TicketConversation ticketId={t.id} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
+            reply={reply} onReplyChange={setReply} onDone={done}
+            // The public-reply / internal-note switch is the desk's. The person
+            // who raised the ticket just replies (Neil, Sep 30: "they should
+            // not see public reply versus an internal note").
+            canInternal={(privileged || isAssignee || !isRequester) && (canAccessModule('tickets', 'administrator') || canAccessModule('tasks', 'administrator'))} />
+        )}
         {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
     {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} zIndex={4100} />}
+    {dialog && (
+      <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}
+        // Resolving is a status change like any other - held for Done. Confirm
+        // and Reopen are the requester's own finishing moves, so they save
+        // (with anything else held) right away.
+        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p) : commit(p))} onClose={() => setDialog(null)} />
+    )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
     )}
@@ -2856,8 +3102,8 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         <Stat label="Total Tickets" value={stats.total} />
         <Stat label="Open" value={stats.open} color={NX.blue} />
-        <Stat label="SLA breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
-        <Stat label="Due soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
+        <Stat label="SLA Breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
+        <Stat label="Due Soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
         <Stat label="Avg Resolution" value={stats.avgDays == null ? '-' : `${stats.avgDays.toFixed(1)}d`} />
         <Stat label="SLA Compliance" value={stats.compliance == null ? '-' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
         <Stat label="Avg CSAT" value={stats.avgCsat == null ? '-' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
@@ -2868,7 +3114,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
         <Card title="By priority"><LightBar data={stats.byPriority} /></Card>
         <Card title="By department"><LightBar data={stats.byDepartment} /></Card>
         <Card title="By service area"><LightBar data={stats.byServiceArea} /></Card>
-        <Card title="By application">
+        <Card title="By Help Topic">
           {stats.byApplication.length === 0
             ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No tickets name an application yet.</div>
             : <LightBar data={stats.byApplication} />}
@@ -2900,11 +3146,14 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // this thread simply did not have (Sagar, Sept 2 2026). A mention is written as
 // a mailto link, which is exactly what routers/task_util.extract_mentions reads
 // on the way in, so one editor and one parser serve tasks and tickets both.
-function TicketConversation({ ticketId, nameOf }) {
+// The reply being written is the drawer's (`reply` / `onReplyChange`): it is
+// posted with the rest of the ticket's changes when Done is clicked, never on
+// its own - see TicketDrawer's `commit`.
+function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
-  const [body, setBody] = useState('');
-  const [internal, setInternal] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { body, internal } = reply;
+  const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
+  const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
   const people = usePeople();
   const [zoomImage, zoomViewer] = useImageZoom();
   // A comment updates the ticket row itself (last_comment_at, which drives
@@ -2918,12 +3167,6 @@ function TicketConversation({ ticketId, nameOf }) {
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
-  const send = async () => {
-    if (isEmptyDoc(body) || busy) return;
-    setBusy(true);
-    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await Promise.all([reload(), refresh()]); }
-    catch { /* ignore */ } finally { setBusy(false); }
-  };
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
 
   return (
@@ -2933,14 +3176,20 @@ function TicketConversation({ ticketId, nameOf }) {
         {rows === null ? <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>
           : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No comments yet.</div>
             : rows.map((c) => (
-              <div key={c.id} style={{ display: 'flex', gap: 8, ...(c.internal ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, padding: 8 } : {}) }}>
+              <div key={c.id} style={{ display: 'flex', gap: 8, ...(c.internal ? { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 10, padding: 8 } : {}),
+                ...(newSince !== undefined && (c.createdAt || '') > newSince && !c.internal ? { background: 'rgba(37,99,235,0.06)', borderRadius: 10, padding: 8 } : {}) }}>
                 <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId) || c.authorId}</span>
                     {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal note</span>}
-                    <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(c.createdAt)}</span>
-                    <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
+                    {newSince !== undefined && (c.createdAt || '') > newSince && (
+                      <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 10.5 }}>New</span>
+                    )}
+                    <span style={{ fontSize: 11, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>
+                    {canInternal && (
+                      <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
+                    )}
                   </div>
                   {/* richBodyHtml sanitizes, and wraps a plain-text body (every
                       comment written before this change) in paragraphs - so old
@@ -2951,8 +3200,8 @@ function TicketConversation({ ticketId, nameOf }) {
               </div>
             ))}
       </div>
-      {/* Public reply vs internal note toggle */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+      {/* Public reply vs internal note toggle - the desk's only. */}
+      {canInternal && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
         {[['reply', 'Public reply', false], ['note', 'Internal note', true]].map(([k, lab, isInt]) => (
           <button key={k} onClick={() => setInternal(isInt)} style={{
             ...btn('ghost'), padding: '5px 10px', fontSize: 12, borderRadius: 7,
@@ -2960,27 +3209,27 @@ function TicketConversation({ ticketId, nameOf }) {
             color: internal === isInt ? (isInt ? NX.amber : NX.blue) : NX.dim, fontWeight: internal === isInt ? 700 : 600,
           }}>{isInt ? <Lock size={12} /> : <MessageSquare size={12} />}{lab}</button>
         ))}
-      </div>
+      </div>}
       {/* The internal-note tint moves to a wrapper: the editor owns its own box,
           and a note still has to LOOK unlike a public reply at a glance. */}
       <div style={internal ? { borderRadius: 10, padding: 2, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.35)' } : undefined}>
         <RichDescription
           value={body}
           onChange={setBody}
-          onSubmit={send}
+          onSubmit={onDone}
           mentionPeople={people}
           minHeight={64}
-          placeholder={internal ? 'Internal note - visible to agents, not the requester…' : 'Public reply…'}
+          placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-        <span style={{ fontSize: 11, color: NX.faint }}>
-          Type <b>@</b> to mention someone - they'll be added to the ticket and told. ⌘/Ctrl+Enter to send.
-        </span>
-        <button onClick={send} disabled={isEmptyDoc(body) || busy}
-          style={{ ...btn('primary'), marginLeft: 'auto', flexShrink: 0, opacity: (isEmptyDoc(body) || busy) ? 0.55 : 1, ...(internal ? { background: NX.amber, borderColor: NX.amber } : {}) }}>
-          <Send size={14} /> {busy ? 'Sending…' : internal ? 'Add note' : 'Send'}
-        </button>
+      <div style={{ fontSize: 11, color: NX.faint, marginTop: 8 }}>
+        {isEmptyDoc(body) ? (
+          <>Type <b>@</b> to mention someone - they'll be added to the ticket and told.</>
+        ) : (
+          <span style={{ color: NX.amber, fontWeight: 600 }}>
+            {internal ? 'Your note is added' : 'Your reply is sent'} with your other changes when you click Done (or ⌘/Ctrl+Enter).
+          </span>
+        )}
       </div>
     </div>
   );
@@ -3086,7 +3335,7 @@ function TicketAttachments({ ticketId, ticketType }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
           onRecordingChange={onRecChange} />
-        {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
+        {busy && <Spinner size={14} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
       {rows === null ? (
@@ -3179,7 +3428,7 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
   const rows = [
     ['Type', TICKET_TYPE_META[snapshot.type]?.label || snapshot.type || '-'],
     ['Priority', PRIORITY_META[snapshot.priority]?.label || snapshot.priority || '-'],
-    ['Application', snapshot.application || '-'],
+    ['Help With', snapshot.application || '-'],
     ['Service Area', serviceAreaLabel(snapshot.serviceArea) || '-'],
     ['Department', allDepts.find((d) => d.id === snapshot.hrDepartmentId)?.name || '-'],
     ['Company', companies.find((c) => c.id === snapshot.companyId)?.name || '-'],

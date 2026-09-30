@@ -15,16 +15,27 @@ from mail_text import Rich, rich_to_email_html
 
 from ticket_code import ticket_no
 
+# Title Case, like every status chip in the app (Neil, Sep 30: "In Progress",
+# "On Hold") - mirrors TICKET_STATUS_META in frontend/src/tickets/ticketMeta.js.
 TICKET_STATUS_META = {
     "new":         {"label": "New",         "color": "#2563eb"},
     "open":        {"label": "Open",        "color": "#7c3aed"},
-    "in_progress": {"label": "In progress", "color": "#d97706"},
-    "on_hold":     {"label": "On hold",     "color": "#6b7280"},
+    "in_progress": {"label": "In Progress", "color": "#d97706"},
+    "waiting_user":   {"label": "Waiting for User",   "color": "#2563eb"},
+    "waiting_vendor": {"label": "Waiting for Vendor", "color": "#6b7280"},
+    "on_hold":     {"label": "On Hold",     "color": "#6b7280"},
     "resolved":    {"label": "Resolved",    "color": "#16a34a"},
     "closed":      {"label": "Closed",      "color": "#9ca3af"},
     "reopened":    {"label": "Reopened",    "color": "#dc2626"},
 }
 PRIORITY_LABEL = {"urgent": "Urgent", "high": "High", "medium": "Medium", "low": "Low"}
+
+
+def status_label(status: str) -> str:
+    """The Title Case label for a status key - for bell titles and email copy,
+    which used to show the raw key ("Ticket moved to in_progress")."""
+    m = TICKET_STATUS_META.get(status or "")
+    return m["label"] if m else (status or "-").replace("_", " ").title()
 
 
 def _status_badge(status: str) -> str:
@@ -260,7 +271,18 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     return subject, html
 
 
-def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False) -> tuple[str, str]:
+def _comment_block(t: dict, latest_comment: str) -> dict:
+    """A reply saved in the same Done as the change this email is about
+    (update_ticket sends one email per save) - shown under the details, the
+    same block update_email uses."""
+    if not latest_comment:
+        return {}
+    actor = t.get("actorName") or t.get("actorEmail")
+    return {"comment_label": f"Latest comment - {actor}", "comment_text": latest_comment}
+
+
+def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False,
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     intro = (
         "You've been assigned this ticket - please review and take action."
@@ -282,6 +304,7 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
@@ -326,7 +349,8 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
     return subject, html
 
 
-def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
+def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str,
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     secondary = None
     note = ""
@@ -346,18 +370,20 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
         intro="Here's a summary of the resolution.",
         rows=[
             ("Resolution", t.get("resolutionLabel") or "-"),
-            ("Resolution notes", t.get("description") or "-"),
+            ("Resolution notes", t.get("resolutionNote") or "-"),
             ("Resolved by", t.get("actorName") or t.get("actorEmail")),
             ("Resolved", t.get("eventAtDisplay") or "-"),
             ("Total resolution time", t.get("resolutionDuration") or "-"),
         ],
         cta_label="Confirm Resolution" if audience == "requester" else "Review Ticket",
         cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), secondary_ctas=secondary, note=note, logo_url=logo_url,
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
 
-def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -> tuple[str, str]:
+def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "",
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
@@ -372,6 +398,7 @@ def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
         note="Action required.",
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 

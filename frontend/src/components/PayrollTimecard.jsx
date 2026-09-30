@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz } from '../lib/displayTz';
@@ -14,6 +14,8 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
 import AnchoredMenu from './AnchoredMenu';
+import { Spinner } from './AsyncState';
+import EmployeeCombobox from './EmployeeCombobox';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -141,14 +143,22 @@ function periodStartFor(date) {
 // slashed pin Charmi showed from SwipeClock, Aug 21) - not folded into "-".
 //
 // Every punch is judged on its own coordinates against the sites the person is
-// allowed at (Charmi, Sep 29): inside one -> that site's name; inside none ->
-// "Out of Location". The nearest allowed site is only a hint in the tooltip -
+// on the company list (Sep 30): inside one -> that site's name; inside none ->
+// "Out of Location". The nearest site is only a hint in the tooltip -
 // showing it as the location read as "she was at Menifee" when she was not.
 const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
 function outOfLocationHint(site, dist) {
-  return site ? `Not at any of their work sites. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not at any of their work sites.';
+  return site ? `Not inside any company work site. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not inside any company work site.';
 }
-export function LocCell({ seg }) {
+// Clickable (Sep 30 - "still not able to click on locations"): the cell was
+// only ever a tooltip, so nothing happened on click. With `onOpen` every chip -
+// a site name, Out of Location, Location off, the Out-punch tail - is one
+// button that opens that shift's punches on the Geofence Punch map.
+const locChipBtn = {
+  background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left',
+  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%',
+};
+export function LocCell({ seg, onOpen }) {
   if (!seg) return <span style={{ color: 'var(--muted)' }}>-</span>;
   const geo = seg.geo || '';
   const site = seg.workSite || '';
@@ -161,44 +171,52 @@ export function LocCell({ seg }) {
       <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
-  if (geo === 'no_location') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b91c1c', fontWeight: 700 }}
-      title="No location was shared for this punch - turned off or not allowed in the browser.">
-      <MapPinOff size={12} style={{ flexShrink: 0 }} /> Location off{outTail}
-    </span>
-  );
-  if (geo === 'out_of_fence') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#b45309', fontWeight: 700 }}
-      title={outOfLocationHint(site, seg.distance)}>
-      <MapPin size={12} style={{ flexShrink: 0 }} /> Out of Location{outTail}
-    </span>
-  );
-  if (geo === 'no_site') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}
-      title="Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.">
-      <MapPin size={12} style={{ flexShrink: 0 }} /> No Site Mapped{outTail}
-    </span>
-  );
-  // A rough location (no GPS - a desktop's IP/Wi-Fi fix, worse than ±500 m) is
-  // too coarse to put the punch at any site. It used to print the NEAREST site's
-  // name here with a grey pin, which read as "she was at Menifee" when she was in
-  // Temecula (Charmi, Sep 29). Say what it is; the nearest site is a hint only.
-  if (geo === 'low_accuracy') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}
-      title={`This punch came with only a rough location (no GPS on the device), too rough to tell which work site it was at.${site ? ` Nearest work site to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`}>
-      <MapPin size={12} style={{ flexShrink: 0 }} /> Approx. Location{outTail}
-    </span>
-  );
-  if (!site) return outTail || <span style={{ color: 'var(--muted)' }}>-</span>;
-  const color = geo === 'in_fence' ? 'hsl(var(--color-green))' : 'var(--muted)';
+  let chip, title, style = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 };
+  if (geo === 'no_location') {
+    style = { ...style, color: '#b91c1c', fontWeight: 700 };
+    title = 'No location was shared for this punch - turned off or not allowed in the browser.';
+    chip = <><MapPinOff size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Location off</span>{outTail}</>;
+  } else if (geo === 'out_of_fence') {
+    style = { ...style, color: '#b45309', fontWeight: 700 };
+    title = outOfLocationHint(site, seg.distance);
+    chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Out of Location</span>{outTail}</>;
+  } else if (geo === 'no_site') {
+    style = { ...style, color: 'var(--muted)' };
+    title = 'Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.';
+    chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">No Site Mapped</span>{outTail}</>;
+  } else if (geo === 'low_accuracy') {
+    // A rough location (no GPS - a desktop's IP/Wi-Fi fix, worse than ±500 m) is
+    // too coarse to put the punch at any site. It used to print the NEAREST site's
+    // name here with a grey pin, which read as "she was at Menifee" when she was in
+    // Temecula (Charmi, Sep 29). Say what it is; the nearest site is a hint only.
+    style = { ...style, color: 'var(--muted)' };
+    title = `This punch came with only a rough location (no GPS on the device), too rough to tell which work site it was at.${site ? ` Nearest work site to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`;
+    chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Approx. Location</span>{outTail}</>;
+  } else if (!site) {
+    if (!outTail) return <span style={{ color: 'var(--muted)' }}>-</span>;
+    chip = outTail;
+    title = '';
+  } else {
+    const color = geo === 'in_fence' ? 'hsl(var(--color-green))' : 'var(--muted)';
+    title = site;
+    chip = (
+      <>
+        <MapPin size={12} style={{ color, flexShrink: 0 }} />
+        <span className="loc-chip-text" style={{ color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+          {site}
+        </span>
+        {outTail}
+      </>
+    );
+  }
+  if (!onOpen) return <span style={style} title={title || undefined}>{chip}</span>;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }} title={site}>
-      <MapPin size={12} style={{ color, flexShrink: 0 }} />
-      <span style={{ color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
-        {site}
-      </span>
-      {outTail}
-    </span>
+    <button type="button" className="loc-chip" onClick={(e) => { e.stopPropagation(); onOpen(seg); }}
+      title={`${title ? `${title} - ` : ''}Click to see this punch on the map`}
+      aria-label={`Open the punch location map${site && geo === 'in_fence' ? ` - ${site}` : ''}`}
+      style={{ ...locChipBtn, ...style }}>
+      {chip}
+    </button>
   );
 }
 
@@ -299,6 +317,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Location dot on a punch links to the Locations map, for viewers who can reach it.
   const hourlyLocate = (!self || isAdmin) ? (data?.email || email || '') : '';
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
+  // The Loc chip opens the same map framed on that one shift (Sep 30). Anyone
+  // may open their OWN punches there, so it works on the employee's card too.
+  const [geoFocus, setGeoFocus] = useState(null);   // { seg, date } | null
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -597,7 +618,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   if (data === null && !stepLocked) {
     const spinner = (
       <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
-        <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+        <Spinner size="section" />
       </div>
     );
     return self ? spinner : (
@@ -618,9 +639,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timesheet</span>
-          : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
-              {people.map(p => <option key={p.email} value={p.email}>{p.name}{p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
-            </select>}
+          : <EmployeeCombobox people={people} value={email} onChange={setEmail} title="Also selectable from the sidebar"
+              labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
           <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 175, textAlign: 'center' }}>{label}</span>
@@ -707,7 +727,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {stepLocked ? (
         <StepUpNeeded label="Payroll shows employees’ pay figures." onVerified={load} />
       ) : data === null ? (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>
       ) : (
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,
@@ -849,7 +869,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
                   <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
-                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
+                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} /></td>
                   {!self && (
                     <td style={{ ...td, textAlign: 'left' }}>
                       {r.first !== false && <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} />}
@@ -1027,7 +1047,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           toastOk={toastOk} toastErr={toastErr} />
       )}
       {geoMap && (
-        <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={perStart} end={perEnd} onClose={() => setGeoMap('')} />
+        <GeofencePunchModal email={geoMap} name={data?.name || nameFor?.(geoMap) || geoMap} start={perStart} end={perEnd}
+          onClose={() => { setGeoMap(''); setGeoFocus(null); }}
+          focusIds={geoFocus ? [geoFocus.seg.inId, geoFocus.seg.outId] : null}
+          focusLabel={geoFocus ? `the ${dow(geoFocus.date)} shift` : ''}
+          /* Managers reassign the punch's work site in the punch editor (work_site_id). */
+          onEditSite={geoFocus && !self && !fin && geoFocus.seg.inId
+            ? () => { const f = geoFocus; setGeoMap(''); setGeoFocus(null); setEditDay({ date: f.date, seg: f.seg }); }
+            : null} />
       )}
       {tour && <GuidedTour onClose={() => setTour(false)} steps={[
         { target: 'pr-sidebar', title: 'Start with the employee list',
@@ -1045,7 +1072,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-approve', title: 'Two-step sign-off',
           body: 'Step 1 - the manager presses Approve when their person\'s card is right. Step 2 - HR presses Finalize: the period locks (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
       ]} />}
-      <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); }`}</style>
+      <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); } .loc-chip .loc-chip-text { border-bottom: 1px dashed currentColor; } .loc-chip:hover .loc-chip-text { border-bottom-style: solid; } .loc-chip:hover { opacity: 0.85; } .loc-chip:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 4px; }`}</style>
       </div>
       {workLogDay && (
         <WorkLogDrawer email={self ? myEmail : email} date={workLogDay}
@@ -1125,9 +1152,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Timesheet</span>
-          : <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }}>
-              {people.map(p => <option key={p.email} value={p.email}>{p.name}{p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}</option>)}
-            </select>}
+          : <EmployeeCombobox people={people} value={email} onChange={setEmail}
+              labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={onPrev} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
           <span style={{ fontSize: 12.5, fontWeight: 700, minWidth: 130, textAlign: 'center' }}>{monthLabel}</span>

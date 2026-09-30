@@ -474,7 +474,7 @@ class GateBypassTests(_Case):
         demand an approval the ticket never needed."""
         t = self._create("bug")
         self._patch(t["id"], assignee_email=AGENT)
-        self._patch(t["id"], status="resolved")
+        self._patch(t["id"], status="resolved", resolution_note="fixed it")
         self.assertEqual(self._patch(t["id"], status="reopened")["approvalStatus"], "none")
 
 

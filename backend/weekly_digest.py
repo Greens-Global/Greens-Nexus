@@ -7,7 +7,7 @@ Extend Due Date button (routers/mail_actions.py do=extend, which applies the
 app's own due-date rule - task_due.py). A manager also gets one line per
 direct report who has overdue work.
 
-Still to Do (Sep 29, Sagar): everything else still waiting on the person -
+Needs Your Attention (Sep 29, Sagar; was "Still to Do"): everything else still waiting on the person -
 the Daily Briefing's own "Action Required" rows (daily_briefing._red_rows):
 approvals, time off to decide, the time card, item handovers, tickets and
 documents to sign - with the same one-click actions. The briefing's "Updates"

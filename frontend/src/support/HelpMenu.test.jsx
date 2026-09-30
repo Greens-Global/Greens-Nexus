@@ -182,7 +182,7 @@ describe('Help widget', () => {
     const list = await screen.findByRole('list', { name: 'Your tickets' });
     const rows = within(list).getAllByRole('button');
     expect(rows[0].textContent).toContain('VPN keeps dropping');
-    expect(rows[0].textContent).toContain('In progress');
+    expect(rows[0].textContent).toContain('In Progress');
     expect(rows[0].textContent).toContain('09/25/2026');
     expect(screen.getByRole('button', { name: /Send Us a Message/ })).toBeTruthy();
   });

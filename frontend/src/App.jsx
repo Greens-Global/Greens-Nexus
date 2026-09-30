@@ -20,6 +20,7 @@ import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
+import { Spinner, ViewLoading } from "./components/AsyncState";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
 import { BFF_MODE } from "./bffAuth";
@@ -179,7 +180,7 @@ function AuthLoader({ stuck }) {
   };
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, background: 'var(--paper, #f6f7f9)', fontFamily: 'Inter, sans-serif', padding: '0 24px', textAlign: 'center' }}>
-      <div style={{ width: 34, height: 34, borderRadius: '50%', border: '3px solid var(--line, #e6e8eb)', borderTopColor: 'var(--ink, #111827)', animation: 'spin 0.7s linear infinite' }} />
+      <Spinner size="page" label="Signing you in" />
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink, #111827)' }}>Signing you in…</div>
       {stuck && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 13, marginTop: 2 }}>
@@ -249,7 +250,7 @@ function RoleGate({ children }) {
   const { loading } = useRole();
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--paper)' }}>
-      <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--line)', borderTopColor: 'var(--ink)', animation: 'spin 0.7s linear infinite' }} />
+      <Spinner size="page" />
     </div>
   );
   return children;
@@ -442,7 +443,7 @@ export default function App() {
   if (parsePath().view === 'sign') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (
-      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicSign token={token} />
       </Suspense>
     );
@@ -453,7 +454,7 @@ export default function App() {
   if (parsePath().view === 'activate') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (
-      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <ExternalActivate token={token} />
       </Suspense>
     );
@@ -464,7 +465,7 @@ export default function App() {
   if (parsePath().view === 'verify') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (
-      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicVerify token={token} />
       </Suspense>
     );
@@ -480,14 +481,14 @@ export default function App() {
   // render for someone who has no Nexus login yet.
   if (parsePath().view === 'privacy') {
     return (
-      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PrivacyPolicy />
       </Suspense>
     );
   }
   if (parsePath().view === 'terms') {
     return (
-      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <TermsConditions />
       </Suspense>
     );
@@ -697,7 +698,7 @@ function MainApp() {
         <PullToRefresh />
         <TaskPrefetch />
         {activeView === 'sso' && activeSub === 'accounting' && (
-          <Suspense fallback={null}>
+          <Suspense fallback={<ViewLoading />}>
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
           </Suspense>
         )}
@@ -766,11 +767,7 @@ function MainApp() {
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
-              <Suspense fallback={
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--text-primary)', animation: 'spin 0.7s linear infinite' }} />
-                </div>
-              }>
+              <Suspense fallback={<ViewLoading />}>
                 <ProtectedView
                   key={viewEpoch}
                   activeView={activeView}

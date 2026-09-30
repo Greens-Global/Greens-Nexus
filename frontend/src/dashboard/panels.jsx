@@ -3,7 +3,7 @@
 // so TimeAdmin & co. stay out of the main bundle.
 import { useState, useEffect, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { MapPin, CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, Loader2, AlertCircle, CakeSlice, PartyPopper } from 'lucide-react';
+import { MapPin, CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, AlertCircle, CakeSlice, PartyPopper } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -14,6 +14,7 @@ import { navigate }         from './widgets.jsx';
 import { formatDateTime }   from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
+import { Spinner, LoadingState } from '../components/AsyncState';
 
 const Card = ({ title, sub, action, children }) => (
   <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
@@ -202,7 +203,7 @@ export function ApprovalsPanel() {
                       onClick={() => { setApprovingInvId(null); setPickedAllocator(''); }} disabled={approvingBusy}>Cancel</button>
                     <button className="primary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', background: 'hsl(var(--color-green))' }}
                       onClick={() => handleApproveInv(req)} disabled={!pickedAllocator || approvingBusy}>
-                      {approvingBusy ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Approving…</> : 'Confirm Approval'}
+                      {approvingBusy ? <><Spinner size={13} /> Approving…</> : 'Confirm Approval'}
                     </button>
                   </div>
                 </div>
@@ -338,7 +339,7 @@ export function WhoHasWhatPanel() {
                   <button onClick={(e) => { e.stopPropagation(); handleAllocate(row); }} disabled={!!allocating[row.key]}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 7, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 12, fontWeight: 600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily: 'Inter,sans-serif' }}>
                     {allocating[row.key]
-                      ? <><Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> Allocating…</>
+                      ? <><Spinner size={12} /> Allocating…</>
                       : <><CheckCircle size={12} /> Mark Allocated</>}
                   </button>
                   {allocErrors[row.key] && (
@@ -873,7 +874,7 @@ export function CalendarPanel() {
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
               {state.loading ? (
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Loading…</div>
+                <LoadingState compact />
               ) : dayEvents.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
               ) : (

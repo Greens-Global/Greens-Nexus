@@ -518,6 +518,8 @@ export const api = {
   renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
   setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
+  // The whole order at once, as dragged in Settings.
+  reorderTicketDepartments: (companyId, ids) => req("/ticket-departments/order", { method: "PUT", body: JSON.stringify({ company_id: companyId, ids }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
@@ -563,6 +565,8 @@ export const api = {
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
   getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
   addTicketComment: (id, data) => req(`/task-tickets/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
+  // The requester opened their ticket - clears its unread dot on Support.
+  markTicketSeen: (id) => req(`/task-tickets/${id}/seen`, { method: "POST" }),
   deleteTicketComment: (cid) => req(`/task-tickets/comments/${cid}`, { method: "DELETE" }),
   getTicketAttachments: (id) => req(`/task-tickets/${id}/attachments`),
   addTicketAttachment: (id, data) => req(`/task-tickets/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
@@ -878,7 +882,8 @@ export const api = {
   // + the dashboard panels).
   // Legacy /inventory-requests router was retired - the equivalent Nexus-People
   // allocator list now lives on the items router. Kept the name; repointed the URL.
-  getInventoryAllocators:  ()          => req('/items/allocators'),
+  // cachedGet (Sep 29): the bell re-requested this on every screen switch (~0.8 s each on dev).
+  getInventoryAllocators:  ()          => cachedGet('/items/allocators'),
 
   // Items - new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
@@ -1457,6 +1462,10 @@ export const api = {
   timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
   timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
+  // Teams on the schedule grid (Sep 30): add/remove members, rename/archive, reorder.
+  timeShiftGroupMembers: (id, data) => req(`/timeclock/shift-groups/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
+  timeShiftGroupMeta: (id, data)  => req(`/timeclock/shift-groups/${id}/meta`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeShiftGroupReorder: (ids)    => req('/timeclock/shift-groups/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
@@ -1760,6 +1769,12 @@ export const api = {
   // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
   //    back as `notes` on timePayroll ──
   timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
+
+  // ── Work site from a Google Maps link (Sep 30) - the point in a pasted link
+  //    or coordinates (short links opened server-side), and a check of recent
+  //    punches against a proposed fence before it is saved ──
+  resolveWorkSiteLink: (link) => req('/hr/work-sites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) }),
+  workSiteFenceCheck:  ({ lat, lng, radiusM, siteId = '' }) => req(`/hr/work-sites/fence-check?lat=${lat}&lng=${lng}&radius_m=${Math.round(radiusM || 150)}&site_id=${encodeURIComponent(siteId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { LoadingState } from './AsyncState';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../api.js';
@@ -127,7 +128,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(68vh, 620px)', overflowY: 'auto' }}>
           {crew === null ? (
-            <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+            <LoadingState compact />
           ) : list.length === 0 ? (
             <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 2px' }}>
               No one is clocked in with tracking right now. Crews appear here while they're on shift in the Nexus Fields app.

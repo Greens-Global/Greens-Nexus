@@ -227,11 +227,11 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Overview', desc: 'Your profile, contact and emergency details, assigned equipment, checkouts, signed documents, paystubs and leave. Only you see this page.' },
+      { name: 'Overview', desc: 'Your profile, contact and emergency details, assigned equipment, checkouts, signed documents, paystubs and leave. Only you see this page. The tiles on top: Hours this week (Monday to today, including a shift still in progress), Leave this year (approved working days, Monday to Friday, with a partial day counted as its share of 8 hours), My documents (signed and filed) and Time with us (from the start date on your HR record - ask HR if it is wrong).' },
       { name: 'Clock', desc: 'Punch In, Start Break, End Break and Punch Out, with today\'s punches and location tags.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
       { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
-      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, even if you move between several sites in a day. A punch away from all of your work sites shows Out of Location. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. Remote staff can punch from anywhere, and their location is still recorded.' },
+      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, judged by where the punch was made, even if you move between several sites in a day. A punch inside any of your company work sites shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the work site of the punch from there.' },
     ],
     manager: {
       title: 'Managers & Admins',
@@ -297,7 +297,7 @@ export const DOCS = [
     id: 'shifts', name: 'Shifts', group: 'My Desk', icon: 'CalendarClock', view: 'shifts',
     tagline: 'See your shifts and your team\'s; managers build and publish the schedule.',
     where: 'Left menu > Shifts (managers: Shifts > Manage)',
-    access: 'Everyone sees My Shifts. Managers and above also get Manage: the schedule grid and Presets & Groups.',
+    access: 'Everyone sees My Shifts. Managers and above also get Manage: the schedule grid and Presets & Teams.',
     purpose: 'Shifts is where you see when you work and where the team schedule is made. Everyone opens on My Shifts: your next shift, this week\'s hours and time off at a glance, your week, then your team\'s shifts with you pinned at the top. Managers click Manage to place shifts on a weekly grid, fill a whole group from a preset in one go, post open shifts and publish when it is ready. Nothing is shared until it is published.',
     gains: [
       'See your next shift and this week\'s hours without opening a calendar.',
@@ -327,7 +327,7 @@ export const DOCS = [
       {
         title: 'Set Up a Shift Preset and a Group',
         steps: [
-          'Managers: open Shifts, click Manage, then click the Presets & Groups tab.',
+          'Managers: open Shifts, click Manage, then click the Presets & Teams tab.',
           'Add a shift: name, a short code for the grid, start and end time, unpaid break, grace minutes and days. Click Save.',
           'Add a group: name it, pick its members, then click Save.',
         ],
@@ -368,7 +368,7 @@ export const DOCS = [
     features: [
       { name: 'My Shifts', desc: 'Everyone: your next shift (or the one you are on now), this week\'s paid hours and time off, your week, then Team Shifts with you pinned at the top.' },
       { name: 'Requests From Staff', desc: 'On My Shifts: ask for an open shift, swap or offer a shift to a teammate, and set My Availability. Every request goes to a manager.' },
-      { name: 'Manage', desc: 'Managers and above: the button that opens the schedule grid and Presets & Groups. Back to My Shifts returns.' },
+      { name: 'Manage', desc: 'Managers and above: the button that opens the schedule grid and Presets & Teams. Back to My Shifts returns.' },
       { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
       { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
       { name: 'Fill Schedule', desc: 'Apply one preset to a whole group, or everyone in view, across a date range. It can skip days a person has time off.' },
@@ -381,7 +381,7 @@ export const DOCS = [
       { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
       { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
-      { name: 'Presets & Groups', desc: 'Shift presets (time, unpaid break, grace, days, color, code) and groups of people. Assign a Shift to a Group sets a preset for everyone in a group.' },
+      { name: 'Presets & Teams', desc: 'Shift presets (time, unpaid break, grace, days, color, code) and teams of people. Assign a Shift to a Team sets a preset for everyone on a team.' },
     ],
     manager: {
       title: 'Who Can Do What',
@@ -542,15 +542,17 @@ export const DOCS = [
         steps: [
           'Open Tickets and click the Unassigned tile (or the Assigned to Me tab).',
           'Click a row to open the full thread, attachments and history.',
-          'Set yourself as the assignee and move the state to In Progress.',
+          'Set yourself as the assignee. The status moves to In Progress on its own.',
+          'Click Done. Nothing on an open ticket is saved or sent until you do.',
         ],
       },
       {
         title: 'Resolve a Ticket',
         steps: [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
-          'Click Mark Resolved and add the resolution.',
-          'The requester is notified and can confirm or reopen it.',
+          'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
+          'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it.',
+          'The requester confirms it with a 1 to 5 star rating, or reopens it with a reason.',
         ],
       },
       {
@@ -566,7 +568,9 @@ export const DOCS = [
       { name: 'Tabs', desc: 'All, My Requests, Assigned to Me, and (only when something is waiting) To Route and To Approve.' },
       { name: 'Tiles', desc: 'Live counts for Open, Unassigned, SLA Breached, Resolved and Closed. Click one to filter the list.' },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
-      { name: 'Ticket Types', desc: 'Incident, Service Request, Access Request, Bug Report, Feature Request, Change and more. Each asks only its own questions.' },
+      { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
+      { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Other takes a short typed answer.' },
+      { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },
       { name: 'Export', desc: 'Export the currently filtered tickets to CSV.' },
@@ -575,11 +579,12 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents), Notifications, and SLA & Ticket Types (intake questions and SLA hours).',
+        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in), Notifications, SLA & Ticket Types (intake questions and SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department, and the area each one files under).',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
     },
     tips: [
+      'Inside an open ticket, changes wait for Done. Close it without clicking Done and you are asked before they are thrown away.',
       'State and Priority can be changed straight from the list without opening the ticket.',
       'Resolved and Closed tickets collapse into their own section so open work stays on top.',
     ],
@@ -1065,9 +1070,9 @@ export const DOCS = [
       { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
-      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it).' },
-      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A work site is placed by searching its street address and picking the right match; the map then jumps to it, and you can drag the pin (or click the map) onto the exact building - the address stays the one you picked, and a pin far from it is flagged. A site marked Verify Address was placed with the old map pin: edit it and search its address once.' },
-      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, click the work sites they may punch at - any number of them. None picked means any of the company sites.' },
+      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it). The tiles on top open what they count: Team Hours (hours by person and day), Timesheets to Review, Punch Exceptions (the Missing Punches list) and Time Off Pending. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
+      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy. The most accurate way to place a work site is its Google Maps link: in Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and keeps the link on the site, marked Google Maps in the list. You can also search the street address instead. Either way the map jumps to the site, you can drag the pin (or click the map) onto the exact building, and a pin moved far from the link or address is flagged. Set the radius with the slider (100-300 m suits most sites; under 100 m, phone GPS drift flags people who are on-site). Before you save, Punches Here shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A site marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
+      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, optionally click their usual work sites - any number of them. A punch inside any company work site counts as at that site; their usual sites only win where two sites overlap.' },
     ],
     manager: {
       title: 'HR & Admins',
@@ -1075,7 +1080,7 @@ export const DOCS = [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
         'Offboarding: hand over their tasks, set mailbox handling, then mark them Left.',
         'Changing a status asks for a reason, and every change is kept in history.',
-        'Punch locations are judged punch by punch: the timecard shows the allowed site the person punched at, or Out of Location when they were at none of them. Mapping a new site later also corrects earlier punches made there.',
+        'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company work site the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
       ],
     },
     tips: ['People pickers across Nexus use this directory, so keep names and emails correct here.'],
@@ -1215,8 +1220,9 @@ export const DOCS = [
         title: 'Submit a Ticket',
         steps: [
           'Open Support and click Submit a Ticket.',
-          'Pick the type of request. Only that type\'s questions appear.',
-          'Fill them in, attach a screenshot if it helps, and submit. It is routed to the right person automatically.',
+          'Give it a title and a short description.',
+          'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words.',
+          'Pick the type (each one says what it means), answer its questions, attach a photo if it helps, and click Create Ticket.',
         ],
       },
       {
@@ -1230,8 +1236,9 @@ export const DOCS = [
       {
         title: 'Follow Up on Your Ticket',
         steps: [
-          'Find it in My Open Tickets (search by ticket number or title).',
-          'Click the row to open the full thread and reply.',
+          'Find it in My Open Tickets (search by ticket number or title). A blue dot means something changed since you last opened it.',
+          'Click the row to open the full thread and reply. While it is still Open, click the pencil to edit it.',
+          'When it is resolved, click Confirm and rate how it was handled, or Reopen and say why.',
         ],
       },
     ],
@@ -1240,7 +1247,8 @@ export const DOCS = [
       { name: 'Report a Bug', desc: 'For anything broken in Nexus itself.' },
       { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
       { name: 'Privacy Policy & Terms', desc: 'What Nexus collects, and the terms of use.' },
-      { name: 'My Open Tickets', desc: 'Everything you raised that is not closed yet. Sort, search and page through it.' },
+      { name: 'My Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated. Sort, search and page through it.' },
+      { name: 'My Closed Tickets', desc: 'Your finished tickets. Reopen one if the same problem comes back.' },
       { name: 'Documentation', desc: 'This guide.' },
     ],
     manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Support is the requester\'s side.'] },
@@ -1294,7 +1302,7 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, and SLA & Ticket Types), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, SLA & Ticket Types, and Help Topics for each department), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
       { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
       { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },

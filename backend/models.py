@@ -1458,6 +1458,11 @@ class HrWorkSite(Base):
     # an older site whose point came from the map; the UI asks for a re-check.
     address_verified_at = Column(String, default="")
     address_verified_by = Column(String, default="")
+    # Where the point came from (Sep 30): "address" (a searched, picked
+    # address), "google_link" (a pasted Google Maps link or coordinates), ""
+    # (older sites). map_link keeps the pasted link as the record of it.
+    location_source = Column(String, default="")
+    map_link        = Column(String, default="")
 
 
 class HrCompanyWorkSite(Base):
@@ -2360,6 +2365,10 @@ class ShiftGroup(Base):
     # People who may build THIS group's schedule without team-wide access
     # (Sep 29, Teams "scheduling owner" per team). JSON list of emails.
     scheduler_emails = Column(String, default="")
+    # Teams switcher (Neil, Sep 30): archived teams drop out of the active list;
+    # sort_order is the manager's own order (Reorder Teams), then name.
+    archived        = Column(Integer, default=0)
+    sort_order      = Column(Integer, default=0)
 
 
 class ShiftGroupMember(Base):
@@ -3188,6 +3197,14 @@ class TaskTicket(Base):
     # date breach. Blank on a ticket nobody has commented on yet; the frontend
     # falls back to created_at in that case.
     last_comment_at = Column(String, default="")
+    # Requester-facing "something new" signal (Neil, Sep 30): stamped when
+    # anyone OTHER than the requester changes the ticket or replies publicly,
+    # and requester_seen_at when the requester opens it. Newer update than
+    # seen = the unread dot on Support's My Tickets list.
+    requester_update_at = Column(String, default="")
+    requester_seen_at   = Column(String, default="")
+    # What was actually done - required to resolve/close a ticket (Neil, Sep 30).
+    resolution_note     = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
 

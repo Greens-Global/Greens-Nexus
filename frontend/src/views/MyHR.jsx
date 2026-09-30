@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
-  FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
+  FileText, Download, CalendarOff, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks } from '../components/AsyncState';
-import { formatDateLong, formatTime } from '../lib/datetime';
+import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
+import { formatDate, formatDateLong, formatTime } from '../lib/datetime';
+import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
 
@@ -75,9 +76,9 @@ function Row({ Icon, label, value }) {
 
 // Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
 // numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
-function Stat({ label, value, hint, color, Icon, hero }) {
+function Stat({ label, value, hint, color, Icon, hero, title }) {
   return (
-    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} style={{ cursor: 'default' }}>
+    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} style={{ cursor: 'default' }} title={title}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
       </span>
@@ -150,8 +151,8 @@ function HoursChart({ days, start, end }) {
 export function MyHROverview({ onOpenTimeOff }) {
   const [profile, setProfile] = useState(null);
   const [profErr, setProfErr] = useState('');
-  const [docs, setDocs] = useState([]);
-  const [leave, setLeave] = useState([]);
+  const [docs, setDocs] = useState(null);     // null = loading, false = failed
+  const [leave, setLeave] = useState(null);   // null = loading, false = failed
   const [sheet, setSheet] = useState(null);
   const [stubs, setStubs] = useState([]);
   const [assets, setAssets] = useState(null);
@@ -186,8 +187,8 @@ export function MyHROverview({ onOpenTimeOff }) {
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(e => setProfErr(e?.message || 'Could not load your profile'));
-    api.myHrDocs().then(setDocs).catch(() => {});
-    api.timeOffMine().then(setLeave).catch(() => {});
+    api.myHrDocs().then(d => setDocs(d || [])).catch(() => setDocs(false));
+    api.timeOffMine().then(l => setLeave(l || [])).catch(() => setLeave(false));
     api.myPaystubs().then(setStubs).catch(() => {});
     api.myAssets().then(setAssets).catch(() => setAssets({ assignments: [], checkouts: [] }));
     api.myHrRequests().then(setAsks).catch(() => {});
@@ -261,7 +262,7 @@ export function MyHROverview({ onOpenTimeOff }) {
 
   // Sealed e-sign PDFs, newest first - always its own section. Kept separate
   // from the Egnyte groups below since it isn't part of the Egnyte tree.
-  const esignRows = useMemo(() => docs.map(d => ({
+  const esignRows = useMemo(() => (docs || []).map(d => ({
     key: 'e:' + d.requestId, kind: 'esign', title: d.title,
     meta: `Completed ${fmtD(d.completedAt?.slice(0, 10))}`, sortKey: d.completedAt || '',
     busyKey: 'doc' + d.requestId, onDownload: () => download(d.requestId),
@@ -309,7 +310,7 @@ export function MyHROverview({ onOpenTimeOff }) {
       )}
       <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-        {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
+        {busy[d.busyKey] ? <Spinner size={12} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
       </button>
     </div>
   );
@@ -365,19 +366,21 @@ export function MyHROverview({ onOpenTimeOff }) {
   const dayEntries = Object.entries(sheet?.days || {});
   const workedTotal = dayEntries.reduce((s, [, d]) => s + (d.workedMin || 0), 0);
   const daysWorked = dayEntries.filter(([, d]) => (d.workedMin || 0) > 0).length;
+  // A shift still open right now is not in workedMin until its clock-out
+  // lands - add it live, or the tile reads 0h all day mid-shift. Only for
+  // ranges that end today ("Last week" is closed history).
+  const rangeEndsToday = iso(rEnd) === iso(new Date());
+  const openMin = sheet && rangeEndsToday ? openShiftMinutes(sheet.days) : 0;
+  const hoursTotal = workedTotal + openMin;
+  const todayKey = iso(new Date());
+  const daysWorkedLive = daysWorked + (openMin > 0 && !((sheet?.days?.[todayKey]?.workedMin || 0) > 0) ? 1 : 0);
+  // Leave = approved WORKING days (Mon-Fri) inside this calendar year, a
+  // partial day as its share of 8 hours (lib/workdayStats.js). The old count
+  // added calendar days incl. weekends and whole days for 2-hour requests.
   const yr = new Date().getFullYear();
-  const leaveDaysThisYear = leave.filter(r => r.status === 'approved' && String(r.startDate || r.start_date || '').startsWith(String(yr)))
-    .reduce((s, r) => {
-      const a = new Date(r.startDate || r.start_date), b = new Date(r.endDate || r.end_date);
-      return s + (isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1);
-    }, 0);
-  const tenure = (() => {
-    if (!profile?.startDate) return '-';
-    const days = Math.max(0, Math.round((Date.now() - new Date(profile.startDate + 'T00:00:00')) / 86400000));
-    if (days < 31) return `${days}d`;
-    if (days < 365) return `${Math.floor(days / 30.44)}mo`;
-    return `${(days / 365.25).toFixed(1)}y`;
-  })();
+  const leaveDaysThisYear = Array.isArray(leave) ? approvedLeaveDays(leave, yr) : null;
+  const leaveLabel = leave === null ? '…' : leaveDaysThisYear == null ? '-' : `${fmtDays(leaveDaysThisYear)}d`;
+  const tenure = tenureLabel(profile?.startDate) || '-';
 
   const em = profile?.personal?.emergency || {};
   const initials = profile ? `${(profile.firstName || ' ')[0]}${(profile.lastName || ' ')[0]}`.trim().toUpperCase() : '';
@@ -411,11 +414,22 @@ export function MyHROverview({ onOpenTimeOff }) {
           {/* ── Stat tiles ── (hours hidden for salaried/exempt people - Charmi, Aug 21) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
             {!sheet?.timeTrackingExempt && (
-              <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
+              <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`}
+                value={sheet ? hm(hoursTotal) : '…'}
+                hint={`${formatDate(rStart)} - ${formatDate(rEnd)} · ${daysWorkedLive} day${daysWorkedLive === 1 ? '' : 's'} worked${openMin ? ' · shift in progress' : ''}`}
+                title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Change the range on the Hours card below.`}
+                color="blue" Icon={Clock} />
             )}
-            <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
-            <Stat label="My documents" value={totalDocCount} hint="Signed & filed" color="purple" Icon={FileText} />
-            <Stat label="Time with us" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
+            <Stat label="Leave this year" value={leaveLabel} hint={`Approved working days in ${yr}`}
+              title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Pending and declined requests are not included.`}
+              color="green" Icon={CalendarOff} />
+            <Stat label="My documents" value={docs === null ? '…' : (docs === false && !egnyteDocs) ? '-' : totalDocCount} hint="Signed & filed for you"
+              title="Completed e-sign documents you were a party to, plus the files HR keeps in your personal folder"
+              color="purple" Icon={FileText} />
+            <Stat label="Time with us" value={tenure}
+              hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
+              title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
+              color="orange" Icon={Hourglass} />
           </div>
 
           <div className="myhr-grid">
@@ -483,7 +497,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
                       <button className="secondary-btn" onClick={() => setEditing(false)} disabled={saving}><X size={13} /> Cancel</button>
                       <button className="primary-btn" onClick={saveEdit} disabled={saving}>
-                        {saving ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Saving…</> : <><Check size={13} /> Save</>}
+                        {saving ? <><Spinner size={13} /> Saving…</> : <><Check size={13} /> Save</>}
                       </button>
                     </div>
                     <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
@@ -505,7 +519,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </select>
                   ) : <Package size={15} style={{ color: 'var(--muted)' }} />)}
                 {!assets ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+                  <LoadingState compact />
                 ) : assets.assignments.length + assets.checkouts.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing checked out to you right now.</div>
                 ) : (
@@ -544,7 +558,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </select>
                   </span>)}
                 {!sheet ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+                  <LoadingState compact />
                 ) : (
                   <>
                     {workedTotal === 0 ? (
@@ -661,7 +675,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </div>
                     <button className="secondary-btn" onClick={() => downloadStub(s.id)} disabled={!!busy['stub' + s.id]}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                      {busy['stub' + s.id] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} PDF
+                      {busy['stub' + s.id] ? <Spinner size={12} /> : <Download size={12} />} PDF
                     </button>
                   </div>
                 ))}
@@ -672,11 +686,11 @@ export function MyHROverview({ onOpenTimeOff }) {
                   see the file-top note). */}
               <div className="dash-card">
                 {cardHead('My leave', 'Time off, requested and tracked on the Time Off tab', <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
-                {leave.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 14px' }}>No time-off requests yet.</div>
+                {!Array.isArray(leave) || leave.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 14px' }}>{leave === null ? 'Loading…' : leave === false ? 'Could not load your time off.' : 'No time-off requests yet.'}</div>
                 ) : (
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, padding: '6px 0 14px' }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)', fontSize: 15 }}>{leaveDaysThisYear}d</strong> approved this year</span>
+                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)', fontSize: 15 }}>{leaveLabel}</strong> approved this year (working days)</span>
                     {leave.some(r => r.status === 'pending') && (
                       <span style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
                         {leave.filter(r => r.status === 'pending').length} pending
@@ -716,7 +730,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                   )}
                   <div style={{ flex: 1 }} />
                   <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
-                    {askBusy ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Sending…</> : 'Send to HR'}
+                    {askBusy ? <><Spinner size={13} /> Sending…</> : 'Send to HR'}
                   </button>
                 </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { FilePlus2, LayoutTemplate, Send, FileText, Clock, Loader2, ChevronRight } from 'lucide-react';
+import { FilePlus2, LayoutTemplate, Send, FileText, Clock, ChevronRight } from 'lucide-react';
 import { api } from '../api';
+import { Spinner } from './AsyncState';
 
 // ── Documents Dashboard ───────────────────────────────────────────────────────
 // Landing screen for the Documents module: quick actions, recent documents, and
@@ -64,7 +65,7 @@ export default function DocumentsDashboard({ onGoToBrowse, onGoToTemplates, onGo
             </button>
           </div>
           {!recent ? (
-            <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>
           ) : recent.length === 0 ? (
             <div style={{ padding: '20px 4px', color: 'var(--muted)', fontSize: 12.5 }}>No documents yet - create your first draft.</div>
           ) : recent.map(d => {
@@ -88,7 +89,7 @@ export default function DocumentsDashboard({ onGoToBrowse, onGoToTemplates, onGo
             )}
           </div>
           {!inbox ? (
-            <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>
           ) : myTurn.length === 0 ? (
             <div style={{ padding: '20px 4px', color: 'var(--muted)', fontSize: 12.5 }}>Nothing awaiting your signature.</div>
           ) : myTurn.slice(0, 5).map(item => (

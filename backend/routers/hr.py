@@ -2539,8 +2539,12 @@ class WorkSiteIn(BaseModel):
     company:  Optional[str] = ""
     notes:    Optional[str] = ""
     # True when latitude/longitude came from an address the person searched and
-    # picked (Sep 30) - the only way the screen sets them now.
+    # picked (Sep 30).
     address_verified: Optional[bool] = False
+    # "google_link" when the point came from a pasted Google Maps link or
+    # coordinates (map_link keeps what was pasted); "address" for a search pick.
+    location_source: Optional[str] = ""
+    map_link: Optional[str] = ""
 
 
 class WorkSiteUpdate(BaseModel):
@@ -2551,6 +2555,8 @@ class WorkSiteUpdate(BaseModel):
     radius_m: Optional[int] = None
     notes:    Optional[str] = None
     address_verified: Optional[bool] = None
+    location_source: Optional[str] = None
+    map_link: Optional[str] = None
 
 
 class CompanySitesIn(BaseModel):
@@ -2576,7 +2582,32 @@ def _serialize_site(s: HrWorkSite, companies=None) -> dict:
         "notes": s.notes, "createdAt": s.created_at, "updatedAt": s.updated_at,
         # '' = the point came from the old map pin; the UI asks for a re-check.
         "addressVerifiedAt": s.address_verified_at or "", "addressVerifiedBy": s.address_verified_by or "",
+        "locationSource": getattr(s, "location_source", "") or "", "mapLink": getattr(s, "map_link", "") or "",
     }
+
+
+_LOCATION_SOURCES = ("", "address", "google_link")
+
+
+def _check_location_source(source: str, link: str, has_point: bool) -> tuple:
+    """(source, link) to store. A Google-link site must carry the Google Maps
+    link (or coordinates) it came from - the record of where the point was
+    taken - and a point; anything else is refused rather than half-saved."""
+    from maps_link import MapLinkError, needs_resolving, parse_point
+    source = (source or "").strip()
+    link = (link or "").strip()[:2000]
+    if source not in _LOCATION_SOURCES:
+        raise HTTPException(400, "Unknown location source")
+    if source != "google_link":
+        return source, ""
+    if not link or not has_point:
+        raise HTTPException(400, "Paste the Google Maps link again - the site has no point from it yet")
+    if not needs_resolving(link):
+        try:
+            parse_point(link)
+        except MapLinkError as e:
+            raise HTTPException(400, str(e))
+    return source, link
 
 
 def company_sites(db: Session, company_id: str):
@@ -2668,7 +2699,9 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
         company="", notes=body.notes or "",
         created_by=user["email"], created_at=now, updated_at=now,
     )
-    if body.address_verified and row.latitude and row.longitude:
+    row.location_source, row.map_link = _check_location_source(
+        body.location_source, body.map_link, bool(row.latitude and row.longitude))
+    if (body.address_verified or row.location_source) and row.latitude and row.longitude:
         row.address_verified_at, row.address_verified_by = now, user["email"]
     db.add(row)
     # Added from a company = in the library for everyone AND on that company's
@@ -2691,6 +2724,8 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     before = (row.latitude or "", row.longitude or "")
     fields = body.model_dump(exclude_unset=True)
     verified = fields.pop("address_verified", None)
+    source = fields.pop("location_source", None)
+    link = fields.pop("map_link", None)
     for key, value in fields.items():
         if value is None:
             continue
@@ -2699,12 +2734,110 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     # Coordinates from a picked address mark the site verified; coordinates
     # that changed any other way (an older client, the API) clear it, so the
     # badge never vouches for a point nobody checked against an address.
-    if verified and row.latitude and row.longitude:
+    if source is not None:
+        row.location_source, row.map_link = _check_location_source(
+            source, link or "", bool(row.latitude and row.longitude))
+    if (verified or (source and row.location_source)) and row.latitude and row.longitude:
         row.address_verified_at, row.address_verified_by = row.updated_at, user["email"]
     elif (row.latitude or "", row.longitude or "") != before:
+        # Moved some other way (an older client, the API): nothing vouches
+        # for the new point any more.
         row.address_verified_at, row.address_verified_by = "", ""
+        row.location_source, row.map_link = "", ""
     db.commit(); db.refresh(row)
     return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
+
+
+class MapLinkIn(BaseModel):
+    link: str
+
+
+@router.post("/work-sites/resolve-link")
+def resolve_work_site_link(body: MapLinkIn, user: dict = Depends(require_hr_write)):
+    """The point in a pasted Google Maps link or coordinates (Sep 30): the
+    place's own pin when the link has one, a dropped pin, or - flagged as
+    `view` - only where the map was looking. Short share links are opened on
+    the server, Google hosts only (maps_link.resolve_link). Plain def: the
+    short-link fetch runs on a worker thread, never the event loop."""
+    from maps_link import MapLinkError, resolve_link
+    link = (body.link or "").strip()
+    if len(link) > 2000:
+        raise HTTPException(400, "That link is too long to be a Google Maps link")
+    try:
+        return resolve_link(link)
+    except MapLinkError as e:
+        raise HTTPException(422, str(e))
+
+
+_FENCE_CHECK_DAYS = 30
+
+
+@router.get("/work-sites/fence-check")
+def work_site_fence_check(lat: float, lng: float, radius_m: int = 150, site_id: str = "",
+                          user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Before a site's point or radius is saved: the last 30 days of located
+    punches near the proposed fence, and how many fall inside it - and inside
+    the SAVED fence when editing, so a point that would turn a crew's on-site
+    punches into Out of Location shows up before it is saved. Same rule as the
+    time clock's verdict (GPS accuracy credit capped at 150 m; a fix worse
+    than 500 m never counts as inside). Punches of the viewer's companies
+    only; no names leave the server, only dots and counts."""
+    from maps_link import haversine_m
+    from models import TimePunch
+    from datetime import timedelta
+    from sqlalchemy import func
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise HTTPException(400, "Invalid point")
+    radius = max(25, min(int(radius_m or 150), 5000))
+    old = None
+    if site_id:
+        st = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+        try:
+            if st:
+                old = (float(st.latitude), float(st.longitude), max(25, int(st.radius_m or 150)))
+        except (TypeError, ValueError):
+            old = None
+    since = (datetime.now(timezone.utc) - timedelta(days=_FENCE_CHECK_DAYS + 1)).strftime("%Y-%m-%d")
+    q = (db.query(TimePunch.lat, TimePunch.lng, TimePunch.accuracy_m, TimePunch.employee_email)
+         .filter(TimePunch.voided == 0, TimePunch.local_date >= since,
+                 TimePunch.lat != "", TimePunch.lng != "", TimePunch.kind.in_(("in", "out"))))
+    scope = hr_scope(user, db)
+    if scope is not None:
+        emails = [e.lower() for (e,) in db.query(NexusEmployee.work_email)
+                  .filter(NexusEmployee.company.in_(list(scope))).all() if e]
+        if not emails:
+            return {"days": _FENCE_CHECK_DAYS, "near": 0, "inside": 0, "people": 0,
+                    "savedInside": 0 if old else None, "points": []}
+        q = q.filter(func.lower(TimePunch.employee_email).in_(emails))
+
+    def _in(d, acc, r):
+        return acc <= 500 and max(0.0, d - min(acc, 150)) <= r
+
+    near = inside = saved_inside = 0
+    people = set()
+    points = []
+    reach = radius + 1000
+    for plat_s, plng_s, acc, email in q.all():
+        try:
+            plat, plng = float(plat_s), float(plng_s)
+        except (TypeError, ValueError):
+            continue
+        acc = max(0, int(acc or 0))
+        if old and _in(haversine_m(plat, plng, old[0], old[1]), acc, old[2]):
+            saved_inside += 1
+        d = haversine_m(plat, plng, lat, lng)
+        if d > reach:
+            continue
+        near += 1
+        hit = _in(d, acc, radius)
+        if hit:
+            inside += 1
+            people.add((email or "").lower())
+        if len(points) < 600:
+            points.append({"lat": round(plat, 6), "lng": round(plng, 6), "accuracyM": acc,
+                           "distanceM": int(round(d)), "inside": hit})
+    return {"days": _FENCE_CHECK_DAYS, "near": near, "inside": inside, "people": len(people),
+            "savedInside": saved_inside if old else None, "points": points}
 
 
 @router.delete("/work-sites/{site_id}")

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, Component, lazy, Suspense } from 'react';
-import { X, Send, Loader2, Sparkles } from 'lucide-react';
+import { X, Send, Sparkles } from 'lucide-react';
 import { api } from '../api';
 import { useIsMobile } from '../lib/useIsMobile';
+import { Spinner } from './AsyncState';
 
 // The phone bottom bar (MobileNav) owns the bottom 64px plus the safe-area
 // inset - the same clearance .main-content and MobileTaskBar reserve. Anything
@@ -159,7 +160,7 @@ function AssistantWidgetInner() {
           ))}
           {sending && (
             <div style={{ alignSelf: 'flex-start', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Thinking...
+              <Spinner size={13} /> Thinking...
             </div>
           )}
           {error && (

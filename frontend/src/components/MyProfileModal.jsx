@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { X, Camera, Loader2, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy } from 'lucide-react';
+import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
 import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
+import { Spinner } from './AsyncState';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -135,7 +136,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
           {error && !profile ? (
             <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</div>
           ) : !profile ? (
-            <Loader2 size={20} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />
+            <Spinner size="section" />
           ) : (<>
             <div style={{ position: 'relative' }}>
               {profile.photoUrl ? (
@@ -173,7 +174,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                 <img src={signature.logoUrl} alt="" style={{ height: 32, maxWidth: 120, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)' }} />
               )}
               <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
-                {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />}
+                {logoBusy ? <Spinner size={12} /> : <Camera size={12} />}
                 {signature.logoUrlOverride ? 'Replace logo' : 'Upload logo'}
                 <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
                   onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadSignatureLogo(f); }} />
@@ -215,7 +216,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="secondary-btn" onClick={saveSignature} disabled={sigBusy}
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {sigBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={12} />} Save
+                {sigBusy ? <Spinner size={12} /> : <Check size={12} />} Save
               </button>
               <button className="secondary-btn" onClick={copySignature}
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>

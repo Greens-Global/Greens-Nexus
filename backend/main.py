@@ -807,6 +807,9 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
             # Group schedulers (Sep 29) - see the Postgres list.
             "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
+            # Teams switcher (Sep 30) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN archived INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN sort_order INTEGER DEFAULT 0",
             # Confidential time off (Neil, Sep 29) - see the Postgres list.
             "ALTER TABLE time_off_requests ADD COLUMN confidential INTEGER DEFAULT 0",
             # Several allowed work sites per person + manager-set punch sites
@@ -816,11 +819,18 @@ def _run_migrations():
             # Address-verified work sites (Sep 30) - see the Postgres list.
             "ALTER TABLE hr_work_sites ADD COLUMN address_verified_at TEXT DEFAULT ''",
             "ALTER TABLE hr_work_sites ADD COLUMN address_verified_by TEXT DEFAULT ''",
+            # Work site from a Google Maps link (Sep 30) - see the Postgres list.
+            "ALTER TABLE hr_work_sites ADD COLUMN location_source TEXT DEFAULT ''",
+            "ALTER TABLE hr_work_sites ADD COLUMN map_link TEXT DEFAULT ''",
             # Accounting: when each person last opened the screen (Sep 30).
             "ALTER TABLE accounting_user_prefs ADD COLUMN last_opened_at TEXT DEFAULT ''",
             "ALTER TABLE accounting_user_prefs ADD COLUMN opens INTEGER DEFAULT 0",
             # Priority notifications (Sep 30) - see the Postgres list.
             "ALTER TABLE nexus_notifications ADD COLUMN priority INTEGER DEFAULT 0",
+            # Ticket unread dot + resolution note (Sep 30) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN requester_update_at TEXT DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN requester_seen_at TEXT DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN resolution_note TEXT DEFAULT ''",
             # Closed notifications (Oct 1) - see the Postgres list.
             "ALTER TABLE nexus_notifications ADD COLUMN closed_by VARCHAR DEFAULT ''",
         ]
@@ -1739,6 +1749,9 @@ def _run_migrations():
         # Group schedulers + staff availability (Sep 29). Availability is a
         # new table - RLS per CLAUDE.md.
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS scheduler_emails TEXT DEFAULT ''",
+        # Teams switcher (Sep 30): archive + the managers' own order.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
         "ALTER TABLE shift_availability ENABLE ROW LEVEL SECURITY",
         # Accounting: memorized reports and reporting packages (Neil, Sep 25).
         # New tables - RLS per CLAUDE.md.
@@ -1773,12 +1786,22 @@ def _run_migrations():
         # older site, so the UI asks for each to be re-checked once.
         "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_at TEXT DEFAULT ''",
         "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_by TEXT DEFAULT ''",
+        # Work site placed from a pasted Google Maps link (Pranshu, Sep 30):
+        # how the point was set, and the link itself as the record of it.
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS location_source TEXT DEFAULT ''",
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS map_link TEXT DEFAULT ''",
         # Accounting: when each person last opened the screen (Sep 30).
         "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS last_opened_at TEXT DEFAULT ''",
         "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS opens INTEGER DEFAULT 0",
         # Priority notifications (Neil, call of 09/29): 1 = the yellow bar across
         # the top until acted on; 0 = the bell.
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0",
+        # Tickets (Neil, Sep 30): the requester's unread dot on Support (last
+        # update by someone else vs. when they last opened it) and the written
+        # resolution every resolve/close now requires.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS requester_update_at TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS requester_seen_at TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS resolution_note TEXT DEFAULT ''",
         # Closed notifications (Neil, 10/01): clearing moves a row to the
         # person's Closed list instead of deleting it; rows live 30 days.
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",

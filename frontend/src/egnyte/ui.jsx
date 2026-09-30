@@ -4,10 +4,11 @@
 // the Work OS idiom used across the app.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, CloudOff, ExternalLink, Link2, Loader2 } from 'lucide-react';
+import { AlertTriangle, CloudOff, ExternalLink, Link2 } from 'lucide-react';
 import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { Spinner } from '../components/AsyncState';
 
 export const CARD = {
   background: 'var(--wk-card)',
@@ -29,9 +30,8 @@ export const BODY = { fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.55 };
 // the row that holds them carries minWidth: 0 so flex actually allows it.
 export const ELLIPSIS = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 };
 
-export function Spinner({ size = 18, style }) {
-  return <Loader2 size={size} style={{ animation: 'spin 1s linear infinite', flexShrink: 0, ...style }} />;
-}
+// The module's spinner is the shared Nexus ring (re-exported so callers keep importing it from here).
+export { Spinner };
 
 export function Loading({ label = 'Loading…' }) {
   return (
@@ -271,7 +271,7 @@ export function ConnectRequired() {
         once and you will see exactly the folders you have access to.
       </div>
       <button type="button" className="primary-btn" disabled={busy} onClick={connect} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {busy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Link2 size={13} />} Connect Egnyte
+        {busy ? <Spinner size={13} /> : <Link2 size={13} />} Connect Egnyte
       </button>
       {error && <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-red)' }}>{error}</div>}
     </div>
