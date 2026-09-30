@@ -1,12 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useDeferredValue, memo } from 'react';
-import {
-  Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera,
-  AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
-  Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
-  ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings2,
-} from 'lucide-react';
-import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
+import { Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera, AlertCircle, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart, ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText, ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings2 } from 'lucide-react';
+import { ErrorBanner, SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -372,7 +366,7 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
         <button type="button"
           onClick={() => fileRef.current?.click()} disabled={uploading}
           style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 16px', borderRadius:9, border:`2px dashed ${required ? 'hsla(var(--color-red),0.4)' : 'var(--line)'}`, background: required ? 'hsla(var(--color-red),0.04)' : 'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', width:'100%', justifyContent:'center' }}>
-          {uploading ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload photo (required)' : 'Upload photo'}</>}
+          {uploading ? <><Spinner size={15} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload photo (required)' : 'Upload photo'}</>}
         </button>
       )}
       {/* Paste an image URL instead of uploading a file (Neil: add URL to
@@ -579,7 +573,7 @@ export function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES
           <button className="primary-btn" disabled={!name.trim() || (!photoUrl && !skipPhoto) || !department.trim() || !location.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
             onClick={submit}>
-            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add Item</>}
+            {saving ? <><Spinner size={14} /> Saving…</> : <><Plus size={14} /> Add Item</>}
           </button>
         </div>
       </div>
@@ -782,7 +776,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
           <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed - must clearly identify this specific unit." />
           <button type="button" onClick={aiFindPhoto} disabled={aiFilling}
             style={{ marginTop:8, display:'inline-flex', alignItems:'center', gap:6, height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:8, cursor: aiFilling ? 'default' : 'pointer', fontFamily:'Inter,sans-serif' }}>
-            {aiFilling ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding…</> : <><Wand2 size={13} /> Let AI find a photo</>}
+            {aiFilling ? <><Spinner size={13} /> Finding…</> : <><Wand2 size={13} /> Let AI find a photo</>}
           </button>
         </div>
 
@@ -792,7 +786,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="primary-btn" disabled={!name.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }} onClick={submit}>
-            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save changes'}
+            {saving ? <><Spinner size={14} /> Saving…</> : 'Save changes'}
           </button>
         </div>
       </div>
@@ -835,7 +829,7 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button onClick={confirm} disabled={busy || !armed}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:8, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, fontSize:13.5, cursor: (busy || !armed) ? 'default' : 'pointer', opacity: (busy || !armed) ? 0.5 : 1 }}>
-            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Deleting…</> : <><Trash2 size={14} /> Delete</>}
+            {busy ? <><Spinner size={14} /> Deleting…</> : <><Trash2 size={14} /> Delete</>}
           </button>
         </div>
       </div>
@@ -1115,7 +1109,7 @@ function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [
 
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
             <button onClick={() => fileRef.current?.click()} disabled={parsing} className="secondary-btn" style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', marginBottom:14 }}>
-              {parsing ? <><Loader2 size={16} style={{ animation:'spin 1s linear infinite' }} /> Reading…</> : <><UploadCloud size={16} /> Choose CSV / Excel file</>}
+              {parsing ? <><Spinner size={16} /> Reading…</> : <><UploadCloud size={16} /> Choose CSV / Excel file</>}
             </button>
 
             {parseErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{parseErr}</p>}
@@ -1193,7 +1187,7 @@ function ImportItemsModal({ onClose, onImport, customFields = [], knownDepts = [
                   <button className="secondary-btn" onClick={onClose} disabled={importing}>Cancel</button>
                   <button className="primary-btn" disabled={!valid.length || importing}
                     style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={doImport}>
-                    {importing ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Importing…</> : `Import ${valid.length} items`}
+                    {importing ? <><Spinner size={14} /> Importing…</> : `Import ${valid.length} items`}
                   </button>
                 </div>
               </>
@@ -1279,11 +1273,11 @@ function ReportModal({ onClose, checkouts, initial }) {
           <button className="secondary-btn" onClick={onClose} disabled={!!exporting}>Cancel</button>
           <button className="secondary-btn" disabled={!!exporting} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
             onClick={() => exportAs('pdf')}>
-            {exporting === 'pdf' ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <FileBarChart size={14} />} PDF
+            {exporting === 'pdf' ? <Spinner size={14} /> : <FileBarChart size={14} />} PDF
           </button>
           <button className="primary-btn" disabled={!!exporting} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
             onClick={() => exportAs('excel')}>
-            {exporting === 'excel' ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <FileSpreadsheet size={14} />} Excel
+            {exporting === 'excel' ? <Spinner size={14} /> : <FileSpreadsheet size={14} />} Excel
           </button>
         </div>
       </div>
@@ -1388,7 +1382,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
           <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="primary-btn" disabled={(!file && !photoOptional) || submitting}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }} onClick={submit}>
-            {submitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Returning…</> : <><RotateCcw size={14} /> Confirm return</>}
+            {submitting ? <><Spinner size={14} /> Returning…</> : <><RotateCcw size={14} /> Confirm return</>}
           </button>
         </div>
       </div>
@@ -1456,7 +1450,7 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" disabled={busy || !reason.trim()}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!reason.trim() && !busy) ? 0.5 : 1 }} onClick={submit}>
-            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Sending…</> : <><Clock size={14} /> Request extension</>}
+            {busy ? <><Spinner size={14} /> Sending…</> : <><Clock size={14} /> Request extension</>}
           </button>
         </div>
       </div>
@@ -1554,7 +1548,7 @@ function InUseSummary({ checkout }) {
       </div>
       {checkout.extensionStatus === 'pending' && (
         <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, fontSize:12, fontWeight:600, color:'hsl(var(--color-blue))' }}>
-          <Loader2 size={12} style={{ animation:'spin 2s linear infinite' }} />
+          <Spinner size={12} />
           Extension requested: +{checkout.extensionDays} day{checkout.extensionDays !== 1 ? 's' : ''} - awaiting manager approval
         </div>
       )}
@@ -2180,7 +2174,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
                             {it && (it.id || it.name) && onLocate && <button onClick={() => onLocate(it)} title="Find this item in the list"
                               style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontSize:11.5, fontWeight:600, color:'hsl(var(--color-blue))', whiteSpace:'nowrap' }}>Open item →</button>}
                             {undo && (undoing === r.id
-                              ? <span style={{ fontSize:11.5, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}><Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> Undoing…</span>
+                              ? <span style={{ fontSize:11.5, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}><Spinner size={12} /> Undoing…</span>
                               : <button onClick={() => setConfirmUndo(r.id)} title="Undo this change"
                                   style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid hsla(40,90%,45%,0.5)', background:'hsla(40,90%,50%,0.10)', cursor:'pointer', fontSize:11.5, fontWeight:700, color:'hsl(36,92%,38%)', whiteSpace:'nowrap' }}><RotateCcw size={12} /> Undo</button>)}
                           </div>
@@ -2469,7 +2463,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                 onSubmit({ reason, approverEmail: approver?.email || '', approverName: approver?.name || '',
                            forName: forSelf ? '' : forName, forEmail: forSelf ? '' : forEmail });
               }}>
-              {submitting ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} checkout{cart.length !== 1 ? 's' : ''}</>}
+              {submitting ? <><Spinner size={15} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} checkout{cart.length !== 1 ? 's' : ''}</>}
             </button>
           </div>
         )}
@@ -2576,7 +2570,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" disabled={!canSubmit} onClick={submit}
             style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-            {busy ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={13} />}
+            {busy ? <Spinner size={13} /> : <RotateCcw size={13} />}
             Request {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} again
           </button>
         </div>
@@ -2919,7 +2913,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                         Promise.allSettled(cancellableItems.map(c => onCancel(c)))
                           .finally(() => { setCancelAllBusy(false); setCancelAllKey(null); });
                       }}>
-                      {cancelAllBusy ? <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, cancel all
+                      {cancelAllBusy ? <Spinner size={11} /> : null} Yes, cancel all
                     </button>
                   </div>
                 )}
@@ -2976,7 +2970,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                                 .catch(() => {})
                                 .finally(() => setReRequestBusy(false));
                             }}>
-                            {reRequestBusy ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={12} />}
+                            {reRequestBusy ? <Spinner size={12} /> : <RotateCcw size={12} />}
                             Submit again
                           </button>
                         </div>
@@ -3041,7 +3035,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                             setCancelBusy(c.id);
                             onCancel(c).finally(() => { setCancelBusy(null); setCancelId(null); });
                           }}>
-                          {cancelBusy === c.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, cancel
+                          {cancelBusy === c.id ? <Spinner size={12} /> : null} Yes, cancel
                         </button>
                       </div>
                     )}
@@ -4206,7 +4200,7 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
           {deletable.length > 0 && (
             <button onClick={onConfirm} disabled={deleting || !armed}
               style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: (deleting || !armed) ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: (deleting || !armed) ? 0.5 : 1 }}>
-              {deleting ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={14} />}
+              {deleting ? <Spinner size={14} /> : <Trash2 size={14} />}
               Delete {deletable.length} item{deletable.length !== 1 ? 's' : ''}
             </button>
           )}
@@ -4393,7 +4387,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
           <button onClick={submit} disabled={!canSave}
             style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: canSave ? 'pointer' : 'default', fontFamily:'Inter,sans-serif', opacity: canSave ? 1 : 0.55 }}>
-            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Pencil size={14} />}
+            {saving ? <Spinner size={14} /> : <Pencil size={14} />}
             Apply to {selectedItems.length}
           </button>
         </div>
@@ -4603,13 +4597,13 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
           <button onClick={() => masterFileRef.current?.click()} disabled={applyingMaster || uploadingMaster}
             title="Upload one image and apply it to every item shown above"
             style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'none', color:'var(--muted)', border:'1px solid var(--line)', borderRadius:8, cursor:(applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
-            {uploadingMaster ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <UploadCloud size={13} />}
+            {uploadingMaster ? <Spinner size={13} /> : <UploadCloud size={13} />}
             Upload to all
           </button>
           <button onClick={applyMasterUrl} disabled={!masterUrl.trim() || applyingMaster || uploadingMaster}
             title="Set this one image link on every item shown above"
             style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, cursor:(!masterUrl.trim()||applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!masterUrl.trim()||applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
-            {applyingMaster ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <Link2 size={13} />}
+            {applyingMaster ? <Spinner size={13} /> : <Link2 size={13} />}
             Apply to {items.length}
           </button>
         </div>
@@ -4633,7 +4627,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
                     boxShadow: pasteFocusId === item.id ? '0 0 0 3px hsla(var(--color-green),0.18)' : 'none',
                     display:'flex', alignItems:'center', justifyContent:'center' }}>
                   {isUploading
-                    ? <Loader2 size={18} style={{ animation:'spin 1s linear infinite', color:'var(--muted)' }} />
+                    ? <Spinner size="inline" />
                     : currentUrl
                     ? <img src={currentUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                     : <tm.Icon size={20} color={tm.color} />}
@@ -4662,19 +4656,19 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
                   />
                   <button onClick={() => saveUrl(item)} disabled={!urlInputs[item.id] || isSaving}
                     style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'var(--pine)', color:'#fff', border:'none', borderRadius:7, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (!urlInputs[item.id] || isSaving) ? 0.5 : 1, display:'flex', alignItems:'center', gap:4 }}>
-                    {isSaving ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : 'Save'}
+                    {isSaving ? <Spinner size={12} /> : 'Save'}
                   </button>
                   <input type="file" accept="image/*" style={{ display:'none' }} ref={el => fileRefs.current[item.id] = el}
                     onChange={e => e.target.files[0] && handleFile(item, e.target.files[0])} />
                   <button onClick={() => fileRefs.current[item.id]?.click()} disabled={isUploading}
                     style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'none', border:'1px solid var(--line)', borderRadius:7, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, color:'var(--muted)', opacity: isUploading ? 0.5 : 1 }}>
-                    {isUploading ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><UploadCloud size={12} /> Upload</>}
+                    {isUploading ? <Spinner size={12} /> : <><UploadCloud size={12} /> Upload</>}
                   </button>
                   {!currentUrl && (
                     <button onClick={() => aiFillOne(item)} disabled={aiRow[item.id]}
                       title="Find a product photo for this item with AI"
                       style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:7, cursor:aiRow[item.id]?'default':'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, opacity:aiRow[item.id]?0.6:1 }}>
-                      {aiRow[item.id] ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><Wand2 size={12} /> AI</>}
+                      {aiRow[item.id] ? <Spinner size={12} /> : <><Wand2 size={12} /> AI</>}
                     </button>
                   )}
                 </div>
@@ -4848,7 +4842,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
             <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
             <button className="primary-btn" onClick={save} disabled={saving}
               style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}>
-              {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save Details'}
+              {saving ? <><Spinner size={14} /> Saving…</> : 'Save Details'}
             </button>
           </div>
         )}
@@ -4912,7 +4906,7 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
           <input className="form-input" style={{ flex:1 }} value={newType} placeholder="New type - e.g. Office"
             onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
           <button className="primary-btn" onClick={add} disabled={!newType.trim() || busy} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add
+            {busy ? <Spinner size={14} /> : <Plus size={14} />} Add
           </button>
         </div>
         <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
@@ -5013,7 +5007,7 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
                     </div>
                     <button onClick={() => setConfirmDelId(f.id)} disabled={busyId === f.id}
                       style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 9px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
-                      {busyId === f.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={12} />}
+                      {busyId === f.id ? <Spinner size={12} /> : <Trash2 size={12} />}
                     </button>
                   </div>
                   {confirmDelId === f.id && (
@@ -5063,7 +5057,7 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
           <button className="secondary-btn" onClick={onClose}>Done</button>
           <button className="primary-btn" onClick={add} disabled={!label.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:110, justifyContent:'center', opacity:(!label.trim()||saving)?0.55:1 }}>
-            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add field
+            {saving ? <Spinner size={14} /> : <Plus size={14} />} Add field
           </button>
         </div>
       </div>
@@ -5263,7 +5257,7 @@ export function SendAlertModal({ onClose, toast }) {
             </div>
             <div style={{ border:'1px solid var(--line)', borderRadius:10, maxHeight:180, overflowY:'auto' }}>
               {usersLoading ? (
-                <div style={{ padding:'20px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>Loading users…</div>
+                <LoadingState label="Loading users…" />
               ) : filteredUsers.length === 0 ? (
                 <div style={{ padding:'16px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>No users found.</div>
               ) : filteredUsers.map(u => {
@@ -5296,7 +5290,7 @@ export function SendAlertModal({ onClose, toast }) {
           <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
           <button onClick={handleSend} disabled={sending || !selected.size || !subject.trim() || !message.trim()}
             style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !selected.size || !subject.trim() || !message.trim()) ? 0.55 : 1 }}>
-            {sending ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Send size={14} />}
+            {sending ? <Spinner size={14} /> : <Send size={14} />}
             Send alert
           </button>
         </div>
@@ -5453,7 +5447,7 @@ function OverdueAlertModal({ checkouts, onClose, toast }) {
             <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
             <button onClick={handleSend} disabled={sending || !sendable.length}
               style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !sendable.length) ? 0.55 : 1 }}>
-              {sending ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Send size={14} />}
+              {sending ? <Spinner size={14} /> : <Send size={14} />}
               Send to {sendable.length || '…'}
             </button>
           </div>
@@ -6131,7 +6125,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
           <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
           <button className="primary-btn" disabled={(!file && !photoOptional) || uploading}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }} onClick={submit}>
-            {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm receipt</>}
+            {uploading ? <><Spinner size={14} /> Uploading…</> : <><CheckCircle size={14} /> Confirm receipt</>}
           </button>
         </div>
       </div>
@@ -6336,7 +6330,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
                 <button className="primary-btn" disabled={uploading || !hasPhotos}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!hasPhotos && !uploading) ? 0.45 : 1 }}
                   onClick={submitAllocator}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm handover</>}
+                  {uploading ? <><Spinner size={14} /> Uploading…</> : <><CheckCircle size={14} /> Confirm handover</>}
                 </button>
               </div>
             </div>
@@ -6368,7 +6362,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
                 <button className="primary-btn" disabled={uploading}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
                   onClick={submitEmployee}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed over - notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
+                  {uploading ? <><Spinner size={14} /> Please wait…</> : <><CheckCircle size={14} /> Handed over - notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
                 </button>
               </div>
             </div>
@@ -6488,7 +6482,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
                 <button className="primary-btn" disabled={uploading || !hasPhotos}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!hasPhotos && !uploading) ? 0.45 : 1 }}
                   onClick={submit}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm receipt</>}
+                  {uploading ? <><Spinner size={14} /> Uploading…</> : <><CheckCircle size={14} /> Confirm receipt</>}
                 </button>
               </div>
             </div>
@@ -6629,7 +6623,7 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" disabled={!pickedEmail || busy}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }} onClick={submit}>
-            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Approving…</> : <><CheckCircle size={14} /> Approve</>}
+            {busy ? <><Spinner size={14} /> Approving…</> : <><CheckCircle size={14} /> Approve</>}
           </button>
         </div>
       </div>
@@ -6681,7 +6675,7 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
           <button disabled={!reason.trim() || busy}
             style={{ background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontFamily:'Inter,sans-serif' }}
             onClick={submit}>
-            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <XCircle size={14} />} Reject
+            {busy ? <Spinner size={14} /> : <XCircle size={14} />} Reject
           </button>
         </div>
       </div>
@@ -6746,7 +6740,7 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button disabled={!reason.trim() || busy} onClick={submit}
             style={{ background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontFamily:'Inter,sans-serif', opacity: (!reason.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Check back in
+            {busy ? <Spinner size={14} /> : <RotateCcw size={14} />} Check back in
           </button>
         </div>
       </div>
@@ -7163,7 +7157,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                                   </button>
                                   <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'approve')}
                                     className="primary-btn" style={{ fontSize:11.5, padding:'3px 12px', display:'inline-flex', alignItems:'center', gap:4 }}>
-                                    {extBusyId === co.id ? <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={11} />} Approve
+                                    {extBusyId === co.id ? <Spinner size={11} /> : <CheckCircle size={11} />} Approve
                                   </button>
                                 </div>
                               )}
@@ -7436,7 +7430,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setApprovingId(null); setPickedFulfiller(''); }} disabled={busyId === r.id}>Cancel</button>
                 <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                   disabled={!pickedFulfiller || busyId === r.id} onClick={() => submitApprove(r)}>
-                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Confirm approval
+                  {busyId === r.id ? <Spinner size={13} /> : <CheckCircle size={13} />} Confirm approval
                 </button>
               </div>
             </div>
@@ -7463,7 +7457,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setOrderingId(null); setOrderNote(''); }} disabled={busyId === r.id}>Cancel</button>
                 <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                   disabled={busyId === r.id} onClick={() => submitOrdered(r)}>
-                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <Send size={13} />} Confirm Ordered
+                  {busyId === r.id ? <Spinner size={13} /> : <Send size={13} />} Confirm Ordered
                 </button>
               </div>
             </div>
@@ -7475,7 +7469,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setNoInvId(null); setNoInvNote(''); }} disabled={busyId === r.id}>Cancel</button>
                 <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                   disabled={!noInvNote.trim() || busyId === r.id} onClick={() => submitNoInventory(r)}>
-                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Mark Fulfilled
+                  {busyId === r.id ? <Spinner size={13} /> : <CheckCircle size={13} />} Mark Fulfilled
                 </button>
               </div>
             </div>

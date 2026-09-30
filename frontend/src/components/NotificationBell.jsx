@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock, HelpCircle } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -7,6 +7,7 @@ import { useMsal }           from '@azure/msal-react';
 import { useRole }           from '../contexts/RoleContext';
 import { api }               from '../api';
 import { setPendingOpen }    from '../lib/pendingOpen';
+import { Spinner } from './AsyncState';
 
 // Resolved dynamically from MSAL account - see myName below
 
@@ -194,10 +195,13 @@ export default function NotificationBell({ onNavigate }) {
   // Who an approval can be handed off to - needed here too since approving an
   // inventory request now requires picking an allocator up front (the backend
   // rejects approvals with no assigned_allocator_email).
+  // Keyed on the boolean, not `can`: the function changes identity with the
+  // role context, which re-fetched this list on every screen switch (Sep 29).
+  const isManager = can('manager');
   useEffect(() => {
-    if (!can('manager')) return;
+    if (!isManager) return;
     api.getInventoryAllocators().then(setAllocators).catch(() => {});
-  }, [can]);
+  }, [isManager]);
 
   // Clean up any pending auto-dismiss timers on unmount
   useEffect(() => () => {
@@ -798,7 +802,7 @@ export default function NotificationBell({ onNavigate }) {
                                 <div style={{ display: 'flex', gap: 8 }}>
                                   <button onClick={() => submitApprove(n)} disabled={!pickedAllocator || approvingBusy}
                                     style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: pickedAllocator && !approvingBusy ? 1 : 0.4 }}>
-                                    {approvingBusy ? <><Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> Approving…</> : 'Confirm Approval'}
+                                    {approvingBusy ? <><Spinner size={14} /> Approving…</> : 'Confirm Approval'}
                                   </button>
                                   <button onClick={() => { setApprovingId(null); setPickedAllocator(''); }} disabled={approvingBusy}
                                     style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
