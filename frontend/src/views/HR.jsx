@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
-  Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
@@ -15,7 +15,7 @@ import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
-import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState } from '../components/AsyncState';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
@@ -502,7 +502,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.first_name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />}
+            {busy ? <Spinner size={14} /> : <Plus size={14} />}
             {editing ? 'Save Changes' : 'Add Employee'}
           </button>
         </div>
@@ -564,7 +564,7 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
         )}
         <button className="secondary-btn" onClick={start} disabled={busy || active}
           style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-          {(busy || active) ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
+          {(busy || active) ? <Spinner size={12} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
         </button>
       </div>
       <div style={{ fontSize: 12.5, color: job?.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
@@ -716,7 +716,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                     <Icon size={15} style={{ color: on ? 'var(--pine)' : 'var(--muted)' }} />
                     <span style={{ fontSize: 13.5, fontWeight: 700 }}>{o.title}</span>
                     {on && (busy
-                      ? <Loader2 size={13} style={{ marginLeft: 'auto', animation: 'spin 1s linear infinite' }} />
+                      ? <Spinner size={13} style={{ marginLeft: 'auto' }} />
                       : <CheckCircle size={14} style={{ marginLeft: 'auto', color: 'var(--pine)' }} />)}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{o.body}</div>
@@ -920,11 +920,11 @@ function DocumentsSection({ employeeId, toastOk, toastErr }) {
           {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
         <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
-          {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} Upload
+          {uploading ? <Spinner size={12} /> : <Plus size={12} />} Upload
           <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
       </div>
-      {docs === null ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+      {docs === null ? <Spinner size={15} />
         : docs.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No documents yet.</div>
         : docs.map(d => (
           <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
@@ -1003,7 +1003,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
               <option value="IN">India</option>
             </select>
             <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' - none selected: no mailbox'}</label>
-            {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
+            {skus === null ? <Spinner size={16} /> : (
               <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
                 {skus.map((s, i) => {
                   const out = s.available <= 0;
@@ -1057,7 +1057,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
             <button className="primary-btn" onClick={run} disabled={busy || !email.trim()}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'hsl(var(--color-green))' }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
+              {busy ? <Spinner size={14} /> : <CheckCircle size={14} />}
               {busy ? 'Provisioning…' : 'Provision now'}
             </button>
           </>) : <button className="primary-btn" onClick={onClose}>Done</button>}
@@ -1360,7 +1360,7 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
   const isExternal = identityType === 'external' || identityType === 'guest';
 
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
-  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
 
   // onChanged refreshes the parent employee record too - assigning a job role
   // now also rewrites the person's job TITLE (server-side), so the card header
@@ -1657,7 +1657,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 } catch (err) { toastErr(err?.message || 'Could not push to M365.'); }
                 setPushBusy(false);
               }}>
-              {pushBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Network size={13} />} Push to M365
+              {pushBusy ? <Spinner size={13} /> : <Network size={13} />} Push to M365
             </button>
             {e.personalEmail && (
               <button className="secondary-btn" disabled={welcomeBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
@@ -1668,7 +1668,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                   catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
                   setWelcomeBusy(false);
                 }}>
-                {welcomeBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Mail size={13} />} Resend welcome
+                {welcomeBusy ? <Spinner size={13} /> : <Mail size={13} />} Resend welcome
               </button>
             )}
           </>
@@ -1897,7 +1897,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />} Add Candidate
+            {busy ? <Spinner size={14} /> : <Plus size={14} />} Add Candidate
           </button>
         </div>
       </div>
@@ -2032,7 +2032,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
               <History size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Stage history
             </div>
             {history === null ? (
-              <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+              <Spinner size={16} />
             ) : history.map((h, i) => (
               <div key={i} style={{ display: 'flex', gap: 10, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--line)' }}>
                 <span style={{ fontWeight: 700, color: `hsl(${(STAGE_META[h.toStage] || STAGE_META.applied).hue})`, flexShrink: 0 }}>
@@ -2059,7 +2059,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
             {next && (
               <button className="primary-btn" onClick={() => onStage(c, next, note)} disabled={busy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: next === 'hired' ? 'hsl(var(--color-green))' : undefined }}>
-                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
+                {busy ? <Spinner size={14} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
                 {next === 'hired' ? 'Mark Hired' : `Move to ${STAGE_META[next].label}`}
               </button>
             )}
@@ -2104,7 +2104,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   }
 
   if (loadErr) return <ErrorBanner message="Couldn't load candidates right now." onRetry={loadCandidates} />;
-  if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
+  if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
 
   const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
   const closed = candidates.filter(c => ['hired', 'rejected'].includes(c.stage));
@@ -2444,7 +2444,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
 
           <button className="primary-btn" onClick={save} disabled={!dirty || busy}
             style={{ marginTop: 16, width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: dirty ? 1 : 0.5 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <CheckCircle size={14} />} Save changes
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save changes
           </button>
 
           {reports.length > 0 && (
@@ -2987,7 +2987,7 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!canSave || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!canSave || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />} Submit
+            {busy ? <Spinner size={14} /> : <Plus size={14} />} Submit
           </button>
         </div>
       </div>
@@ -3158,7 +3158,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
   }
 
   if (loadErr) return <ErrorBanner message="Couldn't load leave requests right now." onRetry={loadLeave} />;
-  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
+  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
 
   const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
   const pending = visible.filter(r => r.status === 'pending').length;
@@ -3219,7 +3219,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
                     </button>
                     <button className="primary-btn" onClick={() => decide(r, 'approve')} disabled={busyId === r.id}
                       style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      {busyId === r.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />} Approve
+                      {busyId === r.id ? <Spinner size={12} /> : <CheckCircle size={12} />} Approve
                     </button>
                   </div>
                 )}
@@ -3294,7 +3294,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         </button>
       </div>
       {loadErr ? <ErrorBanner message="Couldn't load departments right now." onRetry={load} />
-        : depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
+        : depts === null ? <LoadingState compact />
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
@@ -3556,7 +3556,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                       ? <img src={f.logo_url} alt="" style={{ height: 44, maxWidth: 160, objectFit: 'contain', borderRadius: 6, border: '1px solid var(--line)', background: '#fff' }} />
                       : <div style={{ height: 44, width: 88, borderRadius: 6, border: '1px dashed var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, color: 'var(--muted)' }}>No logo</div>}
                     <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: mode === 'new' ? 'not-allowed' : 'pointer', padding: '5px 12px', opacity: mode === 'new' ? 0.5 : 1 }}>
-                      {logoBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
+                      {logoBusy ? <Spinner size={12} /> : <Plus size={12} />} {logoBusy ? 'Uploading…' : 'Upload logo or video'}
                       <input type="file" accept="image/*,video/mp4,video/quicktime,.mov" hidden disabled={mode === 'new' || logoBusy} onChange={e => { uploadLogo(e.target.files?.[0]); e.target.value = ''; }} />
                     </label>
                   </div>
@@ -3593,7 +3593,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
             </div>
             <div style={{ display: 'flex', gap: 10, padding: '14px 4px' }}>
               <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+                {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
               </button>
             </div>
           </>
@@ -3603,7 +3603,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
           editingEntity
             ? (
               <div style={{ padding: '18px 4px', maxWidth: 640 }}>
-                <Suspense fallback={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>}>
+                <Suspense fallback={<LoadingState compact />}>
                   <MonitoringPolicy companyId={editingEntity.id} />
                 </Suspense>
               </div>
@@ -3753,7 +3753,7 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
       <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
         <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
         <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+          {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
         </button>
       </div>
     </div>
@@ -4111,7 +4111,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
             {Array.from({ length: HOLIDAY_YEAR_RANGE }, (_, i) => new Date().getFullYear() + i).map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button className="secondary-btn" onClick={loadSuggestions} disabled={suggestBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {suggestBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={13} />} Load holidays
+            {suggestBusy ? <Spinner size={13} /> : <CalendarDays size={13} />} Load holidays
           </button>
         </div>
         {noData && (
@@ -4152,7 +4152,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
                 <button ref={copyBtnRef} className="secondary-btn" onClick={() => setCopyPickerOpen(v => !v)} disabled={copyBusy}
                   title="Copy this holiday set forward to one or more future years - looks up the real date for movable holidays instead of just adding a year"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                  {copyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CalendarDays size={12} />} Copy to year(s)
+                  {copyBusy ? <Spinner size={12} /> : <CalendarDays size={12} />} Copy to year(s)
                 </button>
                 <AnchoredMenu anchorRef={copyBtnRef} open={copyPickerOpen} onClose={() => setCopyPickerOpen(false)} role="dialog" minWidth={180}
                   style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', padding: 12 }}>
@@ -4173,7 +4173,7 @@ function CompanyHolidaysTab({ entity, entities = [], toastOk, toastErr }) {
             <button className="secondary-btn" onClick={createPolicyFromHolidays} disabled={!holidays.length || policyBusy}
               title="Save this holiday set as a reusable policy other companies can pull in"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              {policyBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <BookMarked size={12} />} Create policy from these holidays
+              {policyBusy ? <Spinner size={12} /> : <BookMarked size={12} />} Create policy from these holidays
             </button>
             {holidays.length > 0 && (
               <>
@@ -4297,7 +4297,7 @@ function HolidayPolicyPanel({ entity, entities = [], onApplied, toastOk, toastEr
             </div>
           </div>
           <button className="secondary-btn" onClick={() => apply(p)} disabled={busyId === p.id} style={{ fontSize: 11.5, padding: '4px 10px' }}>
-            {busyId === p.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : `Apply to ${entity.name}`}
+            {busyId === p.id ? <Spinner size={11} /> : `Apply to ${entity.name}`}
           </button>
           {isOwner(p) && (
             <>
@@ -4711,7 +4711,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
+          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Apply</button>
         </div>
       </div>
       {guard.confirming && (
@@ -4788,7 +4788,7 @@ function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
       {guard.confirming && (
@@ -4851,7 +4851,7 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save</button>
         </div>
       </div>
       {guard.confirming && (
@@ -4936,7 +4936,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         </div>
 
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
           <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
@@ -4994,7 +4994,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
           </button>
         </div>
       </div>
@@ -5678,7 +5678,7 @@ export default function HR({ activeSub, onSubChange }) {
             </div>
             {(loading || (showingDeleted && deletedLoading)) ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
-                <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+                <Spinner size="section" />
               </div>
             ) : showingDeleted && deletedEmployees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>

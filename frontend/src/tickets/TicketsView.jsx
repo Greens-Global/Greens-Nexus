@@ -6,7 +6,7 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Loader2, Play, MousePointer2, Check } from 'lucide-react';
+import { Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -41,7 +41,7 @@ import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketCo
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
 } from './TicketAtoms';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
@@ -1485,7 +1485,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
               display: 'inline-flex', alignItems: 'center', gap: 8,
             }}>
-            {recording ? <Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={17} />}
+            {recording ? <Spinner size="inline" /> : <CircleDot size={17} />}
             {recording ? 'Recording…' : 'Record screen'}
           </button>
           <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
@@ -3086,7 +3086,7 @@ function TicketAttachments({ ticketId, ticketType }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
           onRecordingChange={onRecChange} />
-        {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: NX.faint }} />}
+        {busy && <Spinner size={14} />}
         <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
       </div>
       {rows === null ? (

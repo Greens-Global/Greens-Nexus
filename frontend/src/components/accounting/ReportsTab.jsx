@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileDown, Loader2, Maximize2, Minimize2, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { Download, FileDown, Maximize2, Minimize2, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '../../api';
-import { SkeletonBlocks } from '../AsyncState';
+import { SkeletonBlocks, Spinner } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
@@ -203,7 +203,7 @@ export default function ReportsTab() {
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
           {waiting
-            ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
+            ? <Spinner size={14} label="Searching" style={{ position: 'absolute', left: 9, top: 8 }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
           <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
             placeholder="Search vendor, customer, invoice, amount, memo..."
@@ -245,7 +245,7 @@ export default function ReportsTab() {
           </button>
           <button type="button" className="secondary-btn" onClick={() => shown && exportPdf(shown)} disabled={!shown || searching || pdfBusy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-            {pdfBusy ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} Export PDF
+            {pdfBusy ? <Spinner size={14} /> : <FileDown size={14} />} Export PDF
           </button>
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
             style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>

@@ -14,10 +14,11 @@
 // Mount <StepUpOverlay/> once (App.jsx) for the "approve the prompt…" UI.
 
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Loader2, X } from 'lucide-react';
+import { ShieldCheck, X } from 'lucide-react';
 import { msalInstance } from '../msalInstance';
 import { stepUpReauthRequest } from '../authConfig';
 import { api } from '../api';
+import { Spinner } from '../components/AsyncState';
 
 let _inFlight = null;   // dedupe concurrent challenges into one popup
 
@@ -95,7 +96,7 @@ export function StepUpNeeded({ label, onVerified }) {
       {err && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginBottom: 12 }}>{err}</div>}
       <button className="primary-btn" onClick={verify} disabled={busy}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
-        {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ShieldCheck size={14} />}
+        {busy ? <Spinner size={14} /> : <ShieldCheck size={14} />}
         {busy ? 'Verifying…' : 'Verify to view'}
       </button>
     </div>
@@ -170,7 +171,7 @@ export function StepUpOverlay() {
       Taking you to <strong>Microsoft</strong> to re-confirm your sign-in - approve the Authenticator / SMS prompt if asked. You’ll come right back.
     </div>
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 12 }}>
-      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Redirecting…
+      <Spinner size={14} /> Redirecting…
     </div>
   </>);
 }

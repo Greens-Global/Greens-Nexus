@@ -22,6 +22,7 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatTimeIn, greetingFor } from '../lib/datetime';
+import { ModalLoading } from '../components/AsyncState';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
@@ -378,7 +379,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
           in front of the dashboard for one frame is worse than it appearing a
           beat later. */}
       {composing && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           <QuickActionModal kind={composing} onClose={() => setComposing(null)} />
         </Suspense>
       )}

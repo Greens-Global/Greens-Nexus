@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileSignature, FileText, Loader, Paperclip, Plus, Trash2 } from 'lucide-react';
+import { FileSignature, FileText, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { formatCurrency, formatDate } from './lib/format';
 import { IR_BUCKET, safeFileName, uploadToSupabase } from './lib/upload';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, StatusText, useIrLoad } from './lib/ui';
+import { Spinner } from '../components/AsyncState';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -170,7 +171,7 @@ export default function CommitmentsTab() {
                       <button className="secondary-btn" disabled={uploadingId === c.id} onClick={() => startUpload(c)}
                         style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         {uploadingId === c.id
-                          ? <Loader size={12} style={{ animation: 'spin 0.8s linear infinite' }} />
+                          ? <Spinner size={12} />
                           : <Paperclip size={12} />} Attach
                       </button>
                     )}
@@ -228,7 +229,7 @@ export default function CommitmentsTab() {
               )}
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy && <Loader size={13} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {busy && <Spinner size={13} />}
                 {modal.id ? 'Save Changes' : 'Record Commitment'}
               </button>
             </div>

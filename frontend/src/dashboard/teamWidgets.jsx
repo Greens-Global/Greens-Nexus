@@ -7,6 +7,8 @@
 // Loaded lazily from widgets.jsx like panels.jsx / workdayWidgets.jsx. Row and
 // noteStyle come from workdayWidgets.jsx so every list tile reads the same.
 import { useState, useEffect } from 'react';
+
+import { LoadingState } from '../components/AsyncState';
 import { Ticket as TicketIcon, Timer, UserMinus, ShoppingCart } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -75,7 +77,7 @@ export function TicketQueueWidget() {
   return (
     <DashCard title="My Ticket Queue" sub={sub} action={<TicketIcon size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.mine.length === 0 && state.unassigned.length === 0 ? (
         <div style={noteStyle}>{state.onDesk ? 'No open tickets assigned to you, and nothing unassigned.' : 'No open tickets assigned to you.'}</div>
       ) : (
@@ -135,7 +137,7 @@ export function TimeExceptionsWidget() {
     <DashCard title="Time Exceptions" sub={state.loading || state.denied ? undefined : blocking ? `${blocking} blocking sign-off` : `Last ${EXCEPTION_WINDOW_DAYS} days`}
       action={<Timer size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.denied ? (
         <div style={noteStyle}>This tile needs Time editor access in People.</div>
       ) : state.rows.length === 0 ? (
@@ -206,7 +208,7 @@ export function OutTodayWidget() {
     <DashCard title="Out Today" sub={state.loading ? undefined : state.today.length ? `${state.today.length} out` : 'Everyone is in'}
       action={<UserMinus size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : (
         <>
           {state.today.length === 0 ? (
@@ -266,7 +268,7 @@ export function PendingPurchasesWidget() {
     <DashCard title="Pending Purchases" sub={state.loading ? undefined : state.rows.length ? `${state.rows.length} pending · ${usd.format(total)}` : undefined}
       action={<ShoppingCart size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No pending purchase requests.</div>
       ) : (

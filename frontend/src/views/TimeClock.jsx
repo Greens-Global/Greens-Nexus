@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
-  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, User, Lock,
+  CheckCircle, Plus, X, CalendarDays, Monitor, User, Lock,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
@@ -898,7 +898,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
                       border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--wk-font)',
                       fontSize: 15, fontWeight: 700, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
-                    {busy === kind ? <Loader2 size={17} style={{ animation: 'spin 1s linear infinite' }} /> : <M.Icon size={17} />}
+                    {busy === kind ? <Spinner size="inline" /> : <M.Icon size={17} />}
                     {busy === kind ? 'Getting location…' : M.label}
                   </button>
                 );
@@ -1087,7 +1087,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               </label>
               <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
                 style={{ ...cell('request'), fontSize: 12.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, justifySelf: toNarrow ? 'stretch' : 'end' }}>
-                {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
+                {toBusy ? <Spinner size={13} /> : <Plus size={13} />} Request
               </button>
 
               {/* Specific hours: only offered on a one-day range, since that's
@@ -1170,7 +1170,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
                   cursor: toCancelling === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
                   padding: '2px 6px', opacity: toCancelling === r.id ? 0.5 : 1 }}>
-                {toCancelling === r.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <X size={11} />} Cancel
+                {toCancelling === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
               </button>
             )}
             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
@@ -1276,7 +1276,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               </button>
               <button className="primary-btn" onClick={retryLostPunch} disabled={!!busy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Retry Now
+                {busy ? <Spinner size={13} /> : <CheckCircle size={14} />} Retry Now
               </button>
             </div>
           </div>
@@ -1309,7 +1309,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <button className="secondary-btn" onClick={() => setMonGate(null)}>Cancel</button>
                 <button className="primary-btn" onClick={confirmMonitoring} disabled={!monAgree || monBusy}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {monBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Acknowledge &amp; clock in
+                  {monBusy ? <Spinner size={13} /> : <CheckCircle size={14} />} Acknowledge &amp; clock in
                 </button>
               </div>
             </div>

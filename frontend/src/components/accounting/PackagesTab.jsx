@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, FileDown, Loader2, Plus, Trash2, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, FileDown, Plus, Trash2, Users } from 'lucide-react';
 import { api } from '../../api';
-import AsyncSection, { SkeletonBlocks } from '../AsyncState';
+import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
@@ -216,7 +216,7 @@ export default function PackagesTab() {
                 <button type="button" className="primary-btn" onClick={buildPdf} disabled={!!build || dirty || !draft.items.some((i) => byId.has(i.reportId))}
                   title={dirty ? 'Save the package first' : 'Read every statement from the ledger and build one PDF'}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
-                  {build ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} {build ? `Building ${Math.min(build.done + 1, build.of)} of ${build.of}` : 'Build PDF'}
+                  {build ? <Spinner size={14} /> : <FileDown size={14} />} {build ? `Building ${Math.min(build.done + 1, build.of)} of ${build.of}` : 'Build PDF'}
                 </button>
                 {canEdit && (
                   <button type="button" className="secondary-btn" onClick={save} disabled={!dirty || !draft.name.trim() || saving} style={{ fontSize: '0.8rem' }}>

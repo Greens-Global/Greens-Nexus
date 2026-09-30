@@ -9,7 +9,7 @@ import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Loader2,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -26,6 +26,7 @@ import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { Spinner, LoadingState } from '../components/AsyncState';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -264,7 +265,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
           </div>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
-            <Loader2 size={30} aria-hidden="true" style={{ color: 'var(--wk-brand)', animation: 'spin 0.9s linear infinite' }} />
+            <Spinner size="section" />
             <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Opening task…</div>
             <div style={{ fontSize: 12.5, color: NX.faint }}>Getting the task details ready.</div>
           </div>
@@ -1259,7 +1260,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
             style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
         </div>
       </div>
-      {comments === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
+      {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
           : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
               attachments={attachments.get(c.id) || []}
@@ -1370,7 +1371,7 @@ function CommentAttachments({ items }) {
 function ActivityTab({ taskId, nameOf }) {
   const [rows, setRows] = useState(null);
   useEffect(() => { api.getTaskActivity(taskId).then(setRows).catch(() => setRows([])); }, [taskId]);
-  if (rows === null) return <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>Loading…</div>;
+  if (rows === null) return <LoadingState />;
   if (!rows.length) return <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No activity yet.</div>;
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1442,7 +1443,7 @@ function AttachmentsTab({ task, refresh }) {
         }}><Paperclip size={14} /> Drop to attach</div>
       )}
       {(rows?.length || 0) === 0 && uploads.length === 0 ? (
-        rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
+        rows === null ? <LoadingState />
           : <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
       )
           : (

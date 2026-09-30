@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { LoadingState } from './AsyncState';
 import { Search, X, UserCog, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../api";
 import { matchPeople, onEnterPickFirst } from "../lib/peopleSearch";
@@ -62,7 +63,7 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
       {error && <div style={{ margin: '4px 2px', fontSize: 12, color: 'hsl(var(--color-red))' }}>{error}</div>}
 
       <div style={pageSize ? { padding: '4px 0' } : { overflowY: 'auto', maxHeight: 360, padding: '4px 0' }}>
-        {loading && <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>Loading…</div>}
+        {loading && <LoadingState compact />}
         {!loading && filtered.length === 0 && (
           <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
             {people.length === 0 ? "No one is eligible - Act As only works on roles strictly below your own." : "No matches."}

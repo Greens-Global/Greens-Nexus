@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Loader2, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Clock, CalendarDays, CalendarRange, Send, Copy, Star, RotateCcw, AlertTriangle, Inbox, Download, Search, StickyNote, Printer, Upload, CalendarOff, MoreHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -10,6 +10,7 @@ import { exportExcel } from '../tasks/exporting';
 import { dialog } from '../ui/dialog';
 import { ShiftTypeWeek, ImportModal, TimeOffModal, Avatar, ShiftMenu, ShiftPalette, ShiftDetails } from './ShiftScheduleExtras';
 import { printSchedule, availText } from './shiftScheduleLib';
+import { Spinner } from './AsyncState';
 
 // ── Weekly schedule grid (Microsoft Teams "Shifts" style) ─────────────────────
 // Rows = employees (grouped by shift group), columns = the 7 days of the week.
@@ -714,7 +715,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
       )}
 
       {data === null ? (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>
       ) : view === 'month' ? (
         <MonthView days={days} shifts={shown} names={names} notes={notes} onPickDay={openDay} />
       ) : view === 'day' ? (

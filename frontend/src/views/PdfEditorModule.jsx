@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FileText } from "lucide-react";
+import { Spinner } from "../components/AsyncState";
 
 const nexusTheme = () =>
   document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -95,7 +96,7 @@ export default function PdfEditorModule() {
           moment when entering the module. Fades out once onLoad fires. */}
       {!ready && (
         <div className="pdf-editor-loading" aria-hidden="true">
-          <span className="pdf-editor-spinner" />
+          <Spinner size="view" />
           <span>Loading PDF Tools…</span>
         </div>
       )}

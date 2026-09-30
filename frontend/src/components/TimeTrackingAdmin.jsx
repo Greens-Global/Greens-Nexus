@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { ShieldCheck, Loader2, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2, Eye, Wrench } from 'lucide-react';
+import { ShieldCheck, Check, MonitorSmartphone, Copy, Ban, TriangleAlert, Trash2, Activity, ChevronDown, Video, X, Radio, MousePointer2, Eye, Wrench } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import ScreenshotsAdmin from './ScreenshotsAdmin';
@@ -10,6 +10,7 @@ import LiveView from './LiveView';
 import Locations from '../views/Locations';
 import { WorkforceViewBar, ViewNotice } from './workforce/WorkforceViews';
 import { WorkforceViewProvider, useWorkforceView, useWorkforceViews } from './workforce/viewContext';
+import { Spinner, LoadingState } from './AsyncState';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -189,7 +190,7 @@ function AgentInstall() {
       {showHow && (<div style={{ marginTop: 12 }}>
       {info === null ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading install command…
+          <Spinner size={14} /> Loading install command…
         </div>
       ) : info === false ? (
         <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load the install command.</div>
@@ -246,7 +247,7 @@ function AgentInstall() {
           Enrolled computers
         </div>
         {devices === null ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
+          <LoadingState compact />
         ) : devices.length === 0 ? (
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No computers enrolled yet.</div>
         ) : devices.map(d => (
@@ -432,7 +433,7 @@ function LiveCoverage({ onOpenPerson }) {
       {data && <ViewNotice shown={people.length} total={everyone.length} noun="clocked in" />}
       {data === null ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
+          <Spinner size={14} /> Loading…
         </div>
       ) : data === false ? (
         <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load coverage.</div>
@@ -533,7 +534,7 @@ export function MonitoringPolicy({ companyId }) {
       </p>
       {policy === null ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading policy…
+          <Spinner size={14} /> Loading policy…
         </div>
       ) : (<>
         <div style={{ display: 'grid', gap: 10 }}>
@@ -561,7 +562,7 @@ export function MonitoringPolicy({ companyId }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
           <button className="primary-btn" onClick={savePolicy} disabled={savingPolicy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-            {savingPolicy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />} Save policy
+            {savingPolicy ? <Spinner size={13} /> : <Check size={13} />} Save policy
           </button>
           {policyMsg && (
             <span style={{ fontSize: 11.5, fontWeight: 600, color: policyMsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{policyMsg.text}</span>

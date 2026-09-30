@@ -31,6 +31,7 @@ import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { api } from "../api";
+import { ModalLoading, Spinner } from './AsyncState';
 
 // Header search reaches into the Task module's content, not just the module
 // list, so typing a task's title finds the task. Grouped by kind the way Asana's
@@ -315,7 +316,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
           {searching && hitCount === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
-              <span aria-hidden style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid var(--line)', borderTopColor: 'var(--muted)', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+              <Spinner size={14} />
               Searching tasks, projects and people…
             </div>
           )}
@@ -629,7 +630,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         </div>
       </div>
       {changelogOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           <Changelog onClose={() => setChangelogOpen(false)} />
         </Suspense>
       )}

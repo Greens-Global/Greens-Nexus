@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Loader2, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
+import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -9,7 +9,7 @@ import PackagesTab from '../components/accounting/PackagesTab';
 import AccessTab from '../components/accounting/AccessTab';
 import PfsTab from '../components/accounting/PfsTab';
 import LeasingTab from '../components/accounting/LeasingTab';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
 import OverviewTab from '../components/accounting/dashboard/OverviewTab';
@@ -125,7 +125,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
           {limited ? null : canOpenApp ? (
             <button type="button" className="primary-btn" onClick={openAccounting} disabled={launching} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...(slim ? { fontSize: '0.8rem', padding: '5px 12px' } : {}) }}>
-              {launching ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />} Open Nexus Accounting
+              {launching ? <Spinner size={16} /> : <ExternalLink size={16} />} Open Nexus Accounting
             </button>
           ) : slim ? null : (
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 280, textAlign: 'right' }}>

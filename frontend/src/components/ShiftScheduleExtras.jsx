@@ -3,10 +3,11 @@
 // adding time off straight from the grid. Kept out of ShiftSchedule.jsx,
 // which is big enough already.
 import { useEffect, useState } from 'react';
-import { X, Upload, Loader2, Clock, Star, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Lock } from 'lucide-react';
+import { X, Upload, Clock, Star, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Lock } from 'lucide-react';
 import { api } from '../api';
 import { TIMEOFF_LABELS, timeOffLabel, parseScheduleSheet } from './shiftScheduleLib';
 import { formatDate } from '../lib/datetime';
+import { Spinner } from './AsyncState';
 
 const hm12 = (hhmm) => {
   const [h, m] = (hhmm || '0:0').split(':').map(Number);
@@ -117,7 +118,7 @@ export function ImportModal({ employees, busy, onImport, onClose }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>
           <Upload size={15} /> Choose a File
           <input type="file" aria-label="Schedule file" accept=".xlsx,.xls,.csv" onChange={e => pick(e.target.files?.[0])} style={{ display: 'none' }} />
-          {reading && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
+          {reading && <Spinner size={14} style={{ marginLeft: 'auto' }} />}
         </label>
         {parsed && !result && (
           <div style={{ fontSize: 12.5, marginTop: 12, fontWeight: 700 }}>

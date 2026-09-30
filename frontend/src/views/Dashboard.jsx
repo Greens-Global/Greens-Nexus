@@ -3,6 +3,7 @@ import { useMsal } from '@azure/msal-react';
 import { AlertTriangle, X } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import CustomDashboard from '../dashboard/CustomDashboard';
+import { ViewLoading } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 
 // External Links is a large, fully self-contained view (its own header,
@@ -77,7 +78,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
       ))}
 
       {tab === 'links' ? (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ViewLoading minHeight="40vh" />}>
           <ExternalLinks />
         </Suspense>
       ) : (

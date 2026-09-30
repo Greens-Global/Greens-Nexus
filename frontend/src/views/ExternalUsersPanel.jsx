@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Loader2, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus, KeyRound, Rocket, Copy, Check } from 'lucide-react';
+import { X, Send, Pencil, ShieldOff, ShieldCheck, Trash2, Globe, MailPlus, KeyRound, Rocket, Copy, Check } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate } from '../lib/datetime';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { COUNTRY_CODES, splitPhone, joinPhone } from '../lib/countryCodes';
 
 // ── External users - invite modal + person-panel section (Aug 18 rework) ─────
@@ -167,7 +167,7 @@ export function InviteExternalModal({ initial, onClose, onSaved }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 3 }}>
             <button onClick={onClose} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>Cancel</button>
             <button className="primary-btn" onClick={save} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              {saving && <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />}
+              {saving && <Spinner size={14} />}
               {editing ? 'Save Changes' : sendInvite ? 'Send Invite' : 'Create for Testing'}
             </button>
           </div>

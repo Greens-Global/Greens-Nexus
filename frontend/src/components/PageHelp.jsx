@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { HelpCircle, X, Loader2, LifeBuoy } from 'lucide-react';
+import { HelpCircle, X, LifeBuoy } from 'lucide-react';
 import { api } from '../api';
+import { Spinner } from './AsyncState';
 
 // Per-page "how to use this page" help. The "?" lives in the header on every page;
 // clicking it opens a drawer with an AI-written guide for the current page
@@ -101,7 +102,7 @@ export default function PageHelp({ pageKey, label, variant = 'pill', onActivate 
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
               {loading ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
-                  <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                  <Spinner size="section" />
                   Writing this page’s guide…
                 </div>
               ) : error ? (

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
-  FileText, Download, CalendarOff, Loader2, Pencil, Check, X, BadgeCheck,
+  FileText, Download, CalendarOff, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
 import { formatDateLong, formatTime } from '../lib/datetime';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
@@ -309,7 +309,7 @@ export function MyHROverview({ onOpenTimeOff }) {
       )}
       <button className="secondary-btn" onClick={d.onDownload} disabled={!!busy[d.busyKey]}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-        {busy[d.busyKey] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
+        {busy[d.busyKey] ? <Spinner size={12} /> : <Download size={12} />} {d.kind === 'egnyte' ? 'Download' : 'PDF'}
       </button>
     </div>
   );
@@ -483,7 +483,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
                       <button className="secondary-btn" onClick={() => setEditing(false)} disabled={saving}><X size={13} /> Cancel</button>
                       <button className="primary-btn" onClick={saveEdit} disabled={saving}>
-                        {saving ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Saving…</> : <><Check size={13} /> Save</>}
+                        {saving ? <><Spinner size={13} /> Saving…</> : <><Check size={13} /> Save</>}
                       </button>
                     </div>
                     <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
@@ -505,7 +505,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </select>
                   ) : <Package size={15} style={{ color: 'var(--muted)' }} />)}
                 {!assets ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+                  <LoadingState compact />
                 ) : assets.assignments.length + assets.checkouts.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing checked out to you right now.</div>
                 ) : (
@@ -544,7 +544,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </select>
                   </span>)}
                 {!sheet ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+                  <LoadingState compact />
                 ) : (
                   <>
                     {workedTotal === 0 ? (
@@ -661,7 +661,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </div>
                     <button className="secondary-btn" onClick={() => downloadStub(s.id)} disabled={!!busy['stub' + s.id]}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                      {busy['stub' + s.id] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} PDF
+                      {busy['stub' + s.id] ? <Spinner size={12} /> : <Download size={12} />} PDF
                     </button>
                   </div>
                 ))}
@@ -716,7 +716,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                   )}
                   <div style={{ flex: 1 }} />
                   <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
-                    {askBusy ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Sending…</> : 'Send to HR'}
+                    {askBusy ? <><Spinner size={13} /> Sending…</> : 'Send to HR'}
                   </button>
                 </div>
 

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { X, Loader2, Printer } from 'lucide-react';
+import { X, Printer } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { formatTimeTz, useDisplayTz } from '../lib/displayTz';
+import { Spinner } from './AsyncState';
 
 // Geofence Punch view (Charmi, Sep 25 - SwipeClock's "Geofence Punch For
 // <name>" screen): one person's In and Out punches for a period on a map,
@@ -163,7 +164,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
         </div>
         <div style={{ padding: '0 20px 16px', overflowY: 'auto' }}>
           {error && <div style={{ color: '#dc2626', fontSize: 13, padding: '10px 0' }}>{error}</div>}
-          {!data && !error && <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+          {!data && !error && <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>}
           <div ref={mapEl} style={{ height: 'min(480px, 48vh)', borderRadius: 10, border: '1px solid var(--line)', display: data ? 'block' : 'none' }} />
           {data && (
             <>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { SkeletonBlocks } from "../components/AsyncState";
+import { SkeletonBlocks, Spinner } from "../components/AsyncState";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Globe, Wifi, Plus, ExternalLink, AlertCircle } from "lucide-react";
 import { api } from "../api";
 import ModuleTabs from "../components/ModuleTabs";
@@ -393,7 +393,7 @@ function NetworkDashboard() {
 
           {sites.length === 0 && loading && (
             <div style={{ textAlign: "center", padding: 60, color: "var(--text-secondary)" }}>
-              <RefreshCw style={{ width: 20, height: 20, animation: "spin 1s linear infinite", marginBottom: 12 }} />
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><Spinner size="section" /></div>
               <div style={{ fontSize: "0.9rem" }}>Connecting to UniFi backend…</div>
               <div style={{ fontSize: "0.78rem", marginTop: 6, color: "var(--text-muted)" }}>This may take a few seconds on first load.</div>
             </div>

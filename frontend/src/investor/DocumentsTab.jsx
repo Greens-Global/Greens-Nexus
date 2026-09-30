@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, File, FileImage, FileSpreadsheet, FileText, Files, Loader, Paperclip, Trash2, Upload } from 'lucide-react';
+import { ExternalLink, File, FileImage, FileSpreadsheet, FileText, Files, Paperclip, Trash2, Upload } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import { formatDate } from './lib/format';
 import { IR_BUCKET, safeFileName, uploadToSupabase } from './lib/upload';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, useIrLoad } from './lib/ui';
+import { Spinner } from '../components/AsyncState';
 
 // Category → label + accent color (rendered as colored text, never a pill).
 const CATEGORY_META = {
@@ -253,7 +254,7 @@ export default function DocumentsTab() {
             <div className="modal-footer">
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy && <Loader size={13} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {busy && <Spinner size={13} />}
                 Save Document
               </button>
             </div>

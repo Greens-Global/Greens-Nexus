@@ -27,7 +27,7 @@ import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import { takePendingOpen } from '../lib/pendingOpen';
 import GuidedTour from '../components/GuidedTour';
 import ModuleTabs from '../components/ModuleTabs';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncState';
 import { buildSupportTourSteps } from './supportTourSteps';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
@@ -320,7 +320,7 @@ export default function Support({ activeSub, onSubChange }) {
         {error && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>{error}</div>}
 
         {tickets === null ? (
-          <div style={{ color: 'var(--muted)', fontSize: 13, padding: '18px 0' }}>Loading your tickets…</div>
+          <LoadingState compact label="Loading your tickets…" />
         ) : open.length === 0 ? (
           // An empty state, not an empty table: a header row with nothing under
           // it reads as broken rather than as "nothing open".
@@ -415,7 +415,7 @@ export default function Support({ activeSub, onSubChange }) {
       </>)}
 
       {submitting && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
           <TicketComposer onClose={() => { setSubmitting(false); load(); }} />
@@ -423,13 +423,13 @@ export default function Support({ activeSub, onSubChange }) {
       )}
 
       {reportingBug && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           <BugComposer onClose={() => setReportingBug(false)} />
         </Suspense>
       )}
 
       {viewingTicketId && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           {/* Reload on close too - the drawer can change status/priority etc.
               (within the requester's own edit access), and the table above
               should reflect that without a manual refresh. */}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Monitor, Globe, Activity, Clock, Zap, Loader2, TrendingUp, ChevronDown, Coffee, Users, Trophy, SlidersHorizontal, X } from 'lucide-react';
+import { Monitor, Globe, Activity, Clock, Zap, TrendingUp, ChevronDown, Coffee, Users, Trophy, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
+import { Spinner } from './AsyncState';
 
 // ── Time Insights - workforce activity analytics ──────────────────────────────
 // Powered by the desktop agent's foreground-app + URL + activity samples
@@ -216,7 +217,7 @@ function RatingsModal({ seed, onClose, onChanged }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '16px 22px', overflowY: 'auto' }}>
-          {loading ? <div style={{ padding: 24, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>
+          {loading ? <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="inline" /></div>
             : (apps.length + sites.length === 0)
               ? <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet - they'll appear here once activity comes in.</div>
               : <><Group title="Applications" icon={Monitor} list={apps} /><Group title="Websites" icon={Globe} list={sites} /></>}
@@ -278,7 +279,7 @@ export default function TimeInsights({ start, end, people = [] }) {
   );
 
   if (err) return <div>{selector}<div style={{ ...CARD, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>{err}</div></div>;
-  if (data === null) return <div>{selector}<div style={{ padding: 70, textAlign: 'center' }}><Loader2 size={22} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div></div>;
+  if (data === null) return <div>{selector}<div style={{ padding: 70, textAlign: 'center' }}><Spinner size="section" /></div></div>;
   if (data.totalSec === 0) return (
     <div>{selector}
       <div style={{ ...CARD, textAlign: 'center', padding: '52px 24px' }}>

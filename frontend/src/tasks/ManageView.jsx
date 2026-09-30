@@ -3,6 +3,7 @@
 // forms · Activity log · Reporting), ported from the export's manage/ + reporting/
 // screens onto the Nexus inline-style idiom + FastAPI-backed store.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
@@ -1040,7 +1041,7 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
           : 'Everything deleted across the workspace. Items stay here for 90 days and can be restored - after that they are removed for good.'} />
       {err && <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.red }}>{err}</div>}
       {rows === null ? (
-        <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading...</div>
+        <LoadingState />
       ) : rows.length === 0 ? (
         <EmptyState icon={Trash2} title="Recycle Bin Is Empty"
           hint={mine
@@ -1134,7 +1135,7 @@ function ActivityTab({ store }) {
     <div>
       <SectionHead title="Activity Log" hint="A running history of everything that happened across tasks and projects." />
       {rows === null ? (
-        <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading activity…</div>
+        <LoadingState label="Loading activity…" />
       ) : sorted.length === 0 ? (
         <EmptyState icon={ActivityIcon} title="No Activity Yet" hint="Actions across the workspace will show up here." />
       ) : (

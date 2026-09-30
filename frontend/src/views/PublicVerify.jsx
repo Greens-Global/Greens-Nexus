@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, ShieldQuestion, AlertTriangle } from 'lucide-react';
 import { API_BASE } from '../api';
+import { Spinner } from '../components/AsyncState';
 
 // ── Public certificate verification page - /verify/{token} ──────────────────
 // Renders OUTSIDE the MSAL gate (same reasoning as PublicSign.jsx - auditors,
@@ -86,7 +87,7 @@ export default function PublicVerify({ token }) {
 
   if (!data) return shell(
     <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--muted, #6b7280)' }}>
-      <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+      <Spinner size="section" />
     </div>
   );
 
