@@ -355,7 +355,7 @@ export function ShiftDetails({ at, shift: s, name, status, onEdit, onClose }) {
           <div style={{ marginTop: 6, fontSize: 12, color: '#b45309' }}>{s.conflicts.map((c, i) => <div key={i}>{c}</div>)}</div>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-          <button type="button" className="primary-btn" onClick={onEdit} style={{ fontSize: 12.5 }}><Pencil size={12} /> Edit Shift</button>
+          {onEdit && <button type="button" className="primary-btn" onClick={onEdit} style={{ fontSize: 12.5 }}><Pencil size={12} /> Edit Shift</button>}
         </div>
       </div>
     </div>

@@ -26,7 +26,7 @@ import MyAvailability from './MyAvailability';
 // Below their own week, their team (Neil, Sep 23: "Shifts should show all
 // team shifts based on what team you are on as well as your own"): one
 // week grid per shift group the manager put them in (Shifts > Manage >
-// Presets & Groups - the same grouping bulk assignment and the BOD/EOD chat
+// Presets & Teams - the same grouping bulk assignment and the BOD/EOD chat
 // key on), every member a row, the person themself first, laid out like the
 // Teams Shifts schedule (TeamShiftGrid.jsx - photos, colored shift blocks,
 // open shifts, day notes). What a teammate's row carries - why they are off,
@@ -298,7 +298,7 @@ export default function MyShifts() {
         <span>
           Shifts are set by your manager. Only shifts they have published appear here - ask them if something looks wrong.
           {data?.shift && ' Usual hours are your regular schedule, shown on days with no published shift.'}
-          {data && teams.length === 0 && ' Your team will show here once your manager adds you to a group.'}
+          {data && teams.length === 0 && ' Your team will show here once your manager adds you to a team.'}
         </span>
       </div>
     </div>

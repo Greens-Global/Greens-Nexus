@@ -2365,6 +2365,10 @@ class ShiftGroup(Base):
     # People who may build THIS group's schedule without team-wide access
     # (Sep 29, Teams "scheduling owner" per team). JSON list of emails.
     scheduler_emails = Column(String, default="")
+    # Teams switcher (Neil, Sep 30): archived teams drop out of the active list;
+    # sort_order is the manager's own order (Reorder Teams), then name.
+    archived        = Column(Integer, default=0)
+    sort_order      = Column(Integer, default=0)
 
 
 class ShiftGroupMember(Base):

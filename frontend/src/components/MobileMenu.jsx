@@ -16,7 +16,7 @@ export const SUBMENUS = {
       { sub: 'mine', label: 'My Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
-      { sub: 'presets', label: 'Presets & Groups' },
+      { sub: 'presets', label: 'Presets & Teams' },
     ],
     employee: [
       { sub: 'mine', label: 'My Shifts' },

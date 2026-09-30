@@ -192,7 +192,11 @@ class GroupSchedulerTests(_Base):
         self._as(LEAD)
         grid = self._grid()
         self.assertTrue(grid["canManage"])
-        self.assertEqual({e["email"] for e in grid["employees"]}, {A, LEAD})
+        # A manager sees everyone (Neil, Sep 30) but changes only the team
+        # they schedule (and themself).
+        editable = {e["email"] for e in grid["employees"] if e["canEdit"]}
+        self.assertEqual(editable, {A, LEAD})
+        self.assertIn(B, {e["email"] for e in grid["employees"]})
         self._place(email=A)
         self._place(email=B, expect=403)
         pub = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": TUE})

@@ -48,6 +48,7 @@ import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
+import TicketOpening from './TicketOpening';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -2156,7 +2157,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 // `startEditing` opens straight into the title/description editor - the
 // Support list's pencil (Neil, Sep 30) lands here.
 export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
-  const { tickets, tasks, projects = [], loading: tasksLoading,
+  const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
@@ -2258,7 +2259,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
     const seen = new Set();
     return [...own, ...orphans].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
   })();
-  if (!t) return null;
+  // Opened from an email link before the ticket list has landed: show the
+  // "Opening your ticket" screen rather than nothing (Oct 1 - it read as the
+  // link not working). Once the list is in, a ticket that still is not there
+  // (deleted, or not yours to see) renders nothing, as before.
+  if (!t) return ticketsLoaded ? null : <TicketOpening onClose={onClose} />;
 
   // Before a ticket is "in_progress" (with an assignee), the requester has
   // full edit access and anyone else can triage/self-assign it (working

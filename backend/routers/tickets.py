@@ -27,7 +27,8 @@ from auth import get_current_user, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id, log_activity, task_notify, extract_mentions
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
-                           save_settings as save_notify_settings, ticket_agents, all_agents)
+                           save_settings as save_notify_settings, ticket_agents, all_agents,
+                           _name_of)
 import ticket_taxonomy
 import ticket_mail_templates as tmpl
 from app_url import app_url
@@ -468,6 +469,32 @@ def _ticket_participants(t: models.TaskTicket) -> set:
         if e:
             people.add(e.lower())
     return people
+
+
+# What a requester's bell names when a save changes these (update_ticket's
+# audit kinds -> plain words).
+_REQUESTER_FIELD_LABELS = (
+    ("subject_changed", "title"), ("description_changed", "description"),
+    ("department_changed", "department"), ("company_changed", "company"),
+    ("application_changed", "application"), ("service_area_changed", "service area"),
+    ("field_changed", "request details"), ("resolution_changed", "resolution"),
+    ("resolution_note", "resolution"),
+)
+
+
+def _and_list(words: list) -> str:
+    """["title", "department"] -> "title and department"."""
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def _tell_requester(db: Session, t: models.TaskTicket, actor_email: str, what: str) -> None:
+    """One bell to the requester about a change someone else made (Oct 1:
+    "any update on their tickets"). Their own changes never bell them."""
+    requester = (t.requester_email or "").lower()
+    if requester and requester != (actor_email or "").lower():
+        task_notify(db, kind="ticket_updated", for_email=requester, title="Your ticket was updated",
+                    body=f"{ticket_no(t.code)} · {t.subject} - {what}"[:500], ticket_id=t.id,
+                    nexus_action={"view": "tickets", "label": "View ticket"})
 
 
 def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, kind: str,
@@ -917,15 +944,18 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     tk_action = {"view": "tickets", "label": "View ticket"}
     status_changed = t.status != prev_status   # includes the assignment's auto In Progress
     assignee_changed = "assignee_email" in data and (t.assignee_email or "") != prev_assignee
+    # The requester hears about EVERY change someone else makes to their
+    # ticket, in their bell (Oct 1) - one notice per save, built after the
+    # audit lines below so it can say what changed.
+    requester = (t.requester_email or "").lower()
+    tell_requester = bool(requester) and requester != user["email"].lower()
     if status_changed:
         _log("status_changed", f"changed status to {tmpl.status_label(t.status)}")
-        if t.status in ("resolved", "closed") and t.requester_email and t.requester_email != user["email"].lower():
-            task_notify(db, kind="ticket_resolved", for_email=t.requester_email,
-                        title=f"Your ticket was {tmpl.status_label(t.status)}", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
-        else:
-            # keep watchers (and requester/assignee) in the loop on any status move
+        if not (t.status in ("resolved", "closed") and tell_requester):
+            # keep watchers and the assignee in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
-                                 title=f"Ticket moved to {tmpl.status_label(t.status)}", body=f"{ticket_no(t.code)} · {t.subject}")
+                                 title=f"Ticket moved to {tmpl.status_label(t.status)}", body=f"{ticket_no(t.code)} · {t.subject}",
+                                 exclude={requester} if tell_requester else None)
     if assignee_changed:
         # Stamped from the actor, never from the payload: the field records WHO
         # handed the ticket over, and a value the caller could set records
@@ -985,6 +1015,37 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         elif t.approval_status == "none":
             _log("approval_cleared", f"no longer needs approval - re-typed as {_type_label(t.type)}")
 
+    requester_told = False
+    if tell_requester:
+        news = []
+        if assignee_changed:
+            news.append(f"assigned to {_name_of(db, t.assignee_email)}" if t.assignee_email else "unassigned")
+        if "priority_changed" in changed:
+            news.append(f"priority set to {(t.priority or '').title()}")
+        resolving = status_changed and t.status in ("resolved", "closed")
+        edited = [label for kind, label in _REQUESTER_FIELD_LABELS
+                  if kind in changed and not (resolving and label == "resolution")]
+        if (t.type or "") != prev_type:
+            edited.append("type")
+        if edited:
+            news.append("updated the " + _and_list(list(dict.fromkeys(edited))))
+        if "approval_reset" in changed:
+            news.append("sent back for approval")
+        public_reply = comment_body and not (comment_internal and _has_desk_grant(user, db))
+        if public_reply and (status_changed or news):
+            # One bell for the whole save: the reply rides along here and the
+            # comment's own bell skips the requester (below).
+            news.append("new reply")
+        if status_changed or news:
+            label = tmpl.status_label(t.status)
+            title = (f"Your ticket was {label}" if resolving
+                     else f"Your ticket moved to {label}" if status_changed else "Your ticket was updated")
+            what = "; ".join(news)
+            body = f"{ticket_no(t.code)} · {t.subject}" + (f" - {what[:1].upper()}{what[1:]}" if what else "")
+            task_notify(db, kind="ticket_resolved" if resolving else "ticket_status" if status_changed else "ticket_updated",
+                        for_email=requester, title=title, body=body[:500], ticket_id=t.id, nexus_action=tk_action)
+            requester_told = True
+
     t.modified_at = now_iso()
     # Anything someone else changed is news to the requester - the unread dot
     # on their Support list. Their own edits never light it.
@@ -992,7 +1053,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         t.requester_update_at = t.modified_at
     public_comment = ""
     if comment_body:
-        _c, was_internal = _record_ticket_comment(db, t, user, comment_body, comment_internal)
+        _c, was_internal = _record_ticket_comment(db, t, user, comment_body, comment_internal,
+                                                  quiet={requester} if requester_told else None)
         if not was_internal and get_notify_settings(db).get("commentsTrigger", True):
             public_comment = comment_body
     db.commit()
@@ -1132,12 +1194,14 @@ def _blank_comment(text: str) -> bool:
 
 
 def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: str,
-                           internal: bool) -> tuple:
+                           internal: bool, quiet: set | None = None) -> tuple:
     """Add one comment to a ticket: the row, the staleness clock, the activity
     line, @mention watchers and the bell notices. Emails and the Teams DM are
     the caller's (the comments endpoint sends its own; update_ticket folds the
     reply into the one email it sends for the whole save). Does not commit.
-    Returns (comment, internal) - internal only sticks for a desk-grant author."""
+    Returns (comment, internal) - internal only sticks for a desk-grant author.
+    `quiet`: people already told about this save in another bell (update_ticket's
+    requester notice), so the reply does not reach them twice."""
     internal = bool(internal) and _has_desk_grant(user, db)
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
@@ -1178,7 +1242,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     # Internal notes stay with the agents - don't ping the requester. Anyone
     # mentioned is excluded here and told by name below instead, so a mention
     # doesn't arrive as two bells about the same comment.
-    _skip = set(mentioned)
+    _skip = set(mentioned) | set(quiet or ())
     if internal:
         _skip.add((t.requester_email or "").lower())
     _notify_participants(db, t, user["email"], kind="ticket_comment",
@@ -1258,6 +1322,7 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     db.add(a)
     log_activity(db, type="attached", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f'attached "{a.name}"')
+    _tell_requester(db, t, user["email"], f'File attached: "{a.name}"')
     db.commit()
     db.refresh(a)
     if get_notify_settings(db).get("attachmentsTrigger", True):
@@ -1535,6 +1600,7 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
         task_notify(db, kind="ticket_needs_approval", for_email=approver,
                     title="A ticket needs your approval",
                     body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+    _tell_requester(db, t, user["email"], f"Sent to {_name_of(db, approver)} for approval")
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "approval_required", user["email"])

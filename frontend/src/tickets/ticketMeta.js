@@ -377,11 +377,18 @@ export const normalizeCode = (code) => {
   const digits = String(code || '').replace(/\D/g, '');
   return digits ? digits.padStart(TICKET_CODE_DIGITS, '0') : '';
 };
+// The number as a person reads it (Oct 1: "#00027" is just ticket 27): the
+// zero padding stays in storage, where it keeps codes sorting as text - sort
+// on normalizeCode, never on these display strings.
+export const displayCode = (code) => {
+  const digits = String(code || '').replace(/\D/g, '');
+  return digits ? String(Number(digits)) : '';
+};
 // Blank stays blank rather than becoming "Ticket #" - a ticket with no number
 // should look like it has none, not like it has an empty one.
-export const ticketNo = (code) => (normalizeCode(code) ? `Ticket #${normalizeCode(code)}` : '');
-// Compact form for tight spots (chips, table cells, option lists): "#000001".
-export const ticketNoShort = (code) => (normalizeCode(code) ? `#${normalizeCode(code)}` : '');
+export const ticketNo = (code) => (displayCode(code) ? `Ticket #${displayCode(code)}` : '');
+// Compact form for tight spots (chips, table cells, option lists): "#1".
+export const ticketNoShort = (code) => (displayCode(code) ? `#${displayCode(code)}` : '');
 
 // ── Approvals ────────────────────────────────────────────────────────────────
 // Types whose admin switch says "Requires Approval" (the taxonomy config's

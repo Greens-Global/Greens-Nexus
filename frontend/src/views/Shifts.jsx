@@ -16,7 +16,7 @@ import ShiftsPanel from '../components/ShiftsPanel';
 //
 // The pages sit on one tab strip, the way Teams Shifts has Schedule /
 // Requests / Settings (Visesh, Sep 30): My Shifts and Requests for everyone,
-// Schedule and Presets & Groups for managers and above. Requests is where a
+// Schedule and Presets & Teams for managers and above. Requests is where a
 // swap, an offer or time off is asked for - it used to be reachable only
 // from a button under a published shift, so anyone with none never saw it.
 // Employees never change a shift - the backend refuses any write below
@@ -27,13 +27,13 @@ const TABS = [
   ['mine', 'My Shifts', UserRound, false],
   ['schedule', 'Schedule', CalendarDays, true],
   ['requests', 'Requests', Inbox, false],
-  ['presets', 'Presets & Groups', Settings2, true],
+  ['presets', 'Presets & Teams', Settings2, true],
 ];
 const SUBTITLE = {
   mine: "Your week at a glance, and your team's",
   schedule: "Build, publish and adjust the team's schedule",
   requests: 'Swap or offer a shift, ask for time off, and see what is waiting',
-  presets: 'Shift presets, groups and who schedules them',
+  presets: 'Shift presets, teams and who schedules them',
 };
 
 export default function Shifts({ activeSub, onSubChange }) {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-// Presets & Groups (Sep 29 audit): deleting a preset or a group is permanent,
+// Presets & Teams (Sep 29 audit): deleting a preset or a group is permanent,
 // so it is confirmed first; and the group controls show only to people whose
 // changes the API accepts (company-wide access).
 
@@ -43,7 +43,7 @@ beforeEach(() => {
   toastOk.mockReset();
 });
 
-describe('Presets & Groups', () => {
+describe('Presets & Teams', () => {
   it('asks before deleting a preset, and says what hangs off it', async () => {
     confirmAsk.mockResolvedValue(false);
     render(<ShiftsPanel toastOk={toastOk} toastErr={vi.fn()} />);
@@ -64,21 +64,21 @@ describe('Presets & Groups', () => {
 
   it('asks before deleting a group', async () => {
     render(<ShiftsPanel toastOk={toastOk} toastErr={vi.fn()} />);
-    fireEvent.click(await screen.findByLabelText('Delete group Front Desk'));
+    fireEvent.click(await screen.findByLabelText('Delete team Front Desk'));
     await waitFor(() => expect(timeShiftGroupDelete).toHaveBeenCalledWith('g1'));
     const [message, opts] = confirmAsk.mock.calls[0];
     expect(message).toContain('Its 2 members keep their shifts');
     expect(message).toContain('Teams chat');
-    expect(opts).toMatchObject({ title: 'Delete Group', danger: true });
+    expect(opts).toMatchObject({ title: 'Delete Team', danger: true });
   });
 
   it('offers no group changes to a manager without company-wide access', async () => {
     timeShiftGroups.mockResolvedValue({ groups: [group], canManageGroups: false });
     render(<ShiftsPanel toastOk={toastOk} toastErr={vi.fn()} />);
     expect(await screen.findByText('Front Desk')).toBeTruthy();
-    expect(screen.queryByText('New Group')).toBeNull();
-    expect(screen.queryByLabelText('Delete group Front Desk')).toBeNull();
-    expect(screen.getByText('Groups are changed by an administrator')).toBeTruthy();
+    expect(screen.queryByText('New Team')).toBeNull();
+    expect(screen.queryByLabelText('Delete team Front Desk')).toBeNull();
+    expect(screen.getByText('Teams are changed by an administrator')).toBeTruthy();
     expect(screen.getByText('New Shift')).toBeTruthy();   // presets are still theirs to manage
   });
 

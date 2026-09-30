@@ -134,7 +134,7 @@ function StatusCell({ status }) {
 // Ten rows the Ticket module's own list would sort exactly this way for -
 // State by its workflow order, everything else by value.
 const SUPPORT_TABLE_COLUMNS = [
-  { key: 'ticket', label: 'Ticket No', width: 110, sort: (t) => ticketNoShort(t.code) || '' },
+  { key: 'ticket', label: 'Ticket No', width: 110, sort: (t) => normalizeCode(t.code) },
   { key: 'title', label: 'Title', width: 320, sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'status', label: 'Status', width: 140, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'assignedTo', label: 'Assigned To', width: 160, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },

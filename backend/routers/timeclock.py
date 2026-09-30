@@ -4435,6 +4435,21 @@ def _require_unscoped_team(user: dict, db: Session, what: str = "Managing shift 
         raise HTTPException(403, f"{what} needs company-wide team access")
 
 
+def _ordered_groups(db: Session) -> list:
+    """Teams in the managers' own order (Reorder Teams), then by name."""
+    return sorted(db.query(ShiftGroup).all(), key=lambda g: (int(getattr(g, "sort_order", 0) or 0), (g.name or "").lower()))
+
+
+def _group_editable(db: Session, user: dict, g) -> bool:
+    """May this caller change a team's name, members or archive state (Neil,
+    Sep 30: "Add members", the team's ... menu)? A manager with company-wide
+    team access, or a manager named as that team's scheduler."""
+    if not can_manage_shifts(user):
+        return False
+    plain = {k: v for k, v in user.items() if k not in ("_sched_extra", "_group_scheduler")}
+    return _visible_emails(db, plain) is None or (user.get("email") or "").lower() in _schedulers(g)
+
+
 @router.get("/shift-groups")
 def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     scope = _visible_emails(db, user)
@@ -4443,9 +4458,10 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
         if scope is None or (m.employee_email or "").lower() in scope:
             members.setdefault(m.group_id, []).append(m.employee_email)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
-                        "schedulers": _schedulers(g),
+                        "schedulers": _schedulers(g), "archived": bool(getattr(g, "archived", 0)),
+                        "sortOrder": int(getattr(g, "sort_order", 0) or 0),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
-                       for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()],
+                       for g in _ordered_groups(db)],
             # Groups are changed company-wide only (_require_unscoped_team), so
             # the screen offers New / Edit / Delete to those who can use them.
             "canManageGroups": scope is None and can_manage_shifts(user)}
@@ -4479,6 +4495,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
                    created_by=user["email"], created_at=_now_iso())
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
+    g.sort_order = max([int(getattr(x, "sort_order", 0) or 0) for x in db.query(ShiftGroup).all()] or [0]) + 1
     db.add(g)
     for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=g.id, employee_email=em))
@@ -4502,6 +4519,83 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
+    db.commit()
+    return {"ok": True}
+
+
+class GroupMembersIn(BaseModel):
+    add: List[str] = []
+    remove: List[str] = []
+
+
+@router.post("/shift-groups/{group_id}/members")
+def change_group_members(group_id: str, body: GroupMembersIn, user: dict = Depends(require_shift_manage),
+                         db: Session = Depends(get_db)):
+    """Add people to a team or take them off it, right from the schedule
+    (Neil, Sep 30: "Add members"; dragging a person to another team is a
+    remove here plus an add there). The team's own manager may do it too."""
+    g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
+    if not g:
+        raise HTTPException(404, "Team not found")
+    if not _group_editable(db, user, g):
+        raise HTTPException(403, "Only this team's manager or an administrator can change who is on it.")
+    known = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all() if e.work_email}
+    add = list(dict.fromkeys(e.strip().lower() for e in body.add if e and e.strip()))
+    bad = [e for e in add if e not in known]
+    if bad:
+        raise HTTPException(400, f"Not in the People list: {', '.join(bad)}")
+    have = {(m.employee_email or "").lower() for m in
+            db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).all()}
+    for em in add:
+        if em not in have:
+            db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
+            have.add(em)
+    remove = {e.strip().lower() for e in body.remove if e and e.strip()}
+    if remove:
+        for m in db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).all():
+            if (m.employee_email or "").lower() in remove:
+                db.delete(m)
+        have -= remove
+    db.commit()
+    return {"id": group_id, "members": sorted(have)}
+
+
+class GroupMetaIn(BaseModel):
+    name: Optional[str] = None
+    archived: Optional[bool] = None
+
+
+@router.patch("/shift-groups/{group_id}/meta")
+def change_group_meta(group_id: str, body: GroupMetaIn, user: dict = Depends(require_shift_manage),
+                      db: Session = Depends(get_db)):
+    """Rename a team, or archive / restore it (Teams "archived teams": an
+    archived team leaves the active list and the grid, its data stays)."""
+    g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
+    if not g:
+        raise HTTPException(404, "Team not found")
+    if not _group_editable(db, user, g):
+        raise HTTPException(403, "Only this team's manager or an administrator can change it.")
+    if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(400, "Name the team.")
+        g.name = body.name.strip()[:80]
+    if body.archived is not None:
+        g.archived = 1 if body.archived else 0
+    db.commit()
+    return {"id": g.id, "name": g.name, "archived": bool(g.archived)}
+
+
+class GroupOrderIn(BaseModel):
+    ids: List[str] = []
+
+
+@router.post("/shift-groups/reorder")
+def reorder_groups(body: GroupOrderIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+    """Reorder Teams: the order the grid and the switcher list them in."""
+    _require_unscoped_team(user, db)
+    rank = {gid: i for i, gid in enumerate(body.ids)}
+    for g in db.query(ShiftGroup).all():
+        g.sort_order = rank.get(g.id, len(rank) + 1)
     db.commit()
     return {"ok": True}
 
@@ -4752,7 +4846,7 @@ def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
            "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or "",
            "confidential": _is_confidential(t), "redacted": False}
     if priv is not None and not priv.can_see(t):
-        out.update(type=REDACTED_TYPE, note="", redacted=True)
+        out.update(note="", redacted=True)
     return out
 
 
@@ -4789,7 +4883,15 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     """Everything the grid needs for a date range: visible employees (scoped),
     shift presets, groups, the placed shifts, and time off to overlay. Drafts
     (unpublished shifts) are returned only to schedulers who can publish them."""
-    scope = _visible_emails(db, user)
+    # See everyone, change only your own (Neil, Sep 30: "I should be able to
+    # see everybody, but I should only be able to manage my construction
+    # team"). A manager reads the whole schedule; `write_scope` - their
+    # direct reports plus the teams they are named scheduler of - is what they
+    # may change, and each row / shift says so (canEdit). The write routes
+    # keep enforcing write_scope; this only widens what is shown.
+    write_scope = _visible_emails(db, user)
+    everyone = can_manage_shifts(user) and not user.get("_group_scheduler")
+    scope = None if everyone else write_scope
     can_write = _can_write_schedule(user, db)
     names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
@@ -4803,15 +4905,18 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     names.update({em: (e.display_name or "").strip() for em, e in people.items() if (e.display_name or "").strip()})
     employees = [{"email": em, "name": names.get(em, em),
                   "photoUrl": getattr(people.get(em), "photo_url", "") or "",
-                  "location": (getattr(people.get(em), "location", "") or "").strip()} for em in emails]
+                  "location": (getattr(people.get(em), "location", "") or "").strip(),
+                  "canEdit": can_write and (write_scope is None or em in write_scope)} for em in emails]
 
     presets = {s.id: s for s in db.query(Shift).all()}
     members = {}
     for m in db.query(ShiftGroupMember).all():
         if scope is None or (m.employee_email or "").lower() in scope:
             members.setdefault(m.group_id, []).append(m.employee_email)
-    groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
-              for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]
+    groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
+               "archived": bool(getattr(g, "archived", 0)), "sortOrder": int(getattr(g, "sort_order", 0) or 0),
+               "canEdit": _group_editable(db, user, g)}
+              for g in _ordered_groups(db)]
     if user.get("_group_scheduler"):
         groups = [g for g in groups if g["members"]]   # only the groups they schedule
 
@@ -4827,9 +4932,9 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     rows = q.all()
     scheduled = [_sched_dict(r, presets, effective=can_write) for r in rows]
     for r, sd in zip(rows, scheduled):
-        if not (r.employee_email or "").strip():
-            # Another manager's open slot shows, but read-only (Sep 29).
-            sd["canEdit"] = can_write and _open_row_mine(r, scope, user)
+        # Another manager's open slot, or another team's shift, shows but is
+        # read-only (Sep 29 / Sep 30).
+        sd["canEdit"] = can_write and _row_in_scope(r, write_scope, user)
 
     tq = (db.query(TimeOffRequest)
           .filter(TimeOffRequest.status.in_(["approved", "pending"]),
@@ -4881,9 +4986,11 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             "groups": groups, "scheduled": scheduled, "timeoff": timeoff, "holidays": holidays,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
+            "me": (user.get("email") or "").lower(),
             # Shift settings and groups are company-wide switches
             # (_require_unscoped_team): offered only to those who can save them.
-            "canConfigure": can_write and scope is None}
+            # write_scope, not scope - every manager now READS everyone.
+            "canConfigure": can_write and write_scope is None}
 
 
 @router.get("/schedule/check")
@@ -7622,10 +7729,10 @@ def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_w
 # ── Confidential time off (Neil, Sep 29) ─────────────────────────────────────
 # "make a personal leave confidential where it doesn't show the reason
 # publicly, but it would show to the manager or the approver only." Any type
-# can be confidential - a custom type IS a reason ("Jury Duty"), and so is
-# "sick" - so confidential hides the type as well as the note and the decision
-# note. Everyone else still sees that the person is out, and when: plain
-# "Time off" with the dates, status and part-day times.
+# can be confidential. Sep 30 (Neil): others still see the TYPE ("Time off -
+# Medical") - confidential hides the note and the decision note, which is
+# where the private detail lives ("cancer treatment"). Everyone else sees that
+# the person is out, when, and what kind of time off.
 REDACTED_TYPE = "time off"
 
 
@@ -7726,7 +7833,7 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
         if priv.viewer and priv.viewer == (r.employee_email or "").strip().lower():
             out["own"] = True
         if not priv.can_see(r):
-            out.update(type=REDACTED_TYPE, note="", decideNote="", redacted=True)
+            out.update(note="", decideNote="", redacted=True)
     return out
 
 
@@ -7787,10 +7894,10 @@ def _bell_reason(r) -> str:
 
 
 def _bell_kind(r) -> str:
-    """The request's type as a shared bell names it: "vacation" - or, for a
-    confidential request, "confidential time off" (never the type)."""
-    if _is_confidential(r):
-        return "confidential time off"
+    """The request's type as a shared bell names it, e.g. "vacation". A
+    confidential request still names its type (Neil, Sep 30: "It should say
+    time off medical. It should not say time off medical cancer treatment") -
+    only its note stays private, and bells never carry the note."""
     return r.type or "time off"
 
 

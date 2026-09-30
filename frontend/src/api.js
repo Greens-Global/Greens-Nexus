@@ -1462,6 +1462,10 @@ export const api = {
   timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
   timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
+  // Teams on the schedule grid (Sep 30): add/remove members, rename/archive, reorder.
+  timeShiftGroupMembers: (id, data) => req(`/timeclock/shift-groups/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
+  timeShiftGroupMeta: (id, data)  => req(`/timeclock/shift-groups/${id}/meta`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeShiftGroupReorder: (ids)    => req('/timeclock/shift-groups/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),

@@ -157,3 +157,6 @@ export function parseScheduleSheet(aoa, employees = []) {
   });
   return { rows, problems };
 }
+
+// The schedule's View menu defaults (Sep 30): everything shown, people rows.
+export const DEFAULT_VIEW_PREFS = { mine: false, rowsBy: 'people', teams: true, open: true, conflicts: true, availability: true, photos: true, sunday: true };

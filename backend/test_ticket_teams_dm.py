@@ -70,7 +70,7 @@ class QueueingTests(unittest.TestCase):
         row = rows[0]
         self.assertEqual(row.agent_email, AGENT)
         self.assertEqual(row.requester_email, REQUESTER)
-        self.assertIn("000042", row.html)
+        self.assertIn("Ticket #42 ", row.html)   # shown without the storage padding (Oct 1)
         self.assertIn("has been updated", row.html)
 
     def test_the_link_goes_through_support_not_the_gated_tickets_module(self):

@@ -3082,7 +3082,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
     ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
       .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
         name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.redacted ? 'Time off' : (r.type || ''),
+        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
       })),
   ].filter(e => e.start && e.end);
 
