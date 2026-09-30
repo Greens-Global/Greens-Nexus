@@ -106,10 +106,14 @@ export default function MyShifts() {
     for (const s of data.scheduled || []) (placed[s.date] ||= []).push(s);
     const off = data.timeoff || [];
     const hol = {};
-    for (const h of data.holidays || []) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
+    // A list of {date, name}; an older API sent {date: {name}} - read both, so
+    // a holiday week can never crash the screen again (Sep 30).
+    const holList = Array.isArray(data.holidays) ? data.holidays
+      : Object.entries(data.holidays || {}).map(([date, h]) => ({ date, ...(h && typeof h === 'object' ? h : { name: String(h || '') }) }));
+    for (const h of holList) if (h?.date) hol[h.date] = h.name || h.title || h.label || 'Company holiday';
     // Day notes from the manager (Sep 29), e.g. "Inventory day".
     const dayNote = {};
-    for (const n of data.dayNotes || []) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
+    for (const n of (Array.isArray(data.dayNotes) ? data.dayNotes : [])) dayNote[n.date] = dayNote[n.date] ? `${dayNote[n.date]} · ${n.note}` : n.note;
     return Array.from({ length: 7 }, (_, i) => {
       const d = addDays(weekStart, i);
       const key = dateKey(d);

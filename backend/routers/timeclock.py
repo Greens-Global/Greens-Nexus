@@ -5024,7 +5024,11 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                          ScheduleDayNote.group_id.in_([""] + list(set(member_of) | set(group_ids)))).order_by(ScheduleDayNote.work_date).all()
                  if n.note]
     return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
-            "timeoff": timeoff, "holidays": _company_holidays_for_employee(db, email, start, end) or [],
+            # A LIST of {date, name, type} - the helper returns {date: {...}},
+            # which crashed My Shifts ("object is not iterable") on any week
+            # with a company holiday in it (Sep 30).
+            "timeoff": timeoff, "holidays": [{"date": d, **h} for d, h in sorted(
+                _company_holidays_for_employee(db, email, start, end).items())],
             "teams": teams, "dayNotes": day_notes, "canManage": manage,
             "timeZone": cfg.get("timeZone") or "America/Los_Angeles",
             "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)] if manage else []}

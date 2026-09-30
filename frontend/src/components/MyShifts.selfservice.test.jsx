@@ -90,6 +90,16 @@ describe('MyShifts availability and group scheduling', () => {
     expect(rows[1].getAttribute('aria-current')).toBeNull();
   });
 
+  it('shows a company holiday, and never crashes on the older {date: {name}} shape', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, holidays: [{ date: DAY, name: 'Founders Day', type: 'mandatory' }] });
+    const { unmount } = render(<MyShifts />);
+    expect((await screen.findAllByText(/Founders Day/)).length).toBeGreaterThan(0);
+    unmount();
+    timeMySchedule.mockResolvedValue({ ...sched, holidays: { [DAY]: { name: 'Founders Day', type: 'mandatory' } } });
+    render(<MyShifts />);
+    expect((await screen.findAllByText(/Founders Day/)).length).toBeGreaterThan(0);
+  });
+
   it('lays the team out like Teams Shifts: photos, hours, colored blocks', async () => {
     timeMySchedule.mockResolvedValue({ ...sched, dayNotes: [{ date: DAY, note: 'Inventory day' }],
       teams: [{ id: 'g', name: 'Store', members: [

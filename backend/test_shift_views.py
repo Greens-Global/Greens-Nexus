@@ -255,6 +255,31 @@ class ShiftViewTests(unittest.TestCase):
         mine = self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()["dayNotes"]
         self.assertEqual([n["note"] for n in mine], ["Inventory day"])
 
+    def test_my_schedule_lists_company_holidays(self):
+        # Sep 30: a week with a company holiday crashed My Shifts - the API
+        # sent {date: {...}} where the screen loops over a list.
+        co = "co-view-holiday"
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == A).first().company = co
+            db.add(models.HrCompanyHoliday(id="hol-view-1", company_id=co, date=TUE, name="Founders Day", type="mandatory"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            self._as(A)
+            hol = self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()["holidays"]
+            self.assertEqual(hol, [{"date": TUE, "name": "Founders Day", "type": "mandatory"}])
+            self._as(B)                               # another company: none, still a list
+            self.assertEqual(self.client.get(f"/timeclock/my-schedule?start={MON}&end={TUE}").json()["holidays"], [])
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.HrCompanyHoliday).filter(models.HrCompanyHoliday.id == "hol-view-1").delete()
+                db.commit()
+            finally:
+                db.close()
+
     def test_an_empty_note_removes_it_and_staff_cannot_write(self):
         self.client.put("/timeclock/schedule/day-note", json={"work_date": MON, "note": "Temp"})
         self.client.put("/timeclock/schedule/day-note", json={"work_date": MON, "note": "  "})
