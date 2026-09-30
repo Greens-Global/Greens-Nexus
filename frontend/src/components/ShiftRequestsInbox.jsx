@@ -129,9 +129,9 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
                     {face(t.email, t.name)}
                     <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                      <CalendarOff size={12} /> {t.redacted ? 'Time off' : `Time off · ${t.type}`}
+                      <CalendarOff size={12} /> {`Time off · ${t.type}`}
                       {t.confidential && (
-                        <span title="Confidential - the type and reason are visible only to the employee and their approver"
+                        <span title="Confidential - the reason is visible only to the employee and their approver"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, textTransform: 'none', letterSpacing: 0 }}>
                           <Lock size={11} /> Confidential
                         </span>

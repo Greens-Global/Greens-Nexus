@@ -2,11 +2,12 @@
 where it doesn't show the reason publicly, but it would show to the manager
 or the approver only."
 
-A confidential request's type, note and decision note reach only its
-viewers - the requester, their approver (direct manager; else the company's
-HR contact; else the administrators) and whoever decided it. Everyone else
-who may see the request at all sees plain "time off" with the dates. Only
-approvers decide it, and nobody decides their own time off.
+A confidential request's note and decision note reach only its viewers -
+the requester, their approver (direct manager; else the company's HR
+contact; else the administrators) and whoever decided it. Everyone else who
+may see the request at all sees its type and dates ("Time off - Medical",
+Neil Sep 30: never "medical cancer treatment"). Only approvers decide it, and
+nobody decides their own time off.
 
     python -m pytest test_timeoff_confidential.py
 """
@@ -135,13 +136,13 @@ class ViewerTests(_Base):
         self.assertEqual((row["type"], row["note"], row["redacted"], row["canDecide"]),
                          ("sick", "Chemo appointment", False, True))
 
-    def test_other_managers_and_hr_grants_see_only_time_off(self):
+    def test_other_managers_and_hr_grants_see_the_type_but_not_the_note(self):
         req = self._request()
         for who in (PEER, HRG, ADM):   # an administrator is not EMP's approver - MGR is
             row = self._listed(who, req["id"])
             self.assertIsNotNone(row, who)
             self.assertEqual((row["type"], row["note"], row["redacted"], row["canDecide"]),
-                             ("time off", "", True, False), who)
+                             ("sick", "", True, False), who)
             self.assertEqual((row["startDate"], row["endDate"], row["status"]), (MON, MON, "pending"))
             self.assertIn("Mgr", row["reviewer"])
 
@@ -161,15 +162,15 @@ class ViewerTests(_Base):
             if full:
                 self.assertEqual((t["type"], t["note"]), ("sick", "Chemo appointment"))
             else:
-                self.assertEqual((t["type"], t["note"], t["redacted"]), ("time off", "", True))
+                self.assertEqual((t["type"], t["note"], t["redacted"]), ("sick", "", True))
         self.assertTrue(req["confidential"])
 
-    def test_the_shift_warning_never_names_it(self):
+    def test_the_shift_warning_never_carries_the_note(self):
         self._request()
         self._as(PEER)
         w = self.client.get(f"/timeclock/schedule/check?email={EMP}&date={MON}&start=09:00&end=17:00").json()["warnings"]
-        self.assertTrue(any("time off" in x for x in w), w)
-        self.assertFalse(any("sick" in x.lower() for x in w), w)
+        self.assertTrue(any("time off" in x.lower() for x in w), w)
+        self.assertFalse(any("chemo" in x.lower() for x in w), w)
 
 
 class DecisionTests(_Base):
@@ -185,7 +186,7 @@ class DecisionTests(_Base):
         # Still private after the decision - the decision note too.
         row = self._listed(PEER, req["id"])
         self.assertEqual((row["type"], row["note"], row["decideNote"], row["status"]),
-                         ("time off", "", "", "approved"))
+                         ("sick", "", "", "approved"))
 
     def test_nobody_decides_their_own_time_off(self):
         req = self._request(who=MGR, type_="vacation", confidential=False)
@@ -213,7 +214,7 @@ class DecisionTests(_Base):
 
 
 class SideChannelTests(_Base):
-    def test_bells_about_a_confidential_request_never_name_its_type(self):
+    def test_bells_about_a_confidential_request_name_the_type_never_the_note(self):
         self._request()
         db = database.SessionLocal()
         try:
@@ -222,9 +223,8 @@ class SideChannelTests(_Base):
             db.close()
         self.assertTrue(bells)
         for b in bells:
-            self.assertNotIn("sick", f"{b.title} {b.body}".lower())
             self.assertNotIn("chemo", f"{b.title} {b.body}".lower())
-            self.assertIn("confidential time off", b.body)
+            self.assertIn("sick", b.body)
 
     def test_filing_on_behalf_can_mark_it_confidential(self):
         self._as(MGR)
@@ -234,7 +234,7 @@ class SideChannelTests(_Base):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual((r.json()["type"], r.json()["confidential"]), ("sick", True))
         row = self._listed(PEER, r.json()["id"])
-        self.assertEqual((row["type"], row["note"]), ("time off", ""))
+        self.assertEqual((row["type"], row["note"]), ("sick", ""))
 
     def test_copying_a_schedule_keeps_it_confidential(self):
         db = database.SessionLocal()
@@ -259,18 +259,18 @@ class SideChannelTests(_Base):
         finally:
             db.close()
         row = self._listed(PEER, new_id)
-        self.assertEqual((row["type"], row["note"], row["redacted"]), ("time off", "", True))
+        self.assertEqual((row["type"], row["note"], row["redacted"]), ("sick", "", True))
 
 
 class BriefingTests(_Base):
-    def test_the_managers_briefing_names_it_only_to_a_viewer(self):
+    def test_the_briefing_names_the_type_to_everyone(self):
         import daily_briefing
         req = self._request()
         db = database.SessionLocal()
         try:
             r = db.query(models.TimeOffRequest).filter(models.TimeOffRequest.id == req["id"]).one()
             self.assertEqual(daily_briefing._leave_labeler(db, MGR)(r), "sick")
-            self.assertEqual(daily_briefing._leave_labeler(db, PEER)(r), "time off")
+            self.assertEqual(daily_briefing._leave_labeler(db, PEER)(r), "sick")
         finally:
             db.close()
 

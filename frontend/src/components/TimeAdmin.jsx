@@ -24,12 +24,13 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
-// Confidential time off (Sep 29): the server blanks the type and note for
-// anyone but the requester and approver ("redacted") - show plain "Time off".
-const timeoffLabel = (r) => (r.redacted ? 'Time off' : r.type);
+// Confidential time off (Sep 29): the server blanks the note for anyone but
+// the requester and approver ("redacted"); the type still shows (Neil, Sep
+// 30: "Time off - Medical", never the detail).
+const timeoffLabel = (r) => r.type || 'Time off';
 function ConfidentialMark() {
   return (
-    <span title="Confidential - the type and note are visible only to the employee and their approver"
+    <span title="Confidential - the note is visible only to the employee and their approver"
       aria-label="Confidential" style={{ display: 'inline-flex', color: 'var(--muted)', flexShrink: 0 }}>
       <Lock size={11} />
     </span>
@@ -735,7 +736,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</div>
                     {entries.slice(0, 3).map(r => (
                       <div key={r.id} title={`${r.name || r.email} - ${timeoffLabel(r)} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
-                        style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: (!r.redacted && TYPE_COLOR[r.type]) || '#6b7280',
+                        style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: TYPE_COLOR[r.type] || '#6b7280',
                           borderRadius: 4, padding: '1px 5px', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           opacity: r.status === 'pending' ? 0.55 : 1 }}>
                         {(r.name || r.email).split(' ')[0]}
@@ -1006,7 +1007,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
-                <span style={{ fontSize: 12, textTransform: r.redacted ? 'none' : 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
@@ -1196,7 +1197,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 {myOff.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No requests on record.</div>}
                 {myOff.map(t => (
                   <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12 }}>
-                    <span style={{ fontWeight: 700, textTransform: t.redacted ? 'none' : 'capitalize', width: 80, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontWeight: 700, textTransform: 'capitalize', width: 80, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       {timeoffLabel(t)}{t.confidential && <ConfidentialMark />}
                     </span>
                     <span style={{ color: 'var(--muted)', flex: 1 }}>{t.startDate} → {t.endDate}{t.note ? ` · Reason: ${t.note}` : ''}</span>
@@ -1291,7 +1292,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 <span>
                   <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    Others see only that they're out. The type and reason are visible only to them and their approver.
+                    Others see the type of time off and the dates. The reason is visible only to them and their approver.
                   </span>
                 </span>
               </label>

@@ -4846,7 +4846,7 @@ def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
            "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or "",
            "confidential": _is_confidential(t), "redacted": False}
     if priv is not None and not priv.can_see(t):
-        out.update(type=REDACTED_TYPE, note="", redacted=True)
+        out.update(note="", redacted=True)
     return out
 
 
@@ -7729,10 +7729,10 @@ def save_timeoff_types(body: TimeOffTypesIn, user: dict = Depends(require_team_w
 # ── Confidential time off (Neil, Sep 29) ─────────────────────────────────────
 # "make a personal leave confidential where it doesn't show the reason
 # publicly, but it would show to the manager or the approver only." Any type
-# can be confidential - a custom type IS a reason ("Jury Duty"), and so is
-# "sick" - so confidential hides the type as well as the note and the decision
-# note. Everyone else still sees that the person is out, and when: plain
-# "Time off" with the dates, status and part-day times.
+# can be confidential. Sep 30 (Neil): others still see the TYPE ("Time off -
+# Medical") - confidential hides the note and the decision note, which is
+# where the private detail lives ("cancer treatment"). Everyone else sees that
+# the person is out, when, and what kind of time off.
 REDACTED_TYPE = "time off"
 
 
@@ -7833,7 +7833,7 @@ def _ser_timeoff(r: TimeOffRequest, names: dict = None, priv: "_TimeoffPrivacy" 
         if priv.viewer and priv.viewer == (r.employee_email or "").strip().lower():
             out["own"] = True
         if not priv.can_see(r):
-            out.update(type=REDACTED_TYPE, note="", decideNote="", redacted=True)
+            out.update(note="", decideNote="", redacted=True)
     return out
 
 
@@ -7894,10 +7894,10 @@ def _bell_reason(r) -> str:
 
 
 def _bell_kind(r) -> str:
-    """The request's type as a shared bell names it: "vacation" - or, for a
-    confidential request, "confidential time off" (never the type)."""
-    if _is_confidential(r):
-        return "confidential time off"
+    """The request's type as a shared bell names it, e.g. "vacation". A
+    confidential request still names its type (Neil, Sep 30: "It should say
+    time off medical. It should not say time off medical cancer treatment") -
+    only its note stays private, and bells never carry the note."""
     return r.type or "time off"
 
 

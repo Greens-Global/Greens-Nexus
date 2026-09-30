@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, User, Lock,
+  TreePalm, Thermometer, Wallet, CircleEllipsis, CalendarOff, ChevronDown, Check,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
@@ -191,6 +192,10 @@ const gapBreakFromSegments = (segs) => {
   return total;
 };
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
+// A type's icon on the request form (Neil, Sep 30 - Teams lists each kind of
+// time off with its icon); a company's own types get the calendar.
+const REASON_ICON = { vacation: TreePalm, sick: Thermometer, personal: User, unpaid: Wallet, other: CircleEllipsis };
+const REASON_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // 'HH:MM' (24h, from the partial-day time-off fields) -> '2:30 PM'
 const hm12 = (v) => {
   if (!v) return '';
@@ -208,6 +213,47 @@ const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-gre
 // Overview's "Leave this year" tile, so the numbers always agree).
 const toDayCount = (start, end, startTime, endTime, year) =>
   leaveRequestDays({ startDate: start, endDate: end, startTime, endTime }, year);
+
+const toMinutes = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+
+// Type picker (Neil, Sep 30): Teams lists each kind of time off with its icon, which
+// a native <select> can't draw - so a small listbox.
+function ReasonPicker({ value, options, onChange, style }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const down = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+  const label = (options.find(([k]) => k === value) || [value, value])[1];
+  const icon = (k, size = 14) => { const I = REASON_ICON[k] || CalendarOff; return <I size={size} color={REASON_COLOR[k] || 'var(--wk-brand)'} style={{ flexShrink: 0 }} />; };
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0, ...style }}>
+      <button type="button" className="form-input" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
+        aria-label={`Type of time off: ${label}`}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer', textAlign: 'left', background: 'var(--card)' }}>
+        {icon(value)}<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <ChevronDown size={13} color="var(--muted)" />
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Type of time off" style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, minWidth: '100%', width: 220, zIndex: 50,
+          background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: 'var(--wk-shadow)', padding: '4px 0', maxHeight: 280, overflowY: 'auto' }}>
+          {options.map(([k, l]) => (
+            <button key={k} type="button" role="option" aria-selected={k === value} onClick={() => { onChange(k); setOpen(false); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', cursor: 'pointer', fontSize: 12.5,
+                fontFamily: 'inherit', textAlign: 'left', color: 'var(--ink)', background: k === value ? 'var(--wk-brand-tint)' : 'none' }}>
+              {icon(k, 15)}<span style={{ flex: 1 }}>{l}</span>{k === value && <Check size={13} color="var(--wk-brand)" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Teams-style "All day" switch (see TaskNotifySettings.jsx for the same
 // anatomy) - kept local since this is the only place in Time Off that needs it.
@@ -457,6 +503,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const toPartialOk = !toForm.allDay && toForm.start && toForm.end && toForm.start === toForm.end;
   // Live preview of what "Total" will show - same math as the year-at-a-
   // glance sidebar's approved-days tally, so the two numbers always agree.
+  // Specific hours count in hours (Neil, Sep 30: 8:30 AM - 5:30 PM is "9
+  // hours", not "1.13 days"); whole days stay in days.
+  const toTotalHours = toPartialOk && toForm.startTime && toForm.endTime
+    ? Math.max(0, (toMinutes(toForm.endTime) - toMinutes(toForm.startTime)) / 60) : 0;
   const toTotalDays = toForm.start && toForm.end
     ? toDayCount(toForm.start, toForm.end, toPartialOk ? toForm.startTime : '', toPartialOk ? toForm.endTime : '')
     : 0;
@@ -1062,10 +1112,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           const cell = (k) => ({ gridColumn: at[k][0], gridRow: at[k][1] });
           return (
             <div style={{ display: 'grid', gridTemplateColumns: at.cols, gap: 10, alignItems: 'center' }}>
-              <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
-                style={{ ...cell('type'), fontSize: 12.5 }}>
-                {toOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
+              <ReasonPicker value={toForm.type} options={toOptions} onChange={type => setToForm(f => ({ ...f, type }))} style={cell('type')} />
               <input className="form-input" type="date" value={toForm.start}
                 onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? f.end : e.target.value }))}
                 style={{ ...cell('start'), fontSize: 12.5, minWidth: 0 }} />
@@ -1113,15 +1160,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   maxLength={400} onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
                   style={{ fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
               </label>
-              {/* Confidential (Neil, Sep 29): the team still sees that you're
-                  out; the type and note stay between you and your approver. */}
+              {/* Confidential (Neil, Sep 29/30): the team sees that you're out
+                  and the type ("Time off - Medical"); the reason stays between
+                  you and your approver. */}
               <label style={{ ...cell('confidential'), display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
                 <input type="checkbox" checked={!!toForm.confidential} onChange={e => setToForm(f => ({ ...f, confidential: e.target.checked }))}
                   style={{ marginTop: 2 }} />
                 <span>
                   <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    Your team sees only that you're out. The type and reason are visible only to you and your approver (your manager).
+                    Your team sees that you're out and the type of time off (for example Sick). Your reason is visible only to you and your approver (your manager).
                   </span>
                 </span>
               </label>
@@ -1129,11 +1177,20 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   the same day-fraction math as the year-at-a-glance tally
                   below, so the two numbers never disagree (Pranshu, Sep 16) -
                   directly under "All day", not beside Note. */}
-              {toTotalDays > 0 && (
+              {(toTotalHours > 0 || (!toPartialOk && toTotalDays > 0)) && (
                 <span style={{ ...cell('total'), justifySelf: toNarrow ? 'end' : undefined, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
                   Total
-                  <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>working day{toTotalDays === 1 ? '' : 's'}</span>
+                  {toPartialOk ? (
+                    <>
+                      <span style={{ fontSize: 13.5 }}>{Math.round(toTotalHours * 100) / 100}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--muted)' }}>hour{toTotalHours === 1 ? '' : 's'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--muted)' }}>working day{toTotalDays === 1 ? '' : 's'}</span>
+                    </>
+                  )}
                 </span>
               )}
             </div>
@@ -1319,7 +1376,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 // Lock + "Confidential" chip on a confidential time-off row (Sep 29).
 function ConfidentialBadge() {
   return (
-    <span title="Confidential - only you and your approver see the type and note"
+    <span title="Confidential - only you and your approver see the note"
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)',
         background: 'var(--mist)', borderRadius: 999, padding: '2px 8px' }}>
       <Lock size={10} /> Confidential
