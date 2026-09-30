@@ -614,16 +614,23 @@ def list_person_document_groups(root: str) -> dict | None:
             for f in entries
         ]
 
-    folders = []
-    for sub in listing.get("folders", []):
-        if is_excluded_child(sub["name"]):
-            continue
-        sub_path = f"{root.rstrip('/')}/{sub['name']}"
+    # The subfolders are listed side by side (each is one Egnyte round trip,
+    # ~1-2 s) instead of one after another; Egnyte's order is kept.
+    from concurrent.futures import ThreadPoolExecutor
+    subs = [sub for sub in listing.get("folders", []) if not is_excluded_child(sub["name"])]
+
+    def _list(sub):
         try:
-            sub_listing = svc.list_folder(sub_path)
+            return svc.list_folder(f"{root.rstrip('/')}/{sub['name']}")
         except svc.EgnyteError:
-            continue
-        folders.append({"name": sub["name"], "files": _files(sub_listing.get("files", []))})
+            return None
+
+    with ThreadPoolExecutor(max_workers=min(6, max(1, len(subs)))) as pool:
+        listings = list(pool.map(_list, subs))
+    folders = [
+        {"name": sub["name"], "files": _files(sub_listing.get("files", []))}
+        for sub, sub_listing in zip(subs, listings) if sub_listing is not None
+    ]
     return {"rootFiles": _files(listing.get("files", [])), "folders": folders}
 
 
