@@ -438,7 +438,8 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
             elif event_type == "assigned":
                 subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
                                                      audience="assignee" if role == "assignee" else "other",
-                                                     for_requester=role == "requester")
+                                                     for_requester=role == "requester",
+                                                     latest_comment=kw.get("latest_comment", ""))
             elif event_type == "updated":
                 # Comment updates render as a conversation thread (avatars + full
                 # bodies, newest first) instead of a details table.
@@ -451,10 +452,12 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
                                                    thread=thread)
             elif event_type == "resolved":
                 subject, html = tmpl.resolved_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     audience="requester" if role == "requester" else "other")
+                                                     audience="requester" if role == "requester" else "other",
+                                                     latest_comment=kw.get("latest_comment", ""))
             elif event_type == "reopened":
                 subject, html = tmpl.reopened_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     reason=kw.get("reopen_reason", ""))
+                                                     reason=kw.get("reopen_reason", ""),
+                                                     latest_comment=kw.get("latest_comment", ""))
             elif event_type == "approval_required":
                 subject, html = tmpl.approval_email(t=ctx, base_url=app_url(), logo_url=logo_url)
             elif event_type == "escalated":

@@ -543,6 +543,7 @@ export const DOCS = [
           'Open Tickets and click the Unassigned tile (or the Assigned to Me tab).',
           'Click a row to open the full thread, attachments and history.',
           'Set yourself as the assignee. The status moves to In Progress on its own.',
+          'Click Done. Nothing on an open ticket is saved or sent until you do.',
         ],
       },
       {
@@ -550,7 +551,8 @@ export const DOCS = [
         steps: [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
           'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
-          'The requester is notified. They confirm it with a 1 to 5 star rating, or reopen it with a reason.',
+          'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it.',
+          'The requester confirms it with a 1 to 5 star rating, or reopens it with a reason.',
         ],
       },
       {
@@ -582,6 +584,7 @@ export const DOCS = [
       ],
     },
     tips: [
+      'Inside an open ticket, changes wait for Done. Close it without clicking Done and you are asked before they are thrown away.',
       'State and Priority can be changed straight from the list without opening the ticket.',
       'Resolved and Closed tickets collapse into their own section so open work stays on top.',
     ],

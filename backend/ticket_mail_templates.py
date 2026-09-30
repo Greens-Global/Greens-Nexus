@@ -271,7 +271,18 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     return subject, html
 
 
-def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False) -> tuple[str, str]:
+def _comment_block(t: dict, latest_comment: str) -> dict:
+    """A reply saved in the same Done as the change this email is about
+    (update_ticket sends one email per save) - shown under the details, the
+    same block update_email uses."""
+    if not latest_comment:
+        return {}
+    actor = t.get("actorName") or t.get("actorEmail")
+    return {"comment_label": f"Latest comment - {actor}", "comment_text": latest_comment}
+
+
+def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False,
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     intro = (
         "You've been assigned this ticket - please review and take action."
@@ -293,6 +304,7 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
@@ -337,7 +349,8 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
     return subject, html
 
 
-def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
+def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str,
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     secondary = None
     note = ""
@@ -364,11 +377,13 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
         ],
         cta_label="Confirm Resolution" if audience == "requester" else "Review Ticket",
         cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), secondary_ctas=secondary, note=note, logo_url=logo_url,
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
 
-def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -> tuple[str, str]:
+def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "",
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
@@ -383,6 +398,7 @@ def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
         note="Action required.",
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 

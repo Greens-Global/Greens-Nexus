@@ -2194,6 +2194,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const [newReplies, setNewReplies] = useState(0);
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
+  // Nothing here saves on its own. Every field edit, and the reply being
+  // written on Conversation, is held until Done - then goes out as ONE save,
+  // so the requester gets one email and one Teams message for the whole visit
+  // instead of one per field (Pranshu, Oct 1: "till the time I click on Done
+  // it should not update the ticket, nor post the mail or message").
+  const [pending, setPending] = useState({});
+  const [reply, setReply] = useState({ body: '', internal: false });
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     // Every company's departments, not just the viewer's own: a ticket is
@@ -2338,24 +2346,59 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const slaBreached = !!(t.slaDueOn && t.slaDueOn < today());
   const canEscalate = !CLOSED_STATES.includes(t.status)
     && ((isRequester && slaBreached) || isAssignee || privileged);
+  // Saves at once - kept for the links and tasks below, which are their own
+  // records and never mail the requester.
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
+  // The ticket as it will be once Done is clicked: what is saved, with the
+  // held edits on top. Permissions above still read the SAVED ticket - that
+  // is what the server checks the save against.
+  const v = { ...t, ...pending };
+  // Hold an edit for Done. Putting a field back the way it was drops it, so
+  // Done with nothing really changed saves (and sends) nothing.
+  const stage = (p) => setPending((cur) => {
+    const next = { ...cur, ...p };
+    for (const k of Object.keys(p)) {
+      if (JSON.stringify(next[k] ?? '') === JSON.stringify(t[k] ?? '')) delete next[k];
+    }
+    return next;
+  });
+  const hasReply = !isEmptyDoc(reply.body);
+  const dirty = Object.keys(pending).length > 0 || hasReply;
+  // Done: everything held, plus the reply, in one save. `extra` is a dialog's
+  // own change (Confirm / Reopen) that goes out with the rest.
+  const commit = async (extra = {}) => {
+    const body = { ...pending, ...extra };
+    if (hasReply) { body.comment = reply.body; body.comment_internal = reply.internal; }
+    if (!Object.keys(body).length) return;
+    await updateTicket(t.id, body);
+    setPending({});
+    setReply({ body: '', internal: false });
+  };
+  const done = async () => {
+    if (saving) return;
+    if (!dirty) { onClose(); return; }
+    setSaving(true);
+    try { await commit(); onClose(); }
+    catch (e) { alert(`Could not update ticket: ${e.message || e}`); setSaving(false); }
+  };
+  const closeDrawer = () => {
+    if (dirty && !window.confirm('Discard your changes to this ticket? Nothing has been saved or sent yet.')) return;
+    onClose();
+  };
   // A move into Resolved/Closed goes through the Resolve dialog (it needs a
-  // written resolution); every other status move saves straight away.
-  const setStatus = (v) => (needsResolution(t, v) ? setDialog({ mode: 'resolve', targetStatus: v }) : patch({ status: v }));
+  // written resolution); every other status move is held like any other edit.
+  // Moving back out of a held Resolved drops the resolution written for it
+  // (staging the saved values un-holds them).
+  const setStatus = (val) => (needsResolution(t, val) ? setDialog({ mode: 'resolve', targetStatus: val })
+    : stage({ status: val, ...(CLOSED_STATES.includes(val) ? {} : { resolution: t.resolution, resolutionNote: t.resolutionNote }) }));
   // Title and description are the requester's while the ticket is still Open
   // (and the desk's always) - the same rule as every other Overview field.
   const canEditText = fullAccess;
-  const startEdit = () => { setDraft({ subject: t.subject || '', description: t.description || '' }); setEditing(true); };
-  const saveEdit = async () => {
+  const startEdit = () => { setDraft({ subject: v.subject || '', description: v.description || '' }); setEditing(true); };
+  const saveEdit = () => {
     const d = draft || {};
     if (!(d.subject || '').trim()) { alert('The title cannot be empty.'); return; }
-    const p = {};
-    if (d.subject.trim() !== t.subject) p.subject = d.subject.trim();
-    if ((d.description || '') !== (t.description || '')) p.description = d.description || '';
-    if (Object.keys(p).length) {
-      try { await updateTicket(t.id, p); }
-      catch (e) { alert(`Could not update ticket: ${e.message || e}`); return; }
-    }
+    stage({ subject: d.subject.trim(), description: d.description || '' });
     setEditing(false); setDraft(null);
   };
   const escalate = () => {
@@ -2396,7 +2439,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
     {/* While a linked task is open on top, Escape (which Modal also listens
         for) closes the task first rather than the ticket underneath it. */}
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : onClose())} footer={
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : closeDrawer())} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -2409,7 +2452,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           // status jump" the requester is carved out of above; their only
           // status moves are Confirm Resolution / Reopen below, once there
           // actually is a resolution to confirm or reopen.
-          canEditStatus && (
+          canEditStatus && !CLOSED_STATES.includes(v.status) && (
             <button style={{ ...btn('outline'), color: NX.green }} onClick={() => setDialog({ mode: 'resolve', targetStatus: 'resolved' })}><CheckCircle2 size={14} /> Mark Resolved</button>
           )
         ) : (
@@ -2418,39 +2461,47 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
                 out (the resolution was written when it was resolved). */}
             {t.status === 'resolved' && (
               <button style={{ ...btn('outline'), color: NX.green }}
-                onClick={() => (isRequester && !privileged && !isAssignee ? setDialog({ mode: 'confirm' }) : patch({ status: 'closed' }))}
+                onClick={() => (isRequester && !privileged && !isAssignee ? setDialog({ mode: 'confirm' }) : stage({ status: 'closed' }))}
                 title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
             )}
             <button style={btn('outline')} onClick={reopen}>Reopen</button>
           </>
         )}
-        <button style={btn('primary')} onClick={onClose}>Done</button>
+        {dirty && (
+          <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
+            Unsaved changes
+          </span>
+        )}
+        <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={done} disabled={saving}
+          title={dirty ? 'Save every change and send one update to the requester' : undefined}>
+          {saving ? 'Saving…' : 'Done'}
+        </button>
       </>
     }>
       <div style={{ marginBottom: 6 }}>
         {editing && canEditText ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input autoFocus value={(draft ?? { subject: t.subject }).subject ?? ''} placeholder="Title"
-              onChange={(e) => setDraft((d) => ({ ...(d || { description: t.description || '' }), subject: e.target.value }))}
+            <input autoFocus value={(draft ?? { subject: v.subject }).subject ?? ''} placeholder="Title"
+              onChange={(e) => setDraft((d) => ({ ...(d || { description: v.description || '' }), subject: e.target.value }))}
               style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
-            <textarea value={(draft ?? { description: t.description }).description ?? ''} rows={4} placeholder="Describe the issue"
-              onChange={(e) => setDraft((d) => ({ ...(d || { subject: t.subject || '' }), description: e.target.value }))}
+            <textarea value={(draft ?? { description: v.description }).description ?? ''} rows={4} placeholder="Describe the issue"
+              onChange={(e) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: e.target.value }))}
               style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
-              <button style={btn('primary')} onClick={saveEdit}>Save</button>
+              <button style={btn('primary')} onClick={saveEdit} title="Saved with everything else when you click Done">Apply</button>
             </div>
           </div>
         ) : (<>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>{t.subject}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>{v.subject}</div>
             {canEditText && (
               <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
                 style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
             )}
           </div>
-          {t.description
-            ? <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{t.description}</p>
+          {v.description
+            ? <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{v.description}</p>
             : canEditText && (
               <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
                 <Plus size={13} /> Add a Description
@@ -2469,8 +2520,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0 16px' }}>
-        <TicketStatusChip status={t.status} />
-        <PriorityChip priority={t.priority} />
+        <TicketStatusChip status={v.status} />
+        <PriorityChip priority={v.priority} />
         <ApprovalChip ticket={t} />
         {t.resolvedAt && <span style={{ fontSize: 12, color: NX.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={13} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}</span>}
       </div>
@@ -2509,14 +2560,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
           <label style={label}>Type</label>
-          <TicketSelect value={t.type || 'request'} onChange={(v) => patch({ type: v })}
-            options={TICKET_TYPE_ORDER.includes(t.type) ? typeIntakeOptions() : [...typeIntakeOptions(), { id: t.type, label: TICKET_TYPE_META[t.type]?.label || t.type }]}
+          <TicketSelect value={v.type || 'request'} onChange={(val) => stage({ type: val })}
+            options={TICKET_TYPE_ORDER.includes(v.type) ? typeIntakeOptions() : [...typeIntakeOptions(), { id: v.type, label: TICKET_TYPE_META[v.type]?.label || v.type }]}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
           <label style={label}>Status</label>
           {canEditStatus ? (
-            <TicketSelect value={t.status} onChange={setStatus} options={statusOptions()}
+            <TicketSelect value={v.status} onChange={setStatus} options={statusOptions()}
               style={sel} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
@@ -2526,7 +2577,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         </div>
         <div style={field}>
           <label style={label}>Priority</label>
-          <TicketSelect value={t.priority} onChange={(v) => patch({ priority: v })} options={priorityOptions()}
+          <TicketSelect value={v.priority} onChange={(val) => stage({ priority: val })} options={priorityOptions()}
             style={sel} disabled={!canWorking} />
         </div>
         <div style={field}>
@@ -2547,7 +2598,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <label style={label}>Assign To</label>
             {/* Locked until the request is approved - the backend refuses it anyway,
                 so showing an open picker would only produce a 409 the user can't act on. */}
-            <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })}
+            <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
               disabled={!canWorking || t.approvalStatus === 'pending'}
               placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
           </div>
@@ -2564,26 +2615,26 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
-            <TicketSelect value={t.companyId || ''} onChange={(v) => patch({ companyId: v, hrDepartmentId: '' })}
+            <TicketSelect value={v.companyId || ''} onChange={(val) => stage({ companyId: val, hrDepartmentId: '' })}
               style={sel} placeholder="Select company" searchPlaceholder="Search companies…"
               options={[['', 'Select company'], ...companies.map((c) => [c.id, c.name])]} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {companies.find((c) => c.id === t.companyId)?.name || '-'}
+              {companies.find((c) => c.id === v.companyId)?.name || '-'}
             </div>
           )}
         </div>
         <div style={field}>
           <label style={label}>Department</label>
-          <TicketSelect value={t.hrDepartmentId || ''} onChange={(v) => patch({ hrDepartmentId: v })} style={sel}
-            disabled={!t.companyId || !canWorking} searchPlaceholder="Search departments…"
-            placeholder={t.companyId ? 'Select department' : 'Select a company first'}
-            options={[['', t.companyId ? 'Select department' : 'Select a company first'],
-              ...allDepts.filter((d) => d.companyId === t.companyId).map((d) => [d.id, d.name]),
+          <TicketSelect value={v.hrDepartmentId || ''} onChange={(val) => stage({ hrDepartmentId: val })} style={sel}
+            disabled={!v.companyId || !canWorking} searchPlaceholder="Search departments…"
+            placeholder={v.companyId ? 'Select department' : 'Select a company first'}
+            options={[['', v.companyId ? 'Select department' : 'Select a company first'],
+              ...allDepts.filter((d) => d.companyId === v.companyId).map((d) => [d.id, d.name]),
               // Filed against a department since removed from the desk list -
               // still show what it was filed under rather than a blank.
-              ...(t.hrDepartmentId && allDepts.length && !allDepts.some((d) => d.id === t.hrDepartmentId)
-                ? [[t.hrDepartmentId, 'Removed department']] : [])]} />
+              ...(v.hrDepartmentId && allDepts.length && !allDepts.some((d) => d.id === v.hrDepartmentId)
+                ? [[v.hrDepartmentId, 'Removed department']] : [])]} />
         </div>
         {/* What the ticket is about. fullAccess, NOT canWorking: `application`
             is not one of the backend's _WORKING_FIELDS, so a triaging third
@@ -2593,11 +2644,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         <div style={field}>
           <label style={label}>Help With</label>
           {fullAccess ? (
-            <DrawerHelpTopic key={`${t.id}:${t.hrDepartmentId || ''}`} value={t.application || ''}
-              deptName={allDepts.find((d) => d.id === t.hrDepartmentId)?.name || ''}
-              onCommit={(name) => { if (name !== (t.application || '')) patch({ application: name }); }} />
+            <DrawerHelpTopic key={`${t.id}:${v.hrDepartmentId || ''}`} value={v.application || ''}
+              deptName={allDepts.find((d) => d.id === v.hrDepartmentId)?.name || ''}
+              onCommit={(name) => { if (name !== (v.application || '')) stage({ application: name }); }} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{t.application || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.application || '-'}</div>
           )}
         </div>
         {/* Derived from the application by the server, and re-derived whenever
@@ -2607,10 +2658,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         <div style={field}>
           <label style={label}>Service Area</label>
           {fullAccess ? (
-            <TicketSelect value={t.serviceArea || ''} onChange={(v) => patch({ serviceArea: v })} style={sel}
+            <TicketSelect value={v.serviceArea || ''} onChange={(val) => stage({ serviceArea: val })} style={sel}
               placeholder="Not set" options={[['', 'Not set'], ...serviceAreaOptions()]} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(t.serviceArea) || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{serviceAreaLabel(v.serviceArea) || '-'}</div>
           )}
         </div>
         {/* NOT gated on canSeeAssignSla (Pranshu, Sep 17 2026: "I want SLA due
@@ -2637,10 +2688,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             </div>
           )}
         </div>
-        {CLOSED_STATES.includes(t.status) && (
+        {CLOSED_STATES.includes(v.status) && (
           <div style={field}>
             <label style={label}>Resolution</label>
-            <TicketSelect value={t.resolution || ''} onChange={(v) => patch({ resolution: v })} style={sel}
+            <TicketSelect value={v.resolution || ''} onChange={(val) => stage({ resolution: val })} style={sel}
               disabled={!canWorking} placeholder="- pick -"
               options={[['', '- pick -'], ...TICKET_RESOLUTION.map((r) => [r.key, r.label])]} />
           </div>
@@ -2655,9 +2706,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
-                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                  <TypeFieldInput field={f} value={v.typeFields?.[f.key]} onChange={(val) => stage({ typeFields: { ...(v.typeFields || {}), [f.key]: val } })} people={people} projects={projects} />
                 ) : (
-                  <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
+                  <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, v.typeFields?.[f.key], nameOf)}</div>
                 )}
               </div>
             ))}
@@ -2673,9 +2724,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
                 {fullAccess ? (
-                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                  <TypeFieldInput field={f} value={v.typeFields?.[f.key]} onChange={(val) => stage({ typeFields: { ...(v.typeFields || {}), [f.key]: val } })} people={people} projects={projects} />
                 ) : (
-                  <div style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
+                  <div style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, v.typeFields?.[f.key], nameOf)}</div>
                 )}
               </div>
             ))}
@@ -2694,17 +2745,18 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
       </div>
 
-      {CLOSED_STATES.includes(t.status) && (
+      {CLOSED_STATES.includes(v.status) && (
         <div style={field}>
           <label style={label}>Satisfaction (CSAT)</label>
-          <CsatWidget ticket={t} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => patch({ csatRating: rating })}
-            onComment={(comment) => patch({ csatComment: comment })} />
+          <CsatWidget ticket={v} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => stage({ csatRating: rating })}
+            onComment={(comment) => stage({ csatComment: comment })} />
         </div>
       )}
 
         </>)}
         {tab === 'conversation' && (
           <TicketConversation ticketId={t.id} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
+            reply={reply} onReplyChange={setReply} onDone={done}
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
@@ -2716,8 +2768,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
     </Modal>
     {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} zIndex={4100} />}
     {dialog && (
-      <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={t}
-        onSubmit={(p) => updateTicket(t.id, p)} onClose={() => setDialog(null)} />
+      <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}
+        // Resolving is a status change like any other - held for Done. Confirm
+        // and Reopen are the requester's own finishing moves, so they save
+        // (with anything else held) right away.
+        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
@@ -3086,11 +3141,14 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // this thread simply did not have (Sagar, Sept 2 2026). A mention is written as
 // a mailto link, which is exactly what routers/task_util.extract_mentions reads
 // on the way in, so one editor and one parser serve tasks and tickets both.
-function TicketConversation({ ticketId, nameOf, canInternal = true, newSince }) {
+// The reply being written is the drawer's (`reply` / `onReplyChange`): it is
+// posted with the rest of the ticket's changes when Done is clicked, never on
+// its own - see TicketDrawer's `commit`.
+function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
-  const [body, setBody] = useState('');
-  const [internal, setInternal] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { body, internal } = reply;
+  const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
+  const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
   const people = usePeople();
   const [zoomImage, zoomViewer] = useImageZoom();
   // A comment updates the ticket row itself (last_comment_at, which drives
@@ -3104,12 +3162,6 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince }) 
   const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
-  const send = async () => {
-    if (isEmptyDoc(body) || busy) return;
-    setBusy(true);
-    try { await api.addTicketComment(ticketId, { body, internal }); setBody(''); await Promise.all([reload(), refresh()]); }
-    catch { /* ignore */ } finally { setBusy(false); }
-  };
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
 
   return (
@@ -3159,20 +3211,20 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince }) 
         <RichDescription
           value={body}
           onChange={setBody}
-          onSubmit={send}
+          onSubmit={onDone}
           mentionPeople={people}
           minHeight={64}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-        <span style={{ fontSize: 11, color: NX.faint }}>
-          Type <b>@</b> to mention someone - they'll be added to the ticket and told. ⌘/Ctrl+Enter to send.
-        </span>
-        <button onClick={send} disabled={isEmptyDoc(body) || busy}
-          style={{ ...btn('primary'), marginLeft: 'auto', flexShrink: 0, opacity: (isEmptyDoc(body) || busy) ? 0.55 : 1, ...(internal ? { background: NX.amber, borderColor: NX.amber } : {}) }}>
-          <Send size={14} /> {busy ? 'Sending…' : internal ? 'Add note' : 'Send'}
-        </button>
+      <div style={{ fontSize: 11, color: NX.faint, marginTop: 8 }}>
+        {isEmptyDoc(body) ? (
+          <>Type <b>@</b> to mention someone - they'll be added to the ticket and told.</>
+        ) : (
+          <span style={{ color: NX.amber, fontWeight: 600 }}>
+            {internal ? 'Your note is added' : 'Your reply is sent'} with your other changes when you click Done (or ⌘/Ctrl+Enter).
+          </span>
+        )}
       </div>
     </div>
   );

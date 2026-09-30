@@ -432,6 +432,14 @@ class TicketUpdate(BaseModel):
     # Not a ticket column - used only to build the "Reopened" notification's
     # "Reason" line and its activity-log entry, then discarded.
     reopen_reason: Optional[str] = None
+    # A reply written in the drawer alongside the field edits. The drawer holds
+    # every change until Done and sends them as ONE save (Pranshu, Oct 1: "till
+    # the time I click on Done it should not update the ticket, nor post the
+    # mail or message to the requester") - so the requester gets one email and
+    # one Teams message for the whole visit, not one per field and a second one
+    # for the reply. Not columns: recorded as a comment row, then discarded.
+    comment: Optional[str] = None
+    comment_internal: Optional[bool] = None
 
 
 def _next_ticket_code(db: Session) -> str:
@@ -737,6 +745,14 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         raise HTTPException(403, "You don't have access to this screen")
     data = body.model_dump(exclude_unset=True)
     reopen_reason = data.pop("reopen_reason", "") or ""   # not a column - see TicketUpdate
+    comment_body = data.pop("comment", None) or ""         # nor these - see TicketUpdate
+    comment_internal = bool(data.pop("comment_internal", None))
+    if _blank_comment(comment_body):
+        comment_body = ""
+    if comment_body:
+        # Replying needs only participation, the same rule as the comments
+        # endpoint - never the field-edit scope below.
+        _require_ticket_participant(db, user, t)
     scope = _ticket_edit_scope(db, t, user)
     if scope is not None:
         blocked = sorted(set(data.keys()) - scope)
@@ -974,39 +990,58 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # on their Support list. Their own edits never light it.
     if changed and (user["email"] or "").lower() != (t.requester_email or "").lower():
         t.requester_update_at = t.modified_at
+    public_comment = ""
+    if comment_body:
+        _c, was_internal = _record_ticket_comment(db, t, user, comment_body, comment_internal)
+        if not was_internal and get_notify_settings(db).get("commentsTrigger", True):
+            public_comment = comment_body
     db.commit()
     db.refresh(t)
 
     # ── Outlook notifications (best-effort, after commit - see ticket_notify.py) ──
+    # ONE email per save, whatever it carried: the drawer batches a whole visit
+    # (fields + a reply) into this one call, and the reply rides along in the
+    # email picked for the fields rather than arriving as a second one.
     actor = user["email"]
+    priority_changed = "priority" in data and t.priority != prev_priority
+    details_changed = ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)
+    extra = {"latest_comment": public_comment} if public_comment else {}
     if assignee_changed and t.assignee_email:
         # Reassignment uses the "assigned" flow exclusively - spec lists reassignment
         # under both "assigned" (§2) and generic "update" (§3) triggers, but firing
         # both would double-email the same change; §2's is the richer one.
-        background_tasks.add_task(notify_ticket_event, t.id, "assigned", actor)
+        background_tasks.add_task(notify_ticket_event, t.id, "assigned", actor, **extra)
     elif status_changed and t.status == "reopened":
-        background_tasks.add_task(notify_ticket_event, t.id, "reopened", actor, reopen_reason=reopen_reason)
+        background_tasks.add_task(notify_ticket_event, t.id, "reopened", actor, reopen_reason=reopen_reason, **extra)
     elif status_changed and t.status in ("resolved", "closed") and prev_status not in ("resolved", "closed"):
-        background_tasks.add_task(notify_ticket_event, t.id, "resolved", actor)
-    elif status_changed:
+        background_tasks.add_task(notify_ticket_event, t.id, "resolved", actor, **extra)
+    elif status_changed or priority_changed or details_changed:
+        parts = []
+        if status_changed:
+            parts.append(f"Status changed to {tmpl.status_label(t.status)}")
+        if priority_changed:
+            # Covers the SLA due date moving too - it's never in `data` itself
+            # (see the pop() above), it only ever moves as a side effect of
+            # this same priority change.
+            parts.append(f"Priority changed to {t.priority}")
+        if details_changed and not parts:
+            parts.append("Ticket details updated")
+        if public_comment:
+            parts.append("new comment added")
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
-                                   prev_status=prev_status, update_kind=f"Status changed to {tmpl.status_label(t.status)}")
-    elif "priority" in data and t.priority != prev_priority:
-        # Covers the SLA due date moving too - it's never in `data` itself
-        # (see the pop() above), it only ever moves as a side effect of this
-        # same priority change, so there's no separate "due date changed"
-        # case left to reach on its own.
+                                   prev_status=prev_status if status_changed else "",
+                                   update_kind=", ".join(parts), **extra)
+    elif public_comment:
+        # A reply on its own - the conversation-thread email, same as the
+        # comments endpoint sends.
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
-                                   update_kind=f"Priority changed to {t.priority}")
-    elif "resolution" in data or "description" in data or "type" in data or "hr_department_id" in data:
-        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Ticket details updated")
+                                   update_kind="New comment added", latest_comment=public_comment)
 
     # Teams DM - fires under exactly the same conditions as the email block
     # above (see _queue_requester_teams_dm's docstring for why that's one
-    # definition, not two).
+    # definition, not two). One DM per save, never one per change.
     if ((assignee_changed and t.assignee_email) or status_changed
-            or ("priority" in data and t.priority != prev_priority)
-            or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
+            or priority_changed or details_changed or public_comment):
         dm_row = _queue_requester_teams_dm(db, t, actor)
         db.commit()
         # One delivery attempt right away so the common case lands in Teams
@@ -1090,16 +1125,21 @@ def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
     return [_tcomment(c) for c in rows if sees_internal or not getattr(c, "internal", False)]
 
 
-@router.post("/task-tickets/{ticket_id}/comments", status_code=201)
-def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks: BackgroundTasks,
-                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _ticket_or_404(db, ticket_id)
-    # Replying on your own ticket needs no grant; an internal note does, since
-    # those are the desk talking among themselves and are hidden from the
-    # requester.
-    _require_ticket_participant(db, user, t)
-    internal = bool(body.internal) and _has_desk_grant(user, db)
-    c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
+def _blank_comment(text: str) -> bool:
+    """True for a reply with no words in it - the rich editor's empty
+    document is `<p></p>`, which is not something to post."""
+    return not re.sub(r"<[^>]*>|&nbsp;|\s", "", text or "")
+
+
+def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: str,
+                           internal: bool) -> tuple:
+    """Add one comment to a ticket: the row, the staleness clock, the activity
+    line, @mention watchers and the bell notices. Emails and the Teams DM are
+    the caller's (the comments endpoint sends its own; update_ticket folds the
+    reply into the one email it sends for the whole save). Does not commit.
+    Returns (comment, internal) - internal only sticks for a desk-grant author."""
+    internal = bool(internal) and _has_desk_grant(user, db)
+    c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)
     # Resets the "needs a comment" staleness clock - internal notes count too,
@@ -1119,12 +1159,12 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     # rendering it as-is.
     log_activity(db, type="commented", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
-                 detail=json.dumps({"internal": internal, "preview": _comment_preview(body.body or "")}))
+                 detail=json.dumps({"internal": internal, "preview": _comment_preview(text)}))
     # @mentions, read from the mailto links the editor writes - the same
     # convention and the same parser the task comments use, so the two threads
     # can't drift (Sagar, Sept 2 2026: "@ should work here like it does on tasks").
     actor = (user["email"] or "").lower()
-    mentioned = [e for e in extract_mentions(body.body or "") if e != actor]
+    mentioned = [e for e in extract_mentions(text) if e != actor]
     if mentioned:
         # Being mentioned puts you ON the ticket. A participant may read and
         # reply without a desk grant (_require_ticket_participant), so without
@@ -1150,6 +1190,18 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
                     title="You were mentioned in a ticket comment",
                     body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id,
                     nexus_action={"view": "tickets", "label": "View ticket"})
+    return c, internal
+
+
+@router.post("/task-tickets/{ticket_id}/comments", status_code=201)
+def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks: BackgroundTasks,
+                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _ticket_or_404(db, ticket_id)
+    # Replying on your own ticket needs no grant; an internal note does, since
+    # those are the desk talking among themselves and are hidden from the
+    # requester.
+    _require_ticket_participant(db, user, t)
+    c, internal = _record_ticket_comment(db, t, user, body.body or "", bool(body.internal))
     db.commit()
     db.refresh(c)
     if not internal and get_notify_settings(db).get("commentsTrigger", True):
