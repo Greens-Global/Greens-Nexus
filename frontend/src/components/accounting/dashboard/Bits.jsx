@@ -52,8 +52,9 @@ export function Delta({ v, goodUp = true, suffix, style, text }) {
   );
 }
 
+// The brief's Label role: Inter 11/16, weight 500, uppercase, tracked (.acct-label).
 export function Eyebrow({ children, style }) {
-  return <div style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', ...style }}>{children}</div>;
+  return <div className="acct-label" style={style}>{children}</div>;
 }
 
 /** The framed card every widget and page panel renders inside. */
@@ -107,9 +108,9 @@ export function Meter({ segments, height = 8, style }) {
 /** Big-number tile for the tab headers (Cash, Performance, Close). */
 export function Tile({ label, value, sub, subColor, style }) {
   return (
-    <div style={{ ...card, padding: '12px 14px', ...style }}>
+    <div style={{ ...card, padding: '12px 14px', borderLeft: '3px solid var(--wk-brand, #2b45e1)', ...style }}>
       <Eyebrow>{label}</Eyebrow>
-      <div style={{ marginTop: 4, fontSize: '1.25rem', fontWeight: 700, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div className="kpi-value" style={{ marginTop: 2, textAlign: 'left' }}>{value}</div>
       {sub ? <div style={{ marginTop: 4, fontSize: '0.74rem', color: subColor ?? 'var(--text-muted)' }}>{sub}</div> : null}
     </div>
   );

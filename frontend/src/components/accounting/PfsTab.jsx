@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Database, FileDown, Loader2, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Check, Database, FileDown, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
-import AsyncSection, { SkeletonBlocks } from '../AsyncState';
+import Amount, { AmountInput } from './Amount';
+import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDate, formatDateTime } from '../../lib/datetime';
@@ -193,7 +194,7 @@ export default function PfsTab({ canEdit = false }) {
                   <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
                   <button type="button" className="primary-btn" onClick={produce} disabled={producing || working || !statement}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-                    {producing ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} Produce PDF
+                    {producing ? <Spinner size={14} /> : <FileDown size={14} />} Produce PDF
                   </button>
                 </div>
               </div>
@@ -245,9 +246,9 @@ function Summary({ statement, past, nameOf, onReprint }) {
       <div style={label}>{title}</div>
       <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
         <tbody>
-          {rows.map((r) => <tr key={r.label}><td>{r.label}</td><td className="acct-num">{money(r.amount)}</td></tr>)}
+          {rows.map((r) => <tr key={r.label}><td>{r.label}</td><td className="acct-num"><Amount value={r.amount} /></td></tr>)}
           {!rows.length && <tr><td colSpan={2} style={{ color: 'var(--text-secondary)' }}>Nothing listed yet.</td></tr>}
-          <tr className="acct-grand"><td>{totalLabel}</td><td className="acct-num">{money(total)}</td></tr>
+          <tr className="acct-grand"><td>{totalLabel}</td><td className="acct-num"><Amount value={total} /></td></tr>
         </tbody>
       </table>
     </div>
@@ -276,7 +277,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
             <tbody>
               {past.map((s) => (
                 <tr key={s.id}>
-                  <td>{formatDate(s.asOf)}</td><td>{formatDateTime(s.generatedAt)}</td><td>{nameOf(s.generatedBy)}</td><td className="acct-num">{money(s.netWorth)}</td>
+                  <td>{formatDate(s.asOf)}</td><td>{formatDateTime(s.generatedAt)}</td><td>{nameOf(s.generatedBy)}</td><td className="acct-num"><Amount value={s.netWorth} /></td>
                   <td style={{ textAlign: 'right' }}><button type="button" className="acct-drill" onClick={() => onReprint(s)}>Open PDF</button></td>
                 </tr>
               ))}
@@ -491,8 +492,8 @@ function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, on
                           <td>{real ? (l.details?.legal_owner || '') : l.institution}</td>
                           <td style={{ color: 'var(--text-secondary)' }} title={from}>{from}</td>
                           <td className="acct-num">{pct(l.ownershipPct)}</td>
-                          {real ? <><td className="acct-num">{money(f?.valueAdjusted)}</td><td className="acct-num">{money(f?.loanAdjusted)}</td><td className="acct-num">{money(f?.equity)}</td></>
-                            : <><td className="acct-num">{money(f?.balance)}</td><td className="acct-num">{money(f?.adjusted)}</td></>}
+                          {real ? <><td className="acct-num"><Amount value={f?.valueAdjusted} /></td><td className="acct-num"><Amount value={f?.loanAdjusted} /></td><td className="acct-num"><Amount value={f?.equity} /></td></>
+                            : <><td className="acct-num"><Amount value={f?.balance} /></td><td className="acct-num"><Amount value={f?.adjusted} /></td></>}
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {canEdit && (confirm === l.id ? (
                               <>
@@ -511,7 +512,7 @@ function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, on
                     })}
                     <tr className="acct-grand">
                       <td colSpan={real ? 6 : 5}>Total {c.label}{real ? ' - Equity' : ''}</td>
-                      <td className="acct-num">{money(total)}</td><td />
+                      <td className="acct-num"><Amount value={total} /></td><td />
                     </tr>
                   </tbody>
                 </table>
@@ -565,7 +566,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
             <label style={label} htmlFor={`${idPrefix}-value`}>{manualLabel}</label>
-            <input id={`${idPrefix}-value`} type="number" step="0.01" value={value.value ?? ''} onChange={(e) => onChange({ ...value, value: e.target.value === '' ? '' : Number(e.target.value) })} style={{ ...control, width: '100%' }} />
+            <AmountInput id={`${idPrefix}-value`} value={value.value ?? ''} onChange={(v) => onChange({ ...value, value: v == null ? '' : v })} style={{ ...control, width: '100%' }} />
           </div>
           {value.asOf !== undefined && (
             <div>
@@ -746,7 +747,7 @@ function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
                           <tr className="acct-section" onClick={() => toggleGroup(list)} title="Click to pick or clear this GL group">
                             <td><input type="checkbox" aria-label={`GL group ${g}`} checked={list.every((a) => state(a).on)} onChange={() => toggleGroup(list)} onClick={(e) => e.stopPropagation()} /></td>
                             <td colSpan={3}>GL group {g}xx · {list.length} {list.length === 1 ? 'account' : 'accounts'}</td>
-                            <td className="acct-num">{money(list.reduce((s, a) => s + a.amount, 0))}</td>
+                            <td className="acct-num"><Amount value={list.reduce((s, a) => s + a.amount, 0)} /></td>
                           </tr>
                           {list.map((a) => {
                             const st = state(a);
@@ -760,7 +761,7 @@ function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
                                   </select>
                                 </td>
                                 <td className="acct-num"><input type="number" min="0" max="100" step="0.01" value={st.pct} aria-label={`Share for ${a.code}`} onChange={(e) => setRow(a.code, { pct: e.target.value, on: true })} style={{ ...control, height: 26, width: 84, fontSize: '0.76rem', textAlign: 'right' }} /></td>
-                                <td className="acct-num">{money(a.amount)}</td>
+                                <td className="acct-num"><Amount value={a.amount} /></td>
                               </tr>
                             );
                           })}

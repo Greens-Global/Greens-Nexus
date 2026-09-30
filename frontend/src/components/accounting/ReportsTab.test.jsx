@@ -82,9 +82,11 @@ describe('ReportsTab statement table', () => {
     const label = cell.closest('td');
     expect(label.className).toContain('acct-label');
     expect(within(label).getByText('41000').className).toContain('acct-code');
-    // Compact by default, dense rows; the choice sits behind Customize.
+    // Comfortable by default (14px text, 36px rows - the typography brief); Compact sits behind Customize.
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    expect(screen.getByRole('button', { name: 'Compact' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Comfortable' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Compact' }));
+    expect(screen.getByRole('table').style.getPropertyValue('--acct-font')).toBe('13px');
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
 
     // Fold Revenue: its accounts disappear, the total stays, the count shows.
@@ -97,7 +99,7 @@ describe('ReportsTab statement table', () => {
     expect(screen.getByText('Rental Income')).toBeTruthy();
 
     // Every account amount is a drill button.
-    fireEvent.click(screen.getByText('400.00', { selector: 'button' }));
+    fireEvent.click(screen.getByRole('button', { name: '400.00' }));
     expect(screen.getByTestId('ledger-search').textContent).toContain('drill:61000');
   });
 
@@ -304,7 +306,12 @@ describe('ReportsTab controls', () => {
   it('shows the figures above the statement, shows zero balances on request, fills the screen', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
-    expect(screen.getByLabelText('Summary').textContent).toBe('Revenue 1,500.00Expenses 400.00Net Income 1,100.00Net Margin 73.3%');
+    // The figures line is KPI cards: a tracked label over a 24px figure.
+    expect(screen.getByLabelText('Summary').textContent).toBe('Revenue1,500.00Expenses400.00Net Income1,100.00Net Margin73.3%');
+    expect(screen.getByLabelText('Summary').querySelectorAll('.acct-kpi .kpi-value')).toHaveLength(4);
+    // Every figure goes through <Amount />: tabular Inter with the reserved ) slot; a negative keeps its own.
+    const cell = screen.getByText('1,000.00').closest('span');
+    expect(cell.className).toBe('num');
     expect(screen.getByText('Net Profit Margin %').closest('tr').textContent).toContain('73.3%');
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.click(screen.getByLabelText(/Show zero balances/));

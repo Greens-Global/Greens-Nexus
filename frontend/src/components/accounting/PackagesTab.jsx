@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, FileDown, Loader2, MessageSquareText, Plus, Search, Trash2, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, FileDown, MessageSquareText, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
-import AsyncSection, { SkeletonBlocks } from '../AsyncState';
+import Amount, { AmountInput } from './Amount';
+import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
@@ -230,7 +231,7 @@ export default function PackagesTab() {
                 <button type="button" className="primary-btn" onClick={buildPdf} disabled={!!build || dirty || !draft.items.some((i) => byId.has(i.reportId))}
                   title={dirty ? 'Save the package first' : 'Read every statement from the ledger and build one PDF'}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
-                  {build ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} {build ? `Building ${Math.min(build.done + 1, build.of)} of ${build.of}` : 'Build PDF'}
+                  {build ? <Spinner size={14} /> : <FileDown size={14} />} {build ? `Building ${Math.min(build.done + 1, build.of)} of ${build.of}` : 'Build PDF'}
                 </button>
                 {canEdit && (
                   <button type="button" className="secondary-btn" onClick={save} disabled={!dirty || !draft.name.trim() || saving} style={{ fontSize: '0.8rem' }}>
@@ -335,9 +336,9 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
                     return (
                       <tr key={a.code}>
                         <td><span className="acct-code">{a.code}</span>{a.title}</td>
-                        <td className="acct-num">{money(a.values[at])}</td>
-                        <td className="acct-num"><input type="number" step="0.01" value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} onChange={(e) => set(a.code, { amount: e.target.value })} style={{ ...ctl, width: 130, textAlign: 'right' }} /></td>
-                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}>{money((a.values[at] || 0) + adj)}</td>
+                        <td className="acct-num"><Amount value={a.values[at]} /></td>
+                        <td className="acct-num"><AmountInput value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} placeholder="" onChange={(n) => set(a.code, { amount: n == null ? '' : n })} style={{ ...ctl, width: 130, textAlign: 'right' }} /></td>
+                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}><Amount value={(a.values[at] || 0) + adj} /></td>
                         <td style={{ whiteSpace: 'normal', minWidth: 260 }}><input type="text" value={v.note} maxLength={300} disabled={!canEdit} aria-label={`Note for ${a.code}`} placeholder="Why, for the lender" onChange={(e) => set(a.code, { note: e.target.value })} style={{ ...ctl, width: '100%' }} /></td>
                       </tr>
                     );

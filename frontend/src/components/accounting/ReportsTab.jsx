@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderUp, Loader2, Mail, Maximize2, Minimize2, Search, Share2, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { FolderUp, Mail, Maximize2, Minimize2, Search, Share2, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { api } from '../../api';
-import { SkeletonBlocks } from '../AsyncState';
-import { formatDate } from '../../lib/datetime';
+import { SkeletonBlocks, Spinner } from '../AsyncState';
+import { formatDate, formatDateTime } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
 import SavedReportsManager from './SavedReportsManager';
@@ -10,9 +10,10 @@ import SendReportDialog from './SendReportDialog';
 import { takePendingDrill } from './drill';
 import { useAccountingPrefs } from './prefs';
 import {
-  AccountsPicker, ClearButton, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, PeriodStepper,
-  SavedReportsMenu, control,
+  AccountsPicker, ClearButton, CustomizeButton, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, PeriodStepper,
+  SavedReportsMenu, control, densityOf, densityVars,
 } from './reportControls';
+import Amount from './Amount';
 import {
   BOOKS, REPORTS, activeColumns, bookLabel, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, csvFileName, csvRows,
   defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, iso, periodText, presetLabel, reportDef, resolveConfig, runReport,
@@ -50,6 +51,14 @@ import {
 // (departments inside); the Columns dropdown is labeled; the filters in
 // force sit under the title as chips that come off in one click; zero
 // balances are hidden unless Customize shows them; one Export menu.
+//
+// Typography brief (09/29): the report title in Libre Caslon, the metadata
+// line as a tracked label, the figures line as KPI cards, every number
+// through <Amount /> (tabular Inter, zero as a dash, a reserved ) slot),
+// color only in variance columns, a display scale (exact / whole dollars /
+// thousands) that never touches exports, the final total pinned to the
+// bottom and the Total column pinned to the right, copied cells as raw
+// numbers, and j / k / Enter / Esc / "/" on the keyboard.
 
 // What a memorized report keeps: the controls, never the figures. A named
 // period is kept by name so it moves with the calendar.
@@ -71,7 +80,8 @@ export default function ReportsTab({ search = null }) {
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [prefs, setPrefs] = useAccountingPrefs();
   const nameOf = useNameResolver();
-  const density = DENSITIES.some((d) => d.key === prefs.density) ? prefs.density : 'compact';
+  const density = densityOf(prefs.density);
+  const scale = prefs.scale || 'exact';
   // Full screen: the toolbar and the statement take the whole window.
   const [full, setFull] = useState(false);
   useEffect(() => {
@@ -239,6 +249,43 @@ export default function ReportsTab({ search = null }) {
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report);
+  // Copying cells puts raw numbers on the clipboard (the brief): "(3,418.07)"
+  // pastes into Excel as -3418.07, a dash as 0, so formulas work.
+  const copyRaw = (e) => {
+    const text = String(window.getSelection?.() || '');
+    if (!text.trim()) return;
+    const raw = text.replace(/\((\d[\d,]*\.?\d*)\)/g, '-$1').replace(/(?<=^|[\s\t])[\u2013-](?=[\s\t]|$)/g, '0').replace(/(\d),(?=\d{3})/g, '$1');
+    e.clipboardData.setData('text/plain', raw);
+    e.preventDefault();
+  };
+  // Keyboard: j / k move down and up the statement, Enter opens the lines
+  // behind the focused row, Esc leaves the search, "/" goes to the search box.
+  const [focusRow, setFocusRow] = useState(-1);
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === '/') { e.preventDefault(); document.querySelector('input[aria-label="Search the ledger"]')?.focus(); return; }
+      const r = shownRef.current;
+      if (!r || searching) return;
+      const rows = r.rows;
+      if (e.key === 'j' || e.key === 'k') {
+        e.preventDefault();
+        setFocusRow((f) => { let n = f; for (let step = 0; step < rows.length; step += 1) { n = e.key === 'j' ? Math.min(rows.length - 1, n + 1) : Math.max(0, n - 1); if (rows[n]?.kind === 'account' || rows[n]?.kind === 'section' || rows[n]?.kind === 'line') break; } return n; });
+      } else if (e.key === 'Enter') {
+        const row = rows[focusRowRef.current];
+        const col = r.columns.find((c) => c.drill);
+        if (row?.kind === 'account' && row.code && col) { e.preventDefault(); drillInto(row, col); }
+        else if (row?.kind === 'section') { e.preventDefault(); toggleSection(row.section); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [searching]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownRef = useRef(null);
+  const focusRowRef = useRef(-1);
+  focusRowRef.current = focusRow;
+  useEffect(() => { setFocusRow(-1); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const showColumns = modes.length > 1 && config.book !== 'both';
   const chips = filterChips(config, entities, dimNames);
   const entityLabel = entityText(config, entities);
@@ -247,6 +294,9 @@ export default function ReportsTab({ search = null }) {
   const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
   const sections = (result?.rows || []).filter((r) => r.kind === 'section');
   const shown = result && result.config.report === config.report ? result : null;
+  shownRef.current = shown;
+  // Many months or entities across: the Total column stays in view.
+  const pinTotal = !!shown && shown.columns.length > 6 && shown.columns.some((c) => c.emphasis);
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
@@ -263,7 +313,7 @@ export default function ReportsTab({ search = null }) {
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
           {waiting
-            ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
+            ? <Spinner size={14} label="Searching" style={{ position: 'absolute', left: 9, top: 8 }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
           <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
             placeholder="Search vendor, customer, invoice, amount, memo..."
@@ -301,7 +351,8 @@ export default function ReportsTab({ search = null }) {
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
           <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
           <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
-            showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })} />
+            showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
+            scale={scale} onScale={(v) => setPrefs({ scale: v })} />
           <ExportMenu disabled={!shown || searching} items={[
             { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
@@ -367,9 +418,9 @@ export default function ReportsTab({ search = null }) {
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{def.label}</h3>
-              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
+              <h3 className="acct-heading" style={{ margin: 0 }}>{def.label}</h3>
+              <span className="acct-label">
+                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : '', shown.generatedAt ? `As of ${formatDateTime(shown.generatedAt)}` : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
             </div>
@@ -402,30 +453,31 @@ export default function ReportsTab({ search = null }) {
           )}
 
           {shown.summary.length > 0 && (
-            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
-              {shown.summary.map((f) => (
-                <span key={f.label} style={{ color: 'var(--text-secondary)' }}>
-                  {f.label} <strong style={{ color: f.tone === 'good' ? 'var(--ok-fg, #15803d)' : f.tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{f.value}</strong>
-                </span>
+            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '0 2px 10px' }}>
+              {shown.summary.map((f, i) => (
+                <div key={f.label} className={`acct-kpi${i === 0 ? '' : f.label === 'Net Income' || f.label === 'Net Worth' ? '' : ' is-muted'}`} title={f.value}>
+                  <span className="acct-label">{f.label}</span>
+                  <span className="kpi-value">{f.value}</span>
+                </div>
               ))}
             </div>
           )}
 
-          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }}>
-            <table className="acct-report" style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
+          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
+            <table className="acct-report" style={densityVars(density)}>
               <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
               <thead>
                 <tr>
                   <ResizableHead width={colW} onResize={(w) => setPrefs({ accountWidth: w })}>{shown.glLabel || 'Account'}</ResizableHead>
-                  {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
+                  {shown.columns.map((c) => <th key={c.key} className={`${c.type === 'date' || c.type === 'text' ? '' : 'acct-num'}${c.emphasis && pinTotal ? ' acct-pin' : ''}`} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {shown.rows.map((r, i) => {
                   if (r.kind !== 'section' && r.section && collapsed.has(r.section)) return null;
                   const open = r.kind === 'section' && !collapsed.has(r.section);
-                  return <StatementRow key={`${r.kind}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} colW={colW}
-                    onToggle={() => toggleSection(r.section)} onDrill={drillInto} />;
+                  return <StatementRow key={`${r.kind}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} colW={colW} scale={scale} pinTotal={pinTotal}
+                    focused={focusRow === i} onToggle={() => toggleSection(r.section)} onDrill={drillInto} />;
                 })}
               </tbody>
             </table>
@@ -441,38 +493,40 @@ export default function ReportsTab({ search = null }) {
 }
 
 // The Total column beside a run of period or entity columns.
-const EMPHASIS = { fontWeight: 700, borderLeft: '2px solid var(--border-color)' };
+const EMPHASIS = { fontWeight: 600, borderLeft: '2px solid var(--border-color)' };
 // A filter in force, under the report title; its X takes it off.
 const CHIP = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', maxWidth: 320, border: '1px solid var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 };
 
+// Color is a secondary cue in the VARIANCE columns only (favorable green,
+// unfavorable red); base figures stay neutral and negatives read by their
+// parentheses (the brief: red is never the only signal).
 const tint = (v) => (v < 0 ? 'var(--bad-fg, #dc2626)' : v > 0 ? 'var(--ok-fg, #15803d)' : undefined);
 
 // One line of a statement: a fold-able section heading with its total, an
 // account (code and name on one line, every amount a drill-down), or a total.
-function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
+function StatementRow({ row, columns, open, colW, scale, pinTotal, focused, onToggle, onDrill }) {
   const Chevron = open ? ChevronDown : ChevronRight;
   const variance = columns.findIndex((c) => c.type === 'variance');
   const cells = columns.map((c, i) => {
     const v = row.values[i];
+    const pin = c.emphasis && pinTotal ? ' acct-pin' : '';
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)' }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
     if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: c.key === 'description' ? 460 : 220, overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : 'var(--text-secondary)' }}>{v || ''}</td>;
-    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}>{v || '-'}</td>;
-    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}>{cellText(row, c, v) || '-'}</td>;
-    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{cellText(row, c, v)}</td>;
-    const money = (x) => cellText(row, c, x);
-    const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
-    const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
+    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}>{v || '\u2013'}</td>;
+    if (row.kind === 'margin') return <td key={c.key} className={`acct-num${pin}`} style={c.emphasis ? EMPHASIS : undefined}>{cellText(row, c, v) || '\u2013'}</td>;
+    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{Math.abs(v) < 0.005 ? '\u2013' : <Amount value={v} scale={scale} />}</td>;
+    const figure = <Amount value={v} zero="dash" scale={scale} />;
     return (
-      <td key={c.key} className="acct-num" style={style}>
+      <td key={c.key} className={`acct-num${pin}`} style={c.emphasis ? EMPHASIS : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : undefined}>
         {row.kind === 'account' && row.code && c.drill
-          ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => onDrill(row, c)}>{money(v)}</button>
-          : money(v)}
+          ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => onDrill(row, c)}>{figure}</button>
+          : figure}
       </td>
     );
   });
   if (row.kind === 'section') {
     return (
-      <tr className="acct-section" onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
+      <tr className={`acct-section${focused ? ' acct-focus' : ''}`} onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
         <td className="acct-label">
           <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${row.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
             <Chevron size={13} />
@@ -485,7 +539,7 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
   }
   if (row.kind === 'line') {
     return (
-      <tr>
+      <tr className={focused ? 'acct-focus' : undefined}>
         <td className="acct-label acct-indent" style={{ color: 'var(--text-secondary)' }}>{row.label}</td>
         {cells}
       </tr>
@@ -493,7 +547,7 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
   }
   if (row.kind === 'account') {
     return (
-      <tr>
+      <tr className={focused ? 'acct-focus' : undefined}>
         <td className={`acct-label${row.section ? ' acct-indent' : ''}`} style={colW ? { maxWidth: colW } : undefined} title={`${row.code ? `${row.code} ` : ''}${row.title}`}>
           {row.code ? <span className="acct-code">{row.code}</span> : null}
           <span>{row.title}</span>

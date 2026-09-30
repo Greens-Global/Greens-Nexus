@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, ListFilter, Loader2, Search, Settings2, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, ListFilter, Search, Settings2, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate } from '../../lib/datetime';
 import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
+import { SCALES } from './Amount';
+import { Spinner } from '../AsyncState';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
@@ -324,20 +326,24 @@ export function PeriodStepper({ config, period, onChange }) {
   );
 }
 
-// Row density, the finance app's three steps.
+// Row density (the typography brief, 09/29): Comfortable = 14px text on
+// 36px rows, the default; Compact = 13px on 28px rows for power users. One
+// setting per person, every accounting table follows it.
 export const DENSITIES = [
-  { key: 'comfortable', label: 'Comfortable', py: '10px', title: 'Roomy rows' },
-  { key: 'compact', label: 'Compact', py: '5px', title: 'Tight rows, like Intacct' },
-  { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
+  { key: 'comfortable', label: 'Comfortable', py: '8px', font: '14px', title: '14px text, 36px rows' },
+  { key: 'compact', label: 'Compact', py: '4px', font: '13px', title: '13px text, 28px rows' },
 ];
+/** The density a person saved, as one of today's two ("condensed" from before reads as compact). */
+export const densityOf = (key) => (key === 'compact' || key === 'condensed' ? 'compact' : 'comfortable');
+export const densityVars = (key) => { const d = DENSITIES.find((x) => x.key === densityOf(key)) || DENSITIES[0]; return { '--acct-row-py': d.py, '--acct-font': d.font }; };
 
 // Customize: how the statement is drawn. The density and whether historical
 // entities are offered are the person's own (every accounting screen follows
 // them); showing the accounts with nothing in them belongs to the report and
 // is memorized with it.
-export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, align = 'right' }) {
+export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, scale, onScale, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
-  const on = !!showZero || !!showHistorical;
+  const on = !!showZero || !!showHistorical || (!!scale && scale !== 'exact');
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
@@ -355,6 +361,20 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
             ))}
           </div>
         </div>
+        {onScale && (
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Show figures as</div>
+            <div role="group" aria-label="Show figures as" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+              {SCALES.map((d) => (
+                <button key={d.key} type="button" onClick={() => onScale(d.key)} aria-pressed={(scale || 'exact') === d.key}
+                  style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: (scale || 'exact') === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: (scale || 'exact') === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' }}>
+                  {d.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>On screen only - exports and the stored figures keep every cent.</div>
+          </div>
+        )}
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={!!showZero} onChange={(e) => onShowZero(e.target.checked)} style={{ marginTop: 2 }} />
           <span>
@@ -387,7 +407,7 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Export <ChevronDown size={13} />
+        {busy ? <Spinner size={14} /> : <Download size={14} />} Export <ChevronDown size={13} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Export" style={{ ...panel(270), padding: 6 }}>
         {items.map((it, i) => {
@@ -397,7 +417,7 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
               {it.group === 'send' && items[i - 1]?.group !== 'send' && <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />}
               <button type="button" role="menuitem" disabled={it.disabled || it.busy} onClick={() => { setOpen(false); it.onPick(); }}
                 style={{ ...row(false), opacity: it.disabled ? 0.5 : 1, cursor: it.disabled ? 'default' : 'pointer', padding: '7px 8px' }}>
-                {it.busy ? <Loader2 size={14} className="spin" style={{ color: 'var(--text-muted)' }} /> : <Icon size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
+                {it.busy ? <Spinner size={14} /> : <Icon size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 600 }}>{it.label}</span>
                   {it.hint && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{it.hint}</span>}
