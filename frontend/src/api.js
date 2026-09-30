@@ -1009,6 +1009,8 @@ export const api = {
   getAccountingAccess: () => req("/accounting/access"),
   setAccountingAccess: (email, entities) =>
     req(`/accounting/access/${encodeURIComponent(email)}`, { method: "PUT", body: JSON.stringify({ entities }) }),
+  // I opened Accounting (the Access tab shows when each person last did).
+  markAccountingOpened: () => req("/accounting/opened", { method: "POST" }),
   // My own layout of the accounting screens: columns shown, widths, density.
   getAccountingPrefs: () => req("/accounting/prefs"),
   saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
@@ -1036,6 +1038,7 @@ export const api = {
   addPfsLine: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines`, { method: "POST", body: JSON.stringify(body) }),
   updatePfsLine: (id, lineId, body) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  addPfsLinesBulk: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines/bulk`, { method: "POST", body: JSON.stringify(body) }),
   deletePfsLine: (id, lineId) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
   getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),

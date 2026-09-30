@@ -17,6 +17,12 @@ How it works
     net worth. Setting the lines up is done once; after that a statement is a
     date and a click.
 
+Sep 30 (Neil, call of 09/29 - "an emergency"): a spouse on the statement
+("Neil and Archana's PFS"); four real estate categories (domestic and
+international, residential and commercial); and the bulk setup - one entity's
+bank, retirement, investment and loan accounts added from the ledger in one
+go, each at its ownership share, so a statement never needs hand updates.
+
 Who may see it
   Nobody by default. Owners, and people an Access Group explicitly grants the
   "pfs" module, and nobody else - an administrator's usual bypass does NOT
@@ -69,10 +75,13 @@ LIABILITY_CATEGORIES = [
     ("other_liability", "Other Liabilities"),
 ]
 REAL_ESTATE_KINDS = [
-    ("residential", "Residential Real Estate"),
-    ("commercial", "Commercial Real Estate"),
-    ("international_re", "International Real Estate"),
+    ("domestic_residential", "Domestic Residential Real Estate"),
+    ("domestic_commercial", "Domestic Commercial Real Estate"),
+    ("international_residential", "International Residential Real Estate"),
+    ("international_commercial", "International Commercial Real Estate"),
 ]
+# The three categories the schedule had before 09/30, as the four read them.
+_RE_LEGACY = {"residential": "domestic_residential", "commercial": "domestic_commercial", "international_re": "international_residential"}
 _CATEGORIES = {
     "asset": [c for c, _ in ASSET_CATEGORIES],
     "liability": [c for c, _ in LIABILITY_CATEGORIES],
@@ -89,7 +98,7 @@ HISTORY_QUESTIONS = [
     "Are any assets pledged as collateral?",
 ]
 _DETAIL_KEYS = ("address", "city_state_zip", "phone", "email", "date_of_birth", "marital_status", "employer", "title",
-                "ssn_last4", "members")
+                "ssn_last4", "members", "spouse")
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PHOTO_MAX = 400_000   # characters of data URL (a downscaled JPEG is a tenth of this)
 
@@ -108,8 +117,16 @@ def _audit(db: Session, user: dict, action: str, resource_id: str, details: Opti
 
 
 # ── Shapes ───────────────────────────────────────────────────────────────────
+def _display_name(p: models.PfsProfile) -> str:
+    """The name on the statement: "Neil R. Kadakia and Archana Kadakia" when a
+    spouse is set, the name alone otherwise."""
+    d = p.details if isinstance(p.details, dict) else {}
+    spouse = (d.get("spouse") or "").strip()
+    return f"{p.name} and {spouse}" if spouse and spouse.lower() not in (p.name or "").lower() else p.name
+
+
 def _profile_out(p: models.PfsProfile, full: bool = True) -> dict:
-    out = {"id": p.id, "name": p.name, "kind": p.kind or "individual", "archived": bool(p.archived),
+    out = {"id": p.id, "name": p.name, "displayName": _display_name(p), "kind": p.kind or "individual", "archived": bool(p.archived),
            "updatedAt": p.updated_at, "hasPhoto": bool(p.photo)}
     if full:
         out.update({"details": p.details if isinstance(p.details, dict) else {},
@@ -119,7 +136,7 @@ def _profile_out(p: models.PfsProfile, full: bool = True) -> dict:
 
 
 def _line_out(l: models.PfsLine) -> dict:
-    return {"id": l.id, "section": l.section, "category": l.category, "label": l.label or "", "institution": l.institution or "",
+    return {"id": l.id, "section": l.section, "category": _RE_LEGACY.get(l.category, l.category), "label": l.label or "", "institution": l.institution or "",
             "accountRef": l.account_ref or "", "ownershipPct": float(l.ownership_pct if l.ownership_pct is not None else 100),
             "source": l.source or "manual", "ledgerEntity": l.ledger_entity or "",
             "ledgerAccounts": l.ledger_accounts if isinstance(l.ledger_accounts, list) else [],
@@ -184,6 +201,7 @@ def _clean_history(h: Optional[list]) -> list:
 def _clean_line(body: LineBody) -> dict:
     if body.section not in _CATEGORIES:
         raise HTTPException(status_code=400, detail="section must be asset, liability or real_estate")
+    body.category = _RE_LEGACY.get(body.category, body.category)
     if body.category not in _CATEGORIES[body.section]:
         raise HTTPException(status_code=400, detail=f"category must be one of {', '.join(_CATEGORIES[body.section])}")
     label = (body.label or "").strip()
@@ -339,6 +357,71 @@ def add_line(profile_id: str, body: LineBody, user: dict = Depends(_edit), db: S
     return _line_out(row)
 
 
+class BulkAccount(BaseModel):
+    code: str
+    label: Optional[str] = ""
+    category: Optional[str] = ""
+    ownershipPct: Optional[float] = None
+
+
+class BulkBody(BaseModel):
+    section: str
+    category: str
+    entity: str
+    entityName: Optional[str] = ""
+    ownershipPct: Optional[float] = 100
+    accounts: list[BulkAccount]
+
+
+_ENDING = re.compile(r"[-\s](\d{4})\s*$")
+
+
+def _account_ref(title: str) -> str:
+    """"Chase Checking -6532" -> "6532": the account's last four, when the
+    ledger names it that way."""
+    m = _ENDING.search(title or "")
+    return m.group(1) if m else ""
+
+
+@router.post("/profiles/{profile_id}/lines/bulk", status_code=201)
+def add_lines_bulk(profile_id: str, body: BulkBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
+    """One line per ledger account, in one go (Neil, call of 09/29: "my bank
+    accounts are all in Intacct - pick them by GL group and the PFS never
+    needs a manual update"). Every line reads the ledger, so each statement
+    shows the balance as of its date. A line already pointed at the same
+    entity and account is left alone, never doubled."""
+    _get_profile(db, profile_id)
+    if body.section not in ("asset", "liability"):
+        raise HTTPException(status_code=400, detail="Bulk setup is for assets and liabilities.")
+    entity = (body.entity or "").strip()
+    if not entity:
+        raise HTTPException(status_code=400, detail="Pick an entity.")
+    if not body.accounts:
+        raise HTTPException(status_code=400, detail="Pick at least one account.")
+    have = {(l.ledger_entity, tuple(l.ledger_accounts or [])) for l in
+            db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id, models.PfsLine.source == "ledger").all()}
+    made = []
+    for a in body.accounts[:120]:
+        code = (a.code or "").strip()
+        if not code or (entity, (code,)) in have:
+            continue
+        label = (a.label or "").strip() or code
+        line = _clean_line(LineBody(
+            section=body.section, category=(a.category or body.category), label=label, institution=(body.entityName or "")[:160],
+            accountRef=_account_ref(label), ownershipPct=body.ownershipPct if a.ownershipPct is None else a.ownershipPct,
+            source="ledger", ledgerEntity=entity, ledgerAccounts=[code], notes="",
+        ))
+        row = models.PfsLine(id=str(uuid.uuid4()), profile_id=profile_id, updated_by=user["email"], updated_at=_now(), **line)
+        db.add(row)
+        have.add((entity, (code,)))
+        made.append(row)
+    _audit(db, user, "pfs_lines_added_from_ledger", profile_id, {"entity": entity, "count": len(made)})
+    db.commit()
+    for row in made:
+        db.refresh(row)
+    return {"added": len(made), "lines": [_line_out(r) for r in made]}
+
+
 def _get_line(db: Session, profile_id: str, line_id: str) -> models.PfsLine:
     row = db.query(models.PfsLine).filter(models.PfsLine.id == line_id, models.PfsLine.profile_id == profile_id).first()
     if not row:
@@ -480,7 +563,7 @@ def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[
     total_assets = _r2(sum(x["amount"] for x in summary_assets))
     total_liabilities = _r2(sum(x["amount"] for x in summary_liabilities))
     return {
-        "profile": {k: profile[k] for k in ("id", "name", "kind", "details", "history", "executiveProfile")},
+        "profile": {k: profile[k] for k in ("id", "name", "displayName", "kind", "details", "history", "executiveProfile")},
         "asOf": as_of, "assets": assets, "liabilities": liabilities, "realEstate": real_estate,
         "summary": {"assets": summary_assets, "liabilities": summary_liabilities},
         "totals": {"assets": total_assets, "liabilities": total_liabilities, "netWorth": _r2(total_assets - total_liabilities)},

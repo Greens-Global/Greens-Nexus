@@ -281,6 +281,18 @@ class AccountingAccessTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_last_opened_is_stamped_and_listed(self):
+        """Opening Accounting stamps the caller's row; the Access tab lists it
+        (Charmi, call of 09/29)."""
+        _as(OPEN)
+        self.assertEqual(self.client.post("/accounting/opened").json(), {"ok": True})
+        self.assertEqual(self.client.post("/accounting/opened").json(), {"ok": True})
+        _as(MANAGER)
+        people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
+        self.assertEqual(people[OPEN]["opens"], 2)
+        self.assertTrue(people[OPEN]["lastOpened"].startswith("20"))
+        self.assertEqual((people[LIMITED]["opens"], people[LIMITED]["lastOpened"]), (0, ""))
+
     # ── memorized reports and packages ──────────────────────────────────────
     def test_memorized_reports(self):
         cfg = {"report": "pnl", "preset": "ytd", "book": "cash", "entities": ["15000"], "dims": {"vendor": ["V1"]}}

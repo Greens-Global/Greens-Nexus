@@ -4,6 +4,7 @@ import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
+import { formatDateTime } from '../../lib/datetime';
 import { control, entityOptions } from './reportControls';
 
 // Accounting -> Access (Neil, Sep 25): "even the accounting team should only
@@ -18,6 +19,10 @@ import { control, entityOptions } from './reportControls';
 // set, the consolidated dashboard tabs close for them, and so does the
 // accounting app (it has no entity limits of its own). Administrators and
 // owners are never limited and are not listed.
+//
+// Sep 30 (Charmi, call of 09/29): "Select All" in the entity picker, then
+// untick the few that do not apply; and a Last Opened column - when each
+// person last opened Accounting, and how many times.
 
 const LEVELS = { viewer: 'Viewer', editor: 'Editor', full: 'Full', owner: 'Owner' };
 
@@ -69,7 +74,7 @@ export default function AccessTab() {
         <div className="acct-lines-wrap">
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
             <thead>
-              <tr><th scope="col">Person</th><th scope="col">Accounting Level</th><th scope="col">Entities</th><th scope="col" aria-label="Change" /></tr>
+              <tr><th scope="col">Person</th><th scope="col">Accounting Level</th><th scope="col">Entities</th><th scope="col">Last Opened</th><th scope="col" aria-label="Change" /></tr>
             </thead>
             <tbody>
               {shown.map((p) => (
@@ -87,6 +92,9 @@ export default function AccessTab() {
                       </span>
                     )}
                   </td>
+                  <td style={{ color: p.lastOpened ? undefined : 'var(--text-muted)' }} title={p.opens ? `${p.opens.toLocaleString('en-US')} ${p.opens === 1 ? 'visit' : 'visits'}` : undefined}>
+                    {p.lastOpened ? `${formatDateTime(p.lastOpened)}${p.opens > 1 ? ` · ${p.opens.toLocaleString('en-US')} visits` : ''}` : 'Not yet'}
+                  </td>
                   <td style={{ textAlign: 'right' }}>
                     {p.email === (myEmail || '').toLowerCase()
                       ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }} title="Someone else has to change your own access">You</span>
@@ -95,7 +103,7 @@ export default function AccessTab() {
                 </tr>
               ))}
               {!shown.length && (
-                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 10px', whiteSpace: 'normal' }}>
+                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 10px', whiteSpace: 'normal' }}>
                   {(people || []).length ? 'Nobody matches that search.' : 'Nobody holds the Accounting grant yet. Grant it in Settings, then set entity limits here.'}
                 </td></tr>
               )}
@@ -104,7 +112,7 @@ export default function AccessTab() {
         </div>
         <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
           <ShieldCheck size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>A limit covers an entity and everything under it. A limited person works in Reports, Packages and Leasing only: the dashboard tabs and the accounting app show consolidated figures, so they close. Every change is written to the audit log.</span>
+          <span>A limit covers an entity and everything under it. A limited person works in Reports, Packages and MRI only: the dashboard tabs and the accounting app show consolidated figures, so they close. Every change is written to the audit log. Last Opened is when the person last opened any Accounting tab.</span>
         </div>
       </div>
       {editing && <EntityLimit person={editing} entities={entities} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
@@ -118,11 +126,15 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const options = useMemo(() => entityOptions(entities), [entities]);
+  const [showHistorical, setShowHistorical] = useState(false);
+  const options = useMemo(() => entityOptions(entities, { showHistorical, keep: [...picked] }), [entities, showHistorical, picked]);
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     return s ? options.filter((o) => o.code.toLowerCase().includes(s) || (o.name || '').toLowerCase().includes(s)) : options;
   }, [options, q]);
+  // Select All ticks every entity on the list (what a search narrowed it to, when one is typed).
+  const allShown = shown.length > 0 && shown.every((o) => picked.has(o.code));
+  const selectAll = () => setPicked((p) => { const n = new Set(p); if (allShown) shown.forEach((o) => n.delete(o.code)); else shown.forEach((o) => n.add(o.code)); return n; });
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -140,7 +152,7 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`Entities ${person.name} can read`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`Entities ${person.name} can read`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Entities {person.name} Can Read</h3>
@@ -155,7 +167,7 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
           </label>
           <label style={choice(mode === 'some')}>
             <input type="radio" name="acct-limit" checked={mode === 'some'} onChange={() => setMode('some')} style={{ marginTop: 3 }} />
-            <span><strong style={{ fontSize: '0.86rem' }}>Only the entities picked below</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Reports, Packages and Leasing only. The dashboard tabs and the accounting app close for this person.</span></span>
+            <span><strong style={{ fontSize: '0.86rem' }}>Only the entities picked below</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Reports, Packages and MRI only. The dashboard tabs and the accounting app close for this person.</span></span>
           </label>
           {mode === 'some' && (
             <div>
@@ -163,7 +175,15 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
                 <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
                 <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entity by name or code" aria-label="Search entity by name or code" autoFocus style={{ ...control, width: '100%', paddingLeft: 26 }} />
               </div>
-              <div role="listbox" aria-multiselectable="true" aria-label="Entities" style={{ maxHeight: 280, overflowY: 'auto', marginTop: 6, border: '1px solid var(--border-color)', borderRadius: 8, padding: 4, display: 'grid', gap: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 6 }}>
+                <button type="button" onClick={selectAll} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.76rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
+                  {allShown ? 'Clear All' : q.trim() ? 'Select All Shown' : 'Select All'}
+                </button>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={showHistorical} onChange={(e) => setShowHistorical(e.target.checked)} /> Show historical (H) entities
+                </label>
+              </div>
+              <div role="listbox" aria-multiselectable="true" aria-label="Entities" style={{ maxHeight: 'min(520px, calc(100vh - 420px))', overflowY: 'auto', marginTop: 6, border: '1px solid var(--border-color)', borderRadius: 8, padding: 4, display: 'grid', gap: 1 }}>
                 {shown.map((o) => {
                   const on = picked.has(o.code);
                   return (
@@ -171,7 +191,7 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
                       style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
                       <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: o.depth ? 14 : 0 }}>{o.name || o.code}</span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{o.code}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{o.code}</span>
                     </button>
                   );
                 })}

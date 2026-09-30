@@ -2296,7 +2296,8 @@ html { overflow-x: hidden; }
 .acct-lines .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
 .acct-lines .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
 .acct-lines td { padding: var(--acct-row-py) 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; line-height: 1.35; background: var(--bg-card); }
-.acct-lines tbody tr:nth-child(even) td { background: var(--bg-secondary); }
+/* Banding: the secondary tone plus 5% of the ink (Charmi, 09/29 call: "too faint, raise it about 5%"). */
+.acct-lines tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-lines tbody tr:hover td { background: var(--wk-brand-tint, #e8ecfd); }
 .acct-lines .acct-num { text-align: right; }
 .acct-lines .acct-code { color: var(--text-muted); margin-right: 8px; }
@@ -2310,7 +2311,7 @@ html { overflow-x: hidden; }
 .acct-entry-lines td { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; }
 .acct-entry-lines .acct-grand td { position: static; }
 /* The statement takes the same banding and whole-row hover. */
-.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: var(--bg-secondary); }
+.acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
 .acct-report tbody tr:not(.acct-section):not(.acct-subtotal):not(.acct-grand):hover td { background: var(--wk-brand-tint, #e8ecfd); }
 
 /* Phone: wide data tables (.req-table - PropertyAsset sections, requisition

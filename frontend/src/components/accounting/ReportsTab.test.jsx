@@ -9,8 +9,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 //   custom dates are not capped by each other, the search shows it is
 //   working, and Memorize keeps the view.
 //   Sep 29 (Visesh): the row has the accounting app's filters - the period
-//   stepper, Columns, departments, accounts, Customize, full screen - and the
-//   figures line sits above the statement.
+//   stepper, Columns, accounts, Customize, full screen - and the figures line
+//   sits above the statement.
+//   Sep 30 (call of 09/29): Dimensions is Filters with Department inside,
+//   entities read in number order without the historical ones, the filters in
+//   force are chips with an X, zero balances hide until Show is ticked, and
+//   Export is one menu (Excel, CSV, PDF).
 
 const pnl = {
   org: 'Greens Global',
@@ -25,7 +29,10 @@ const cash = { ...pnl, sections: [{ ...pnl.sections[0], total: 1200, accounts: [
 
 vi.mock('../../api', () => ({
   api: {
-    getAccountingLocations: vi.fn(async () => ({ entities: [{ code: '32000', name: 'Greens Capital', parent_code: null }, { code: '15000', name: 'Greens Escondido', parent_code: null }] })),
+    getAccountingLocations: vi.fn(async () => ({ entities: [
+      { code: '32000', name: 'Greens Capital', parent_code: null }, { code: '15000', name: 'Greens Escondido', parent_code: null },
+      { code: 'H15001', name: '(H) Old Escondido', parent_code: '15000' }, { code: '15020', name: 'Escondido North', parent_code: '15000' },
+    ] })),
     getAccountingPnl: vi.fn(async (from, to, location, dims, book) => (book === 'cash' ? cash : pnl)),
     getAccountingBalanceSheet: vi.fn(async () => ({ sections: [], totals: {} })),
     getAccountingCashPosition: vi.fn(async () => ({ accounts: [], total: 0 })),
@@ -44,6 +51,8 @@ vi.mock('../../api', () => ({
     searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0, facets: {} })),
     getAccountingSavedReports: vi.fn(async () => []),
     saveAccountingReport: vi.fn(async (body) => ({ id: 'r1', ...body, mine: true })),
+    updateAccountingSavedReport: vi.fn(async (id, body) => ({ id, ...body })),
+    deleteAccountingSavedReport: vi.fn(async () => ({})),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async (prefs) => ({ prefs })),
     getRolesDirectory: vi.fn(async () => []),
@@ -103,7 +112,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'Cash Position']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -158,10 +167,46 @@ describe('ReportsTab controls', () => {
     await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1)[3]?.locations).toEqual(['15000', '32000']));
   });
 
-  it('hides historical (H) classes in the dimension lists', async () => {
+  it('lists entities in number order, without the historical ones unless Customize shows them', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
-    fireEvent.click(screen.getByRole('button', { name: 'Dimensions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
+    const names = () => within(screen.getByRole('listbox', { name: 'Entities' })).getAllByRole('option').map((o) => o.textContent);
+    expect(names()).toEqual(['Greens Escondido15000', 'Escondido North15020', 'Greens Capital32000']);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Show historical entities/));
+    fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
+    expect(names()).toEqual(['Greens Escondido15000', 'Escondido North15020', '(H) Old EscondidoH15001', 'Greens Capital32000']);
+  });
+
+  it('shows the filters in force as chips that come off in one click', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
+    fireEvent.click(screen.getByRole('option', { name: /Greens Escondido/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    const chips = await screen.findByLabelText('Active filters');
+    expect(chips.textContent).toContain('Entity: Greens Escondido (15000)');
+    fireEvent.click(within(chips).getByRole('button', { name: 'Remove Entity: Greens Escondido (15000)' }));
+    await waitFor(() => expect(screen.queryByLabelText('Active filters')).toBeNull());
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1)[2]).toBeUndefined());
+  });
+
+  it('splits one picked entity into its sub-entities By Entity', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
+    fireEvent.click(screen.getByRole('option', { name: /Greens Escondido/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.change(screen.getByLabelText('Columns'), { target: { value: 'entity' } });
+    await waitFor(() => expect(api.getAccountingBuckets.mock.calls.at(-1)[0]).toMatchObject({ by: 'entity', dims: { locations: ['15000', '15020'] } }));
+  });
+
+  it('hides historical (H) classes in the filter lists', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
     fireEvent.click(screen.getByRole('button', { name: /Project-Job/ }));
     await screen.findByRole('option', { name: /Valley Center/ });
     expect(screen.queryByRole('option', { name: /Old Program/ })).toBeNull();
@@ -233,10 +278,11 @@ describe('ReportsTab controls', () => {
     await waitFor(() => expect(screen.queryByLabelText('Columns')).toBeNull());
   });
 
-  it('filters by department and by account from their own dropdowns', async () => {
+  it('filters by department from Filters and by account from its own dropdown', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
-    fireEvent.click(screen.getByRole('button', { name: 'Departments' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Department/ }));
     await screen.findByRole('option', { name: /Property Management/ });
     expect(screen.queryByRole('option', { name: /Old Division/ })).toBeNull();
     fireEvent.click(screen.getByRole('option', { name: /Property Management/ }));
@@ -253,20 +299,51 @@ describe('ReportsTab controls', () => {
     expect(screen.getByRole('button', { name: 'Accounts' }).textContent).toContain('Account 61000');
   });
 
-  it('shows the figures above the statement, hides zero balances, fills the screen', async () => {
+  it('shows the figures above the statement, shows zero balances on request, fills the screen', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
     expect(screen.getByLabelText('Summary').textContent).toBe('Revenue 1,500.00Expenses 400.00Net Income 1,100.00Net Margin 73.3%');
     expect(screen.getByText('Net Profit Margin %').closest('tr').textContent).toContain('73.3%');
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Hide zero balances/));
+    fireEvent.click(screen.getByLabelText(/Show zero balances/));
     fireEvent.click(screen.getByRole('button', { name: /Memorize/ }));
-    fireEvent.change(screen.getByLabelText('What would you like to name it?'), { target: { value: 'No Zeros' } });
+    fireEvent.change(screen.getByLabelText('What would you like to name it?'), { target: { value: 'With Zeros' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.saveAccountingReport).toHaveBeenCalled());
-    expect(api.saveAccountingReport.mock.calls[0][0].config.suppressZero).toBe(true);
+    expect(api.saveAccountingReport.mock.calls[0][0].config.showZero).toBe(true);
+    // One Export menu holds the three formats.
+    fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
+    expect(within(screen.getByRole('menu', { name: 'Export' })).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'ExcelTotals in bold, columns fitted, live formulas', 'CSVPlain values, one row per line', 'PDFLaid out like a page of a package',
+    ]);
+    fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'Fill the screen' }));
     expect(screen.getByRole('button', { name: 'Back to window size' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('offers to save the changes to a memorized report, and manages them on their own screen', async () => {
+    const memorized = { id: 'r9', name: 'GG Cash', mine: true, shared: false, owner: 'me', updatedAt: '2026-09-29', config: { report: 'pnl', preset: 'ytd', book: 'cash', cols: 'total', entities: [], dims: {} } };
+    api.getAccountingSavedReports.mockResolvedValue([memorized]);
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: /Saved Reports/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /GG Cash/ }));
+    await waitFor(() => expect(screen.getByLabelText('Book').value).toBe('cash'));
+    expect(screen.queryByText(/Do you want to save your changes/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('Book'), { target: { value: 'accrual' } });
+    await screen.findByText(/Do you want to save your changes/);
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenCalledWith('r9', { config: expect.objectContaining({ book: 'accrual' }) }));
+    await waitFor(() => expect(screen.queryByText(/Do you want to save your changes/)).toBeNull());
+    // The management screen: every saved report, renamed in place.
+    fireEvent.click(screen.getByRole('button', { name: /Saved Reports/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Manage Saved Reports...' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Saved Reports' });
+    expect(within(dialog).getAllByRole('row')).toHaveLength(2);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename GG Cash' }));
+    fireEvent.change(within(dialog).getByLabelText('New name'), { target: { value: 'GG Cash Income' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save name' }));
+    await waitFor(() => expect(api.updateAccountingSavedReport).toHaveBeenCalledWith('r9', { name: 'GG Cash Income' }));
   });
 
   it('shows the search is working from the first keystroke', async () => {

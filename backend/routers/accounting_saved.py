@@ -38,7 +38,7 @@ router = APIRouter(
     dependencies=[Depends(require_module_grant("accounting", "viewer"))],
 )
 
-_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position")
+_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position", "general-ledger")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
 _PREFS_MAX = 6000      # characters of JSON - one person's column layout
 _PACKAGE_MAX = 40      # statements in one package
@@ -79,6 +79,22 @@ def put_prefs(body: PrefsBody, user: dict = Depends(get_current_user), db: Sessi
         db.add(models.AccountingUserPref(email=me, prefs=body.prefs, updated_at=_now()))
     db.commit()
     return {"prefs": body.prefs}
+
+
+@router.post("/opened")
+def mark_opened(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The Accounting screen was opened by the caller: stamp the time on their
+    own row (Charmi, call of 09/29: the Access tab shows when each person
+    last opened Accounting). Nothing else about the row changes."""
+    me = user["email"].lower()
+    row = db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email == me).first()
+    if row:
+        row.last_opened_at = _now()
+        row.opens = (row.opens or 0) + 1
+    else:
+        db.add(models.AccountingUserPref(email=me, prefs={}, updated_at=_now(), last_opened_at=_now(), opens=1))
+    db.commit()
+    return {"ok": True}
 
 
 # ── Memorized reports ────────────────────────────────────────────────────────
@@ -151,15 +167,20 @@ def _own_report(db: Session, report_id: str, user: dict) -> models.AccountingSav
 class SavedReportPatch(BaseModel):
     name: Optional[str] = None
     shared: Optional[bool] = None
+    config: Optional[dict[str, Any]] = None
 
 
 @router.patch("/saved-reports/{report_id}")
 def update_saved_report(report_id: str, body: SavedReportPatch, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Rename, share, or keep changed filters on a memorized report (Charmi,
+    call of 09/29: open a memorized report, change it, "Save Changes")."""
     row = _own_report(db, report_id, user)
     if body.name is not None:
         row.name = _name(body.name)
     if body.shared is not None:
         row.shared = bool(body.shared)
+    if body.config is not None:
+        row.config = _config(body.config)
     row.updated_at = _now()
     db.commit()
     db.refresh(row)
@@ -307,7 +328,11 @@ def list_entity_access(user: dict = Depends(_manage_access), db: Session = Depen
     # A person who lost the grant but still has limit rows is listed too, so
     # the rows can be seen and cleared.
     emails = sorted(set(holders) | set(limits))
-    return {"people": [{"email": e, "level": levels.get(holders.get(e, 0), ""), "hasGrant": e in holders, "entities": limits.get(e, [])} for e in emails]}
+    opened = {r.email: r for r in db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email.in_(emails)).all()} if emails else {}
+    return {"people": [{
+        "email": e, "level": levels.get(holders.get(e, 0), ""), "hasGrant": e in holders, "entities": limits.get(e, []),
+        "lastOpened": (opened[e].last_opened_at or "") if e in opened else "", "opens": (opened[e].opens or 0) if e in opened else 0,
+    } for e in emails]}
 
 
 class EntityAccessBody(BaseModel):

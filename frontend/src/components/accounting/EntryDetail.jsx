@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
+import { Maximize2, Minimize2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -16,8 +16,8 @@ import { useAccountingPrefs } from './prefs';
 // number, the Intacct batch and the posted date have no value to a reader and
 // sit in one quiet line under the title. The window takes most of the screen,
 // can fill it, and can be dragged larger from its corner.
-// "Open in Nexus Accounting" deep-links the same entry in the accounting app
-// through the one-time sign-in.
+// The "Open in Nexus Accounting" button that used to sit here came off on
+// 09/30 (Charmi, call of 09/29: remove it everywhere).
 
 const money = (n) => {
   const v = Number(n) || 0;
@@ -45,7 +45,6 @@ const COLUMNS = [
 export default function EntryDetail({ entryId, entryNo, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [opening, setOpening] = useState(false);
   const [prefs, setPrefs] = useAccountingPrefs();
   const full = !!prefs.entryFull;
 
@@ -64,19 +63,6 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  // Same pattern as the Accounting tab's "Open Nexus Accounting": the tab is
-  // opened on the click (popup blockers allow it) and pointed at the one-time
-  // URL once it arrives.
-  const openInApp = () => {
-    if (opening || !data?.path) return;
-    setOpening(true);
-    const tab = window.open('', '_blank');
-    api.launchAccounting(data.path)
-      .then(({ url }) => { if (tab) tab.location = url; else window.location.assign(url); })
-      .catch((e) => { if (tab) tab.close(); setError(e?.message || 'Could not open Nexus Accounting.'); })
-      .finally(() => setOpening(false));
-  };
 
   const entry = data?.entry;
   const lines = data?.lines || [];
@@ -123,9 +109,6 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>{entry ? quiet : 'Loading the entry...'}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <button type="button" className="secondary-btn" onClick={openInApp} disabled={!data?.path || opening} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '5px 10px' }}>
-              <ExternalLink size={14} /> {opening ? 'Opening...' : 'Open in Nexus Accounting'}
-            </button>
             <button type="button" onClick={() => setPrefs({ entryFull: !full })} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 5 }}>
               {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}

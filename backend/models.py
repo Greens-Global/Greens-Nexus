@@ -4603,6 +4603,11 @@ class AccountingUserPref(Base):
     email      = Column(String, primary_key=True)
     prefs      = Column(JSON, default=dict)
     updated_at = Column(String, default="")
+    # When this person last opened Accounting, and how many times (Charmi,
+    # call of 09/29: "a log of when each person last accessed"). Written by
+    # POST /accounting/opened on every visit; shown on the Access tab.
+    last_opened_at = Column(String, default="")
+    opens          = Column(Integer, default=0)
 
 
 class PfsProfile(Base):

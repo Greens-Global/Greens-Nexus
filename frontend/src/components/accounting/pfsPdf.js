@@ -54,7 +54,7 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const { profile, asOf } = statement;
-  const name = profile.name || 'Guarantor';
+  const name = profile.displayName || profile.name || 'Guarantor';
   doc.setTitle(clean(`Personal Financial Statement - ${name}`));
   doc.setCreator('Greens Nexus');
   const today = formatDate(new Date());
@@ -237,7 +237,7 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
   wrap(font, 9, 'I certify that the information in this statement is true, correct and complete as of the date shown, and I authorize the lender to verify it.', W - MARGIN * 2)
     .forEach((t) => { page.drawText(t, { x: MARGIN, y, size: 9, font, color: INK }); y -= ROW - 2; });
   y -= 44;
-  const signers = (d.members || []).length && profile.kind !== 'individual' ? d.members.map((m) => m.name) : [name];
+  const signers = (d.members || []).length && profile.kind !== 'individual' ? d.members.map((m) => m.name) : d.spouse ? [profile.name, d.spouse] : [name];
   signers.slice(0, 4).forEach((who) => {
     room(60);
     page.drawLine({ start: { x: MARGIN, y }, end: { x: MARGIN + 260, y }, thickness: 0.6, color: INK });

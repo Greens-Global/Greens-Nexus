@@ -29,6 +29,12 @@ import { downloadCsv } from './reportModel';
 //     layout is the person's own (Doc No is off until someone turns it on);
 //   - one typeface, banded rows, and the hover fills the whole row so the eye
 //     can follow a line across a wide monitor to its amount.
+//
+// Sep 30 (Charmi, call of 09/29): the columns read Date, Entry, Account,
+// Description, Entity, then Vendor and Customer as two columns (the joint
+// "Vendor / Customer" is gone); the description no longer takes every spare
+// pixel - the spare width is shared out over the text columns; the vendor /
+// customer / account / journal chips are dropdowns.
 
 const PAGE = 100;
 const EXPORT_CAP = 10000;
@@ -44,7 +50,6 @@ const signed = (n) => {
   return v < 0 ? `(${s})` : s;
 };
 const named = (name, id) => name || id || '';
-const partyOf = (r) => r.vendor_name || r.customer_name || r.employee_name || r.vendor_id || r.customer_id || r.employee_id || '';
 
 // Every column the grid can show. `filter`: the server can narrow by it.
 // `off`: hidden until the person turns it on.
@@ -52,14 +57,13 @@ export const LINE_COLUMNS = [
   { key: 'date', label: 'Date', width: 96, filter: true, text: (r) => formatDate(r.entry_date) },
   { key: 'entry', label: 'Entry', width: 108, filter: true, text: (r) => r.entry_no || '' },
   { key: 'doc', label: 'Doc No', width: 120, filter: true, off: true, text: (r) => r.doc || '' },
-  { key: 'description', label: 'Description', width: 380, filter: true, text: (r) => r.description || '' },
+  { key: 'account', label: 'Account', width: 250, filter: true, text: (r) => `${r.gl_code} ${r.account_name}`.trim() },
+  { key: 'description', label: 'Description', width: 300, filter: true, text: (r) => r.description || '' },
   { key: 'memo', label: 'Memo', width: 240, off: true, text: (r) => r.memo || '' },
-  { key: 'account', label: 'Account', width: 260, filter: true, text: (r) => `${r.gl_code} ${r.account_name}`.trim() },
-  { key: 'entity', label: 'Entity', width: 200, filter: true, text: (r) => r.location_name || r.location || '' },
+  { key: 'entity', label: 'Entity', width: 190, filter: true, text: (r) => r.location_name || r.location || '' },
   { key: 'department', label: 'Department', width: 170, filter: true, off: true, text: (r) => named(r.department_name, r.department) },
-  { key: 'party', label: 'Vendor / Customer', width: 210, filter: true, text: partyOf },
-  { key: 'vendor', label: 'Vendor', width: 190, filter: true, off: true, text: (r) => named(r.vendor_name, r.vendor_id) },
-  { key: 'customer', label: 'Customer', width: 190, filter: true, off: true, text: (r) => named(r.customer_name, r.customer_id) },
+  { key: 'vendor', label: 'Vendor', width: 180, filter: true, text: (r) => named(r.vendor_name, r.vendor_id) },
+  { key: 'customer', label: 'Customer', width: 180, filter: true, text: (r) => named(r.customer_name, r.customer_id) },
   { key: 'employee', label: 'Employee', width: 170, filter: true, off: true, text: (r) => named(r.employee_name, r.employee_id) },
   { key: 'project', label: 'Project-Job', width: 180, off: true, text: (r) => named(r.project_name, r.project_id) },
   { key: 'item', label: 'Item', width: 160, off: true, text: (r) => named(r.item_name, r.item_id) },
@@ -82,26 +86,24 @@ function ActiveChip({ label, onClear }) {
   );
 }
 
-// A chip only earns its place when clicking it narrows the result: one vendor
-// behind EVERY matching line is not a choice, one vendor behind some of them is
-// (Neil: "as a vendor, not as an employee").
-function FacetRow({ label, items, total, onPick, text }) {
+// A dropdown only earns its place when picking from it narrows the result:
+// one vendor behind EVERY matching line is not a choice, one vendor behind
+// some of them is (Neil: "as a vendor, not as an employee"). Dropdowns, not
+// chips (Charmi, 09/29 call: the rows of chips read as clutter).
+function FacetSelect({ label, items, total, onPick, text }) {
   if (!items?.length || (items.length === 1 && items[0].lines >= total)) return null;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-      <span style={{ flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{label}</span>
+    <select value="" aria-label={label} onChange={(e) => { const f = items.find((x) => x.code === e.target.value); if (f) onPick(f); }}
+      style={{ ...facetSelect }}>
+      <option value="">{label} ({items.length})</option>
       {items.map((f) => {
         const name = text ? text(f) : (f.name || f.code);
-        return (
-          <button key={f.code} type="button" style={chip} onClick={() => onPick(f)} title={`${name} - ${f.lines.toLocaleString('en-US')} lines, net ${signed(f.net)}`}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-            <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{f.lines.toLocaleString('en-US')}</span>
-          </button>
-        );
+        return <option key={f.code} value={f.code}>{name} - {f.lines.toLocaleString('en-US')} lines, net {signed(f.net)}</option>;
       })}
-    </div>
+    </select>
   );
 }
+const facetSelect = { height: 28, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.76rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260 };
 
 // The report's filters narrow the search as far as line search can: the
 // entities, and one vendor / customer / employee. Anything else (departments,
@@ -146,9 +148,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const shownColumns = LINE_COLUMNS.filter(visible);
   const setLayout = (p) => setPrefs({ lines: { ...layout, ...p } });
   // The grid uses the whole width it is given (Neil, Sep 25: "it should take up
-  // much more screen"): whatever is left over on a wide monitor goes to the
-  // description - the column that is always cut short - unless the reader has
-  // set that column's width themselves.
+  // much more screen"): whatever is left over on a wide monitor is shared out
+  // over the text columns the reader has not sized by hand (Charmi, 09/29:
+  // the description must not take all of it).
   const [wrap, setWrap] = useState(null);   // the grid's scroll box, once it is on screen
   const [room, setRoom] = useState(0);
   useEffect(() => {
@@ -158,11 +160,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     return () => ro.disconnect();
   }, [wrap]);
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
-  const filler = shownColumns.find((c) => c.key === 'description' && !layout.widths?.description);
-  const spare = filler ? Math.max(0, room - natural - 2) : 0;
+  const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
+  const spare = fillers.length ? Math.max(0, room - natural - 2) : 0;
   const columns = shownColumns;
-  const colWidth = (c) => widthOf(c) + (c === filler ? spare : 0);
-  const tableWidth = natural + spare;
+  const colWidth = (c) => widthOf(c) + (fillers.includes(c) ? Math.floor(spare / fillers.length) : 0);
+  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length;
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
   const [typed, setTyped] = useState({});
@@ -329,14 +331,14 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       ) : data ? (
         <>
           {/* One line on a wide screen: the grid below is what the height is for. */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', marginBottom: 8 }}>
-            {!party && <FacetRow label="Vendors" total={total} items={facets.vendors} onPick={(f) => setParty({ kind: 'vendor', code: f.code, name: f.name || f.code })} />}
-            {!party && <FacetRow label="Customers" total={total} items={facets.customers} onPick={(f) => setParty({ kind: 'customer', code: f.code, name: f.name || f.code })} />}
-            {!account && <FacetRow label="Accounts" total={total} items={facets.accounts} text={(f) => `${f.code} ${f.name || ''}`} onPick={(f) => setAccount({ code: f.code, name: f.name })} />}
-            {!journal && <FacetRow label="Journals" total={total} items={facets.journals} onPick={(f) => setJournal(f.code)} />}
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', fontSize: '0.8rem', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Narrow by</span>
+              {!party && <FacetSelect label="Vendors" total={total} items={facets.vendors} onPick={(f) => setParty({ kind: 'vendor', code: f.code, name: f.name || f.code })} />}
+              {!party && <FacetSelect label="Customers" total={total} items={facets.customers} onPick={(f) => setParty({ kind: 'customer', code: f.code, name: f.name || f.code })} />}
+              {!account && <FacetSelect label="Accounts" total={total} items={facets.accounts} text={(f) => `${f.code} ${f.name || ''}`} onPick={(f) => setAccount({ code: f.code, name: f.name })} />}
+              {!journal && <FacetSelect label="Journals" total={total} items={facets.journals} onPick={(f) => setJournal(f.code)} />}
+            </span>
             <span><strong>{total.toLocaleString('en-US')}</strong> lines</span>
             <span>Debits <strong>{signed(data.debit)}</strong></span>
             <span>Credits <strong>{signed(data.credit)}</strong></span>
