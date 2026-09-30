@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../../api';
-import Amount from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import LeasingTab from './LeasingTab';
 
@@ -88,7 +87,7 @@ export function InterestIncome() {
           <button type="button" style={icon} aria-label="Next year" disabled={year >= new Date().getFullYear() + 1} onClick={() => setYear((y) => y + 1)}><ChevronRight size={16} /></button>
         </div>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Interest and loan payments received, as posted to the income accounts, accrual book.</span>
-        <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>Received this year <strong><Amount value={grand} /></strong></span>
+        <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>Received this year <strong>{money(grand)}</strong></span>
       </div>
       {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
       {loading && !data ? <SkeletonBlocks count={3} /> : !rows.length ? (
@@ -108,13 +107,13 @@ export function InterestIncome() {
                 <tr key={r.code}>
                   <td className="acct-label" title={`${r.code} ${r.title}`}><span className="acct-code">{r.code}</span>{r.title}</td>
                   {r.months.map((v, i) => <td key={i} className="acct-num">{money(v)}</td>)}
-                  <td className="acct-num" style={{ fontWeight: 700 }}><Amount value={r.total} /></td>
+                  <td className="acct-num" style={{ fontWeight: 700 }}>{money(r.total)}</td>
                 </tr>
               ))}
               <tr className="acct-grand">
                 <td className="acct-label">Total Received</td>
                 {totals.map((v, i) => <td key={i} className="acct-num">{money(v)}</td>)}
-                <td className="acct-num"><Amount value={grand} /></td>
+                <td className="acct-num">{money(grand)}</td>
               </tr>
             </tbody>
           </table>

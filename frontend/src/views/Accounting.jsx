@@ -126,15 +126,16 @@ export default function Accounting({ activeSub, onSubChange }) {
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
   }[sub];
-  // Every tab is a working screen: the header is one line so the content
-  // starts high on the page (Neil, Sep 25; the overall pass, 09/30).
+  // Reports, Packages and Access are working screens: the statement has to
+  // start high on the page (Neil, Sep 25), so their header is one line.
+  const slim = ['reports', 'packages', 'access', 'pfs', 'mri'].includes(sub);
 
   return (
-    <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header">
-        <div className="view-title-group">
-          <h2 className="acct-display" style={{ margin: 0 }}>Accounting</h2>
-          <p>{subtitle}</p>
+    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <div className="view-header" style={{ marginBottom: slim ? 6 : 16, alignItems: slim ? 'center' : undefined }}>
+        <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } : undefined}>
+          <h2 style={slim ? { fontSize: '1.15rem', margin: 0 } : undefined}>Accounting</h2>
+          <p style={slim ? { margin: 0, fontSize: '0.8rem' } : undefined}>{subtitle}</p>
         </div>
         {access && sub !== 'reports' && (
           <form role="search" onSubmit={(e) => { e.preventDefault(); goSearch(headerSearch); }} style={{ position: 'relative', flex: '0 1 380px', minWidth: 200 }}>
@@ -154,7 +155,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       {access && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />}
 
       {!access ? (
-        <div style={{ marginTop: 10 }}><SkeletonBlocks count={3} /></div>
+        <div style={{ marginTop: 16 }}><SkeletonBlocks count={3} /></div>
       ) : limited ? (
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
@@ -167,7 +168,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       ) : (
         <DashProvider>
           <DashNav.Provider value={(to) => onSubChange?.(to)}>
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: slim ? 8 : 16 }}>
               {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
