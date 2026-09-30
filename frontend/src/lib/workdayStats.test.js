@@ -23,6 +23,12 @@ describe('leave days', () => {
     expect(leaveRequestDays({ startDate: '2026-09-30', endDate: '2026-09-30', startTime: '09:00', endTime: '11:00' })).toBe(0.25);
   });
 
+  it('never counts one day as more than a day (Sep 30: 8:30 AM - 5:30 PM sick read 1.13)', () => {
+    // A single-day window the length of a whole shift, lunch included, is ONE day.
+    expect(leaveRequestDays({ startDate: '2026-09-22', endDate: '2026-09-22', startTime: '08:30', endTime: '17:30' })).toBe(1);
+    expect(leaveRequestDays({ startDate: '2026-09-22', endDate: '2026-09-22', startTime: '07:00', endTime: '17:00' })).toBe(1);
+  });
+
   it('clips a request that crosses New Year to the asked year', () => {
     const r = { startDate: '2025-12-29', endDate: '2026-01-02' };   // Mon - Fri
     expect(leaveRequestDays(r, 2025)).toBe(3);
