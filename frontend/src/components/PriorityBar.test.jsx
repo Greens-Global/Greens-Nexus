@@ -15,25 +15,32 @@ vi.mock('../api', () => ({ api: {
 } }));
 
 import PriorityBar from './PriorityBar';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { api } from '../api';
 
 describe('PriorityBar', () => {
-  it('shows the open priority notices, opens one, marks one done', () => {
+  it('shows the open priority notices, opens one, marks one done', async () => {
     notifications = [
-      { id: 'a', priority: 1, read: false, actioned: false, title: 'Sign your timecard', body: 'Due tomorrow.', action: { view: 'timeclock', sub: 'timecard' } },
-      { id: 'b', priority: 1, read: false, actioned: false, title: 'Timesheet to review', body: '', action: null },
+      { id: 'a', priority: 1, read: false, actioned: false, title: 'Timesheet to review', body: 'Valinda, 09/01 - 09/30.', action: { view: 'hr', sub: 'hr-time', timecard: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' } },
+      { id: 'b', priority: 1, read: false, actioned: false, title: 'Punch fix waiting', body: '', action: null },
       { id: 'c', priority: 0, read: false, actioned: false, title: 'Quiet bell item', body: '', action: null },
       { id: 'd', priority: 1, read: true, actioned: false, title: 'Already done', body: '', action: null },
     ];
     const onNavigate = vi.fn();
     render(<PriorityBar onNavigate={onNavigate} />);
     const bar = screen.getByRole('alert', { name: 'Priority notice' });
-    expect(bar.textContent).toContain('Sign your timecard');
+    expect(bar.textContent).toContain('Timesheet to review');
     expect(bar.textContent).toContain('1 of 2');
     expect(screen.queryByText('Quiet bell item')).toBeNull();
+    const opened = vi.fn();
+    window.addEventListener('nexus:open-timecard', (e) => opened(e.detail));
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-    expect(onNavigate).toHaveBeenCalledWith('timeclock', 'timecard');
+    expect(onNavigate).toHaveBeenCalledWith('hr', 'hr-time');
     expect(markRead).toHaveBeenCalledWith('a');
+    // The person the notice names is handed to the Time screen, so it opens on THEIR timecard.
+    await waitFor(() => expect(opened).toHaveBeenCalledWith({ email: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' }));
+    // The pending note waits for a Time screen that is still loading.
+    expect(takePendingOpen('timecard')).toEqual({ email: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' });
     fireEvent.click(screen.getByRole('button', { name: 'Next notice' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(markRead).toHaveBeenCalledWith('b');

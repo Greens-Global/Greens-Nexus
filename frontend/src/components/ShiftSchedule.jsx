@@ -225,6 +225,8 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   // A person's usual hours on a day (their default preset, on its weekdays).
   // Not a shift: nothing is on the schedule until one is placed, so it is
   // shown faintly and never counted - the same as on their own My Shifts.
+  // A person's availability on a day: weekdays are 0 = Monday, as the rows store them.
+  const availOn = (email, d) => (data?.availability?.[email] || []).find((a) => a.weekday === (d.getDay() + 6) % 7) || null;
   const usualOn = (email, d) => {
     const p = (data?.shifts || []).find(x => x.id === data?.usual?.[email]);
     return p && (p.days || '').split(',').includes(String(d.getDay() || 7)) ? p : null;
@@ -589,7 +591,8 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
   const viewLabel = VIEWS.find(([k]) => k === view)?.[1] || 'Week';
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
 
-  const GRID = { display: 'grid', gridTemplateColumns: '190px repeat(7, minmax(120px, 1fr))' };
+const DAY_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const GRID = { display: 'grid', gridTemplateColumns: '190px repeat(7, minmax(120px, 1fr))' };
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
@@ -910,10 +913,24 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                               )}
                             </div>
                           ); })}
-                          {!items.length && !off && !hol && usualOn(emp.email, d) && (
+                          {/* The person's availability for this weekday (Visesh, 09/30: it only showed as a tag on the name): unavailable shades the whole cell; limited hours read under the usual hours. */}
+                          {availOn(emp.email, d)?.kind === 'unavailable' && !off && !hol && (
+                            <div title={`${emp.name || emp.email} is unavailable on ${DAY_LONG[(d.getDay() + 6) % 7]}s`}
+                              style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(135deg, rgba(180,83,9,0.10) 0 6px, transparent 6px 12px)', pointerEvents: 'none' }} />
+                          )}
+                          {!items.length && !off && !hol && availOn(emp.email, d)?.kind === 'unavailable' && (
+                            <div style={{ fontSize: 10.5, color: '#b45309', fontWeight: 600, padding: '4px 6px', whiteSpace: 'nowrap', position: 'relative' }}>Unavailable</div>
+                          )}
+                          {!items.length && !off && !hol && availOn(emp.email, d)?.kind !== 'unavailable' && usualOn(emp.email, d) && (
                             <div title="Usual hours (their default preset). Nothing is on the schedule for this day until a shift is placed."
                               style={{ fontSize: 10.5, color: 'var(--muted)', padding: '4px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               Usual {t12(usualOn(emp.email, d).start)}-{t12(usualOn(emp.email, d).end)}
+                            </div>
+                          )}
+                          {!off && !hol && availOn(emp.email, d) && availOn(emp.email, d).kind !== 'unavailable' && (
+                            <div title={`Available ${t12(availOn(emp.email, d).start)}-${t12(availOn(emp.email, d).end)} on ${DAY_LONG[(d.getDay() + 6) % 7]}s`}
+                              style={{ fontSize: 10, color: '#b45309', fontWeight: 600, padding: '0 6px 4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', position: 'relative' }}>
+                              Available {t12(availOn(emp.email, d).start)}-{t12(availOn(emp.email, d).end)}
                             </div>
                           )}
                           {!items.length && !off && !hol && (

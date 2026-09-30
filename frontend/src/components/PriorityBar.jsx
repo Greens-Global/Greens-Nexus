@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useNotifications } from '../contexts/NotificationContext';
 import { ROLES, useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { openNotificationTarget } from '../lib/openTarget';
 
 // Priority notices (Neil, call of 09/29): two kinds of notification - the
 // quiet bell, and this bar across the top of every screen for the things
@@ -34,6 +35,8 @@ export default function PriorityBar({ onNavigate }) {
   const go = (item) => {
     if (item.action?.view && onNavigate) onNavigate(item.action.view, item.action.sub);
     else if (item.action?.view) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: item.action.view, sub: item.action.sub } }));
+    // The task, ticket or timecard the notice names opens too, not just its module.
+    openNotificationTarget(item.action);
     ctx.markRead(item.id);
     setAt(0);
   };
