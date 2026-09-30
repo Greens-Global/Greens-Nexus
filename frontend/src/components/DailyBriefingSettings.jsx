@@ -10,6 +10,7 @@
 // there was nothing to report that scan, or the Graph send actually failed.
 // See STATUS_OF below for how each row disambiguates them.
 import { useEffect, useState } from 'react';
+import { LoadingState } from './AsyncState';
 import { Mail, Save, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -65,7 +66,7 @@ export default function DailyBriefingSettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const goingLive = cfg.mode === 'live';
   // Switching TO live is the one change here that reaches every employee in
@@ -393,7 +394,7 @@ function DeliveryLog() {
         </div>
       )}
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No scan attempts logged yet.</div>
       ) : (

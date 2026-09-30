@@ -3,7 +3,7 @@ import { useMsal } from '@azure/msal-react';
 import { generateHTML } from '@tiptap/core';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
@@ -16,7 +16,7 @@ import { takePendingOpen } from '../lib/pendingOpen';
 import { KB_OPEN_EVENT, PENDING_KB_KIND, decodeKbTarget } from '../support/openKb';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
-  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
+  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings2, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
   ShieldCheck, Play, ListChecks, ThumbsUp, ThumbsDown,
@@ -1600,7 +1600,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
 
             {isFreeformDoc ? (
-              freeformHtml.loading ? <p style={{ color: DOC_THEME.muted, margin: 0 }}>Loading document…</p>
+              freeformHtml.loading ? <LoadingState compact label="Loading document…" />
               : freeformHtml.html ? <div className="doc-image-wrap" style={{ lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: freeformHtml.html }} />
               : <p style={{ color: DOC_THEME.muted, margin: 0 }}>This document has no content yet.</p>
             ) : (<>
@@ -1861,7 +1861,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0 2px 10px' }}>The raw text as first imported, before any AI formatting - use this to check whether the published version dropped, changed, or added anything.</div>
               <div style={{ maxHeight: '60vh', overflow: 'auto', padding: '4px 2px' }}>
                 {originalView.loading
-                  ? <div style={{ textAlign: 'center', padding: 24 }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                  ? <div style={{ textAlign: 'center', padding: 24 }}><Spinner size="inline" /></div>
                   : originalView.error
                     ? <div style={{ color: 'hsl(0,70%,45%)', fontSize: '0.85rem' }}>{originalView.error}</div>
                     : <div style={{ fontSize: '0.83rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '12px 14px' }}>{originalView.content || '(no original source recorded)'}</div>}
@@ -2122,7 +2122,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Nexus formatted this draft. Review what changed or preview it before you publish.</div>
             {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review Changes</button>}
             <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
-            <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
+            <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Spinner size={13} /> : <Sparkles size={13} />} Re-run AI</button>
           </div>
         )}
 
@@ -2141,7 +2141,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
             {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
             <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Nexus apply this feedback (and any comments) for you - you'll review the before/after before keeping it.</div>
-            <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Nexus'}</button>
+            <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>{aiBusy ? <Spinner size={15} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Nexus'}</button>
           </div>
         )}
 
@@ -2153,7 +2153,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input className="form-input" value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runAiRevise(); }} placeholder="e.g. Add a safety note about wet floors, or tighten the procedure to 6 steps" style={{ flex: '1 1 260px', minWidth: 0 }} />
-              <button className="primary-btn" disabled={aiBusy || !aiInstruction.trim()} onClick={runAiRevise} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Editing…' : 'Apply with Nexus'}</button>
+              <button className="primary-btn" disabled={aiBusy || !aiInstruction.trim()} onClick={runAiRevise} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{aiBusy ? <Spinner size={15} /> : <Sparkles size={15} />} {aiBusy ? 'Editing…' : 'Apply with Nexus'}</button>
             </div>
           </div>
         )}
@@ -2186,7 +2186,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
                   </label>
                   <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>
-                    {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Nexus'}
+                    {aiBusy ? <Spinner size={15} /> : <Sparkles size={15} />} {aiBusy ? 'Writing Your SOP…' : 'Format with Nexus'}
                   </button>
                 </div>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -2757,7 +2757,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
   const askAnswer = () => (
     <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 14, marginBottom: 18 }}>
-      {ask.loading && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> Searching your SOPs…</div>}
+      {ask.loading && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Spinner size={15} /> Searching your SOPs…</div>}
       {!ask.loading && ask.answer != null && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14, position: 'relative' }}>
           <button className="close-btn" onClick={() => setAsk(a => ({ ...a, answer: null, sources: [] }))} title="Dismiss answer" style={{ position: 'absolute', top: 8, right: 8 }}><X size={15} /></button>
@@ -2870,7 +2870,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />
                 {!search && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}
               </div>
-              <button className="primary-btn" disabled={ask.loading || !search.trim()} onClick={() => doAsk(search)} style={{ height: 48, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', borderRadius: 12, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff', flex: '0 0 auto', cursor: (ask.loading || !search.trim()) ? 'default' : 'pointer', pointerEvents: (ask.loading || !search.trim()) ? 'none' : 'auto' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask AI'}</button>
+              <button className="primary-btn" disabled={ask.loading || !search.trim()} onClick={() => doAsk(search)} style={{ height: 48, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', borderRadius: 12, backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff', flex: '0 0 auto', cursor: (ask.loading || !search.trim()) ? 'default' : 'pointer', pointerEvents: (ask.loading || !search.trim()) ? 'none' : 'auto' }}>{ask.loading ? <Spinner size={15} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask AI'}</button>
             </div>
           </div>
 
@@ -3078,7 +3078,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
               {panelHead('Activity Log')}
               {activity === null
-                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Spinner size="inline" /></div>
                 : activity.length === 0
                   ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity yet.</div>
                   : <div style={{ maxHeight: 360, overflow: 'auto' }}>
@@ -3101,7 +3101,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
               {panelHead('Recent Runs')}
               {adminRuns === null
-                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Spinner size="inline" /></div>
                 : adminRuns.length === 0
                   ? <div style={{ padding: 16, fontSize: '0.83rem', color: 'var(--text-muted)' }}>No runs yet. Anyone can execute an SOP as a live checklist with the Run This SOP button.</div>
                   : <div style={{ maxHeight: 360, overflow: 'auto' }}>
@@ -3354,7 +3354,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <div style={{ flex: 1, overflow: 'auto', padding: '16px 22px' }}>
                         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
                           <div className="form-group" style={{ flex: '0 0 auto' }}><label>Due date <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input type="date" className="form-input" value={assign.due} onChange={e => setAssign(a => ({ ...a, due: e.target.value }))} style={{ padding: '10px 12px' }} /></div>
-                          <button className="primary-btn" disabled={assign.busy || !assign.picks.length} onClick={doAssign} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{assign.busy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Plus size={15} />} Assign{assign.picks.length ? ` ${assign.picks.length}` : ''}</button>
+                          <button className="primary-btn" disabled={assign.busy || !assign.picks.length} onClick={doAssign} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{assign.busy ? <Spinner size={15} /> : <Plus size={15} />} Assign{assign.picks.length ? ` ${assign.picks.length}` : ''}</button>
                         </div>
                         <input className="form-input" value={assign.q} onChange={e => setAssign(a => ({ ...a, q: e.target.value }))} placeholder="Search people…" style={{ marginBottom: 8, padding: '10px 12px' }} />
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, maxHeight: 220, overflow: 'auto', marginBottom: 18 }}>
@@ -3368,7 +3368,7 @@ export default function SOP({ activeSub, onSubChange }) {
                               ))}
                         </div>
                         <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Assigned · {roster ? roster.length : '…'}</div>
-                        {roster === null ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}><Loader size={16} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                        {roster === null ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}><Spinner size={16} /></div>
                           : roster.length === 0 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>No one assigned yet.</div>
                             : <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
                                 {roster.map((r, i) => (
@@ -3400,7 +3400,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       </div>
                       <div style={{ flex: 1, overflow: 'auto', padding: '16px 22px' }}>
                         {att === null
-                          ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                          ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-secondary)' }}><Spinner size="inline" /></div>
                           : att.length === 0
                             ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)', fontSize: '0.86rem' }}>No quiz attempts yet.</div>
                             : att.map(a => (
@@ -3661,7 +3661,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
                     </label>
                     <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 42, padding: '0 22px', fontSize: '0.92rem', backgroundColor: 'hsl(var(--color-green))', border: 'none', color: '#fff' }}>
-                      {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Writing the Course…' : 'Generate Course'}
+                      {courseAiBusy ? <Spinner size={15} /> : <Sparkles size={15} />} {courseAiBusy ? 'Writing the Course…' : 'Generate Course'}
                     </button>
                   </div>
                 </div>
@@ -3675,7 +3675,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <Sparkles size={18} style={{ color: 'hsl(var(--color-green))', flex: '0 0 auto' }} />
                 <div style={{ flex: 1, minWidth: 160, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude generated this course from your source. Review and edit everything below.</div>
                 <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
-                <button className="secondary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{courseAiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run</button>
+                <button className="secondary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{courseAiBusy ? <Spinner size={13} /> : <Sparkles size={13} />} Re-run</button>
               </div>
             )}
 

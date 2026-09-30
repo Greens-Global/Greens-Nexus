@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { externalAuthPost as post, useResendTimer } from '../lib/externalAuth';
+import { Spinner } from '../components/AsyncState';
 
 // ── External-user activation (/activate/{token}) - Aug 18 passwordless flow ──
 // Unauthenticated by definition: the single-use token from the invitation
@@ -106,9 +107,8 @@ export default function ExternalActivate({ token }) {
 
         {phase === 'loading' && (
           <div style={{ padding: '38px 0', textAlign: 'center' }}>
-            <div style={{ width: 30, height: 30, margin: '0 auto 12px', borderRadius: '50%', border: '3px solid #e5e7eb', borderTopColor: '#0f3d2e', animation: 'spin .7s linear infinite' }} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}><Spinner size="section" /></div>
             <div style={{ fontSize: 13.5, color: '#6b7280' }}>Checking your invitation…</div>
-            <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
           </div>
         )}
 

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import QRCode from 'qrcode';
-import { Loader2, X, KeyRound, Smartphone, Ban } from 'lucide-react';
+import { X, KeyRound, Smartphone, Ban } from 'lucide-react';
 import { api, API_BASE } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { Spinner, LoadingState } from './AsyncState';
 
 // Enrol a field worker's phone: mint a one-time device token (reuses the
 // silent-agent model) and render a QR that carries EVERYTHING the Nexus Field
@@ -98,7 +99,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
             {err && <p style={{ fontSize: 11.5, color: '#b91c1c', margin: '10px 0 0' }}>{err}</p>}
             <button className="primary-btn" onClick={enrol} disabled={busy}
               style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <KeyRound size={13} />}
+              {busy ? <Spinner size={13} /> : <KeyRound size={13} />}
               Generate pairing QR
             </button>
           </>
@@ -129,7 +130,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
           <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
             Enrolled phones
           </div>
-          {devices === null ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
+          {devices === null ? <LoadingState compact />
             : devices.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No phones enrolled yet.</div>
             : devices.map(d => (
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>

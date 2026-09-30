@@ -6,6 +6,7 @@
 // rules and notifications are unchanged. Approve or decline with an optional
 // note; the on/off switches live here too.
 import { useEffect, useState } from 'react';
+import { LoadingState } from './AsyncState';
 import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -83,7 +84,7 @@ export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastE
         </div>
 
         {data === null ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)', padding: 16, textAlign: 'center' }}>Loading…</div>
+          <LoadingState compact />
         ) : data.pending.length === 0 && !(timeoff || []).length ? (
           <div style={{ fontSize: 13, color: 'var(--muted)', padding: 16, textAlign: 'center' }}>Nothing waiting on you.</div>
         ) : (

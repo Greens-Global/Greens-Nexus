@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz } from '../lib/displayTz';
@@ -14,6 +14,7 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
 import AnchoredMenu from './AnchoredMenu';
+import { Spinner } from './AsyncState';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -597,7 +598,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   if (data === null && !stepLocked) {
     const spinner = (
       <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
-        <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+        <Spinner size="section" />
       </div>
     );
     return self ? spinner : (
@@ -707,7 +708,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {stepLocked ? (
         <StepUpNeeded label="Payroll shows employees’ pay figures." onVerified={load} />
       ) : data === null ? (
-        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>
       ) : (
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,

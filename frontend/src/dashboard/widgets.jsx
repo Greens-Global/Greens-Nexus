@@ -17,6 +17,7 @@ import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
+import { ModalLoading, LoadingState } from '../components/AsyncState';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -368,7 +369,7 @@ function LinksFolderWidget({ config }) {
     <DashCard title={title} sub={config.itemType === 'personal' ? 'Personal' : 'Company'}
       action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Loading…</div>
+        <LoadingState />
       ) : !state.folder ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
@@ -511,7 +512,7 @@ function FavoritesWidget() {
   return (
     <DashCard title={title} sub={mode === 'recents' ? 'Company links opened in this browser' : undefined} action={tabs}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : links.length === 0 ? (
         mode === 'recents' ? (
           <div style={noteStyle}>Nothing opened yet in this browser. Company links you open show up here.</div>
@@ -580,7 +581,7 @@ function PersonalLinksWidget() {
       <DashCard title="My Personal Links" sub={note || 'Only visible to you'}
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
-          <div style={noteStyle}>Loading…</div>
+          <LoadingState compact />
         ) : (
           <>
             <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
@@ -594,7 +595,7 @@ function PersonalLinksWidget() {
           <LinksFolderAllModal title="My Personal Links" links={state.links} itemType="personal" onOpen={open} onClose={() => setShowAll(false)} />
         )}
         {composer && (
-          <Suspense fallback={null}>
+          <Suspense fallback={<ModalLoading />}>
             <QuickActionModal kind="personal-link" initialUrl={composer.initialUrl} onClose={closeComposer} />
           </Suspense>
         )}
@@ -652,7 +653,7 @@ function QuickActionsWidget({ config }) {
           </button>
         ))}
       </div>
-      {modal && <Suspense fallback={null}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
+      {modal && <Suspense fallback={<ModalLoading />}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
     </DashCard>
   );
 }

@@ -1,13 +1,14 @@
 /* eslint-disable react-hooks/refs -- canvas PDF editor intentionally reads DOM/geometry and latest-state refs during render (page layout, element hit-testing); the React-Compiler rule flags these safe reads */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  X, CheckCircle, Loader2, FileText, MousePointer2, Type, PenTool, Highlighter,
+  X, CheckCircle, FileText, MousePointer2, Type, PenTool, Highlighter,
   Square, Circle, Minus, MoveUpRight, Image as ImageIcon, Eraser, EyeOff,
   Undo2, Redo2, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Trash2,
   CopyPlus, FilePlus, Layers, TextCursorInput, Bold, Italic,
 } from 'lucide-react';
 import { isDocx } from '../lib/docxFile';
 import { api } from '../api';
+import { Spinner } from './AsyncState';
 
 // ── In-browser PDF editor ──────────────────────────────────────────────────────
 // Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx - bytes
@@ -1037,7 +1038,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <button className="secondary-btn" onClick={requestClose} disabled={busy} style={{ fontSize: 12.5 }}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || loading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: busy || loading ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save Changes
+            {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Changes
           </button>
         </div>
 
@@ -1101,7 +1102,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                   <div onClick={() => pageRefs.current[pg.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                     style={{ position: 'relative', aspectRatio: `${d.w} / ${d.h}`, background: '#fff', borderRadius: 6, border: '1.5px solid var(--line)', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
                     {img ? <img src={img} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-                      : !pg.blank && <Loader2 size={13} style={{ position: 'absolute', top: '46%', left: '46%', color: 'var(--muted)', animation: 'spin 1s linear infinite' }} />}
+                      : !pg.blank && <Spinner size={13} style={{ position: 'absolute', top: '46%', left: '46%' }} />}
                     <span style={{ position: 'absolute', bottom: 3, right: 5, fontSize: 9.5, fontWeight: 800, color: 'var(--muted)', background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '0 4px' }}>{i + 1}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 1, marginTop: 3 }}>
@@ -1129,7 +1130,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <div style={{ flex: 1, overflow: 'auto', padding: '26px 20px', minWidth: 0, userSelect: 'none' }}>
             {loading ? (
               <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}>
-                <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+                <Spinner size="section" />
                 <div style={{ fontSize: 12, marginTop: 8 }}>Opening document…</div>
               </div>
             ) : (
@@ -1143,7 +1144,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                     <div key={pg.id} ref={el => { pageRefs.current[pg.id] = el; }}
                       style={{ position: 'relative', width: `${Math.round(zoom * 100)}%`, maxWidth: 980 * zoom, aspectRatio: `${d.w} / ${d.h}`, background: '#fff', boxShadow: '0 2px 12px rgba(0,0,0,0.14)', borderRadius: 4 }}>
                       {img && <img src={img} alt={`Page ${i + 1}`} draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', borderRadius: 4 }} />}
-                      {!img && !pg.blank && <Loader2 size={18} style={{ position: 'absolute', top: '48%', left: '48%', color: 'var(--muted)', animation: 'spin 1s linear infinite' }} />}
+                      {!img && !pg.blank && <Spinner size="inline" style={{ position: 'absolute', top: '48%', left: '48%' }} />}
                       <svg viewBox={`0 0 ${d.w} ${d.h}`} preserveAspectRatio="none"
                         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: cursorFor, touchAction: 'none', overflow: 'visible' }}
                         onPointerDown={e => pageDown(e, pg, d)} onPointerMove={pageMove} onPointerUp={pageUp}>

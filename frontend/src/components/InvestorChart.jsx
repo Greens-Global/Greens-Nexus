@@ -5,10 +5,11 @@
 // reassign. It reads the SAME book of business as the Investor Relations
 // module (ir_investors.relationship_owner_email) - no second list, no schema.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Loader2, Plus, X } from 'lucide-react';
+import { Briefcase, Plus, X } from 'lucide-react';
 import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { Spinner } from './AsyncState';
 
 const HUES = ['215 70% 46%', '150 55% 38%', '265 55% 52%', '20 75% 48%', '340 60% 48%', '190 70% 38%'];
 const hueFor = (s) => HUES[(s || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % HUES.length];
@@ -188,7 +189,7 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
 
   if (investors === null) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '46px 0', color: 'var(--muted)', fontSize: 13 }}>
-      <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Loading the investor book…
+      <Spinner size={16} /> Loading the investor book…
     </div>
   );
 
@@ -337,7 +338,7 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setAdding(null)}>Cancel</button>
               <button className="primary-btn" onClick={saveAdd} disabled={addBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {addBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Add Investor
+                {addBusy ? <Spinner size={13} /> : <Plus size={13} />} Add Investor
               </button>
             </div>
           </div>

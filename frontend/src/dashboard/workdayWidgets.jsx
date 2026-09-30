@@ -9,6 +9,8 @@
 // bundle does not grow; DashCard / navigate come from widgets.jsx so these
 // read exactly like every other tile.
 import { useState, useEffect } from 'react';
+
+import { LoadingState } from '../components/AsyncState';
 import { ArrowRight, Cake, CalendarDays, Clock, Package, HandCoins } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -103,7 +105,7 @@ export function TimeClockWidget() {
   return (
     <DashCard title="Time Clock" sub={since || undefined} action={<Clock size={15} style={{ color: 'var(--muted)' }} />}>
       {!status ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: stateColor }}>
@@ -178,7 +180,7 @@ export function MyRequestsWidget() {
   return (
     <DashCard title="My Requests" sub={state.loading ? undefined : pending ? `${pending} waiting on a decision` : 'Nothing waiting'}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No open requests. Time off, punch corrections and HR requests show up here.</div>
       ) : (
@@ -240,7 +242,7 @@ export function DueBackWidget() {
   return (
     <DashCard title="Due Back Soon" sub={state.loading ? undefined : overdue ? `${overdue} overdue` : state.rows.length ? `${state.rows.length} with you` : undefined}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>Nothing due back. Items you check out show up here as their return date nears.</div>
       ) : (
@@ -291,7 +293,7 @@ export function ComingUpWidget() {
   return (
     <DashCard title="Coming Up" sub="Next 30 days" action={<Cake size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No birthdays or holidays in the next 30 days.</div>
       ) : (

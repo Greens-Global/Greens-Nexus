@@ -15,6 +15,7 @@
 // already-open ticket screen picks up the change immediately, the same way
 // TicketDeskSettings/TicketNotifySettings's saves take effect live.
 import { useEffect, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import { ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -206,7 +207,7 @@ export default function TicketTaxonomySettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const allKeys = Object.keys(TICKET_TYPE_META);
   // null order = "use the compiled-in default order" - shown editable as that

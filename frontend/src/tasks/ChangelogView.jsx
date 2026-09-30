@@ -12,6 +12,7 @@
 // The backend stores each entry as a free-form `payload` dict (task_changelog_entries),
 // so every field below lives inside that payload; the server owns only id/createdAt/updatedAt.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import { createPortal } from 'react-dom';
 import {
   Sparkles, Clock, Tag, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
@@ -991,7 +992,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
               {comments === null ? (
-                <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: NX.faint }}>Loading…</div>
+                <LoadingState />
               ) : commentList.length === 0 ? (
                 <div style={{ borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '40px 0', textAlign: 'center', fontSize: 13, color: NX.dim }}>No comments yet. Be the first to add one.</div>
               ) : (

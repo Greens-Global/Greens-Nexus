@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
-  Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
+  Pencil, Plus, X, CheckCircle, Ban, Camera, MoonStar,
   CalendarDays, Activity, Inbox, Banknote, CalendarOff,
   Search, Lock,
 } from 'lucide-react';
@@ -14,7 +14,7 @@ import TimeInsights from './TimeInsights';
 import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
-import { ErrorBanner } from './AsyncState';
+import { ErrorBanner, Spinner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
@@ -507,7 +507,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
       {view === 'billable' && (
         billable === null ? (
-          <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : billable.length === 0 ? (
           <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
             No billable time in this range. Register each property as a Work site (People &gt; Work sites) with its address and radius, so clock-ins geofence to it and hours attribute per property.
@@ -548,7 +548,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       )}
 
       {view === 'timecards' && (<>
-      {rows === null && <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+      {rows === null && <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>}
       {rows !== null && rows.length === 0 && (
         <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
           No punches in this range. Employees punch in from the Time Clock page in the sidebar.
@@ -717,7 +717,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         </div>
       )}
       {view === 'insights' && (rows === null
-        ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : (() => {
           const sorted = [...rows].sort((a, b) => b.workedMin - a.workedMin);
           const maxWork = Math.max(1, ...rows.map(r => r.workedMin));
@@ -885,7 +885,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           </div>
           {exceptions === null ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}>
-              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+              <Spinner size="section" />
             </div>
           ) : exceptions.length === 0 ? (
             <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,
@@ -1016,7 +1016,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
           {!shotWho && (
             shotPeople === null
-              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
               : shotPeople.length === 0
                 ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
                     No captures on this day. Frames are saved while a team member is clocked in with screen capture on.
@@ -1036,7 +1036,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
           {shotWho && (
             shotFrames === null
-              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
               : shotFrames.length === 0
                 ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No frames for this person on this day.</div>
                 : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
@@ -1197,7 +1197,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setEdit(null)}>Cancel</button>
               <button className="primary-btn" onClick={saveEdit} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save
+                {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save
               </button>
             </div>
           </div>
@@ -1254,7 +1254,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setObo(null)}>Cancel</button>
               <button className="primary-btn" onClick={saveObo} disabled={oboBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {oboBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} File Request
+                {oboBusy ? <Spinner size={13} /> : <CheckCircle size={13} />} File Request
               </button>
             </div>
           </div>
@@ -1288,7 +1288,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setAddFor(null)}>Cancel</button>
               <button className="primary-btn" onClick={saveAdd} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Add
+                {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Add
               </button>
             </div>
           </div>

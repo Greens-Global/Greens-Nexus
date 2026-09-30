@@ -10,6 +10,7 @@
 // actually wrote is rubber-stamping, and the whole point of the review gate is
 // that a second person looked.
 import { useCallback, useEffect, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import {
   ClipboardCheck, AlertTriangle, ShieldAlert, Clock, MapPin, Image as ImageIcon,
   Check, Undo2, ChevronDown, ChevronRight, Sparkles,
@@ -151,7 +152,7 @@ function LogCard({ log, onDecide, busy }) {
           )}
 
           {media === null ? (
-            <div style={{ marginTop: 14, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Loading media&hellip;</div>
+            <LoadingState compact label="Loading media…" />
           ) : media.length > 0 && (
             <div style={{ marginTop: 14, display: 'grid',
                           gridTemplateColumns: 'repeat(auto-fill, minmax(84px, 1fr))', gap: 8 }}>

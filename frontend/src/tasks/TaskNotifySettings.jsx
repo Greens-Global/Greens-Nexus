@@ -5,6 +5,7 @@
 // (not a shared generic) since the field sets genuinely differ (due-date
 // reminder cadence has no ticket equivalent; auto-close has no task one).
 import { useEffect, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import {
   Mail, RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw,
   MessageSquare, Paperclip, Ban, MinusCircle, Play,
@@ -81,7 +82,7 @@ export default function TaskNotifySettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const set = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
   const setEvent = (k, v) => setCfg((c) => ({ ...c, enabledEvents: { ...c.enabledEvents, [k]: v } }));
@@ -351,7 +352,7 @@ function RepliesLog({ replyTo, enabled }) {
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>
           {status ? 'No replies in this state.'
@@ -446,7 +447,7 @@ function DeliveryLog() {
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No notification attempts yet.</div>
       ) : (

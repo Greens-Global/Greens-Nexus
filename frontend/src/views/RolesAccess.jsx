@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
+  Shield, Plus, X, Search, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
   LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp, MailPlus, ChevronLeft,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
@@ -8,7 +8,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { capabilityText } from '../lib/moduleCapabilities';
@@ -565,7 +565,7 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── JOB ROLES ── */}
       {sub === 'jobroles' && (
-        !jobRoles ? <Spinner /> : (
+        !jobRoles ? <ListSkeleton /> : (
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
               {embedded && (
@@ -698,7 +698,7 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── GROUPS ── */}
       {sub === 'groups' && (
-        !groups ? <Spinner /> : (
+        !groups ? <ListSkeleton /> : (
           <>
             <CompanyWallsPanel toastOk={toastOk} toastErr={toastErr} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -879,7 +879,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
           </button>
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
-          {!people.length ? <Spinner /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map(p => {
+          {!people.length ? <ListSkeleton /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map(p => {
             const mem = membership[p.email];
             const active = person === p.email;
             return (
@@ -932,7 +932,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               See exactly what they can do - and change their role or groups right here.
             </div>
           </div>
-        ) : busy || !eff ? <Spinner /> : eff.error ? (
+        ) : busy || !eff ? <ListSkeleton /> : eff.error ? (
           <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Could not load access for this person.</div>
         ) : (
           <>
@@ -1062,7 +1062,7 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
 
   const toggle = id => setOpen(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  if (!jobRoles || !groups) return <Spinner />;
+  if (!jobRoles || !groups) return <ListSkeleton />;
   if (jobRoles.length === 0) return <Empty text="No job roles yet - create them under a company's Roles tab in Company Settings." />;
 
   // For a row's grants, the strongest level within a family (dot = mixed levels).
@@ -1214,7 +1214,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
         </select>
         <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {busy === 'apply' && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+          {busy === 'apply' && <Spinner size={13} />}
           Apply to all {role.member_count} {role.member_count === 1 ? 'member' : 'members'}
         </button>
       </div>
@@ -1444,7 +1444,7 @@ function PromoteModal({ person, eff, jobRoles, nameOf, companyName, onClose, onD
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
         <button className="primary-btn" disabled={!target || busy} onClick={promote}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: (!target || busy) ? 0.6 : 1 }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <TrendingUp size={14} />} Promote
+          {busy ? <Spinner size={14} /> : <TrendingUp size={14} />} Promote
         </button>
       </div>
     </Modal>
@@ -1553,7 +1553,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save job role</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save job role</button>
       </div>
     </Modal>
   );
@@ -1594,7 +1594,7 @@ function CompanyWallsPanel({ toastOk, toastErr }) {
         </div>
       </div>
       <button className={state.on ? 'secondary-btn' : 'primary-btn'} disabled={busy} onClick={toggle} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
+        {busy && <Spinner size={14} />}
         {state.on ? 'Disarm' : 'Arm walls'}
       </button>
     </div>
@@ -1655,7 +1655,7 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save group</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save group</button>
       </div>
     </Modal>
   );
@@ -1703,14 +1703,14 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
           style={{ ...input, paddingLeft: 34 }} />
       </div>
       <div style={{ maxHeight: 340, overflow: 'auto' }}>
-        {!dir ? <Spinner /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>
+        {!dir ? <ListSkeleton /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>
           : filtered.slice(0, 60).map(p => {
             const isAdded = added.has(p.email);
             return (
               <button key={p.email} onClick={() => assign(p)} disabled={!!busy || isAdded}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div></div>
-                {busy === p.email ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                {busy === p.email ? <Spinner size={15} />
                   : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
                   : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
               </button>
@@ -1788,7 +1788,7 @@ function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }
 }
 // Content-area loading: skeleton placeholders (not a bare spinner) so the layout
 // stays stable and it reads as "loading this list", the standardized pattern.
-const Spinner = () => <div style={{ padding: '8px 4px' }}><SkeletonBlocks count={5} height={54} /></div>;
+const ListSkeleton = () => <div style={{ padding: '8px 4px' }}><SkeletonBlocks count={5} height={54} /></div>;
 const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>{text}</div>;
 
 const thCorner = { position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--card)', textAlign: 'left', padding: '11px 14px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderRight: '1px solid var(--line)', borderBottom: '1.5px solid var(--line)', minWidth: 190 };

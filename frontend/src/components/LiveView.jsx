@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, MonitorSmartphone, X, Radio, MousePointer2, Maximize2, ExternalLink, Paperclip, ZoomIn, ZoomOut } from 'lucide-react';
+import { MonitorSmartphone, X, Radio, MousePointer2, Maximize2, ExternalLink, Paperclip, ZoomIn, ZoomOut } from 'lucide-react';
 import { api } from '../api';
 import { Avatar } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { usePhotoMap } from '../lib/peoplePhotos';
+import { Spinner } from './AsyncState';
 
 // Real-time screen view of one clocked-in employee (Discord-style), plus
 // consent-based attended remote control. The browser is the WebRTC ANSWERER: we
@@ -670,7 +671,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
           {status === 'live' && control === 'requested' && (
             <>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>
-                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Waiting for {name.split(' ')[0]} to accept…
+                <Spinner size={12} /> Waiting for {name.split(' ')[0]} to accept…
               </span>
               <button onClick={cancelControl} style={hdrBtn}>Cancel</button>
             </>
@@ -774,7 +775,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
           {overlay && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, textAlign: 'center', padding: 24 }}>
               {overlay.spin
-                ? <Loader2 size={26} style={{ color: '#cbd5e1', animation: 'spin 1s linear infinite' }} />
+                ? <Spinner size="section" />
                 : <MonitorSmartphone size={26} style={{ color: overlay.color }} />}
               <div style={{ fontSize: 15, fontWeight: 800, color: '#e2e8f0' }}>{overlay.text}</div>
               <div style={{ fontSize: 12, color: '#94a3b8', maxWidth: 360, lineHeight: 1.5 }}>{overlay.sub}</div>
@@ -790,7 +791,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
                   ? <span style={{ color: 'hsl(var(--color-green))', fontSize: 14, lineHeight: 1, fontWeight: 800 }}>✓</span>
                   : fileProg.status === 'error'
                     ? <X size={13} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
-                    : <Loader2 size={12} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)', flexShrink: 0 }} />}
+                    : <Spinner size={12} style={{ flexShrink: 0 }} />}
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
                   {fileProg.status === 'done' ? `Delivered ${fileProg.name}`
                     : fileProg.status === 'error' ? (fileProg.err || 'Transfer failed')

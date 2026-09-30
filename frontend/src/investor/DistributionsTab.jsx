@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpFromLine, Check, ChevronDown, ChevronRight, Loader, Plus, Send } from 'lucide-react';
+import { ArrowUpFromLine, Check, ChevronDown, ChevronRight, Plus, Send } from 'lucide-react';
 import { api } from '../api';
 import { formatCurrency, formatDate, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, StatusText, ThinBar, useIrLoad } from './lib/ui';
+import { Spinner } from '../components/AsyncState';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -275,7 +276,7 @@ export default function DistributionsTab() {
             <div className="modal-footer">
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy && <Loader size={13} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {busy && <Spinner size={13} />}
                 Create Draft Distribution
               </button>
             </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  X, Plus, Trash2, Video, Sparkles, Loader2, Trophy, Send, FileText,
+  X, Plus, Trash2, Video, Sparkles, Trophy, Send, FileText,
   CheckCircle, Play, ClipboardList, RefreshCw,
 } from 'lucide-react';
 import { api } from '../api';
@@ -8,6 +8,7 @@ import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { Spinner } from './AsyncState';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
@@ -82,7 +83,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
           </div>
         ) : (
           <>
-            {tpls === null ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+            {tpls === null ? <Spinner size="inline" />
               : tpls.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '20px 0', textAlign: 'center' }}>No questionnaires yet - create one per role.</div>
               : tpls.map(t => (
                 <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
@@ -185,14 +186,14 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
             </div>
             <button className="primary-btn" onClick={schedule} disabled={busy === 'sched' || !sched.at}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              {busy === 'sched' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Video size={14} />} Send Teams invite
+              {busy === 'sched' ? <Spinner size={13} /> : <Video size={14} />} Send Teams invite
             </button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>The candidate gets a calendar invite with the Teams link on {c.email || 'their email'}.</p>
         </div>
 
         {/* Rounds */}
-        {list === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : list.length > 0 && (
+        {list === null ? <Spinner size={16} /> : list.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {list.map(iv => (
               <button key={iv.id} onClick={() => setSel(iv)}
@@ -234,7 +235,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
-                  {busy === 'pull' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <RefreshCw size={13} />} Pull Teams Transcript
+                  {busy === 'pull' ? <Spinner size={13} /> : <RefreshCw size={13} />} Pull Teams Transcript
                 </button>
                 <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setShowPaste(p => !p)}>
                   <FileText size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Paste Transcript
@@ -242,11 +243,11 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'hsl(var(--color-purple))' }}
                   disabled={!!busy || !(sel.hasTranscript)} title={sel.hasTranscript ? '' : 'Pull or paste a transcript first'}
                   onClick={run('fill', async () => refreshSel(await api.ivAutofill(sel.id)), 'Answers auto-filled from the transcript')}>
-                  {busy === 'fill' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} AI Auto-fill Answers
+                  {busy === 'fill' ? <Spinner size={13} /> : <Sparkles size={13} />} AI Auto-fill Answers
                 </button>
                 <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('cal', async () => refreshSel(await api.ivCalibrate(sel.id)), 'Scored - check the leaderboard')}>
-                  {busy === 'cal' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Trophy size={13} />} Calibrate Score
+                  {busy === 'cal' ? <Spinner size={13} /> : <Trophy size={13} />} Calibrate Score
                 </button>
               </div>
             )}
@@ -344,7 +345,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
           {(rows || []).length >= 2 && (
             <button className="primary-btn" onClick={recommend} disabled={recBusy}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              {recBusy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />}
+              {recBusy ? <Spinner size={13} /> : <Sparkles size={13} />}
               {recBusy ? 'Comparing…' : 'AI: whom should we hire?'}
             </button>
           )}
@@ -371,7 +372,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
             )}
           </div>
         )}
-        {rows === null ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+        {rows === null ? <Spinner size="inline" />
           : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet - run "Calibrate score" after each interview.</div>
           : rows.map((iv, i) => (
             <div key={iv.id} style={{ borderBottom: '1px solid var(--line)', padding: '10px 0' }}>

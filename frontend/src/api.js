@@ -876,7 +876,8 @@ export const api = {
   // + the dashboard panels).
   // Legacy /inventory-requests router was retired - the equivalent Nexus-People
   // allocator list now lives on the items router. Kept the name; repointed the URL.
-  getInventoryAllocators:  ()          => req('/items/allocators'),
+  // cachedGet (Sep 29): the bell re-requested this on every screen switch (~0.8 s each on dev).
+  getInventoryAllocators:  ()          => cachedGet('/items/allocators'),
 
   // Items - new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),

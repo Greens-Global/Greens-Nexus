@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, ExternalLink, Info, Loader, Plus, Trash2, X } from 'lucide-react';
+import { Briefcase, ExternalLink, Info, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, formatMultiple, formatPercent, numOrNull } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, ThinBar, useIrLoad } from './lib/ui';
+import { Spinner } from '../components/AsyncState';
 
 const BLANK = {
   name: '', entityName: '', strategy: '', propertyName: '', status: 'raising',
@@ -135,7 +136,7 @@ function DealPortalAccess({ fundId }) {
               {r.granted && <StatusText status="active" label="Portal Access" size={11.5} />}
               <button type="button" className="secondary-btn" disabled={!!busyId} onClick={() => toggle(r)}
                 style={{ fontSize: 12, padding: '5px 12px', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, ...(r.granted ? { color: 'hsl(var(--color-red))' } : {}) }}>
-                {busyId === r.investorId && <Loader size={12} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {busyId === r.investorId && <Spinner size={12} />}
                 {r.granted ? 'Revoke Portal Access' : 'Grant Portal Access'}
               </button>
             </div>
@@ -403,7 +404,7 @@ export default function FundsTab() {
               )}
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>
               <button type="submit" className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {busy && <Loader size={13} style={{ animation: 'spin 0.8s linear infinite' }} />}
+                {busy && <Spinner size={13} />}
                 {modal.id ? 'Save Changes' : 'Create Deal'}
               </button>
             </div>

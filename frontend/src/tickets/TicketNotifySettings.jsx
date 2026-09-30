@@ -6,7 +6,7 @@ import { RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw } from '
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { TicketSelect } from './TicketAtoms';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -60,7 +60,7 @@ export default function TicketNotifySettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const set = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
   const setEvent = (k, v) => setCfg((c) => ({ ...c, enabledEvents: { ...c.enabledEvents, [k]: v } }));
@@ -187,7 +187,7 @@ function DeliveryLog() {
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No notification attempts yet.</div>
       ) : (

@@ -15,12 +15,13 @@
 // counterpart (My HR) shows this SAME folder with Confidential-named
 // subfolders filtered out (people.my-documents-excluded-subfolder-names).
 import { useCallback, useEffect, useState } from 'react';
-import { FolderPlus, FolderSearch, FolderX, HardDrive, Loader2 } from 'lucide-react';
+import { FolderPlus, FolderSearch, FolderX, HardDrive } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import EgnyteFolderBrowser from './EgnyteFolderBrowser';
 import FolderPickModal from './EgnyteFolderPick';
 import { BODY, CARD, HEADING, Loading, Notice, OpenInEgnyte } from './ui';
+import { Spinner } from '../components/AsyncState';
 
 export default function EgnytePersonFolder({ email, personName = '' }) {
   const { can } = useRole();
@@ -92,7 +93,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="primary-btn" disabled={busy} onClick={provision} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <FolderPlus size={13} />} Create Folder
+            {busy ? <Spinner size={13} /> : <FolderPlus size={13} />} Create Folder
           </button>
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => setPicking(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <FolderSearch size={13} /> Choose Existing Folder

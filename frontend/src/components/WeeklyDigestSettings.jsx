@@ -7,6 +7,7 @@
 // every employee to tune. Same Global-Admin bar, off/test/live modes and
 // "confirm before going live" speed bump as DailyBriefingSettings.jsx.
 import { useEffect, useState } from 'react';
+import { LoadingState } from './AsyncState';
 import { CalendarDays, Save, Send, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -55,7 +56,7 @@ export default function WeeklyDigestSettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   // Only an actual switch INTO live needs the tick - re-saving while already
   // live must not ask again (same rule as the daily settings).
@@ -353,7 +354,7 @@ function DigestDeliveryLog() {
         {note && <span role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>{note}</span>}
       </div>
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No weekly scans logged yet.</div>
       ) : (

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Users, Clock, Loader2, X, Check, MessageSquare, Link2 as LinkIcon } from 'lucide-react';
+import { Plus, Trash2, Users, Clock, X, Check, MessageSquare, Link2 as LinkIcon } from 'lucide-react';
 import { api } from '../api';
 import { graphTokenSilent, graphTokenInteractive, listMyChats } from '../teamsGraph';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { dialog } from '../ui/dialog';
 import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
+import { Spinner } from './AsyncState';
 
 // ── Shifts, groups & bulk assignment ──────────────────────────────────────────
 // Define shifts (time + weekdays + grace), bundle people into reusable groups,
@@ -164,7 +165,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           </button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
-          {shifts === null && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />}
+          {shifts === null && <Spinner size={16} />}
           {shifts && shifts.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shifts yet.</div>}
           {shifts && shifts.map(s => (
             <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
@@ -198,7 +199,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           )}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-          {groups === null && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />}
+          {groups === null && <Spinner size={16} />}
           {groups && groups.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No groups yet.</div>}
           {groups && groups.map(g => (
             <div key={g.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
@@ -233,7 +234,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
             {(groups || []).map(g => <option key={g.id} value={g.id}>{g.name} ({g.members.length})</option>)}
           </select>
           <button className="primary-btn" onClick={doAssign} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {busy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={12} />} Assign
+            {busy ? <Spinner size={12} /> : <Check size={12} />} Assign
           </button>
         </div>
         {Object.keys(assignments).length > 0 && (
@@ -363,7 +364,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               ) : chatList === null ? (
                 <button className="secondary-btn" onClick={loadChatOptions} disabled={chatLoading}
                   style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {chatLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <LinkIcon size={12} />} Bind a Chat
+                  {chatLoading ? <Spinner size={12} /> : <LinkIcon size={12} />} Bind a Chat
                 </button>
               ) : chatList.length === 0 ? (
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Search, Loader2, MapPin, AlertTriangle } from 'lucide-react';
+import { Search, MapPin, AlertTriangle } from 'lucide-react';
 import { searchAddresses, metersBetween } from '../lib/addressSearch';
+import { Spinner } from './AsyncState';
 
 // Work site location, address first (Pranshu, Sep 30).
 //
@@ -130,7 +131,7 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); run(); } }} />
         <button type="button" className="secondary-btn" onClick={run} disabled={busy || !query.trim()}
           style={{ padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />} Search
+          {busy ? <Spinner size={14} /> : <Search size={14} />} Search
         </button>
       </div>
 

@@ -24,6 +24,7 @@
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -257,7 +258,7 @@ export default function TicketDeskSettings() {
     );
   }
   if (agents === null || byCompany === null || companies === null || depts === null) {
-    return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+    return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
   }
 
   const setCompanyRoster = (companyId, next) => setByCompany((b) => ({ ...b, [companyId]: next }));

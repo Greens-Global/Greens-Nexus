@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ShieldX, RefreshCw, ArrowLeft } from 'lucide-react';
 import { api } from '../api';
+import { Spinner } from '../components/AsyncState';
 
 // /sso/accounting - the "Login via Nexus" landing for accounting.greensglobal.com.
 //
@@ -48,8 +49,7 @@ export default function AccountingHandoff({ next }) {
   if (phase === 'check') {
     return (
       <div role="status" aria-live="polite" style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }}>
-        <style>{`@keyframes nxHandoffSpin { to { transform: rotate(360deg); } }`}</style>
-        <span style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--wk-brand, #2b45e1)', animation: 'nxHandoffSpin 0.8s linear infinite' }} />
+        <Spinner size="view" />
         <span style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>Opening Nexus Accounting...</span>
       </div>
     );

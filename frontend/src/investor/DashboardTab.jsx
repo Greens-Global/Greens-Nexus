@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Landmark, Loader, Megaphone, Pin, Sprout } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Landmark, Megaphone, Pin, Sprout } from 'lucide-react';
 import { api } from '../api';
 import { formatCurrency, formatDate, formatMultiple, formatPercent, statusColor, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, LoadingState, StatusText, useIrLoad } from './lib/ui';
+import { Spinner } from '../components/AsyncState';
 
 // GP-side portfolio overview: raise / call / distribute KPIs plus what needs
 // attention next (upcoming calls, recent distributions, latest updates).
@@ -33,7 +34,7 @@ export default function DashboardTab({ onOpenTab }) {
         sub="Create your first deal from the Deals tab, or load a sample portfolio to explore every screen in this module.">
         {seedErr && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginBottom: 10 }}>{seedErr}</div>}
         <button className="primary-btn" disabled={seeding} onClick={seed} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          {seeding ? <Loader size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Sprout size={14} />} Load Sample Portfolio
+          {seeding ? <Spinner size={14} /> : <Sprout size={14} />} Load Sample Portfolio
         </button>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
           Demo / sample data for local review - deals, investors, commitments, capital calls, and distributions.

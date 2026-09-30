@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Loader2, Check } from 'lucide-react';
+import { ShieldCheck, Check } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks } from './AsyncState';
+import { SkeletonBlocks, Spinner } from './AsyncState';
 import { PolicyText, formatPolicyVersion } from '../lib/policyText';
 
 // ── Sign-in company-policy & monitoring acknowledgment ────────────────────────
@@ -109,7 +109,7 @@ export default function PolicyGate({ children }) {
           <button className="primary-btn" onClick={accept} disabled={!agree || busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 14, padding: '11px 24px',
               opacity: (!agree || busy) ? 0.55 : 1 }}>
-            {busy ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={15} />}
+            {busy ? <Spinner size={15} /> : <Check size={15} />}
             Accept & Continue
           </button>
         </div>
