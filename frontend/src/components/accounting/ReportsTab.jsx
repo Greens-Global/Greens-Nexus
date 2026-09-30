@@ -415,7 +415,7 @@ export default function ReportsTab({ search = null }) {
       {!searching && loading && !shown && <SkeletonBlocks count={4} />}
 
       {!searching && shown && (
-        <div style={{ ...card, padding: 10 }}>
+        <div className="acct-statement" style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
               <h3 className="acct-heading" style={{ margin: 0 }}>{def.label}</h3>

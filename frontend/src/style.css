@@ -2379,13 +2379,14 @@ th.num.acct-caps, .acct-caps.num { text-align: right; }
    child accounts indented 24px; only group headers and totals bold. */
 .acct-report-wrap { overflow: auto; max-height: 78vh; border: 1px solid var(--border-color); border-radius: 10px; }
 .acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 0; margin: 0 auto; font-family: var(--font-ui); font-size: var(--acct-font, 14px); line-height: 20px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; --acct-row-py: 8px; }
-/* A statement is as wide as its columns need (QuickBooks-style, centered in
-   its card) - the figure sits beside the name, never a screen away. Columns
-   keep a floor so short statements still read as a statement. */
-.acct-report th.acct-head { min-width: 360px; }
+/* A statement's CARD is as wide as its columns need (at least 780px, at
+   most the screen) and sits on the left, so a figure is beside its name
+   instead of a screen away, and a twelve-month layout still takes the whole
+   width. Columns keep a floor so a short statement still reads as one. */
+.acct-statement { width: fit-content; min-width: min(100%, 780px); max-width: 100%; }
+.acct-report { min-width: 100%; margin: 0; }
+.acct-report th.acct-head { min-width: 420px; }
 .acct-report th.acct-num, .acct-report td.acct-num { min-width: 150px; padding-left: 18px; padding-right: 14px; }
-.acct-report-wrap { display: flex; justify-content: center; }
-.acct-report-wrap > .acct-report { flex: 0 1 auto; }
 .acct-report th {
   position: sticky; top: 0; z-index: 3; background: var(--bg-secondary);
   text-align: left; font-family: var(--font-ui); font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
