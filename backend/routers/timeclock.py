@@ -233,62 +233,77 @@ _NO_LOCATION = {"geo_status": "no_location", "work_site_id": "", "work_site_name
 
 def _geo_context(db: Session, email: str = "") -> dict:
     """What this person's punches are judged against, loaded ONCE per request
-    (a timecard judges every punch in the period): the mapped sites they are
-    allowed at, and whether they work remote.
+    (a timecard judges every punch in the period): every mapped site on their
+    company's list plus any site HR picked for them, which of those are
+    theirs, and whether they work remote.
 
-    Allowed = the sites HR picked for them; none picked = every site on their
-    company's list (Neil, Sep 25: a Sacred Natural punch must not resolve to a
-    Greens office - company_sites falls back to all sites for an unconfigured
-    company). Only MAPPED sites can be judged; a picked site with no
+    Where a punch was is decided by the address it was made at, not by a
+    per-person list (Neil / Charmi, Sep 30): Jeremy's punches at PBK Residence
+    read "Out of Location - nearest RJK DRK Residence 73.3 km" because PBK was
+    not on his list, although the map drew his pin inside PBK's fence. The
+    company scoping stays (Neil, Sep 25: a Sacred Natural punch must not
+    resolve to a Greens office - company_sites falls back to all sites for an
+    unconfigured company). Only MAPPED sites can be judged; a site with no
     coordinates is skipped, never a reason to call a GPS punch "Location off"."""
     emp = None
     if email:
         emp = (db.query(NexusEmployee)
                .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
     if emp is None:
-        sites = db.query(HrWorkSite).all()
+        sites, mine = db.query(HrWorkSite).all(), set()
     else:
-        ids = _allowed_site_ids(emp)
-        sites = (db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all() if ids
-                 else company_sites(db, emp.company or ""))
-    return {"sites": [s for s in sites if _has_fence(s)],
+        mine = set(_allowed_site_ids(emp))
+        sites = list(company_sites(db, emp.company or ""))
+        missing = [i for i in mine if all(s.id != i for s in sites)]
+        if missing:
+            sites += db.query(HrWorkSite).filter(HrWorkSite.id.in_(missing)).all()
+    return {"sites": [s for s in sites if _has_fence(s)], "mine": mine,
             "remote": bool(emp and (emp.work_remote or 0))}
 
 
 def _judge(plat: float, plng: float, accuracy_m: int, ctx: dict) -> dict:
-    """Where ONE punch was, judged on its own coordinates (Charmi, Sep 29).
+    """Where ONE punch was, judged on its own coordinates.
 
-    - Inside any allowed site's fence -> in_fence AT THAT SITE (the closest one
-      when fences overlap). Someone allowed at five sites shows whichever of the
-      five they actually punched at, punch by punch.
-    - Inside none -> out_of_fence: "Out of Location". The nearest allowed site
-      and its distance ride along for the reviewer, never as the location.
+    - Inside any company site's fence -> in_fence AT THAT SITE. Where fences
+      overlap, one of the person's own sites wins, then the closest.
+    - Inside none -> out_of_fence: "Out of Location". The nearest site and its
+      distance ride along for the reviewer, never as the location (and never
+      as the site the time is billed to - see _seg_site).
     - Remote people are fine anywhere (Neil, Sep 19); at a site they still
       resolve to it, so billable time per property keeps working.
-    - Coordinates but no mapped allowed site -> no_site, not "Location off":
-      the browser DID share where it was.
-    GPS accuracy gets the same credit (capped at 150 m) as before; a fix worse
-    than 500 m is too rough to judge (low_accuracy)."""
+    - Coordinates but no mapped site -> no_site, not "Location off": the
+      browser DID share where it was.
+    GPS accuracy gets a credit capped at 150 m (SwipeClock parity). A fix worse
+    than 500 m is too rough to put the punch AT a site (low_accuracy) - unless
+    even the whole error circle misses every fence, which is a certain Out of
+    Location (a laptop 70 km away with a +/-2 km IP fix is not "approximately"
+    at the office)."""
     remote = ctx.get("remote")
+    mine = ctx.get("mine") or set()
     acc = max(0, int(accuracy_m or 0))
     nearest = None      # (distance, site)
-    inside = None       # (distance, site)
+    inside = None       # (not mine, distance, site)
+    maybe_inside = False
     for s in ctx.get("sites") or []:
         d = _haversine_m(plat, plng, float(s.latitude), float(s.longitude))
+        radius = max(25, int(s.radius_m or 150))
         if nearest is None or d < nearest[0]:
             nearest = (d, s)
-        if acc <= 500 and max(0.0, d - min(acc, 150)) <= max(25, int(s.radius_m or 150)):
-            if inside is None or d < inside[0]:
-                inside = (d, s)
+        if acc <= 500 and max(0.0, d - min(acc, 150)) <= radius:
+            key = (s.id not in mine, d, s)
+            if inside is None or key[:2] < inside[:2]:
+                inside = key
+        if d - acc <= radius:
+            maybe_inside = True
     if inside:
-        d, s = inside
+        _, d, s = inside
         return {"geo_status": "in_fence", "work_site_id": s.id, "work_site_name": s.name or "", "distance_m": int(round(d))}
     if remote:
         return {"geo_status": "remote", "work_site_id": "", "work_site_name": "Remote", "distance_m": 0}
     if nearest is None:
         return {"geo_status": "no_site", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, s = nearest
-    return {"geo_status": "low_accuracy" if acc > 500 else "out_of_fence",
+    return {"geo_status": "low_accuracy" if (acc > 500 and maybe_inside) else "out_of_fence",
             "work_site_id": s.id, "work_site_name": s.name or "", "distance_m": int(round(d))}
 
 
@@ -412,6 +427,22 @@ def _geofence_site(db: Session, plat: float, plng: float, accuracy_m: int, sites
     radius = max(25, int(site.radius_m or 150))
     base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
     return _soft_gate(d, radius, accuracy_m, base)
+
+
+# A segment whose In punch was judged anywhere but AT a site carries the
+# nearest site only as a reviewer hint - billing it there put Jeremy's PBK
+# hours on RJK DRK Residence, 73 km away (Sep 30).
+_OFF_SITE_LABEL = {"out_of_fence": "Out of Location", "low_accuracy": "Approx. Location",
+                   "no_site": "No Site Mapped", "no_location": "No location"}
+
+
+def _seg_site(seg: dict) -> tuple:
+    """(site id, site name) a timecard segment is billed to; ("", label) when
+    the In punch was not at any site."""
+    geo = (seg.get("geo") or "").strip()
+    if geo in _OFF_SITE_LABEL:
+        return "", _OFF_SITE_LABEL[geo]
+    return (seg.get("workSiteId") or "").strip(), (seg.get("workSite") or "").strip()
 
 
 def _unconfirmed_auto_out(p) -> bool:
@@ -1112,8 +1143,8 @@ def billable_by_location(start: str = "", end: str = "",
                     g = _geofence_site(db, float(p.lat), float(p.lng), int(p.accuracy_m or 0), sites=sites)
                 except (TypeError, ValueError):
                     continue
-                if not g.get("work_site_id"):
-                    continue   # no site resolvable near this point
+                if g.get("geo_status") != "in_fence" or not g.get("work_site_id"):
+                    continue   # inside no fence: the NEAREST site is not where they were
                 key = (g["work_site_id"], g["work_site_name"])
                 ping_min.setdefault(em, {})[key] = ping_min.setdefault(em, {}).get(key, 0.0) + secs / 60.0
 
@@ -1842,7 +1873,7 @@ def export_iif(start: str = "", end: str = "",
             # payroll numbers are unchanged) - those are read off the By-location
             # report instead, since one day-total row can't be cleanly divided
             # across jobs without splitting the OT/DT computation.
-            day_sites = {(s.get("workSite") or "").strip() for s in d.get("segments", []) if (s.get("workSite") or "").strip()}
+            day_sites = {_seg_site(s)[1] for s in d.get("segments", []) if _seg_site(s)[0]}
             job = _clean(next(iter(day_sites))) if len(day_sites) == 1 else ""
             billing = "1" if job else "0"
             for mins, pitem in ((d.get("regMin", 0), "Regular Pay"),
@@ -6910,8 +6941,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     loc_agg = {}
     for d in days_out:
         for s in d["segments"]:
-            wid = (s.get("workSiteId") or "").strip()
-            wname = (s.get("workSite") or "").strip() or ("No location" if not wid else wid)
+            wid, wname = _seg_site(s)
+            wname = wname or ("No location" if not wid else wid)
             key = wid or wname
             a = loc_agg.setdefault(key, {"workSiteId": wid, "workSite": wname, "workedMin": 0, "pay": 0.0})
             a["workedMin"] += s.get("workedMin", 0)

@@ -16,6 +16,7 @@ import { formatTime } from '../lib/datetime';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
+import { leaveRequestDays } from '../lib/workdayStats';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -202,17 +203,11 @@ const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rej
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
 
 // Shared by the live "Total" preview on the request form and the year-at-a-
-// glance sidebar's approved-days tally: a partial day counts as its fraction
-// of an 8-hour day, everything else counts whole calendar days inclusive.
-const toDayCount = (start, end, startTime, endTime) => {
-  if (startTime && endTime) {
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    return Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 480);
-  }
-  const a = new Date(start), b = new Date(end);
-  return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1;
-};
+// glance sidebar's approved-days tally: WORKING days (Mon-Fri), a partial day
+// as its fraction of an 8-hour day (lib/workdayStats.js - the same math as the
+// Overview's "Leave this year" tile, so the numbers always agree).
+const toDayCount = (start, end, startTime, endTime, year) =>
+  leaveRequestDays({ startDate: start, endDate: end, startTime, endTime }, year);
 
 // Teams-style "All day" switch (see TaskNotifySettings.jsx for the same
 // anatomy) - kept local since this is the only place in Time Off that needs it.
@@ -259,7 +254,7 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title={`Not at any of your work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM}m away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      title={`Not inside any of your company's work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM >= 1000 ? `${(p.distanceM / 1000).toFixed(1)} km` : `${p.distanceM} m`} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
       <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
@@ -1138,7 +1133,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <span style={{ ...cell('total'), justifySelf: toNarrow ? 'end' : undefined, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
                   Total
                   <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>day{toTotalDays === 1 ? '' : 's'}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>working day{toTotalDays === 1 ? '' : 's'}</span>
                 </span>
               )}
             </div>
@@ -1188,15 +1183,16 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         </div>
         {(() => {
           const yr = String(new Date().getFullYear());
-          const dayCount = (r) => toDayCount(r.startDate, r.endDate, r.startTime, r.endTime);
-          const approved = (timeoff || []).filter(r => r.status === 'approved' && (r.startDate || '').startsWith(yr));
+          // Clipped to this year: a request across New Year counts its days in each year.
+          const dayCount = (r) => toDayCount(r.startDate, r.endDate, r.startTime, r.endTime, yr);
+          const approved = (timeoff || []).filter(r => r.status === 'approved' && dayCount(r) > 0);
           const byType = {};
           approved.forEach(r => { byType[r.type] = (byType[r.type] || 0) + dayCount(r); });
           const totalDays = Object.values(byType).reduce((a, b) => a + b, 0);
           const pending = (timeoff || []).filter(r => r.status === 'pending').length;
           return (
             <>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(totalDays * 100) / 100}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(totalDays * 100) / 100}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> working day{totalDays !== 1 ? 's' : ''} approved</span></div>
               <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
                 {Object.keys(byType).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No approved leave this year yet.</div>}
                 {Object.entries(byType).map(([t, n]) => (

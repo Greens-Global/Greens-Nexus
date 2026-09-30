@@ -668,7 +668,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
       const r = await api.setGeofence(employee.id, { work_site_ids: ids });
       setData(d => ({ ...(d || {}), geofence: r }));
       const names = sites.filter(x => ids.includes(x.id)).map(x => x.name || 'Unnamed site');
-      toastOk(ids.length ? `${firstName} may punch at ${names.join(', ')}. Anywhere else is Out of Location.` : `${firstName} may punch from any company work site.`);
+      toastOk(ids.length ? `${firstName}'s usual sites: ${names.join(', ')}. A punch at any company work site still counts as on-site.` : `${firstName} may punch from any company work site.`);
     } catch (e) { toastErr(e?.message || 'Could not save the work sites.'); }
     finally { setBusy(false); }
   };
@@ -733,17 +733,17 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
 
           {!remote && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Work sites {firstName} can punch from</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Work Sites</div>
               {sites.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
-                      ? `Punches at any of these ${allowed.length} site${allowed.length === 1 ? '' : 's'} are on-site, whichever one ${firstName} is at. Anywhere else is Out of Location.`
-                      : 'Any company work site counts. Click sites to allow only those.'}
+                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} sites are`} ${firstName}'s usual site${allowed.length === 1 ? '' : 's'} and win where two sites overlap. A punch at any company work site counts as on-site; outside all of them is Out of Location.`
+                      : 'Any company work site counts as on-site. Click sites to mark the usual ones - they only matter where two sites overlap.'}
                   </span>
                   {allowed.length > 0 && canEdit && (
                     <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
-                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Allow Any Site</button>
+                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Sites</button>
                   )}
                 </div>
               )}

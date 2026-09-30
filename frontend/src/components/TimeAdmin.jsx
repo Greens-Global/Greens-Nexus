@@ -16,6 +16,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
 import { formatDate } from '../lib/datetime';
+import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
 import { Avatar } from '../tasks/components';
@@ -313,8 +314,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // and unmatched punches that block sign-off until fixed. Reloads with the range
   // and whenever a punch changes anywhere.
   const [exceptions, setExceptions] = useState(null);
+  const [exceptionsErr, setExceptionsErr] = useState(false);   // e.g. a read-only viewer (the list needs team write)
   const loadExceptions = useCallback(() => {
-    api.timeExceptions(start, end).then(r => setExceptions(Array.isArray(r) ? r : [])).catch(() => setExceptions([]));
+    api.timeExceptions(start, end).then(r => { setExceptions(Array.isArray(r) ? r : []); setExceptionsErr(false); })
+      .catch(() => { setExceptions([]); setExceptionsErr(true); });
   }, [start, end]);
   useEffect(() => { loadExceptions(); }, [loadExceptions]);
   useEffect(() => {
@@ -323,6 +326,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     return () => window.removeEventListener('nexus:timeclock-changed', onChange);
   }, [loadExceptions]);
   const exBlocking = (exceptions || []).reduce((a, r) => a + (r.blocking || 0), 0);
+  const exTotal = (exceptions || []).reduce((a, r) => a + (r.exceptions || []).length, 0);
 
   // Billable time by location (Neil, Aug 25) - per-employee hours split by work
   // site. Loaded only when the tab is open and reloaded with the range.
@@ -412,9 +416,22 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   }
 
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
-  const totalFlags = (rows || []).reduce((a, r) => a + r.flagCount, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
-  const approvedCount = (rows || []).filter(isRowApproved).length;
+  // Timesheets submitted to me and not decided yet - reported by the
+  // TimesheetsToReview list itself so the tile and the list never disagree.
+  // (The old "Approved x/y" tile counted per-day sign-offs that no screen
+  // creates any more - approval moved to submit / agree / Nexus Sign - over
+  // EVERY person in scope, salaried and no-punch people included, so it sat
+  // at 0/59 forever.)
+  const [reviewWaiting, setReviewWaiting] = useState(null);
+  const reviewRef = useRef(null);
+  const [timeoffPendingOnly, setTimeoffPendingOnly] = useState(false);
+  const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
+  function openReviewList() {
+    const el = reviewRef.current;
+    if (reviewWaiting && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    else setView('payroll');
+  }
 
   // Unsaved-changes guards for the edit/on-behalf/add-punch modals: an
   // overlay click, X, or Escape used to silently discard an in-progress
@@ -437,22 +454,46 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* KPI strip - Work OS kpi-cards (meaning-dot label + big tabular numeral) */}
+      {/* KPI strip - Work OS kpi-cards (meaning-dot label + big tabular numeral).
+          Each tile opens the list it counts (Charmi, Sep 30: "if this is for
+          viewing we are not able to click on it"). */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-        {[['Team hours', fmtMin(totalMin), 'card-blue'],
-          ['Approved', `${approvedCount}/${(rows || []).length}`, approvedCount === (rows || []).length && rows?.length ? 'card-green' : ''],
-          ['Punch flags', String(totalFlags), totalFlags ? 'card-orange' : ''],
-          ['Time off pending', String(pendingCount), pendingCount ? 'card-orange' : '']].map(([label, value, cls]) => (
-          <div key={label} className={`kpi-card ${cls}`} style={{ padding: '14px 18px' }}>
-            <div className="kpi-label">{label}</div>
-            <div className="kpi-value" style={{ fontSize: 22, margin: '4px 0 0' }}>{value}</div>
-          </div>
+        {[
+          { key: 'hours', label: 'Team Hours', value: rows === null ? '…' : fmtMin(totalMin), sub: rangeText,
+            cls: 'card-blue', active: view === 'hours',
+            title: `Worked hours of everyone on your team, ${rangeText}, after breaks - click to see them by person and by day`,
+            go: () => setView('hours') },
+          { key: 'review', label: 'Timesheets to Review', value: reviewWaiting == null ? '-' : String(reviewWaiting),
+            sub: 'Submitted to you, not decided', cls: reviewWaiting ? 'card-orange' : '', active: false,
+            title: reviewWaiting ? 'Timesheets submitted to you that you have not agreed to or sent back yet - click to jump to the list'
+              : 'Nothing is waiting on you - click to open the Payroll timecards',
+            go: openReviewList },
+          { key: 'flags', label: 'Punch Exceptions', value: exceptionsErr ? '-' : exceptions === null ? '…' : String(exTotal),
+            sub: exceptionsErr ? 'Not available to you' : `${exBlocking} blocking sign-off`,
+            cls: exBlocking ? 'card-orange' : '', active: view === 'exceptions',
+            title: `Missing and unmatched punches, ${rangeText} - click to see and fix them`,
+            go: () => setView('exceptions') },
+          { key: 'timeoff', label: 'Time Off Pending', value: timeoffErr ? '-' : String(pendingCount), sub: 'Awaiting a decision',
+            cls: pendingCount ? 'card-orange' : '', active: view === 'timeoff' && timeoffPendingOnly,
+            title: 'Time-off requests waiting for a decision - click to see them',
+            go: () => { setTimeoffPendingOnly(true); setView('timeoff'); } },
+        ].map(t => (
+          <button key={t.key} type="button" className={`kpi-card ${t.cls}`} onClick={t.go} title={t.title}
+            aria-pressed={t.active || undefined}
+            style={{ padding: '14px 18px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', width: '100%',
+              border: t.active ? '1.5px solid var(--wk-brand)' : 'none' }}>
+            <div className="kpi-label">{t.label}</div>
+            <div className="kpi-value" style={{ fontSize: 22, margin: '4px 0 0' }}>{t.value}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
+          </button>
         ))}
       </div>
 
       {/* Timesheets submitted to me and not decided yet (Sep 29). */}
-      <TimesheetsToReview toastOk={toastOk} toastErr={toastErr}
-        onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
+      <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
+        <TimesheetsToReview toastOk={toastOk} toastErr={toastErr} onCount={setReviewWaiting}
+          onOpen={(r) => openTimecard(r.employeeEmail, r.periodStart, r.payType)} />
+      </div>
 
       {/* Monitoring alerts live on Workforce Analytics now (Charmi, Sep 25: the
           block listing every person took half this screen). One line stays
@@ -471,7 +512,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
-            <button key={key} onClick={() => setView(key)}
+            <button key={key} onClick={() => { setView(key); setTimeoffPendingOnly(false); }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
                 cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
                 color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
@@ -487,7 +528,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       </div>
 
       {/* Range picker - shared by Insights, Missing punches, and By-location (all scan a range) */}
-      {(view === 'insights' || view === 'exceptions' || view === 'billable') && (
+      {(view === 'insights' || view === 'hours' || view === 'exceptions' || view === 'billable') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -716,10 +757,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           <TimeInsights start={start} end={end} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
         </div>
       )}
-      {view === 'insights' && (rows === null
+      {/* 'hours' = the Team Hours tile's destination (no tab of its own). */}
+      {(view === 'insights' || view === 'hours') && (rows === null
         ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : (() => {
-          const sorted = [...rows].sort((a, b) => b.workedMin - a.workedMin);
+          const sorted = rows.filter(r => r.workedMin > 0).sort((a, b) => b.workedMin - a.workedMin);
           const maxWork = Math.max(1, ...rows.map(r => r.workedMin));
           const dayTotals = {};
           rows.forEach(r => Object.entries(r.days).forEach(([d, v]) => { dayTotals[d] = (dayTotals[d] || 0) + v.workedMin; }));
@@ -931,7 +973,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {/* Time-off register - requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
         <>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          {timeoffPendingOnly && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', marginRight: 'auto' }}>
+              Showing {pendingCount} pending request{pendingCount === 1 ? '' : 's'}
+              <button type="button" className="secondary-btn" onClick={() => setTimeoffPendingOnly(false)}
+                style={{ fontSize: 12, padding: '4px 10px' }}>Show All</button>
+            </span>
+          )}
           <button className="primary-btn" onClick={() => setObo({ email: '', type: 'vacation', start: '', end: '', note: '', confidential: false })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
             <Plus size={13} /> Request on Behalf
@@ -943,18 +992,17 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           </div>
           {timeoffErr ? (
             <div style={{ padding: '14px 16px' }}><ErrorBanner message="Couldn't load time-off requests right now." onRetry={loadTimeoff} /></div>
-          ) : timeoff.length === 0 && (
-            <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No time-off requests yet.</div>
+          ) : (timeoffPendingOnly ? pendingCount : timeoff.length) === 0 && (
+            <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>{timeoffPendingOnly ? 'No requests are waiting for a decision.' : 'No time-off requests yet.'}</div>
           )}
-          {timeoff.slice(0, 150).map(r => {
-            const days = Math.round((new Date(r.endDate) - new Date(r.startDate)) / 86400000) + 1;
+          {(timeoffPendingOnly ? timeoff.filter(t => t.status === 'pending') : timeoff).slice(0, 150).map(r => {
+            // Working days (Mon-Fri), a partial day as its share of 8 hours - the
+            // same count the employee sees on their Time Off tab (lib/workdayStats.js).
+            const days = leaveRequestDays(r);
             // Partial-day request (Charmi, Aug 21): show its hour window and count
             // the fraction of an 8-hour day instead of a full day.
             const hm12 = (v) => { const [h, m] = (v || '').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
             const partial = r.startTime && r.endTime;
-            const partMin = partial
-              ? Math.max(0, (Number(r.endTime.split(':')[0]) * 60 + Number(r.endTime.split(':')[1])) - (Number(r.startTime.split(':')[0]) * 60 + Number(r.startTime.split(':')[1])))
-              : 0;
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
@@ -962,12 +1010,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note || undefined}>
-                  {r.startDate} → {r.endDate}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : r.redacted ? '' : ' · No reason given'}
+                  {formatDate(r.startDate, r.startDate)} - {formatDate(r.endDate, r.endDate)}{partial ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : ''}{r.note ? ` · Reason: ${r.note}` : r.redacted ? '' : ' · No reason given'}
                   {r.requestedBy && r.requestedBy !== r.email && (
                     <span style={{ fontStyle: 'italic' }}> · filed by {r.requestedByName || r.requestedBy.split('@')[0].replace(/\./g, ' ')}</span>
                   )}
                 </span>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{partial ? `${Math.round((partMin / 480) * 100) / 100}` : (isNaN(days) ? '-' : days)}</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }} title="Working days (Mon-Fri)">{r.startDate ? fmtDays(days) : '-'}</span>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '-'}</span>
                 <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                   {r.status === 'pending' && r.canDecide === false ? (

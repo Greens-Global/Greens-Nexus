@@ -27,7 +27,7 @@ const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km
 // no geofenced site to compare against, even with a pin-perfect phone GPS fix.
 function locStatus(p) {
   if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
-  // Not at any of their allowed sites (Sep 29) - never a site's name.
+  // Inside none of the company's sites (Sep 30) - never a site's name.
   if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: 'Out of Location' };
   // Tagged remote in People - Work Mode: anywhere is fine, nothing to flag (Neil, Sep 19).
   if (p.geoStatus === 'remote') return { color: '#2563eb', label: 'Remote' };
