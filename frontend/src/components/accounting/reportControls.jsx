@@ -1,20 +1,27 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Layers, ListFilter, Search, Settings2, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, ListFilter, Loader2, Search, Settings2, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate } from '../../lib/datetime';
-import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, iso, presetRange, stepAsOf, stepRange } from './reportModel';
+import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
-// chips, no second and third row of filters. Entities is a searchable
-// multi-select; Dimensions holds every other Intacct dimension behind one
-// button with a count; Saved Reports lists the memorized views.
+// second and third row of filters. Entities is a searchable multi-select;
+// Filters holds every other Intacct dimension behind one button with a
+// count; Saved Reports lists the memorized views.
 //
 // Sep 29 (Visesh): the row carries what the accounting app's Reports page
-// carries - the period stepper with its arrows, departments and accounts as
-// their own dropdowns, and Customize.
+// carries - the period stepper with its arrows, accounts as a dropdown, and
+// Customize.
+//
+// Sep 30 (Charmi and Neil, call of 09/29): "Dimensions" is "Filters" and
+// Department moved inside it; Entities and Accounts stay outside as the
+// major filters; the pickers are wide enough for the whole name and number
+// and run to the bottom of the screen; entities read in number order, with
+// the historical (H) ones off unless Customize shows them; one Export
+// button with a menu instead of two.
 
 export const control = {
   height: 30, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem',
@@ -39,6 +46,10 @@ const row = (on) => ({
 const link = { border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 };
 const count = { fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
 
+// A picker's list runs to the bottom of the screen (Charmi, 09/29 call);
+// AnchoredMenu keeps the whole panel inside the viewport.
+const LIST_HEIGHT = 'min(640px, calc(100vh - 230px))';
+
 // Open / close state plus the anchor (the wrapper around the button).
 // Escape and a tap outside are handled by PopoverPanel.
 export function usePopover() {
@@ -56,7 +67,7 @@ export function PopoverPanel({ anchor, open, setOpen, align, ...rest }) {
 
 // A searchable list with a tick per row. `options`: [{ code, name, depth?, group? }];
 // a heading is drawn wherever `group` changes.
-function OptionList({ options, value, onChange, placeholder, empty, loading, error, allLabel }) {
+function OptionList({ options, value, onChange, placeholder, empty, loading, error, allLabel, maxHeight = LIST_HEIGHT }) {
   const [q, setQ] = useState('');
   const chosen = useMemo(() => new Set(value), [value]);
   const shown = useMemo(() => {
@@ -81,7 +92,7 @@ function OptionList({ options, value, onChange, placeholder, empty, loading, err
         <input type="text" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} aria-label={placeholder} autoFocus
           style={{ ...control, width: '100%', paddingLeft: 26 }} />
       </div>
-      <div style={{ maxHeight: 280, overflowY: 'auto', marginTop: 6, display: 'grid', gap: 1 }}>
+      <div style={{ maxHeight, overflowY: 'auto', overflowX: 'hidden', marginTop: 6, display: 'grid', gap: 1 }}>
         {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
         {loading && <SkeletonBlocks count={3} />}
         {allLabel && !q.trim() && (
@@ -111,24 +122,28 @@ function OptionList({ options, value, onChange, placeholder, empty, loading, err
   );
 }
 
-// Top-level entities first, each followed by its sub-entities, by name.
-export function entityOptions(entities) {
-  const byName = (a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true });
-  const roots = entities.filter((e) => !e.parent_code || !entities.some((p) => p.code === e.parent_code)).sort(byName);
+// Top-level entities first, each followed by its sub-entities, in NUMBER
+// order (Neil, 09/29 call: 30000 sat above 10000 when they read by name).
+// Historical (H) entities are left out unless asked for or already picked.
+export function entityOptions(entities, { showHistorical = false, keep = [] } = {}) {
+  const kept = new Set(keep);
+  const list = entities.filter((e) => showHistorical || kept.has(e.code) || !isHistoricalEntity(e));
+  const byCode = (a, b) => a.code.localeCompare(b.code, 'en-US', { numeric: true });
+  const roots = list.filter((e) => !e.parent_code || !list.some((p) => p.code === e.parent_code)).sort(byCode);
   const out = [];
   roots.forEach((r) => {
     out.push({ code: r.code, name: r.name || '', depth: 0 });
-    entities.filter((e) => e.parent_code === r.code).sort(byName).forEach((k) => out.push({ code: k.code, name: k.name || '', depth: 1 }));
+    list.filter((e) => e.parent_code === r.code).sort(byCode).forEach((k) => out.push({ code: k.code, name: k.name || '', depth: 1 }));
   });
-  entities.forEach((e) => { if (!out.some((o) => o.code === e.code)) out.push({ code: e.code, name: e.name || '', depth: 1 }); });
+  list.forEach((e) => { if (!out.some((o) => o.code === e.code)) out.push({ code: e.code, name: e.name || '', depth: 1 }); });
   return out;
 }
 
 // One entity, several, or all of them - searchable from inside the dropdown
 // (Charmi, Sep 25: "search the entity directly from the drop-down").
-export function EntitiesPicker({ entities, value, onChange, limited = false, align = 'left' }) {
+export function EntitiesPicker({ entities, value, onChange, limited = false, showHistorical = false, align = 'left' }) {
   const [open, setOpen, ref] = usePopover();
-  const options = useMemo(() => entityOptions(entities), [entities]);
+  const options = useMemo(() => entityOptions(entities, { showHistorical, keep: value }), [entities, showHistorical, value]);
   const one = value.length === 1 ? entities.find((e) => e.code === value[0]) : null;
   const all = limited ? 'All my entities' : 'All entities';
   const label = !value.length ? all : value.length === 1 ? `${one?.name || 'Unnamed'} (${value[0]})` : `${value.length} entities`;
@@ -139,11 +154,11 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, ali
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(380)}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Entities" aria-multiselectable="true" style={panel(540)}>
         <OptionList options={options} value={value} onChange={onChange} allLabel={all}
           placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : 'An entity includes its sub-entities.'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 10 }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Historical (H) entities are hidden - Customize shows them.'}</span>
           <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
       </PopoverPanel>
@@ -151,23 +166,32 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, ali
   );
 }
 
-// Vendor, customer, employee, Project-Job and item behind one button
-// (department has its own dropdown beside Entities). The kinds are listed on
-// the left with what is picked; the right side is the searchable list of the
-// kind that is open.
-export function DimensionsButton({ dims, onChange, align = 'left' }) {
+// Department, vendor, customer, employee, Project-Job and item behind one
+// "Filters" button (Charmi, 09/29 call). The kinds are listed on the left
+// with what is picked; the right side is the searchable list of the kind
+// that is open. `onNames` hands the names of each list up as it loads, so
+// the chips under the report can say "Vendor: Amazon" instead of a code.
+export function FiltersButton({ dims, onChange, onNames, align = 'left' }) {
   const [open, setOpen, ref] = usePopover();
   const [kind, setKind] = useState(POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error }
   const n = countDims(dims);
+  // A picked kind loads its names even while the panel is closed, for the chips.
+  const wanted = POPOVER_DIMS.filter((k) => (dims[k.key] || []).length && !lists[k.kind]).map((k) => k.kind);
+  const need = open && !lists[kind.kind] ? kind.kind : wanted[0];
   useEffect(() => {
-    if (!open || lists[kind.kind]) return undefined;
+    if (!need) return undefined;
     let alive = true;
-    api.getAccountingDimensionValues(kind.kind)
-      .then((d) => { if (alive) setLists((l) => ({ ...l, [kind.kind]: { values: d?.values || [] } })); })
-      .catch((e) => { if (alive) setLists((l) => ({ ...l, [kind.kind]: { values: [], error: e?.message || 'Could not load the list.' } })); });
+    api.getAccountingDimensionValues(need)
+      .then((d) => {
+        if (!alive) return;
+        const values = d?.values || [];
+        setLists((l) => ({ ...l, [need]: { values } }));
+        onNames?.(need, Object.fromEntries(values.map((v) => [v.code, v.name || ''])));
+      })
+      .catch((e) => { if (alive) setLists((l) => ({ ...l, [need]: { values: [], error: e?.message || 'Could not load the list.' } })); });
     return () => { alive = false; };
-  }, [open, kind, lists]);
+  }, [need]); // eslint-disable-line react-hooks/exhaustive-deps
   const picked = dims[kind.key] || [];
   const options = useMemo(() => {
     const keep = new Set(picked);
@@ -178,13 +202,13 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
   }, [lists, kind, picked]);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Dimensions">
+      <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filters">
         <SlidersHorizontal size={14} style={{ flexShrink: 0, color: n ? 'inherit' : 'var(--text-muted)' }} />
-        Dimensions
+        Filters
         {n > 0 && <span style={count}>{n}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Dimensions" style={{ ...panel(560), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Filters" style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
         <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
           {POPOVER_DIMS.map((k) => {
@@ -196,7 +220,7 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
               </button>
             );
           })}
-          {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS, departments: dims.departments || [] })}>Clear all</button>}
+          {n > 0 && <button type="button" style={{ ...link, textAlign: 'left', padding: '8px 8px 0' }} onClick={() => onChange({ ...EMPTY_DIMS })}>Clear all</button>}
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -210,50 +234,8 @@ export function DimensionsButton({ dims, onChange, align = 'left' }) {
             loading={!lists[kind.kind]} error={lists[kind.kind]?.error}
             placeholder={`Search ${kind.label.toLowerCase()} by name or code`} empty={`No ${kind.plural} on the ledger yet.`} />
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
-            Lines without a {kind.label.toLowerCase()} are left out when one is picked. Historical (H) entries are hidden.
+            {kind.key === 'departments' ? 'A department includes the departments under it.' : `Lines without a ${kind.label.toLowerCase()} are left out when one is picked.`} Historical (H) entries are hidden.
           </div>
-        </div>
-      </PopoverPanel>
-    </div>
-  );
-}
-
-// One department, several, or all of them - the same searchable dropdown as
-// Entities, listing the departments Intacct has.
-export function DepartmentsPicker({ value, onChange, align = 'left' }) {
-  const [open, setOpen, ref] = usePopover();
-  const [list, setList] = useState(null);       // { values } | { values: [], error }
-  useEffect(() => {
-    // The names are needed for the button as soon as something is picked.
-    if (list || (!open && !value.length)) return undefined;
-    let alive = true;
-    api.getAccountingDimensionValues('department')
-      .then((d) => { if (alive) setList({ values: d?.values || [] }); })
-      .catch((e) => { if (alive) setList({ values: [], error: e?.message || 'Could not load the departments.' }); });
-    return () => { alive = false; };
-  }, [open, value.length, list]);
-  const options = useMemo(() => {
-    const keep = new Set(value);
-    return (list?.values || [])
-      .filter((v) => !isHistorical(v.name) || keep.has(v.code))
-      .map((v) => ({ code: v.code, name: v.name || '', depth: 0 }))
-      .sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true }));
-  }, [list, value]);
-  const one = value.length === 1 ? options.find((o) => o.code === value[0]) : null;
-  const label = !value.length ? 'All departments' : value.length === 1 ? (one?.name ? `${one.name} (${value[0]})` : `Department ${value[0]}`) : `${value.length} departments`;
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(value.length > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={open} aria-label="Departments" title={label}>
-        <Layers size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-        <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-      </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Departments" aria-multiselectable="true" style={panel(360)}>
-        <OptionList options={options} value={value} onChange={onChange} allLabel="All departments" loading={!list} error={list?.error}
-          placeholder="Search department by name or code" empty="No departments on the ledger yet." />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Historical (H) departments are hidden.</span>
-          <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
       </PopoverPanel>
     </div>
@@ -279,7 +261,7 @@ export function AccountsPicker({ accounts, value, onChange, align = 'left' }) {
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(400)}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="listbox" aria-label="Accounts" aria-multiselectable="true" style={panel(480)}>
         <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts"
           placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
@@ -349,17 +331,19 @@ export const DENSITIES = [
   { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
 ];
 
-// Customize: how the statement is drawn. The density is the person's own
-// (every accounting screen follows it); leaving out the accounts with nothing
-// in them belongs to the report and is memorized with it.
-export function CustomizeButton({ density, onDensity, suppressZero, onSuppressZero, align = 'right' }) {
+// Customize: how the statement is drawn. The density and whether historical
+// entities are offered are the person's own (every accounting screen follows
+// them); showing the accounts with nothing in them belongs to the report and
+// is memorized with it.
+export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
+  const on = !!showZero || !!showHistorical;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(suppressZero)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
-        <Settings2 size={14} style={{ flexShrink: 0, color: suppressZero ? 'inherit' : 'var(--text-muted)' }} /> Customize
+      <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
+        <Settings2 size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> Customize
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Customize" style={{ ...panel(300), display: 'grid', gap: 10 }}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Customize" style={{ ...panel(320), display: 'grid', gap: 10 }}>
         <div>
           <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Row density</div>
           <div role="group" aria-label="Row density" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
@@ -372,12 +356,56 @@ export function CustomizeButton({ density, onDensity, suppressZero, onSuppressZe
           </div>
         </div>
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
-          <input type="checkbox" checked={suppressZero} onChange={(e) => onSuppressZero(e.target.checked)} style={{ marginTop: 2 }} />
+          <input type="checkbox" checked={!!showZero} onChange={(e) => onShowZero(e.target.checked)} style={{ marginTop: 2 }} />
           <span>
-            Hide zero balances
-            <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are left off.</span>
+            Show zero balances
+            <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are hidden until this is on. One column with activity keeps a line.</span>
           </span>
         </label>
+        {onShowHistorical && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!showHistorical} onChange={(e) => onShowHistorical(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              Show historical entities
+              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>The (H) entities Intacct keeps for old books, in the Entities list.</span>
+            </span>
+          </label>
+        )}
+      </PopoverPanel>
+    </div>
+  );
+}
+
+// One "Export" button with a menu (Charmi, 09/29 call): the file formats
+// first, then the ways to send the statement somewhere. `items`:
+// [{ key, label, hint?, Icon?, onPick, disabled?, busy?, group? }]. A divider
+// is drawn before the first item whose `group` is 'send'.
+export function ExportMenu({ items, disabled = false, align = 'right' }) {
+  const [open, setOpen, ref] = usePopover();
+  const busy = items.some((i) => i.busy);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} Export <ChevronDown size={13} />
+      </button>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Export" style={{ ...panel(270), padding: 6 }}>
+        {items.map((it, i) => {
+          const Icon = it.Icon || (it.key === 'pdf' ? FileDown : it.key === 'excel' ? FileSpreadsheet : Download);
+          return (
+            <Fragment key={it.key}>
+              {it.group === 'send' && items[i - 1]?.group !== 'send' && <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />}
+              <button type="button" role="menuitem" disabled={it.disabled || it.busy} onClick={() => { setOpen(false); it.onPick(); }}
+                style={{ ...row(false), opacity: it.disabled ? 0.5 : 1, cursor: it.disabled ? 'default' : 'pointer', padding: '7px 8px' }}>
+                {it.busy ? <Loader2 size={14} className="spin" style={{ color: 'var(--text-muted)' }} /> : <Icon size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 600 }}>{it.label}</span>
+                  {it.hint && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{it.hint}</span>}
+                </span>
+              </button>
+            </Fragment>
+          );
+        })}
       </PopoverPanel>
     </div>
   );
@@ -429,7 +457,7 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
 
 // The memorized reports: one click opens one. The person who saved a report
 // can share it with the team or delete it.
-export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, onDelete, onShare, nameOf, align = 'right' }) {
+export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, onDelete, onShare, onManage, nameOf, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
   const [q, setQ] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -446,11 +474,11 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
         {!active && reports.length > 0 && <span style={{ ...count, background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{reports.length}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Saved Reports" style={panel(400)}>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Saved Reports" style={panel(480)}>
         {reports.length > 6 && (
           <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search saved reports" aria-label="Search saved reports" style={{ ...control, width: '100%', marginBottom: 6 }} />
         )}
-        <div style={{ maxHeight: 320, overflowY: 'auto', display: 'grid', gap: 1 }}>
+        <div style={{ maxHeight: LIST_HEIGHT, overflowY: 'auto', display: 'grid', gap: 1 }}>
           {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
           {loading && <SkeletonBlocks count={2} />}
           {!loading && !error && !reports.length && (
@@ -487,6 +515,13 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
           ))}
           {!loading && reports.length > 0 && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No saved report matches.</div>}
         </div>
+        {onManage && (
+          <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 6 }}>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); onManage(); }} style={{ ...row(false), fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
+              Manage Saved Reports...
+            </button>
+          </div>
+        )}
       </PopoverPanel>
     </div>
   );

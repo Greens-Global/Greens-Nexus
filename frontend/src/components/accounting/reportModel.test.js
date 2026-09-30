@@ -185,10 +185,13 @@ describe('the statement itself', () => {
     expect(r.pickable).toHaveLength(6);
   });
 
-  it('leaves the accounts with nothing in them off when asked to', async () => {
-    const shown = async (suppressZero) => (await runReport(fakeApi({ pnl: full }), resolveConfig({ ...defaultConfig(NOW), suppressZero }, NOW))).rows.filter((x) => x.kind === 'account').map((x) => x.code);
-    expect(await shown(false)).toContain('41100');
-    expect(await shown(true)).not.toContain('41100');
+  it('leaves the accounts with nothing in them off unless asked to show them', async () => {
+    const shown = async (showZero) => (await runReport(fakeApi({ pnl: full }), resolveConfig({ ...defaultConfig(NOW), showZero }, NOW))).rows.filter((x) => x.kind === 'account').map((x) => x.code);
+    expect(await shown(true)).toContain('41100');
+    expect(await shown(false)).not.toContain('41100');
+    // A view memorized with the old flag still hides them.
+    expect(resolveConfig({ suppressZero: true }, NOW).showZero).toBe(false);
+    expect(resolveConfig({ suppressZero: true }, NOW).suppressZero).toBeUndefined();
   });
 });
 
@@ -387,6 +390,57 @@ describe('export', () => {
       ['Total Revenue', '', '', 1500],
       ['Gross Profit', '', '', 1500],
     ]);
+  });
+});
+
+describe('general ledger', () => {
+  const tb = { org: 'Greens Global', generated_at: '2026-09-28', totals: { opening: 0, debit: 1300, credit: 1000, closing: 300 }, rows: [
+    { account_no: '11341', title: 'Chase Checking', opening: 100, debit: 1300, credit: 0, closing: 1400 },
+    { account_no: '41101', title: 'Rental Income', opening: 0, debit: 0, credit: 1000, closing: -1000 },
+    { account_no: '61101', title: 'Repairs', opening: 0, debit: 0, credit: 0, closing: 0 },
+  ] };
+  const lines = {
+    '11341': [{ line_id: 'a', entry_id: 'e2', entry_no: 'IA-2', entry_date: '2026-08-15', description: 'Rent August', location_name: 'Escondido', debit: 800, credit: 0 },
+              { line_id: 'b', entry_id: 'e1', entry_no: 'IA-1', entry_date: '2026-07-15', description: 'Rent July', location_name: 'Escondido', debit: 500, credit: 0 }],
+    '41101': [{ line_id: 'c', entry_id: 'e1', entry_no: 'IA-1', entry_date: '2026-07-15', description: 'Rent July', location_name: 'Escondido', debit: 0, credit: 1000 }],
+  };
+  const api = () => ({
+    getAccountingTrialBalance: vi.fn(async () => tb),
+    searchAccountingLedger: vi.fn(async ({ account }) => ({ rows: lines[account] || [], total: (lines[account] || []).length })),
+  });
+
+  it('lists each account with its opening balance, its lines oldest first with a running balance, and its closing', async () => {
+    const a = api();
+    const r = await runReport(a, resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', entities: ['15000'] }, NOW));
+    expect(r.columns.map((c) => `${c.key}:${c.type}`)).toEqual(['entry:text', 'description:text', 'entity:text', 'debit:amount', 'credit:amount', 'balance:amount']);
+    // The account with nothing in it is left off (zero balances hidden by default).
+    expect(r.rows.filter((x) => x.kind === 'section').map((x) => x.label)).toEqual(['11341 Chase Checking', '41101 Rental Income']);
+    const chase = r.rows.slice(0, 4);
+    expect(chase.map((x) => [x.kind, x.label, ...x.values.slice(3)])).toEqual([
+      ['section', '11341 Chase Checking', 1300, 0, 100],
+      ['line', '07/15/2026', 500, 0, 600],
+      ['line', '08/15/2026', 800, 0, 1400],
+      ['subtotal', 'Closing balance', 1300, 0, 1400],
+    ]);
+    expect(chase[1].values.slice(0, 3)).toEqual(['IA-1', 'Rent July', 'Escondido']);
+    expect(r.rows.at(-1)).toMatchObject({ kind: 'grand', values: ['', '', '', 1300, 1000, 300] });
+    // The lines were asked for per account, within the entity and period, oldest first on screen.
+    expect(a.searchAccountingLedger.mock.calls.map((c) => c[0].account)).toEqual(['11341', '41101']);
+    expect(a.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ location: '15000', from: '2026-01-01', to: '2026-09-28', book: 'accrual' });
+    expect(r.pickable.map((p) => p.code)).toEqual(['11341', '41101', '61101']);
+    expect(r.summary.map((f) => [f.label, f.value])).toEqual([['Debits', '1,300.00'], ['Credits', '1,000.00'], ['Lines', '3']]);
+  });
+
+  it('lists the accounts only when too many are open at once', async () => {
+    const many = { ...tb, rows: Array.from({ length: 30 }, (_x, i) => ({ account_no: String(60000 + i), title: `Account ${i}`, opening: 0, debit: 10, credit: 0, closing: 10 })) };
+    const a = { ...api(), getAccountingTrialBalance: vi.fn(async () => many) };
+    const r = await runReport(a, resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger' }, NOW));
+    expect(a.searchAccountingLedger).not.toHaveBeenCalled();
+    expect(r.rows.filter((x) => x.kind === 'section')).toHaveLength(30);
+    expect(r.notes[0]).toMatch(/30 accounts have activity/);
+    // Picking accounts opens them.
+    const r2 = await runReport(api(), resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', accounts: ['41101'] }, NOW));
+    expect(r2.rows.filter((x) => x.kind === 'section').map((x) => x.label)).toEqual(['41101 Rental Income']);
   });
 });
 

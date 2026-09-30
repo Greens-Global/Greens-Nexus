@@ -7,7 +7,7 @@ import { PDFDocument } from 'pdf-lib';
 // up by picking an entity and its accounts, and the PDF it is produced into.
 
 const meta = {
-  assetCategories: [{ key: 'bank', label: 'Bank Accounts' }, { key: 'retirement', label: 'Retirement Accounts' }],
+  assetCategories: [{ key: 'bank', label: 'Bank Accounts' }, { key: 'retirement', label: 'Retirement Accounts' }, { key: 'investment', label: 'Investment Accounts' }],
   liabilityCategories: [{ key: 'business_loan', label: 'Business Loans' }],
   realEstateKinds: [{ key: 'residential', label: 'Residential Real Estate' }, { key: 'commercial', label: 'Commercial Real Estate' }],
   historyQuestions: ['Have you ever filed for bankruptcy?'],
@@ -45,8 +45,12 @@ vi.mock('../../api', () => ({
     getPfsStatement: vi.fn(async () => statement),
     getPfsStatements: vi.fn(async () => [{ id: 's1', asOf: '2026-06-30', generatedBy: 'charmi@greensglobal.com', generatedAt: '2026-07-02T17:00:00Z', netWorth: 650000 }]),
     getPfsLedgerEntities: vi.fn(async () => ({ entities: [{ code: '60100', name: 'Business - ANK' }] })),
-    getPfsLedgerAccounts: vi.fn(async () => ({ accounts: [{ code: '10100', title: 'Operating Chkg', section: 'asset', amount: 1000000 }, { code: '25000', title: 'Loan Payable', section: 'liability', amount: 400000 }] })),
+    getPfsLedgerAccounts: vi.fn(async () => ({ accounts: [
+      { code: '10100', title: 'Operating Chkg -7546', section: 'asset', amount: 1000000 }, { code: '11309', title: 'ANK - 401K - Fidelity - 6165', section: 'asset', amount: 327.85 },
+      { code: '11348', title: 'WeBull Brokerage Account', section: 'asset', amount: 101 }, { code: '25000', title: 'Loan Payable', section: 'liability', amount: 400000 },
+    ] })),
     addPfsLine: vi.fn(async (id, body) => ({ id: 'new', ...body })),
+    addPfsLinesBulk: vi.fn(async (id, body) => ({ added: body.accounts.length, lines: [] })),
     updatePfsProfile: vi.fn(async (id, body) => ({ id, ...body })),
     getRolesDirectory: vi.fn(async () => []),
     getPeopleDirectory: vi.fn(async () => [{ email: 'charmi@greensglobal.com', name: 'Charmi Desai' }]),
@@ -94,7 +98,7 @@ describe('PfsTab', () => {
     render(<PfsTab canEdit />);
     await screen.findByText('695,000.00');
     fireEvent.click(screen.getByRole('button', { name: 'Liabilities' }));
-    fireEvent.click(screen.getByRole('button', { name: /Add/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: 'F&M Bank Loan' } });
     fireEvent.change(within(dialog).getByLabelText('Share Owned (%)'), { target: { value: '7.5' } });
@@ -106,6 +110,38 @@ describe('PfsTab', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.addPfsLine).toHaveBeenCalled());
     expect(api.addPfsLine.mock.calls[0][1]).toMatchObject({ section: 'liability', category: 'business_loan', label: 'F&M Bank Loan', ownershipPct: 7.5, source: 'ledger', ledgerEntity: '60100', ledgerAccounts: ['25000'] });
+  });
+
+  it('adds a whole GL group from the ledger at once, each account under the category its name suggests', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Assets' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add From the Ledger' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add from the ledger' });
+    fireEvent.change(within(dialog).getByLabelText('Share Owned (%) for New Lines'), { target: { value: '50' } });
+    fireEvent.change(await within(dialog).findByLabelText('Entity'), { target: { value: '60100' } });
+    // Only this section's accounts, in GL groups; one tick takes a group.
+    await within(dialog).findByText(/GL group 113xx/);
+    expect(within(dialog).queryByText('Loan Payable')).toBeNull();
+    fireEvent.click(within(dialog).getByLabelText('GL group 113'));
+    expect(within(dialog).getByText(/2 picked/)).toBeTruthy();
+    expect(within(dialog).getByLabelText('Category for 11309').value).toBe('retirement');
+    expect(within(dialog).getByLabelText('Category for 11348').value).toBe('investment');
+    fireEvent.click(within(dialog).getByRole('button', { name: /Add 2 Lines/ }));
+    await waitFor(() => expect(api.addPfsLinesBulk).toHaveBeenCalled());
+    expect(api.addPfsLinesBulk.mock.calls[0][1]).toMatchObject({ section: 'asset', entity: '60100', entityName: 'Business - ANK', ownershipPct: 50,
+      accounts: [{ code: '11309', category: 'retirement', ownershipPct: 50 }, { code: '11348', category: 'investment', ownershipPct: 50 }] });
+    await screen.findByText('2 lines added from the ledger.');
+  });
+
+  it('carries a spouse on the statement', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Borrower' }));
+    fireEvent.change(screen.getByLabelText('Spouse or Co-Borrower'), { target: { value: 'Archana Kadakia' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
+    expect(api.updatePfsProfile.mock.calls[0][1].details.spouse).toBe('Archana Kadakia');
   });
 
   it('keeps only four digits of a Social Security number', async () => {

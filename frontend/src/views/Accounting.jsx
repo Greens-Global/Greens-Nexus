@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Loader2, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CheckSquare, Database, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Search, ShieldCheck, TrendingUp, Wallet, X } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -8,7 +8,8 @@ import ReportsTab from '../components/accounting/ReportsTab';
 import PackagesTab from '../components/accounting/PackagesTab';
 import AccessTab from '../components/accounting/AccessTab';
 import PfsTab from '../components/accounting/PfsTab';
-import LeasingTab from '../components/accounting/LeasingTab';
+import MriTab from '../components/accounting/MriTab';
+import { control } from '../components/accounting/reportControls';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
@@ -33,8 +34,14 @@ import DataTab from '../components/accounting/dashboard/DataTab';
 // Sep 25 (Neil): Packages builds a set of memorized reports into one PDF for
 // a lender; Access (Full level on Accounting) sets which entities each person
 // may read. A person limited to certain entities gets Reports, Packages and
-// Leasing only - every other tab shows consolidated figures, and the backend refuses
+// MRI only - every other tab shows consolidated figures, and the backend refuses
 // them for that person whatever the screen shows.
+//
+// Sep 30 (Charmi and Neil, call of 09/29): the ledger search box sits in the
+// header of EVERY tab (typing lands on Reports with the words); the "Open
+// Nexus Accounting" button is gone (the accounting app's own login page still
+// hands off through Nexus); Leasing became a section of MRI, Monthly
+// Recurring Income.
 
 const TABS = [
   { key: 'overview', label: 'Overview', Icon: LayoutGrid },
@@ -43,12 +50,14 @@ const TABS = [
   { key: 'close', label: 'Close', Icon: CheckSquare },
   { key: 'reports', label: 'Reports', Icon: FileText },
   { key: 'packages', label: 'Packages', Icon: FileStack },
-  { key: 'leasing', label: 'Leasing', Icon: KeyRound },
+  { key: 'mri', label: 'MRI', Icon: KeyRound },
   { key: 'pfs', label: 'PFS', Icon: Landmark },
   { key: 'data', label: 'Data', Icon: Database },
   { key: 'access', label: 'Access', Icon: ShieldCheck },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'leasing'];
+const LIMITED_TABS = ['reports', 'packages', 'mri'];
+// Links made before the rename still land.
+const ALIAS = { leasing: 'mri' };
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -57,7 +66,6 @@ export default function Accounting({ activeSub, onSubChange }) {
   // The Close tab's "My Tasks" matches a task owner to my role or my name.
   const nameOf = useNameResolver();
   const meName = nameOf(myEmail) || '';
-  const canOpenApp = canAccessModule('accounting-app', 'administrator', 'viewer');
   // Ticking close tasks, marking reconciliations, writing commentary and
   // editing reference figures need the editor level on the Accounting grant.
   const canEdit = canAccessModule('accounting', 'administrator', 'editor');
@@ -70,6 +78,8 @@ export default function Accounting({ activeSub, onSubChange }) {
   // Am I limited to certain entities? Asked once; until the answer is in, no
   // tab is drawn, so a limited person never sees a dashboard tab flash by.
   const [access, setAccess] = useState(null);
+  // Stamp the visit for the Access tab's "last opened" column; nothing waits on it.
+  useEffect(() => { api.markAccountingOpened?.()?.catch?.(() => {}); }, []);
   useEffect(() => {
     let alive = true;
     api.getMyAccountingAccess()
@@ -79,25 +89,30 @@ export default function Accounting({ activeSub, onSubChange }) {
   }, []);
   const limited = !!access?.limited;
   const tabs = TABS.filter((t) => (t.key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(t.key) : (t.key !== 'data' || canEdit) && (t.key !== 'access' || canManage)));
-  const sub = tabs.some((t) => t.key === activeSub) ? activeSub : tabs[0].key;
+  const wanted = ALIAS[activeSub] || activeSub;
+  const sub = tabs.some((t) => t.key === wanted) ? wanted : tabs[0].key;
   useEffect(() => { if (access && sub !== activeSub) onSubChange?.(sub); }, [access, sub, activeSub, onSubChange]);
 
-  // Single sign-on into the accounting app. Nexus is the only way in there: the
-  // backend provisions the caller (role mapped from their Nexus grant) and
-  // returns a one-time URL. The tab is opened synchronously on the click so
-  // popup blockers allow it, then pointed at the URL once it arrives.
-  const [launching, setLaunching] = useState(false);
-  const [launchError, setLaunchError] = useState('');
-  const openAccounting = () => {
-    if (launching) return;
-    setLaunching(true);
-    setLaunchError('');
-    const tab = window.open('', '_blank');
-    api.launchAccounting()
-      .then(({ url }) => { if (tab) tab.location = url; else window.location.assign(url); })
-      .catch((e) => { if (tab) tab.close(); setLaunchError(e?.message || 'Could not open Nexus Accounting.'); })
-      .finally(() => setLaunching(false));
+  // The ledger search, from any tab: two characters typed here open Reports
+  // with the words (Reports draws the same box itself, so the header's one
+  // hides there). Enter goes at once.
+  const [headerSearch, setHeaderSearch] = useState('');
+  const [search, setSearch] = useState(null);   // { text, nonce } handed to Reports
+  const nonce = useRef(0);
+  const searchTimer = useRef(null);
+  const goSearch = (text) => {
+    const t = text.trim();
+    if (t.length < 2) return;
+    nonce.current += 1;
+    setSearch({ text: t, nonce: nonce.current });
+    setHeaderSearch('');
+    if (sub !== 'reports') onSubChange?.('reports');
   };
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    if (headerSearch.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(headerSearch), 600);
+    return () => clearTimeout(searchTimer.current);
+  }, [headerSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const subtitle = {
     overview: 'Your dashboard view of the ledger - arrange the widgets that matter to your role',
@@ -106,14 +121,14 @@ export default function Accounting({ activeSub, onSubChange }) {
     close: 'Month-end close: checklist, reconciliations, balance sheet flux and controls',
     reports: 'Financial reports from the Nexus Accounting ledger',
     packages: 'Sets of memorized reports, built into one PDF for a lender',
-    leasing: 'Tenants, rent, and what came in against what was expected',
+    mri: 'Monthly recurring income - leases, and the interest and loan payments coming in',
     pfs: 'Personal financial statements of the guarantors, for any date',
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
   }[sub];
   // Reports, Packages and Access are working screens: the statement has to
   // start high on the page (Neil, Sep 25), so their header is one line.
-  const slim = ['reports', 'packages', 'access', 'pfs', 'leasing'].includes(sub);
+  const slim = ['reports', 'packages', 'access', 'pfs', 'mri'].includes(sub);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -122,18 +137,19 @@ export default function Accounting({ activeSub, onSubChange }) {
           <h2 style={slim ? { fontSize: '1.15rem', margin: 0 } : undefined}>Accounting</h2>
           <p style={slim ? { margin: 0, fontSize: '0.8rem' } : undefined}>{subtitle}</p>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-          {limited ? null : canOpenApp ? (
-            <button type="button" className="primary-btn" onClick={openAccounting} disabled={launching} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...(slim ? { fontSize: '0.8rem', padding: '5px 12px' } : {}) }}>
-              {launching ? <Loader2 size={16} className="spin" /> : <ExternalLink size={16} />} Open Nexus Accounting
-            </button>
-          ) : slim ? null : (
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 280, textAlign: 'right' }}>
-              The Nexus Accounting app is granted separately in Settings &gt; Access.
-            </span>
-          )}
-          {launchError && <span style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{launchError}</span>}
-        </div>
+        {access && sub !== 'reports' && (
+          <form role="search" onSubmit={(e) => { e.preventDefault(); goSearch(headerSearch); }} style={{ position: 'relative', flex: '0 1 380px', minWidth: 200 }}>
+            <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
+            <input type="text" value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} aria-label="Search the ledger"
+              placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
+            {headerSearch && (
+              <button type="button" onClick={() => setHeaderSearch('')} aria-label="Clear search"
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
+                <X size={14} />
+              </button>
+            )}
+          </form>
+        )}
       </div>
 
       {access && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />}
@@ -144,9 +160,9 @@ export default function Accounting({ activeSub, onSubChange }) {
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
         <div style={{ marginTop: 8 }}>
-          {sub === 'reports' && <ReportsTab />}
+          {sub === 'reports' && <ReportsTab search={search} />}
           {sub === 'packages' && <PackagesTab />}
-          {sub === 'leasing' && <LeasingTab canEdit={canEdit} canDelete={canManage} />}
+          {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
         </div>
       ) : (
@@ -157,9 +173,9 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
-              {sub === 'reports' && <ReportsTab />}
+              {sub === 'reports' && <ReportsTab search={search} />}
               {sub === 'packages' && <PackagesTab />}
-              {sub === 'leasing' && <LeasingTab canEdit={canEdit} canDelete={canManage} />}
+              {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
               {sub === 'data' && canEdit && <DataTab />}
               {sub === 'access' && canManage && <AccessTab />}

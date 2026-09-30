@@ -18,8 +18,12 @@ export const REPORTS = [
   { key: 'pnl', label: 'Income Statement', period: 'range' },
   { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' },
   { key: 'trial-balance', label: 'Trial Balance', period: 'range' },
+  { key: 'general-ledger', label: 'General Ledger', period: 'range' },
   { key: 'cash-position', label: 'Cash Position', period: 'asof' },
 ];
+/** The General Ledger lists lines for at most this many accounts at once; more than that, it lists the accounts only. */
+export const GL_MAX_ACCOUNTS = 25;
+const GL_MAX_LINES = 1000;
 export const reportDef = (key) => REPORTS.find((r) => r.key === key) || REPORTS[0];
 
 // The named periods, as the accounting app lists them. "This Month" is the
@@ -70,8 +74,9 @@ export const BOOKS = [
 export const bookLabel = (key) => BOOKS.find((b) => b.key === key)?.label || 'Accrual';
 
 // The dimensions a report can be narrowed by, in the order Charmi listed
-// them. Entities and departments have their own dropdowns; the rest sit
-// behind "Dimensions". All list the codes that actually appear on the ledger.
+// them. Entities have their own dropdown; every other dimension, department
+// included, sits behind "Filters" (Charmi, 09/29 call). All list the codes
+// that actually appear on the ledger.
 export const DIM_KINDS = [
   { key: 'departments', kind: 'department', label: 'Department', plural: 'departments' },
   { key: 'vendor', kind: 'vendor', label: 'Vendor', plural: 'vendors' },
@@ -80,8 +85,8 @@ export const DIM_KINDS = [
   { key: 'project', kind: 'project', label: 'Project-Job', plural: 'Project-Jobs' },
   { key: 'item', kind: 'item', label: 'Item', plural: 'items' },
 ];
-/** The kinds behind the Dimensions button (department has its own dropdown). */
-export const POPOVER_DIMS = DIM_KINDS.filter((k) => k.key !== 'departments');
+/** The kinds behind the Filters button: all of them since 09/30 (department used to have its own dropdown). */
+export const POPOVER_DIMS = DIM_KINDS;
 export const EMPTY_DIMS = { departments: [], vendor: [], customer: [], employee: [], project: [], item: [] };
 export const countDims = (d) => POPOVER_DIMS.reduce((n, k) => n + ((d?.[k.key] || []).length ? 1 : 0), 0);
 
@@ -89,6 +94,8 @@ export const countDims = (d) => POPOVER_DIMS.reduce((n, k) => n + ((d?.[k.key] |
 // They stay on the ledger and in every total; pickers leave them out unless
 // one is already part of the selection.
 export const isHistorical = (name) => /\(\s*H\s*\)/i.test(name || '');
+/** A historical entity: "(H)" in its name or an H before its number (H12001). Off by default since 09/30; Customize shows them. */
+export const isHistoricalEntity = (e) => isHistorical(e?.name) || /^H\d/i.test(e?.code || '');
 
 export const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const parse = (s) => new Date(`${s}T00:00:00`);
@@ -187,7 +194,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function defaultConfig(now = new Date()) {
   const [f, t] = presetRange('ytd', now).map(iso);
-  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], suppressZero: false };
+  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false };
 }
 
 // A config as it should run TODAY: a named period ("Year-to-Date") moves with
@@ -208,7 +215,12 @@ export function resolveConfig(config, now = new Date()) {
   c.book = BOOKS.some((b) => b.key === c.book) ? c.book : 'accrual';
   c.entities = Array.isArray(c.entities) ? c.entities.filter((x) => typeof x === 'string' && x) : [];
   c.accounts = Array.isArray(c.accounts) ? c.accounts.filter((x) => typeof x === 'string' && x) : [];
-  c.suppressZero = !!c.suppressZero;
+  // Zero balances are hidden unless asked for (Charmi, 09/29 call: "the
+  // option should read Show"). A view memorized before then kept the
+  // opposite flag; either way the accounts with nothing in them stay off
+  // until Show is ticked.
+  c.showZero = !!c.showZero;
+  delete c.suppressZero;
   c.dims = { ...EMPTY_DIMS, ...Object.fromEntries(DIM_KINDS.map((k) => [k.key, Array.isArray(c.dims?.[k.key]) ? c.dims[k.key] : []])) };
   // A view memorized before Columns existed kept its comparison under `compare`.
   if (!config?.cols && LEGACY_COMPARE[c.compare]) c.cols = LEGACY_COMPARE[c.compare];
@@ -221,7 +233,7 @@ export function resolveConfig(config, now = new Date()) {
 export const activeColumns = (config) => (config.book === 'both' && canPickBook(config) ? 'total' : config.cols);
 export const canPickBook = (config) => config.report !== 'cash-position';
 export const canUseDims = (config) => config.report !== 'cash-position';
-export const canPickAccounts = (config) => config.report === 'pnl' || config.report === 'balance-sheet';
+export const canPickAccounts = (config) => config.report === 'pnl' || config.report === 'balance-sheet' || config.report === 'general-ledger';
 
 export const periodText = (config) => {
   const def = reportDef(config.report);
@@ -234,6 +246,29 @@ export function entityText(config, entities = []) {
   if (config.entities.length > 1) return `${config.entities.length} entities`;
   const e = entities.find((x) => x.code === config.entities[0]);
   return e?.name ? `${e.name} (${e.code})` : config.entities[0];
+}
+/**
+ * Every filter in force, one entry each, for the chips under the report title
+ * (Charmi, 09/29 call: the active filters must be visible and come off in one
+ * click). `names`: { department: {code: name}, vendor: {...}, ... } when known.
+ * Each chip carries the config patch that removes it.
+ */
+export function filterChips(config, entities = [], names = {}) {
+  const out = [];
+  config.entities.forEach((code) => {
+    const e = entities.find((x) => x.code === code);
+    out.push({ key: `entity:${code}`, label: `Entity: ${e?.name ? `${e.name} (${code})` : code}`, patch: { entities: config.entities.filter((c) => c !== code) } });
+  });
+  DIM_KINDS.forEach((k) => {
+    (config.dims[k.key] || []).forEach((code) => {
+      const name = names[k.kind]?.[code];
+      out.push({ key: `${k.key}:${code}`, label: `${k.label}: ${name ? `${name} (${code})` : code}`, patch: { dims: { ...config.dims, [k.key]: config.dims[k.key].filter((c) => c !== code) } } });
+    });
+  });
+  (config.accounts || []).forEach((code) => {
+    out.push({ key: `account:${code}`, label: `Account: ${code}`, patch: { accounts: config.accounts.filter((c) => c !== code) } });
+  });
+  return out;
 }
 export function dimsText(config) {
   const out = DIM_KINDS.filter((k) => config.dims[k.key].length)
@@ -259,8 +294,17 @@ function fetchStatement(api, config, range, book) {
   if (config.report === 'cash-position') return api.getAccountingCashPosition(range.asof, location, config.entities.length > 1 ? config.entities : undefined);
   return api.getAccountingTrialBalance(range.from, range.to, location, dims, book);
 }
-function fetchBuckets(api, config, range, by, book) {
-  const { location, dims } = placeOf(config);
+function fetchBuckets(api, config, range, by, book, entities = []) {
+  // One entity picked and split By Entity: its sub-entities are the columns
+  // (the entity itself keeps a column for what is posted straight to it).
+  // Several entities picked: one column each (the accounting service puts
+  // every line under the nearest picked entity above it, 09/30).
+  let cfg = config;
+  if (by === 'entity' && config.entities.length === 1) {
+    const kids = entities.filter((e) => e.parent_code === config.entities[0] && !isHistoricalEntity(e)).map((e) => e.code);
+    if (kids.length) cfg = { ...config, entities: [config.entities[0], ...kids] };
+  }
+  const { location, dims } = placeOf(cfg);
   return api.getAccountingBuckets({ from: range.from, to: range.to, by, book, location, dims });
 }
 
@@ -388,7 +432,7 @@ export function balanceAsOf(rows, asof) {
 }
 
 // ── Reading the ledger ───────────────────────────────────────────────────────
-async function readColumns(api, config) {
+async function readColumns(api, config, entities = []) {
   const { report } = config;
   const both = config.book === 'both';
   const book = both ? 'accrual' : config.book;
@@ -452,8 +496,8 @@ async function readColumns(api, config) {
   const bucketRange = isBs ? { from: undefined, to: config.asof } : range;
   const fyStart = `${config.asof.slice(0, 4)}-01-01`;
   const [data, before] = await Promise.all([
-    fetchBuckets(api, config, bucketRange, mode, book),
-    isBs ? fetchBuckets(api, config, { from: undefined, to: dayBefore(fyStart) }, mode, book) : Promise.resolve(null),
+    fetchBuckets(api, config, bucketRange, mode, book, entities),
+    isBs ? fetchBuckets(api, config, { from: undefined, to: dayBefore(fyStart) }, mode, book, entities) : Promise.resolve(null),
   ]);
   const { rows, folded } = foldBuckets(mode, data.rows || []);
   const labels = data.labels || {};
@@ -526,7 +570,10 @@ function layout(config, read) {
     accounts.forEach((a) => { if (a.code) pickable.push({ code: a.code, title: a.title, section: label }); });
     if (wanted) accounts = accounts.filter((a) => !a.code || wanted.has(a.code));
     totals[key] = cols.map((_c, i) => sum(accounts, i));
-    const shown = config.suppressZero ? accounts.filter((a) => a.values.some((v) => Math.abs(v) >= 0.005)) : accounts;
+    // An account stays when ANY column has something in it: in a comparison or
+    // a run of months, one active month keeps the line (CAM Charges with
+    // activity in March only, Charmi, 09/29).
+    const shown = config.showZero ? accounts : accounts.filter((a) => a.values.some((v) => Math.abs(v) >= 0.005));
     if (!shown.length && totals[key].every((v) => Math.abs(v) < 0.005)) return;
     rows.push({ kind: 'section', section: key, label, count: shown.length, values: across(totals[key]) });
     shown.forEach((a) => rows.push({ kind: 'account', section: key, code: a.code, title: a.title, values: across(a.values) }));
@@ -576,7 +623,8 @@ function layout(config, read) {
 }
 
 /**
- * Read the ledger for one config. Returns
+ * Read the ledger for one config (`entities` = the entity list, for splitting
+ * one picked entity into its sub-entities). Returns
  *   { config, def, org, generatedAt, mode, otherLabel, columns, rows, summary, pickable }
  * columns: [{ key, label, type: 'amount'|'variance'|'pct'|'date', drill?, emphasis? }]
  *   drill = { from, to, book, entity?, department?, party? } - what an amount in that column opens.
@@ -587,7 +635,7 @@ function layout(config, read) {
  * summary: the figures above the statement. pickable: every account the
  *   statement could show, for the Accounts picker.
  */
-export async function runReport(api, config) {
+export async function runReport(api, config, entities = []) {
   const def = reportDef(config.report);
   const both = canPickBook(config) && config.book === 'both';
   const book = both ? 'accrual' : config.book;
@@ -612,19 +660,83 @@ export async function runReport(api, config) {
       const c = cash.get(code);
       return { kind: 'account', code, title: (r || c).title, values: [r?.opening || 0, r?.debit || 0, r?.credit || 0, r?.closing || 0, ...(both ? [c?.closing || 0] : [])] };
     });
-    if (config.suppressZero) rows = rows.filter((r) => r.values.some((v) => Math.abs(v) >= 0.005));
+    if (!config.showZero) rows = rows.filter((r) => r.values.some((v) => Math.abs(v) >= 0.005));
     rows.push({ kind: 'grand', label: 'Total', values: [a.totals.opening, a.totals.debit, a.totals.credit, a.totals.closing, ...(both ? [b.totals.closing] : [])] });
     const columns = ['Opening', 'Debit', 'Credit', 'Closing'].map((label, i) => ({ key: label.toLowerCase(), label: both && i === 3 ? 'Closing (Accrual)' : label, type: 'amount', drill: drillCur }));
     if (both) columns.push({ key: 'cash-closing', label: 'Closing (Cash)', type: 'amount', drill: { ...drillCur, book: 'cash' } });
     return { ...base, org: a.org || '', generatedAt: a.generated_at || '', mode: both ? 'books' : 'single', columns, rows };
   }
 
-  const read = await readColumns(api, config);
+  if (config.report === 'general-ledger') return { ...base, ...(await generalLedger(api, config, book, drillCur)) };
+
+  const read = await readColumns(api, config, entities);
   return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read) };
+}
+
+// ── The General Ledger ───────────────────────────────────────────────────────
+// Every account's activity for the period, line by line (Charmi, call of
+// 09/29: the one report missing from the list). Per account: the opening
+// balance (from the trial balance), each posted line with a running balance,
+// the closing balance. Lines come from the ledger search, one read per
+// account, so the detail is listed for up to GL_MAX_ACCOUNTS accounts at a
+// time - more than that, or nothing picked on a busy ledger, and the accounts
+// are listed with their opening, activity and closing only, with a note to
+// pick the ones to open. Entities narrow the lines; the other filters narrow
+// the balances only (the line search does not know them), and the report
+// says so.
+const glSigned = (r) => round2((r.debit || 0) - (r.credit || 0));
+async function generalLedger(api, config, book, drillCur) {
+  const { location, dims } = placeOf(config);
+  const tb = await api.getAccountingTrialBalance(config.from, config.to, location, dims, book);
+  const wanted = config.accounts?.length ? new Set(config.accounts) : null;
+  let accounts = (tb.rows || []).filter((r) => !wanted || wanted.has(r.account_no));
+  if (!config.showZero) accounts = accounts.filter((r) => [r.opening, r.debit, r.credit, r.closing].some((v) => Math.abs(v || 0) >= 0.005));
+  accounts.sort((a, b) => a.account_no.localeCompare(b.account_no, 'en-US', { numeric: true }));
+  const pickable = (tb.rows || []).map((r) => ({ code: r.account_no, title: r.title, section: 'Accounts' }));
+  const detail = accounts.length > 0 && accounts.length <= GL_MAX_ACCOUNTS;
+  const place = config.entities.length === 1 ? { location: config.entities[0] } : config.entities.length ? { locations: config.entities.join(',') } : {};
+  const lines = detail
+    ? await Promise.all(accounts.map((a) => api.searchAccountingLedger({ account: a.account_no, from: config.from, to: config.to, book: book === 'cash' ? 'cash' : 'accrual', ...place, limit: GL_MAX_LINES, offset: 0 })))
+    : [];
+  const columns = [
+    { key: 'entry', label: 'Entry', type: 'text' }, { key: 'description', label: 'Description', type: 'text' }, { key: 'entity', label: 'Entity', type: 'text' },
+    { key: 'debit', label: 'Debit', type: 'amount' }, { key: 'credit', label: 'Credit', type: 'amount' }, { key: 'balance', label: 'Balance', type: 'amount' },
+  ];
+  const rows = [];
+  let totalDebit = 0;
+  let totalCredit = 0;
+  let cut = 0;
+  accounts.forEach((a, i) => {
+    const key = a.account_no;
+    const got = lines[i];
+    // Lines come newest first from the search; a ledger reads oldest first.
+    const list = [...(got?.rows || [])].sort((x, y) => (x.entry_date || '').localeCompare(y.entry_date || '') || (x.entry_no || '').localeCompare(y.entry_no || '', 'en-US', { numeric: true }));
+    if (got && got.total > list.length) cut += got.total - list.length;
+    rows.push({ kind: 'section', section: key, code: key, label: `${key} ${a.title}`, count: list.length, values: ['', detail ? 'Opening balance' : '', '', round2(a.debit), round2(a.credit), round2(a.opening)], drill: drillCur });
+    let running = round2(a.opening || 0);
+    list.forEach((l) => {
+      running = round2(running + glSigned(l));
+      rows.push({ kind: 'line', section: key, label: formatDate(l.entry_date), entryId: l.entry_id, values: [l.entry_no || '', l.description || l.memo || '', l.location_name || l.location || '', round2(l.debit), round2(l.credit), running] });
+    });
+    if (detail) rows.push({ kind: 'subtotal', section: key, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
+    totalDebit = round2(totalDebit + (a.debit || 0));
+    totalCredit = round2(totalCredit + (a.credit || 0));
+  });
+  rows.push({ kind: 'grand', label: `Total - ${accounts.length} ${accounts.length === 1 ? 'account' : 'accounts'}`, values: ['', '', '', totalDebit, totalCredit, round2(tb.totals?.closing || 0)] });
+  const notes = [];
+  if (!detail && accounts.length) notes.push(`${accounts.length} accounts have activity - the lines are listed for up to ${GL_MAX_ACCOUNTS} accounts at a time. Pick the accounts to open under Accounts.`);
+  if (cut) notes.push(`${cut.toLocaleString('en-US')} more lines were not listed (${GL_MAX_LINES.toLocaleString('en-US')} per account at most). Narrow the period for the whole run.`);
+  if (dimsText({ ...config, accounts: [] }).length) notes.push('Department, vendor, customer, employee, Project-Job and item filters narrow the balances; the lines listed are the account\'s whole activity for the entities and period.');
+  const summary = [
+    { label: 'Debits', value: money(totalDebit) }, { label: 'Credits', value: money(totalCredit) },
+    { label: 'Lines', value: rows.filter((r) => r.kind === 'line').length.toLocaleString('en-US') },
+  ];
+  return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Date / Account' };
 }
 
 /** What one cell shows. `raw` keeps numbers as numbers (for a spreadsheet). */
 export function cellText(row, column, value, raw = false) {
+  if (column.type === 'text') return value == null ? '' : String(value);
   if (column.type === 'date' || column.type === 'pct') return value || '';
   if (row.kind === 'margin') return raw ? (Number.isFinite(value) ? Math.round(value * 1000) / 10 : '') : share(value);
   if (column.type === 'variance') return raw ? value : Math.abs(value) < 0.005 ? '-' : money(value);
