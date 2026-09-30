@@ -133,7 +133,12 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // would have failed and left the old frontend serving. +14 KB for the
 // feature; the old team table came out as the grid went in. No new
 // dependency. Needs the owner's nod like the bumps above (Visesh).
-const TOTAL_KB     = 10050;
+// Sep 30, 2026: 10050 -> 10150. The 09/29 accounting call (Charmi, Neil):
+// Filters, chips, the Excel writer, the General Ledger report, the saved
+// reports screen, PFS from the ledger, MRI, package adjustments, the Send
+// dialog, the priority bar and the Intacct access import - about 76 KB of
+// new screens, measured at 10076 KB. Deliberate; every piece was asked for.
+const TOTAL_KB     = 10150;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

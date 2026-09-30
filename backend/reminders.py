@@ -92,6 +92,7 @@ def _notify(
     ref_id: str = "",
     action: dict = None,
     requested_by: str = "",
+    priority: int = 0,
 ) -> bool:
     recipient = (recipient or "").strip().lower()
     if not recipient or _already_sent(db, ntype, ref_id, recipient):
@@ -110,6 +111,7 @@ def _notify(
             actioned=False,
             read_by="",
             created_at=_now_iso(),
+            priority=1 if priority else 0,
         )
     )
     return True
@@ -387,7 +389,7 @@ def run_daily_scan() -> int:
                     "Sign your timecard",
                     f"Your timecard for {_pstart} to {_pend} is due tomorrow. "
                     f"Please review your hours and sign it.",
-                    ref_id=_pstart, action={"view": "timeclock", "sub": "timecard"},
+                    ref_id=_pstart, action={"view": "timeclock", "sub": "timecard"}, priority=1,
                 )
 
             # 1. Right-to-work / visa doc expiry (compliance.expiryDate)

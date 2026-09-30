@@ -33,6 +33,8 @@ function rowToNotif(r) {
     actioned:    r.actioned,
     read:        r.read,
     timestamp:   r.created_at,
+    // 1 = the bar across the top until acted on (PriorityBar); 0 = the bell.
+    priority:    Number(r.priority) || 0,
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, csvRows, defaultConfig, isHistorical, presetRange, iso, resolveConfig, runReport, stepAsOf, stepRange,
+  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, csvRows, defaultConfig, isHistorical, presetRange, iso, resolveConfig, runReport, stepAsOf, stepRange, withAdjustments,
 } from './reportModel';
 
 // The logic behind Accounting -> Reports (Neil and Charmi, Sep 25): what a
@@ -441,6 +441,41 @@ describe('general ledger', () => {
     // Picking accounts opens them.
     const r2 = await runReport(api(), resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', accounts: ['41101'] }, NOW));
     expect(r2.rows.filter((x) => x.kind === 'section').map((x) => x.label)).toEqual(['41101 Rental Income']);
+  });
+});
+
+describe('adjustments on a package statement', () => {
+  const full = () => ({
+    org: 'Greens Global', generated_at: '2026-09-28',
+    sections: [
+      { key: 'revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking', amount: 0 }] },
+      { key: 'cogs', accounts: [{ account_no: '51000', title: 'Cost of Sales', amount: 200 }] },
+      { key: 'expense', accounts: [{ account_no: '61000', title: 'Repairs', amount: 300 }] },
+      { key: 'other_income', accounts: [{ account_no: '81000', title: 'Interest Income', amount: 50 }] },
+      { key: 'other_expense', accounts: [{ account_no: '91000', title: 'Interest Expense', amount: 150 }] },
+    ],
+  });
+  it('moves the line, its section total and every subtotal, and prints the note', async () => {
+    const r = await runReport(fakeApi({ pnl: full }), resolveConfig(defaultConfig(NOW), NOW));
+    const adjusted = withAdjustments(r, [{ account: '61000', amount: -100000, note: 'Gate at Valley Center - capital, not repairs' }, { account: '41000', amount: 0, note: 'Includes September true-up' }]);
+    expect(adjusted.columns.map((c) => `${c.key}:${c.type}`)).toEqual(['reported:amount', 'adjustment:variance', 'adjusted:amount', 'note:text']);
+    const row = (label) => adjusted.rows.find((x) => x.label === label || x.code === label);
+    expect(row('61000').values).toEqual([300, -100000, -99700, 'Gate at Valley Center - capital, not repairs']);
+    expect(row('41000').values.slice(1)).toEqual([0, 1000, 'Includes September true-up']);
+    expect(row('Operating Income').values.slice(0, 3)).toEqual([500, 100000, 100500]);
+    expect(row('Net Income').values.slice(0, 3)).toEqual([400, 100000, 100400]);
+    expect(adjusted.rows.find((x) => x.kind === 'section' && x.section === 'expense').values.slice(0, 3)).toEqual([300, -100000, -99700]);
+    // The margin is recomputed from the adjusted net over the same income.
+    expect(row('Net Profit Margin %').values[2]).toBeCloseTo(100400 / 1050, 4);
+  });
+
+  it('adds the notes only on a layout with more than one figure column', async () => {
+    const r = await runReport(fakeApi({ pnl: full }), resolveConfig({ ...defaultConfig(NOW), cols: 'prior_year' }, NOW));
+    const adjusted = withAdjustments(r, [{ account: '61000', amount: -5, note: 'Note' }]);
+    expect(adjusted.columns.at(-1)).toMatchObject({ key: 'note', type: 'text' });
+    expect(adjusted.columns).toHaveLength(r.columns.length + 1);
+    expect(adjusted.rows.find((x) => x.code === '61000').values.at(-1)).toBe('Note');
+    expect(withAdjustments(r, [])).toBe(r);
   });
 });
 

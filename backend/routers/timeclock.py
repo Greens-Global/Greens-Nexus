@@ -1583,9 +1583,9 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
 
 def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, title: str,
                        body: str, ref_id: str = "", action: Optional[dict] = None,
-                       requested_by: str = "") -> None:
+                       requested_by: str = "", priority: int = 0) -> None:
     """One targeted bell row per recipient of _team_alert_recipients - never a
-    broadcast."""
+    broadcast. priority=1 = the bar across the top until acted on."""
     now = _now_iso()
     for recipient in _team_alert_recipients(db, employee_email, actor_email):
         db.add(NexusNotification(
@@ -1593,7 +1593,7 @@ def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, ti
             title=title, body=body, ref_id=ref_id, item_name="",
             requested_by=requested_by or actor_email,
             action=json.dumps(action) if action else "",
-            actioned=False, read_by="", created_at=now))
+            actioned=False, read_by="", created_at=now, priority=1 if priority else 0))
 
 
 def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
@@ -2556,9 +2556,11 @@ def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str
                       ref_id: str = "", action: Optional[dict] = None) -> None:
     """Route a timecard request to the employee's manager and the Global Admins
     (_team_alert_recipients) - never a broadcast to every manager. With no
-    manager on file the Global Admins still get it, so it is never dropped."""
+    manager on file the Global Admins still get it, so it is never dropped.
+    A timecard adjustment waiting on a manager is a priority notice (Neil,
+    call of 09/29)."""
     _notify_team_alert(db, employee_email=employee_email, actor_email=employee_email,
-                       title=title, body=body, ref_id=ref_id, action=action,
+                       title=title, body=body, ref_id=ref_id, action=action, priority=1,
                        requested_by=employee_email)
 
 

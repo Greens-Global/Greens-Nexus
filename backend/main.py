@@ -819,6 +819,8 @@ def _run_migrations():
             # Accounting: when each person last opened the screen (Sep 30).
             "ALTER TABLE accounting_user_prefs ADD COLUMN last_opened_at TEXT DEFAULT ''",
             "ALTER TABLE accounting_user_prefs ADD COLUMN opens INTEGER DEFAULT 0",
+            # Priority notifications (Sep 30) - see the Postgres list.
+            "ALTER TABLE nexus_notifications ADD COLUMN priority INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1772,6 +1774,9 @@ def _run_migrations():
         # Accounting: when each person last opened the screen (Sep 30).
         "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS last_opened_at TEXT DEFAULT ''",
         "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS opens INTEGER DEFAULT 0",
+        # Priority notifications (Neil, call of 09/29): 1 = the yellow bar across
+        # the top until acted on; 0 = the bell.
+        "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
