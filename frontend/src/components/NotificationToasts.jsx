@@ -62,7 +62,7 @@ export default function NotificationToasts({ onNavigate }) {
       seenIds.current.add(n.id);
       // Never toast history: already-handled, already-read, or older than 2
       // minutes (poll/realtime replays of old rows must stay silent)
-      if (n.actioned || n.read) return false;
+      if (n.actioned || n.read || n.closed) return false;
       const ageMs = Date.now() - new Date(n.timestamp).getTime();
       if (!Number.isFinite(ageMs) || ageMs > 120_000) return false;
       const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending' || n.type === 'extension_pending');

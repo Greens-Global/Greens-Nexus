@@ -412,14 +412,17 @@ describe('Views, filter, export, drag and drop, day notes, activities', () => {
   };
 
   it('switches to Month, then opens a day from it', async () => {
-    // The 1st is always in the month (this week's Monday is not, early in a month).
-    timeSchedule.mockResolvedValue(data([shift({ date: firstOfMonth() })]));
+    // Today, not this week's Monday: in the first days of a month the Monday
+    // belongs to the month before and is not on the Month grid (failed 10/01).
+    const t = new Date();
+    const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    timeSchedule.mockResolvedValue(data([shift({ date: today })]));
     render(<ShiftSchedule toastOk={toastOk} />);
-    await screen.findByText('Month');
+    await screen.findByText('GST');
     fireEvent.click(screen.getByText('Month'));
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(firstOfMonth(), lastOfMonth()));
-    fireEvent.click(await screen.findByLabelText(`Open ${formatUs(firstOfMonth())}`));
-    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(firstOfMonth(), firstOfMonth()));
+    fireEvent.click(await screen.findByLabelText(`Open ${formatUs(today)}`));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(today, today));
     expect(await screen.findByLabelText('Shift 9a to 5p')).toBeTruthy();
   });
 

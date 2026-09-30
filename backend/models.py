@@ -444,6 +444,11 @@ class NexusNotification(Base):
     # punch fix waiting); 0 = the quiet bell. The system stamps it on those
     # flows; a manager can raise one by hand.
     priority    = Column(Integer, default=0)
+    # Closed (Neil, 10/01): nothing is deleted when a person clears a
+    # notification - it moves to the bell's Closed list (per person, like
+    # read_by) and can be brought back. Every row is kept 30 days from
+    # created_at, then the retention sweep removes it (notification_retention).
+    closed_by   = Column(String, default="")
 
 
 class InventoryRequest(Base):
