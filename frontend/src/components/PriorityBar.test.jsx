@@ -39,7 +39,8 @@ describe('PriorityBar', () => {
     expect(markRead).toHaveBeenCalledWith('a');
     // The person the notice names is handed to the Time screen, so it opens on THEIR timecard.
     await waitFor(() => expect(opened).toHaveBeenCalledWith({ email: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' }));
-    expect(takePendingOpen('timecard')).toBeNull();   // the live event took it
+    // The pending note waits for a Time screen that is still loading.
+    expect(takePendingOpen('timecard')).toEqual({ email: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' });
     fireEvent.click(screen.getByRole('button', { name: 'Next notice' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(markRead).toHaveBeenCalledWith('b');
