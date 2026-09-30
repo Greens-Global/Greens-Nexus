@@ -3188,6 +3188,14 @@ class TaskTicket(Base):
     # date breach. Blank on a ticket nobody has commented on yet; the frontend
     # falls back to created_at in that case.
     last_comment_at = Column(String, default="")
+    # Requester-facing "something new" signal (Neil, Sep 30): stamped when
+    # anyone OTHER than the requester changes the ticket or replies publicly,
+    # and requester_seen_at when the requester opens it. Newer update than
+    # seen = the unread dot on Support's My Tickets list.
+    requester_update_at = Column(String, default="")
+    requester_seen_at   = Column(String, default="")
+    # What was actually done - required to resolve/close a ticket (Neil, Sep 30).
+    resolution_note     = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
 

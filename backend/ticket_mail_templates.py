@@ -15,16 +15,27 @@ from mail_text import Rich, rich_to_email_html
 
 from ticket_code import ticket_no
 
+# Title Case, like every status chip in the app (Neil, Sep 30: "In Progress",
+# "On Hold") - mirrors TICKET_STATUS_META in frontend/src/tickets/ticketMeta.js.
 TICKET_STATUS_META = {
     "new":         {"label": "New",         "color": "#2563eb"},
     "open":        {"label": "Open",        "color": "#7c3aed"},
-    "in_progress": {"label": "In progress", "color": "#d97706"},
-    "on_hold":     {"label": "On hold",     "color": "#6b7280"},
+    "in_progress": {"label": "In Progress", "color": "#d97706"},
+    "waiting_user":   {"label": "Waiting for User",   "color": "#2563eb"},
+    "waiting_vendor": {"label": "Waiting for Vendor", "color": "#6b7280"},
+    "on_hold":     {"label": "On Hold",     "color": "#6b7280"},
     "resolved":    {"label": "Resolved",    "color": "#16a34a"},
     "closed":      {"label": "Closed",      "color": "#9ca3af"},
     "reopened":    {"label": "Reopened",    "color": "#dc2626"},
 }
 PRIORITY_LABEL = {"urgent": "Urgent", "high": "High", "medium": "Medium", "low": "Low"}
+
+
+def status_label(status: str) -> str:
+    """The Title Case label for a status key - for bell titles and email copy,
+    which used to show the raw key ("Ticket moved to in_progress")."""
+    m = TICKET_STATUS_META.get(status or "")
+    return m["label"] if m else (status or "-").replace("_", " ").title()
 
 
 def _status_badge(status: str) -> str:
@@ -346,7 +357,7 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
         intro="Here's a summary of the resolution.",
         rows=[
             ("Resolution", t.get("resolutionLabel") or "-"),
-            ("Resolution notes", t.get("description") or "-"),
+            ("Resolution notes", t.get("resolutionNote") or "-"),
             ("Resolved by", t.get("actorName") or t.get("actorEmail")),
             ("Resolved", t.get("eventAtDisplay") or "-"),
             ("Total resolution time", t.get("resolutionDuration") or "-"),

@@ -176,6 +176,8 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "approvalNote": _nz(t.approval_note), "approvalDecidedAt": _nz(t.approval_decided_at),
             "slaDueOn": _nz(t.sla_due_on), "resolvedAt": _nz(t.resolved_at),
             "lastCommentAt": _nz(t.last_comment_at),
+            "requesterUpdateAt": _nz(t.requester_update_at), "requesterSeenAt": _nz(t.requester_seen_at),
+            "resolutionNote": _nz(t.resolution_note),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -289,6 +291,12 @@ def service_area_for(db: Session, application: str) -> str:
     name = (application or "").strip()
     if not name:
         return ""
+    # The curated "What do you need help with?" topics (ticket_taxonomy
+    # helpTopics) carry their own area - Plumbing is Buildings & Maintenance
+    # whether or not anything in External Links is called that.
+    topic_area = ticket_taxonomy.topic_area(db, name)
+    if topic_area:
+        return topic_area
     row = (db.query(models.ExternalLink.service_area)
            .filter(func.lower(models.ExternalLink.name) == name.lower())
            .first())
@@ -416,6 +424,9 @@ class TicketUpdate(BaseModel):
     service_area: Optional[str] = None
     csat_rating: Optional[int] = None
     csat_comment: Optional[str] = None
+    # What was done - required whenever a ticket moves into Resolved/Closed
+    # (see update_ticket).
+    resolution_note: Optional[str] = None
     sla_due_on: Optional[str] = None
     resolved_at: Optional[str] = None
     # Not a ticket column - used only to build the "Reopened" notification's
@@ -461,6 +472,23 @@ def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, ki
         if email in skip:
             continue
         task_notify(db, kind=kind, for_email=email, title=title, body=body, ticket_id=t.id, nexus_action=action)
+
+
+def _deliver_teams_dm(row_id: str) -> None:
+    """One delivery attempt for a queued ticket DM, run as a background task
+    (after the response) on its own session. Failures stay queued for
+    ticket_teams_post_loop's sweep."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        row = db.query(models.TicketTeamsMessage).filter(models.TicketTeamsMessage.id == row_id).first()
+        if row is not None and not row.sent:
+            import teams_post
+            teams_post.deliver_ticket_row(db, row)
+    except Exception:
+        pass   # queued; the sweep owns it now
+    finally:
+        db.close()
 
 
 def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> "models.TicketTeamsMessage | None":
@@ -594,6 +622,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # Same rule update_ticket enforces, applied at the door: a request cannot
         # be born already assigned, or the gate is skippable by whoever files it.
         raise HTTPException(409, "This request needs approval - it can be assigned once approved.")
+    if t.assignee_email and t.status == "open":
+        t.status = "in_progress"   # born assigned = already being worked (see update_ticket)
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
@@ -632,6 +662,23 @@ _WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_departmen
 # Every field an unrestricted caller may touch, minus reopen_reason (not a
 # column - see TicketUpdate).
 _ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
+# What the requester may still send once their ticket has left Open: the
+# confirm / reopen move and the rating that goes with confirming.
+_REQUESTER_AFTER_OPEN_FIELDS = {"status", "csat_rating", "csat_comment"}
+
+
+def _may_patch_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
+    """The desk (same test require_ticket_desk applies) or the ticket's own
+    requester. A plain employee has no tasks/tickets grant, and without this
+    they could not edit their open ticket, confirm a resolution or reopen it
+    from Support - _ticket_edit_scope still decides WHAT they may change."""
+    from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
+    if user.get("level", 0) >= _LEVELS["administrator"]:
+        return True
+    grants = _grants_for(user.get("email") or "", db)
+    if any(grants.get(m, 0) >= _MODULE_LEVEL_RANK["viewer"] for m in ("tasks", "tickets")):
+        return True
+    return (t.requester_email or "").lower() == (user.get("email") or "").lower()
 
 
 def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
@@ -668,11 +715,17 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     if t.status == "in_progress" and t.assignee_email:
         return (_ALL_TICKET_FIELDS - {"company_id"}) if email == t.assignee_email.lower() else set()
     if (t.requester_email or "").lower() == email:                   # who raised it, pre-in_progress
+        # Editable while it is still Open and nobody has picked it up (Neil,
+        # Sep 30: "edit should only come up if it's still open"). After that
+        # the requester's moves are confirming (with a rating) or reopening -
+        # update_ticket narrows the status values further.
+        if t.status != "open" and email != (t.assignee_email or "").lower():
+            return _REQUESTER_AFTER_OPEN_FIELDS
         return None
     return _WORKING_FIELDS
 
 
-@router.patch("/task-tickets/{ticket_id}", dependencies=[Depends(require_ticket_desk)])
+@router.patch("/task-tickets/{ticket_id}")
 def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
@@ -680,6 +733,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         raise HTTPException(404, "Ticket not found")
     import auth   # company wall: another company's ticket is 404
     auth.assert_company(t.company_id or "", user, db)
+    if not _may_patch_ticket(db, t, user):
+        raise HTTPException(403, "You don't have access to this screen")
     data = body.model_dump(exclude_unset=True)
     reopen_reason = data.pop("reopen_reason", "") or ""   # not a column - see TicketUpdate
     scope = _ticket_edit_scope(db, t, user)
@@ -719,6 +774,26 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         allowed_transitions = {("resolved", "closed"), ("resolved", "reopened"), ("closed", "reopened")}
         if (t.status, data["status"]) not in allowed_transitions:
             raise HTTPException(403, "You can only close or reopen your ticket from here - other status changes are the desk's to make.")
+        # Confirming a resolution rates the person who handled it, 1-5 stars
+        # (Neil, Sep 30: "you need to give them stars... comments are
+        # optional") - that rating is how the desk's work gets tracked.
+        if (t.status, data["status"]) == ("resolved", "closed"):
+            rating = data.get("csat_rating") or t.csat_rating or 0
+            if not 1 <= int(rating) <= 5:
+                raise HTTPException(400, "Rate how your ticket was handled (1 to 5 stars) to confirm the resolution.")
+    if data.get("csat_rating") is not None and not 0 <= int(data["csat_rating"]) <= 5:
+        raise HTTPException(400, "Rating must be between 1 and 5 stars.")
+    # Resolving or closing a ticket that is still being worked needs a written
+    # resolution (Neil, Sep 30: "when you close a ticket, you need to put in
+    # what the resolution of the ticket is") - it is the record of what fixed
+    # it the next time the same issue comes in. Resolved -> Closed (the
+    # requester confirming) is not a new resolution, so it is not asked again.
+    note = data["resolution_note"] if "resolution_note" in data else t.resolution_note
+    if (data.get("status") in ("resolved", "closed") and t.status not in ("resolved", "closed")
+            and not (note or "").strip()):
+        raise HTTPException(400, "Describe the resolution - what was done to fix it - before resolving this ticket.")
+    if "resolution_note" in data:
+        data["resolution_note"] = (data["resolution_note"] or "").strip()[:2000]
     # Work does not start before the sign-off. Assigning a ticket that is still
     # awaiting approval hands someone work the approver has not sanctioned, and
     # once it is in an assignee's queue it gets done - the gate is then decoration.
@@ -739,7 +814,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_subject, prev_description = t.subject, (t.description or "")
     prev_dept, prev_company = t.hr_department_id, t.company_id
     prev_application, prev_service_area = t.application, t.service_area
-    prev_resolution = t.resolution
+    prev_resolution, prev_resolution_note = t.resolution, (t.resolution_note or "")
     prev_type_fields = dict(t.type_fields or {})
     # sla_due_on is never applied from the payload directly - it is derived
     # from priority a few lines down, same as create_ticket never trusting
@@ -771,6 +846,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if data.get("status") not in ("resolved", "closed") and "status" in data:
         t.resolved_at = ""
         t.resolution = ""
+        t.resolution_note = ""
+    # Assigning an Open (or Reopened) ticket starts the work (Neil, Sep 30:
+    # "if I assign it, it should automatically change the status from open to
+    # in progress"). Only when the same request did not set a status itself.
+    if ("assignee_email" in data and (t.assignee_email or "") and (t.assignee_email or "") != prev_assignee
+            and "status" not in data and t.status in ("open", "reopened")):
+        t.status = "in_progress"
 
     # ── Keep the approval gate in step with the ticket ────────────────────────
     # The gate is decided by the TYPE, so re-typing a ticket has to re-decide it.
@@ -810,21 +892,24 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         t.approval_decided_at = ""
 
     # activity trail + notifications for meaningful changes
+    changed = []
+
     def _log(kind, detail):
         log_activity(db, type=kind, actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail)
+        changed.append(kind)
     tk_action = {"view": "tickets", "label": "View ticket"}
-    status_changed = "status" in data and t.status != prev_status
+    status_changed = t.status != prev_status   # includes the assignment's auto In Progress
     assignee_changed = "assignee_email" in data and (t.assignee_email or "") != prev_assignee
     if status_changed:
-        _log("status_changed", f"changed status to {t.status}")
+        _log("status_changed", f"changed status to {tmpl.status_label(t.status)}")
         if t.status in ("resolved", "closed") and t.requester_email and t.requester_email != user["email"].lower():
             task_notify(db, kind="ticket_resolved", for_email=t.requester_email,
-                        title=f"Your ticket was {t.status}", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+                        title=f"Your ticket was {tmpl.status_label(t.status)}", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
         else:
             # keep watchers (and requester/assignee) in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
-                                 title=f"Ticket moved to {t.status}", body=f"{ticket_no(t.code)} · {t.subject}")
+                                 title=f"Ticket moved to {tmpl.status_label(t.status)}", body=f"{ticket_no(t.code)} · {t.subject}")
     if assignee_changed:
         # Stamped from the actor, never from the payload: the field records WHO
         # handed the ticket over, and a value the caller could set records
@@ -861,6 +946,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("sla_changed", f"changed the SLA due date to {t.sla_due_on or '-'}")
     if t.resolution != prev_resolution:
         _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
+    if (t.resolution_note or "") != prev_resolution_note and t.resolution_note:
+        _log("resolution_note", f"resolution: {_comment_preview(t.resolution_note)}")
     # Per-question diff, not "type fields updated" - a requester's wrong answer
     # getting corrected is exactly the kind of change this audit trail exists
     # to make provable (Pranshu, Sept 8 2026), so which question and what it
@@ -883,6 +970,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             _log("approval_cleared", f"no longer needs approval - re-typed as {_type_label(t.type)}")
 
     t.modified_at = now_iso()
+    # Anything someone else changed is news to the requester - the unread dot
+    # on their Support list. Their own edits never light it.
+    if changed and (user["email"] or "").lower() != (t.requester_email or "").lower():
+        t.requester_update_at = t.modified_at
     db.commit()
     db.refresh(t)
 
@@ -899,7 +990,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "resolved", actor)
     elif status_changed:
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
-                                   prev_status=prev_status, update_kind=f"Status changed to {t.status}")
+                                   prev_status=prev_status, update_kind=f"Status changed to {tmpl.status_label(t.status)}")
     elif "priority" in data and t.priority != prev_priority:
         # Covers the SLA due date moving too - it's never in `data` itself
         # (see the pop() above), it only ever moves as a side effect of this
@@ -918,17 +1009,15 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             or ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)):
         dm_row = _queue_requester_teams_dm(db, t, actor)
         db.commit()
-        # One inline delivery attempt so the common case lands in Teams right
-        # away, same as timeclock.py's /bod endpoint - without this, the DM
-        # only goes out on ticket_teams_post_loop's next sweep (up to ~5 min
-        # later). Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
-        # here; anything that fails stays queued for the sweep to retry.
+        # One delivery attempt right away so the common case lands in Teams
+        # without waiting for ticket_teams_post_loop's next sweep (up to ~5
+        # min later) - but AFTER the response: it is a Graph round trip (two
+        # when the chat has to be created) and running it inline held every
+        # status change open until Teams answered (Neil, Sep 30: clicking
+        # Resolved "is lagging a lot"). Anything that fails stays queued for
+        # the sweep to retry.
         if dm_row is not None:
-            try:
-                import teams_post
-                teams_post.deliver_ticket_row(db, dm_row)
-            except Exception:
-                pass   # queued; the sweep owns it now
+            background_tasks.add_task(_deliver_teams_dm, dm_row.id)
 
     return ticket_to_dict(t)
 
@@ -987,9 +1076,18 @@ class TicketAttachmentBody(BaseModel):
 def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
     # Their own support request is readable without a desk grant.
-    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
+    t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).order_by(models.TaskComment.created_at).all()
-    return [_tcomment(c) for c in rows]
+    # Internal notes are the desk talking among themselves - never shown to
+    # the person who raised the ticket, even one who also has a desk grant
+    # (unless they are working it themselves, or a manager).
+    email = (user.get("email") or "").lower()
+    sees_internal = _has_desk_grant(user, db) and (
+        email != (t.requester_email or "").lower()
+        or email == (t.assignee_email or "").lower()
+        or _ticket_privileged(db, t, user))
+    return [_tcomment(c) for c in rows if sees_internal or not getattr(c, "internal", False)]
 
 
 @router.post("/task-tickets/{ticket_id}/comments", status_code=201)
@@ -1007,6 +1105,12 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     # Resets the "needs a comment" staleness clock - internal notes count too,
     # any human touching the ticket is evidence someone's paying attention.
     t.last_comment_at = now_iso()
+    if not internal:
+        # A reply is an update: it moves the ticket's Last Updated, and one
+        # from anyone but the requester lights their unread dot on Support.
+        t.modified_at = t.last_comment_at
+        if (user["email"] or "").lower() != (t.requester_email or "").lower():
+            t.requester_update_at = t.last_comment_at
     # JSON, not a plain string - same "structured detail" trick the "created"
     # snapshot uses (see _ticket_snapshot) - so the activity feed can show what
     # was actually said instead of just the word "commented", while still
@@ -1062,11 +1166,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
         dm_row = _queue_requester_teams_dm(db, t, user["email"])
         db.commit()
         if dm_row is not None:
-            try:
-                import teams_post
-                teams_post.deliver_ticket_row(db, dm_row)
-            except Exception:
-                pass   # queued; the sweep owns it now
+            background_tasks.add_task(_deliver_teams_dm, dm_row.id)
     return _tcomment(c)
 
 
@@ -1074,6 +1174,18 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
 def delete_ticket_comment(comment_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).delete()
     db.commit()
+
+
+@router.post("/task-tickets/{ticket_id}/seen")
+def mark_ticket_seen(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The requester opened their ticket - clears the unread dot on Support.
+    Anyone else opening it is a no-op (the dot is the requester's)."""
+    t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
+    if (user.get("email") or "").lower() == (t.requester_email or "").lower():
+        t.requester_seen_at = now_iso()
+        db.commit()
+    return {"requesterSeenAt": t.requester_seen_at or ""}
 
 
 @router.get("/task-tickets/{ticket_id}/attachments")
@@ -1213,6 +1325,9 @@ class TicketDepartmentUpdate(BaseModel):
     name:         Optional[str] = None
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
+    # "up" / "down": swap places with the neighbor in the intake dropdown's
+    # order (Neil, Sep 30: IT first, then Construction, Admin, Operations).
+    move:         Optional[str] = None
 
 
 @router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
@@ -1239,6 +1354,17 @@ def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
         row.lead_email = (body.lead_email or "").strip().lower()
     if body.backup_email is not None:
         row.backup_email = (body.backup_email or "").strip().lower()
+    if body.move in ("up", "down"):
+        siblings = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == row.company_id)
+                    .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
+        i = next(n for n, d in enumerate(siblings) if d.id == row.id)
+        j = i - 1 if body.move == "up" else i + 1
+        if 0 <= j < len(siblings):
+            siblings[i], siblings[j] = siblings[j], siblings[i]
+        # Renumber the whole list: seeded rows can share a sort_order, and a
+        # swap between equal numbers would change nothing.
+        for n, d in enumerate(siblings):
+            d.sort_order = n
     db.commit()
     return _dept_list(db, row.company_id)
 

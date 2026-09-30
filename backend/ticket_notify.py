@@ -367,6 +367,7 @@ def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str) -> dict
         "dueDateDisplay": _fmt(t.sla_due_on) if t.sla_due_on else "",
         "resolutionLabel": (t.resolution or "").replace("_", " ").title(),
         "resolutionDuration": _duration(t.created_at, t.resolved_at) if t.resolved_at else "",
+        "resolutionNote": t.resolution_note or "",
     }
 
 

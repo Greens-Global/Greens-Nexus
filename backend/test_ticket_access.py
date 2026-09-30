@@ -242,8 +242,10 @@ class TicketAccessTests(unittest.TestCase):
         """The whole point of the split - if a future edit drops the dependency
         from one of these, the queue opens to everybody."""
         from fastapi.routing import APIRoute
+        # PATCH is not here: since Sep 30 the ticket's own requester may edit
+        # it (while Open), confirm or reopen it without a grant - the route
+        # checks _may_patch_ticket itself (test_ticket_requester_status_lock).
         must_be_guarded = {
-            ("PATCH", "/task-tickets/{ticket_id}"),
             ("DELETE", "/task-tickets/{ticket_id}"),
             ("POST", "/task-tickets/{ticket_id}/approval"),
             ("POST", "/task-ticket-components"),
