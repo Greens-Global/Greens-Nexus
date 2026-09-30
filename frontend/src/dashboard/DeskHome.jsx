@@ -211,7 +211,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
 
-  const unread = notifications.filter(n => !n.read);
+  const unread = notifications.filter(n => !n.read && !n.closed);
   const actionable = unread.filter(n => n.action && !n.actioned).slice(0, 6);
   const pendingSigs = sigs.length;
 
