@@ -868,6 +868,8 @@ export const api = {
   markNotifRead:    (id)             => req(`/notifications/${id}/read`, { method: 'PATCH' }),
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
+  // Clearing closes (kept 30 days under the bell's Closed list); this brings one back.
+  restoreNotif:     (id)             => req(`/notifications/${id}/restore`, { method: 'PATCH' }),
   sendAlert:        (data)           => req('/notifications/send-alert', { method: 'POST', body: JSON.stringify(data) }),
 
   // Inventory Requests (legacy stack being retired - P2-1). The item/request CRUD

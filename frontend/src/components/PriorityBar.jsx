@@ -1,88 +1,77 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Megaphone, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { api } from '../api';
 import { useNotifications } from '../contexts/NotificationContext';
-import { ROLES, useRole } from '../contexts/RoleContext';
+import { ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { openNotificationTarget } from '../lib/openTarget';
 
-// Priority notices (Neil, call of 09/29): two kinds of notification - the
-// quiet bell, and this bar across the top of every screen for the things
-// that must be acted on (a timecard due, a timesheet waiting on you, a punch
-// fix to approve). It stays until the person opens the item or marks it
-// done. The system raises them on those flows (notifications with
-// priority = 1); a manager can raise one for a person from the megaphone.
+// Priority notices (Neil, call of 09/29; adjusted 10/01): two categories of
+// notification. FYI ones sit in the bell. The ones that need action (a
+// timecard due, a timesheet waiting on you, a punch fix to approve) are
+// this yellow bar: it sticks to the top of the person's screen and STAYS -
+// opening the item does not clear it - until they click it off. Clicked
+// off, it moves to the bell's Closed list like any other notification
+// (kept 30 days, restorable). The system raises them on those flows
+// (notifications with priority = 1); a manager can raise one for a person
+// from the bell's megaphone. Never company-wide: each goes to one person.
 //
 // Same data as the bell (NotificationContext): nothing is fetched twice.
 
 const BAR = {
+  position: 'sticky', top: 0, zIndex: 60,
   display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', margin: '0 0 8px',
   background: '#FFF3C4', color: '#5b4300', border: '1px solid #f2d36b', borderRadius: 10, fontSize: '0.84rem',
+  boxShadow: '0 2px 8px rgba(91, 67, 0, 0.12)',
 };
 const BTN = { border: '1px solid #d9b93a', background: '#fff8dc', color: '#5b4300', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' };
 const ICON = { border: 'none', background: 'none', padding: 3, cursor: 'pointer', color: '#7a5d00', display: 'inline-flex' };
 
 export default function PriorityBar({ onNavigate }) {
   const ctx = useNotifications();
-  const { myEmail, myRole } = useRole();
   const [at, setAt] = useState(0);
-  const [raising, setRaising] = useState(false);
-  const open = useMemo(() => (ctx?.notifications || []).filter((n) => n.priority === 1 && !n.read && !n.actioned), [ctx?.notifications]);
-  const canRaise = (ROLES[myRole]?.level || 0) >= 3;
+  const open = useMemo(() => (ctx?.notifications || []).filter((n) => n.priority === 1 && !n.closed && !n.actioned), [ctx?.notifications]);
   if (!ctx) return null;
   const n = open[Math.min(at, Math.max(0, open.length - 1))];
-  const done = (item) => { ctx.markRead(item.id); setAt(0); };
+  // Clicked off: closed for this person, kept under the bell's Closed list.
+  const close = (item) => { ctx.dismiss(item.id); setAt(0); };
   const go = (item) => {
     if (item.action?.view && onNavigate) onNavigate(item.action.view, item.action.sub);
     else if (item.action?.view) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: item.action.view, sub: item.action.sub } }));
     // The task, ticket or timecard the notice names opens too, not just its module.
     openNotificationTarget(item.action);
+    // Seen, but still owed: the bar stays until it is clicked off.
     ctx.markRead(item.id);
-    setAt(0);
   };
-  if (!n && !canRaise) return null;
-  if (!n) {
-    // Nothing waiting: managers keep the megaphone to raise one.
-    return raising ? <RaiseNotice onClose={() => setRaising(false)} myEmail={myEmail} /> : (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '0 0 4px' }}>
-        <button type="button" onClick={() => setRaising(true)} title="Raise a priority notice for someone" aria-label="Raise a priority notice"
-          style={{ ...ICON, color: 'var(--text-muted)', fontSize: '0.72rem', gap: 4, alignItems: 'center' }}>
-          <Megaphone size={13} /> Priority notice
-        </button>
-      </div>
-    );
-  }
+  if (!n) return null;
   return (
-    <>
-      <div role="alert" aria-label="Priority notice" style={BAR}>
-        <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <strong>{n.title}</strong>
-          {n.body && <span style={{ marginLeft: 8, color: '#6b5200' }}>{n.body}</span>}
-        </div>
-        {open.length > 1 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
-            <button type="button" style={ICON} aria-label="Previous notice" disabled={at === 0} onClick={() => setAt((a) => Math.max(0, a - 1))}><ChevronLeft size={14} /></button>
-            {Math.min(at, open.length - 1) + 1} of {open.length}
-            <button type="button" style={ICON} aria-label="Next notice" disabled={at >= open.length - 1} onClick={() => setAt((a) => Math.min(open.length - 1, a + 1))}><ChevronRight size={14} /></button>
-          </span>
-        )}
-        {n.action?.view && <button type="button" style={BTN} onClick={() => go(n)}>Open</button>}
-        <button type="button" style={{ ...BTN, background: 'transparent' }} onClick={() => done(n)}>Done</button>
-        {canRaise && <button type="button" style={ICON} onClick={() => setRaising(true)} title="Raise a priority notice for someone" aria-label="Raise a priority notice"><Megaphone size={15} /></button>}
+    <div role="alert" aria-label="Priority notice" style={BAR}>
+      <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <strong>{n.title}</strong>
+        {n.body && <span style={{ marginLeft: 8, color: '#6b5200' }}>{n.body}</span>}
       </div>
-      {raising && <RaiseNotice onClose={() => setRaising(false)} myEmail={myEmail} />}
-    </>
+      {open.length > 1 && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
+          <button type="button" style={ICON} aria-label="Previous notice" disabled={at === 0} onClick={() => setAt((a) => Math.max(0, a - 1))}><ChevronLeft size={14} /></button>
+          {Math.min(at, open.length - 1) + 1} of {open.length}
+          <button type="button" style={ICON} aria-label="Next notice" disabled={at >= open.length - 1} onClick={() => setAt((a) => Math.min(open.length - 1, a + 1))}><ChevronRight size={14} /></button>
+        </span>
+      )}
+      {n.action?.view && <button type="button" style={BTN} onClick={() => go(n)}>Open</button>}
+      <button type="button" style={ICON} onClick={() => close(n)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
+    </div>
   );
 }
 
 // A manager's priority notice: one person, a title, a line of text, and
-// where Open should take them.
+// where Open should take them. Opened from the bell's megaphone.
 const VIEWS = [
   ['', 'Nowhere - just the notice'], ['timeclock', 'Time Clock'], ['timeclock:timecard', 'Time Clock - Timecard'], ['timeclock:timeoff', 'Time Clock - Time Off'],
   ['shifts', 'Shifts'], ['tasks', 'Tasks'], ['accounting', 'Accounting'], ['hr', 'People'], ['dashboard', 'Dashboard'],
 ];
-function RaiseNotice({ onClose, myEmail }) {
+export function canRaiseNotice(myRole) { return (ROLES?.[myRole]?.level || 0) >= 3; }
+export function RaiseNotice({ onClose, myEmail }) {
   const nameOf = useNameResolver();
   const [people, setPeople] = useState([]);
   const [to, setTo] = useState('');
@@ -122,7 +111,7 @@ function RaiseNotice({ onClose, myEmail }) {
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Raise a Priority Notice</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>A yellow bar across the top of their screen until they act on it. Use it for things that cannot wait.</div>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>A yellow bar across the top of their screen until they click it off. Use it for things that cannot wait.</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>

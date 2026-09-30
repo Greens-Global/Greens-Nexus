@@ -821,6 +821,8 @@ def _run_migrations():
             "ALTER TABLE accounting_user_prefs ADD COLUMN opens INTEGER DEFAULT 0",
             # Priority notifications (Sep 30) - see the Postgres list.
             "ALTER TABLE nexus_notifications ADD COLUMN priority INTEGER DEFAULT 0",
+            # Closed notifications (Oct 1) - see the Postgres list.
+            "ALTER TABLE nexus_notifications ADD COLUMN closed_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1777,6 +1779,9 @@ def _run_migrations():
         # Priority notifications (Neil, call of 09/29): 1 = the yellow bar across
         # the top until acted on; 0 = the bell.
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0",
+        # Closed notifications (Neil, 10/01): clearing moves a row to the
+        # person's Closed list instead of deleting it; rows live 30 days.
+        "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2424,6 +2429,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] task trash purge sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] task trash purge sweep skipped: {e}")
+        # Notification retention (Neil, 10/01): closed rows are kept 30 days
+        # so a clear can be undone; this sweep removes them after that.
+        # Deployed-worker gated like the trash sweep above.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from notification_retention import notification_retention_loop
+                _tasks.append(_a.create_task(notification_retention_loop()))
+            else:
+                print("[startup] notification retention sweep skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] notification retention sweep skipped: {e}")
         # "What's New" drafts itself (Sept 2026): the same generation the
         # Manage > "Generate from git" button runs, fired a few minutes after
         # each merge by the GitHub push webhook and daily as a backstop, so dev

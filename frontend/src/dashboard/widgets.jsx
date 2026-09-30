@@ -674,14 +674,15 @@ const importanceOf = (n) => NOTIF_IMPORTANCE[n.type] ?? 1;
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
   // Unread first, then most-important type, then most recent - so the thing
   // that most needs your attention is always at the top of the list.
-  const sorted = [...(notifications || [])].sort((a, b) => {
+  // Closed ones live in the bell's Closed list, not here.
+  const sorted = (notifications || []).filter(n => !n.closed).sort((a, b) => {
     if (!!a.read !== !!b.read) return a.read ? 1 : -1;
     const diff = importanceOf(b) - importanceOf(a);
     if (diff) return diff;
     return new Date(b.timestamp) - new Date(a.timestamp);
   });
   const list = sorted.slice(0, 12);
-  const unread = (notifications || []).filter(n => !n.read).length;
+  const unread = sorted.filter(n => !n.read).length;
   return (
     <DashCard title="Notifications" sub={unread ? `${unread} unread` : 'All caught up'}
       action={list.length > 0 ? (
