@@ -2314,7 +2314,7 @@ body { font-feature-settings: "cv05"; }
 .num.neg::after { content: none; }
 .kpi-value { font-size: 24px; line-height: 30px; font-weight: 600; }
 
-.acct-display {
+.acct-display, .view-title-group h2.acct-display, .view-header h2.acct-display {
   font-family: var(--font-display); font-weight: 400; font-style: normal;
   font-size: 34px; line-height: 40px; letter-spacing: -0.005em;
 }
@@ -2322,15 +2322,15 @@ body { font-feature-settings: "cv05"; }
   font-family: var(--font-display); font-weight: 400; font-style: normal;
   font-size: 22px; line-height: 28px;
 }
-.acct-label {
+.acct-caps {
   font-family: var(--font-ui); font-weight: 500; font-size: 11px; line-height: 16px;
   letter-spacing: 0.06em; text-transform: uppercase;
   font-feature-settings: "case", "tnum", "cv05"; color: var(--text-secondary);
 }
-th.num.acct-label, .acct-label.num { text-align: right; }
+th.num.acct-caps, .acct-caps.num { text-align: right; }
 /* KPI cards: a colored left accent bar, the label above the figure. */
 .acct-kpi { padding: 10px 14px; border: 1px solid var(--border-color); border-left: 3px solid var(--wk-brand, #2b45e1); border-radius: 8px; background: var(--bg-card); min-width: 150px; }
-.acct-kpi .acct-label { display: block; margin-bottom: 2px; }
+.acct-kpi .acct-caps { display: block; margin-bottom: 2px; }
 .acct-kpi .kpi-value { display: block; }
 .acct-kpi.is-good { border-left-color: var(--ok-fg, #15803d); }
 .acct-kpi.is-muted { border-left-color: var(--border-color); }

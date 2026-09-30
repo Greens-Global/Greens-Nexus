@@ -54,7 +54,7 @@ export function Delta({ v, goodUp = true, suffix, style, text }) {
 
 // The brief's Label role: Inter 11/16, weight 500, uppercase, tracked (.acct-label).
 export function Eyebrow({ children, style }) {
-  return <div className="acct-label" style={style}>{children}</div>;
+  return <div className="acct-caps" style={style}>{children}</div>;
 }
 
 /** The framed card every widget and page panel renders inside. */
