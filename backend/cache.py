@@ -107,6 +107,10 @@ dashboard_kpis   = TTLCache("dashboard_kpis",   ttl=20)    # /dashboards/kpis - 
                                                            # staleness; single-flight also collapses the burst of
                                                            # identical loads when a dashboard/its widgets mount.
 dashboard_birthdays = TTLCache("dashboard_birthdays", ttl=3600)  # /dashboards/birthdays - whole roster, changes rarely
+myhr_egnyte_docs = TTLCache("myhr_egnyte_docs", ttl=180)  # /myhr/egnyte-documents - per email; a dozen Egnyte
+                                                              # calls (path match + one listing per subfolder) took
+                                                              # ~19 s on dev for EVERY My HR visit (Sep 29). Nothing
+                                                              # in Nexus writes that folder, so 3 min staleness is fine.
 dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insights (BI board) - company-wide, so
                                                               # ONE entry (key ()) serves every viewer, not per-email
                                                               # like dashboard_kpis - a dozen managers open the BI
