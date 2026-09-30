@@ -95,7 +95,7 @@ describe('Shifts > Requests', () => {
     timeMySchedule.mockResolvedValue({ scheduled: [mine], teams: [] });
     shiftRequestsMine.mockResolvedValue(reqs({ teammates: [], swapShifts: {} }));
     await openDialog();
-    expect(screen.getByText(/You are not in a shift group yet/)).toBeTruthy();
+    expect(screen.getByText(/You are not on a team yet/)).toBeTruthy();
   });
 
   it('leaves out a shift that already has a request open, and a kind that is turned off', async () => {

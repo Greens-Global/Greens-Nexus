@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // Shifts module (Sep 29): everyone opens on My Shifts. One tab strip, like
 // Teams Shifts (Sep 30): My Shifts and Requests for everyone, Schedule and
-// Presets & Groups for managers and above. Employees never see the manager
+// Presets & Teams for managers and above. Employees never see the manager
 // pages, even by address.
 
 const role = { level: 1 };
@@ -42,13 +42,13 @@ describe('Shifts module', () => {
     role.level = 3;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub="mine" onSubChange={onSubChange} />);
-    expect(tabNames()).toEqual(['My Shifts', 'Schedule', 'Requests', 'Presets & Groups']);
+    expect(tabNames()).toEqual(['My Shifts', 'Schedule', 'Requests', 'Presets & Teams']);
     expect(screen.getByRole('tab', { name: /My Shifts/ }).getAttribute('aria-selected')).toBe('true');
     fireEvent.click(screen.getByRole('tab', { name: /Schedule/ }));
     expect(onSubChange).toHaveBeenCalledWith('schedule');
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
     expect(screen.getByText('Schedule grid')).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: /Presets & Groups/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Presets & Teams/ }));
     expect(onSubChange).toHaveBeenCalledWith('presets');
     rerender(<Shifts activeSub="presets" onSubChange={onSubChange} />);
     expect(await screen.findByText('Presets panel (1)')).toBeTruthy();   // the People list loads for it

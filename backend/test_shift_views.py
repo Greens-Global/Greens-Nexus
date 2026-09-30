@@ -28,7 +28,9 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
-                 "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''"):
+                 "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN archived INTEGER DEFAULT 0",
+                 "ALTER TABLE shift_groups ADD COLUMN sort_order INTEGER DEFAULT 0"):
         try:
             _c.execute(_text(_sql)); _c.commit()
         except Exception:
@@ -37,6 +39,7 @@ with database.engine.connect() as _c:
 ADMIN = "view.admin@greensglobal.com"
 A = "view.a@greensglobal.com"
 B = "view.b@greensglobal.com"
+MGR = "view.mgr@greensglobal.com"      # a plain manager; B reports to them
 VIEWER = "view.viewer@greensglobal.com"
 G_ED, G_VW, GROUP = "grant-view-ed", "grant-view-vw", "group-view"
 MON, TUE = "2026-11-16", "2026-11-17"
@@ -52,9 +55,11 @@ class ShiftViewTests(unittest.TestCase):
         self._cleanup()
         db = database.SessionLocal()
         try:
-            for em in (ADMIN, A, B, VIEWER):
+            for em in (ADMIN, A, B, VIEWER, MGR):
                 db.add(models.NexusEmployee(id=f"emp-{em}", first_name=em.split(".")[1], last_name="X",
-                                            work_email=em, status="active", deleted_at=""))
+                                            work_email=em, status="active", deleted_at="",
+                                            manager_email=MGR if em == B else ""))
+            db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
             db.add(models.NexusGroup(id=G_ED, name="ed", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=G_ED, email=ADMIN))
             # Changing shifts needs a manager (Sep 29); the hr:editor grant
@@ -84,7 +89,7 @@ class ShiftViewTests(unittest.TestCase):
     def _cleanup(self):
         db = database.SessionLocal()
         try:
-            db.query(models.NexusRole).filter(models.NexusRole.email == ADMIN).delete(synchronize_session=False)
+            db.query(models.NexusRole).filter(models.NexusRole.email.in_([ADMIN, MGR])).delete(synchronize_session=False)
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("view.%")).delete(synchronize_session=False))
             for gid in (G_ED, G_VW):
@@ -287,6 +292,41 @@ class ShiftViewTests(unittest.TestCase):
         self._as(VIEWER)
         self.assertIn(self.client.put("/timeclock/schedule/day-note", json={"work_date": MON, "note": "x"}).status_code,
                       (401, 403))
+
+    # ── Teams (Neil, Sep 30) ──────────────────────────────────────────────
+    def test_a_manager_sees_everyone_and_changes_only_their_team(self):
+        self._place(email=A)                          # someone else's person
+        self._as(MGR)
+        data = self.client.get(f"/timeclock/schedule?start={MON}&end={TUE}").json()
+        rows = {e["email"]: e["canEdit"] for e in data["employees"]}
+        self.assertTrue(rows[B] and rows[MGR])
+        self.assertFalse(rows[A])
+        self.assertEqual([s["canEdit"] for s in data["scheduled"] if s["email"] == A], [False])
+        self.assertEqual(self.client.post("/timeclock/schedule", json={"employee_email": A, "work_date": TUE,
+                                                                       "start_hhmm": "09:00", "end_hhmm": "17:00"}).status_code, 403)
+        self._place(email=B, day=TUE)
+        store = next(g for g in data["groups"] if g["id"] == GROUP)
+        self.assertEqual(store["members"], [A])
+        self.assertFalse(store["canEdit"])
+
+    def test_team_members_rename_archive_and_order(self):
+        r = self.client.post(f"/timeclock/shift-groups/{GROUP}/members", json={"add": [B, B.upper()], "remove": [A]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["members"], [B])
+        self.assertEqual(self.client.post(f"/timeclock/shift-groups/{GROUP}/members",
+                                          json={"add": ["nobody@greensglobal.com"]}).status_code, 400)
+        r = self.client.patch(f"/timeclock/shift-groups/{GROUP}/meta", json={"name": "Front Store", "archived": True})
+        self.assertEqual(r.json(), {"id": GROUP, "name": "Front Store", "archived": True})
+        g = next(g for g in self.client.get("/timeclock/shift-groups").json()["groups"] if g["id"] == GROUP)
+        self.assertEqual((g["name"], g["archived"], g["members"]), ("Front Store", True, [B]))
+        self.assertEqual(self.client.post("/timeclock/shift-groups/reorder", json={"ids": [GROUP]}).status_code, 200)
+        ids = [g["id"] for g in self.client.get("/timeclock/shift-groups").json()["groups"]]
+        self.assertEqual(ids[0], GROUP)
+        # Another manager's team is off limits.
+        self._as(MGR)
+        self.assertEqual(self.client.post(f"/timeclock/shift-groups/{GROUP}/members", json={"add": [MGR]}).status_code, 403)
+        self.assertEqual(self.client.patch(f"/timeclock/shift-groups/{GROUP}/meta", json={"name": "x"}).status_code, 403)
+        self.assertEqual(self.client.post("/timeclock/shift-groups/reorder", json={"ids": []}).status_code, 403)
 
 
 if __name__ == "__main__":

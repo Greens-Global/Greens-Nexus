@@ -57,6 +57,10 @@ vi.mock('../api', () => ({
     timeOffTypesSave: (...a) => timeOffTypesSave(...a),
     timeOffOnBehalf: (...a) => timeOffOnBehalf(...a),
     timeSchedAssign: vi.fn(), timeSchedBulk: vi.fn(),
+    timeShiftGroupMembers: (...a) => timeShiftGroupMembers(...a),
+    timeShiftGroupMeta: (...a) => timeShiftGroupMeta(...a),
+    timeShiftGroupReorder: vi.fn().mockResolvedValue({}), timeShiftGroupDelete: vi.fn().mockResolvedValue({}),
+    getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'cat@greensglobal.com', name: 'Cat Cole' }]),
   },
 }));
 
@@ -106,7 +110,14 @@ function mouseDrag(from, to, keys = {}) {
 }
 
 const toastOk = vi.fn();
+const toastErr = vi.fn();
+const timeShiftGroupMembers = vi.fn();
+const timeShiftGroupMeta = vi.fn();
 beforeEach(() => {
+  try { localStorage.clear(); } catch { /* none */ }
+  toastErr.mockReset();
+  timeShiftGroupMembers.mockReset().mockResolvedValue({});
+  timeShiftGroupMeta.mockReset().mockResolvedValue({});
   timeSchedule.mockReset();
   timeSchedDelete.mockReset().mockResolvedValue({ ok: true, pending: true });
   timeSchedDiscard.mockReset().mockResolvedValue({});
@@ -220,7 +231,8 @@ describe('Shift Types rows, print, import, time off from the grid, availability'
     timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', shiftId: '', code: '' })]));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('GST');
-    fireEvent.click(screen.getByText('Shift Types'));
+    fireEvent.click(screen.getByText('View'));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Shift' }));
     const store = document.querySelector('[data-type-row="Store"]');
     expect(store.textContent).toContain('Amy Adams');
     expect(document.querySelector('[data-type-row="Custom Times"]').textContent).toContain('Bob Brown');
@@ -400,13 +412,14 @@ describe('Views, filter, export, drag and drop, day notes, activities', () => {
   };
 
   it('switches to Month, then opens a day from it', async () => {
-    timeSchedule.mockResolvedValue(data([shift()]));
+    // The 1st is always in the month (this week's Monday is not, early in a month).
+    timeSchedule.mockResolvedValue(data([shift({ date: firstOfMonth() })]));
     render(<ShiftSchedule toastOk={toastOk} />);
-    await screen.findByText('GST');
+    await screen.findByText('Month');
     fireEvent.click(screen.getByText('Month'));
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(firstOfMonth(), lastOfMonth()));
-    fireEvent.click(await screen.findByLabelText(`Open ${formatUs(monday)}`));
-    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(monday, monday));
+    fireEvent.click(await screen.findByLabelText(`Open ${formatUs(firstOfMonth())}`));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(firstOfMonth(), firstOfMonth()));
     expect(await screen.findByLabelText('Shift 9a to 5p')).toBeTruthy();
   });
 
@@ -768,5 +781,84 @@ describe('ShiftSchedule unshared changes', () => {
     fireEvent.click(screen.getByText('Remove'));
     await waitFor(() => expect(timeSchedDelete).toHaveBeenCalledWith('s1'));
     expect(toastOk).toHaveBeenCalledWith("Marked for removal. It stays on the team's schedule until you publish.");
+  });
+});
+
+describe('Teams on the grid (Neil, Sep 30)', () => {
+  const teams = (over = {}) => ({
+    ...data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', code: 'BOB', canEdit: false })]),
+    employees: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', canEdit: true }, { email: 'bob@greensglobal.com', name: 'Bob Brown', canEdit: false }],
+    groups: [{ id: 'g1', name: 'Construction', members: ['amy@greensglobal.com'], canEdit: true, archived: false },
+      { id: 'g2', name: 'Office', members: ['bob@greensglobal.com'], canEdit: false, archived: false },
+      { id: 'g3', name: 'Old Crew', members: [], canEdit: true, archived: true }],
+    ...over,
+  });
+
+  it('switches teams from the All Schedules list, with archived teams apart', async () => {
+    timeSchedule.mockResolvedValue(teams());
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('BOB');
+    expect(screen.queryByText('Old Crew')).toBeNull();                  // archived: off the grid
+    fireEvent.click(screen.getByLabelText('Choose a team'));
+    fireEvent.click(screen.getByRole('option', { name: /Construction/ }));
+    expect(screen.queryByText('BOB')).toBeNull();
+    expect(screen.getByText('GST')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Choose a team'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Archived Teams' }));
+    expect(screen.getByRole('option', { name: /Old Crew/ })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Office/ })).toBeNull();
+  });
+
+  it("shows another team's people read-only", async () => {
+    timeSchedule.mockResolvedValue(teams());
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('BOB');
+    expect(screen.getByText('View only')).toBeTruthy();
+    fireEvent.contextMenu(screen.getByText('BOB'));
+    expect(screen.queryByRole('menu', { name: 'Shift options' })).toBeNull();
+    fireEvent.click(screen.getByText('BOB'));
+    const card = screen.getByRole('dialog', { name: 'Shift Details' });
+    expect(within(card).queryByText('Edit Shift')).toBeNull();
+    // Only their own team gets Add Members.
+    expect(screen.getAllByText('Add Members')).toHaveLength(1);
+  });
+
+  it('adds members from the People list', async () => {
+    timeSchedule.mockResolvedValue(teams());
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('BOB');
+    fireEvent.click(screen.getByText('Add Members'));
+    fireEvent.click(await screen.findByLabelText('Add Cat Cole'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(timeShiftGroupMembers).toHaveBeenCalledWith('g1', { add: ['cat@greensglobal.com'] }));
+  });
+
+  it('archives a team from its menu', async () => {
+    timeSchedule.mockResolvedValue(teams());
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('BOB');
+    fireEvent.click(screen.getByLabelText('Construction options'));
+    fireEvent.click(screen.getByText('Archive Team'));
+    await waitFor(() => expect(timeShiftGroupMeta).toHaveBeenCalledWith('g1', { archived: true }));
+  });
+
+  it('flags anyone over 40 hours in a week', async () => {
+    const long = [0, 1, 2, 3, 4, 5].map(i => shift({ id: `l${i}`, date: plusDays(monday, i), start: '08:00', end: '16:00' }));
+    timeSchedule.mockResolvedValue(teams({ scheduled: long }));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText(/Over 40/)).toBeTruthy();
+  });
+
+  it('hides Sunday and shows Two Weeks', async () => {
+    timeSchedule.mockResolvedValue(teams());
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('BOB');
+    const sunday = plusDays(monday, 6);
+    expect(screen.getByLabelText(`Open ${formatUs(sunday)}`)).toBeTruthy();
+    fireEvent.click(screen.getByText('View'));
+    fireEvent.click(screen.getByLabelText('Show Sunday'));
+    expect(screen.queryByLabelText(`Open ${formatUs(sunday)}`)).toBeNull();
+    fireEvent.click(screen.getByText('Two Weeks'));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(monday, plusDays(monday, 13)));
   });
 });

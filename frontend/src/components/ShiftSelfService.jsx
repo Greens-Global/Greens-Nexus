@@ -229,7 +229,7 @@ export function NewRequestDialog({ reqs, myShifts = [], onClose, onDone }) {
   const theirs = teamShifts[target] || [];
   const shifting = kind !== 'timeoff';
   const blocked = !shifting ? '' : !teammates.length
-    ? 'You are not in a shift group yet, so there is nobody to swap with. Ask your manager to add you to one.'
+    ? 'You are not on a team yet, so there is nobody to swap with. Ask your manager to add you to one.'
     : !free.length
       ? 'You have no published shifts coming up. A swap or an offer needs a shift your manager has published.'
       : '';

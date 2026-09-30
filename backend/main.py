@@ -807,6 +807,9 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
             # Group schedulers (Sep 29) - see the Postgres list.
             "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
+            # Teams switcher (Sep 30) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN archived INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN sort_order INTEGER DEFAULT 0",
             # Confidential time off (Neil, Sep 29) - see the Postgres list.
             "ALTER TABLE time_off_requests ADD COLUMN confidential INTEGER DEFAULT 0",
             # Several allowed work sites per person + manager-set punch sites
@@ -1744,6 +1747,9 @@ def _run_migrations():
         # Group schedulers + staff availability (Sep 29). Availability is a
         # new table - RLS per CLAUDE.md.
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS scheduler_emails TEXT DEFAULT ''",
+        # Teams switcher (Sep 30): archive + the managers' own order.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
         "ALTER TABLE shift_availability ENABLE ROW LEVEL SECURITY",
         # Accounting: memorized reports and reporting packages (Neil, Sep 25).
         # New tables - RLS per CLAUDE.md.
