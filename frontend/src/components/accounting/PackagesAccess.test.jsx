@@ -29,7 +29,7 @@ vi.mock('../../api', () => ({
     getAccountingPnl: vi.fn(async () => statement),
     getAccountingBalanceSheet: vi.fn(async () => statement),
     getAccountingAccess: vi.fn(async () => ({ people: [
-      { email: 'urmi.gor@greensglobal.com', level: 'viewer', hasGrant: true, entities: ['15000'] },
+      { email: 'urmi.gor@greensglobal.com', level: 'viewer', hasGrant: true, entities: ['15000'], lastOpened: '2026-09-29T12:00:00+00:00', opens: 12 },
       { email: 'priyanka.sahu@greensglobal.com', level: 'editor', hasGrant: true, entities: [] },
     ] })),
     setAccountingAccess: vi.fn(async (email, entities) => ({ email, entities })),
@@ -128,6 +128,25 @@ describe('AccessTab', () => {
     fireEvent.click(within(dialog).getByRole('option', { name: /Family Trust/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.setAccountingAccess).toHaveBeenCalledWith('priyanka.sahu@greensglobal.com', ['90000']));
+  });
+
+  it('selects every entity at once, then shows when each person last opened Accounting', async () => {
+    render(<AccessTab />);
+    const row = (await screen.findByText('Priyanka Sahu')).closest('tr');
+    fireEvent.click(within(row).getByRole('button', { name: 'Change' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByLabelText(/Only the entities picked below/));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Select All' }));
+    const picked = within(dialog).getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true');
+    expect(picked.length).toBe(within(dialog).getAllByRole('option').length);
+    fireEvent.click(within(dialog).getByRole('option', { name: /Family Trust/ }));   // untick one
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.setAccountingAccess).toHaveBeenCalled());
+    expect(api.setAccountingAccess.mock.calls[0][1]).not.toContain('90000');
+    expect(api.setAccountingAccess.mock.calls[0][1].length).toBeGreaterThan(0);
+    // The Last Opened column: a time for whoever has been in, "Not yet" for the rest.
+    expect(within(screen.getByText('Urmi Gor').closest('tr')).getByText(/09\/29\/2026/)).toBeTruthy();
+    expect(within(row).getByText('Not yet')).toBeTruthy();
   });
 
   it('lifts a limit', async () => {

@@ -41,7 +41,8 @@ describe('LedgerSearch grid', () => {
   it('shows the working columns, keeps Doc No off until it is asked for', async () => {
     render(<LedgerSearch term="amazon" entities={['12000']} entityName="Greens Global, Inc. (12000)" onClose={() => {}} onClearDrill={() => {}} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
-    expect(headers()).toEqual(['Date', 'Entry', 'Description', 'Account', 'Entity', 'Vendor / Customer', 'Journal', 'Debit', 'Credit']);
+    // Date, Entry, Account, Description, Entity, then Vendor and Customer as two columns (Charmi, 09/29 call).
+    expect(headers()).toEqual(['Date', 'Entry', 'Account', 'Description', 'Entity', 'Vendor', 'Customer', 'Journal', 'Debit', 'Credit']);
     expect(screen.getByText('08/19/2026')).toBeTruthy();
     expect(api.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ q: 'amazon', location: '12000' });
 
@@ -86,6 +87,22 @@ describe('LedgerSearch grid', () => {
     render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', department: '9100' }} />);
     await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ department: '9100' }), { timeout: 2000 });
+  });
+
+  it('narrows by vendor, customer, account or journal from a dropdown', async () => {
+    api.searchAccountingLedger.mockResolvedValue({ rows: [line], total: 3, debit: 60, credit: 0, facets: {
+      vendors: [{ code: 'V00225', name: 'American Express', lines: 2, net: 40 }, { code: 'V00412', name: 'Home Depot', lines: 1, net: 20 }],
+      accounts: [{ code: '71100', name: 'General', lines: 3, net: 60 }],
+    } });
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    // One account behind every line is not a choice, so it is not offered.
+    expect(screen.queryByLabelText('Accounts')).toBeNull();
+    const vendors = screen.getByLabelText('Vendors');
+    expect([...vendors.options].map((o) => o.textContent)).toEqual(['Vendors (2)', 'American Express - 2 lines, net 40.00', 'Home Depot - 1 lines, net 20.00']);
+    fireEvent.change(vendors, { target: { value: 'V00412' } });
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ party_kind: 'vendor', party: 'V00412' }));
+    expect(screen.getByText('Vendor: Home Depot')).toBeTruthy();
   });
 
   it('opens the journal entry with every dimension as a column', async () => {

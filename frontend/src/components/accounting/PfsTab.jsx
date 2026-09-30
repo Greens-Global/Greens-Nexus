@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, FileDown, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Check, Database, FileDown, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { control } from './reportControls';
-import { downloadBlob, iso } from './reportModel';
+import { downloadBlob, iso, priorMonthEnd } from './reportModel';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -22,6 +22,12 @@ import { downloadBlob, iso } from './reportModel';
 // keeps the statement exactly as it was and writes who produced it to the
 // audit log. Owners and people explicitly granted this screen see it; nobody
 // else does, administrators included.
+//
+// Sep 30 (Neil, call of 09/29 - "an emergency"): a spouse on the statement;
+// "Add From the Ledger" sets up an entity's bank, retirement, investment and
+// loan accounts in one go, each as a ledger line at its share, grouped by GL
+// code so a whole group is one tick; four real estate categories; the date
+// starts on the last month-end, the last closed period.
 
 const SECTIONS = [
   { key: 'statement', label: 'Statement' },
@@ -58,11 +64,13 @@ export default function PfsTab({ canEdit = false }) {
   const [error, setError] = useState('');
   const [openId, setOpenId] = useState('');
   const [profile, setProfile] = useState(null);        // the open profile, with its lines
-  const [asOf, setAsOf] = useState(() => iso(new Date()));
+  // The last month-end: the last closed period is what a lender is sent.
+  const [asOf, setAsOf] = useState(() => priorMonthEnd(iso(new Date())));
   const [statement, setStatement] = useState(null);
   const [working, setWorking] = useState(false);
   const [section, setSection] = useState('statement');
   const [editing, setEditing] = useState(null);         // a line being added or changed
+  const [bulk, setBulk] = useState(null);               // { section } - Add From the Ledger
   const [creating, setCreating] = useState(false);
   const [past, setPast] = useState([]);
   const [producing, setProducing] = useState(false);
@@ -170,7 +178,7 @@ export default function PfsTab({ canEdit = false }) {
             <>
               <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <div style={{ minWidth: 0, marginRight: 6 }}>
-                  <div style={{ fontSize: '0.98rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.name}</div>
+                  <div style={{ fontSize: '0.98rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.displayName || profile.name}</div>
                 </div>
                 <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
                   {SECTIONS.map((s) => (
@@ -203,6 +211,7 @@ export default function PfsTab({ canEdit = false }) {
                 {section === 'borrower' && <Borrower profile={profile} canEdit={canEdit} onSave={saveProfile} />}
                 {['asset', 'liability', 'real_estate'].includes(section) && (
                   <Lines section={section} profile={profile} categories={categories[section]} figures={figures} asOf={asOf} canEdit={canEdit}
+                    onBulk={section === 'real_estate' ? null : () => setBulk({ section })}
                     onAdd={(category) => setEditing({ section, category, label: '', institution: '', accountRef: '', ownershipPct: 100, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 0, manualAsOf: asOf, details: {}, notes: '' })}
                     onEdit={(l) => setEditing({ ...l })}
                     onDelete={(l) => api.deletePfsLine(profile.id, l.id).then(() => refresh(profile.id, asOf)).catch((e) => setError(e?.message || 'Could not remove the line.'))} />
@@ -216,6 +225,10 @@ export default function PfsTab({ canEdit = false }) {
       {editing && (
         <LineEditor line={editing} categories={categories[editing.section]} asOf={asOf} onClose={() => setEditing(null)}
           onSave={(body) => (editing.id ? api.updatePfsLine(profile.id, editing.id, body) : api.addPfsLine(profile.id, body)).then(() => { setEditing(null); return refresh(profile.id, asOf); })} />
+      )}
+      {bulk && (
+        <LedgerBulkAdd section={bulk.section} categories={categories[bulk.section]} asOf={asOf} onClose={() => setBulk(null)}
+          onSave={(body) => api.addPfsLinesBulk(profile.id, body).then((r) => { setBulk(null); setNote(`${r.added} ${r.added === 1 ? 'line' : 'lines'} added from the ledger.`); return refresh(profile.id, asOf); })} />
       )}
       {creating && (
         <NewGuarantor onClose={() => setCreating(false)}
@@ -325,6 +338,12 @@ function Borrower({ profile, canEdit, onSave }) {
           </select>
         </div>
       </div>
+      <div>
+        <label style={label} htmlFor="pfs-spouse">Spouse or Co-Borrower</label>
+        <input id="pfs-spouse" type="text" value={details.spouse || ''} disabled={!canEdit} maxLength={160} placeholder="Printed with the name, as in Neil R. Kadakia and Archana Kadakia"
+          onChange={(e) => set('spouse', e.target.value)} style={{ ...control, width: '100%', maxWidth: 520 }} />
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Leave blank for a statement in one name. The spouse signs the statement too.</div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
         {DETAILS.map(([k, text, type]) => (
           <div key={k}>
@@ -427,12 +446,20 @@ function History({ profile, canEdit, onSave }) {
 
 // The lines of one section, grouped the way the statement prints them, each
 // with its figure for the date picked.
-function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, onEdit, onDelete }) {
+function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, onEdit, onDelete, onBulk }) {
   const [confirm, setConfirm] = useState('');
   const real = section === 'real_estate';
   const lines = profile.lines.filter((l) => l.section === section);
   return (
     <div style={{ display: 'grid', gap: 10 }}>
+      {canEdit && onBulk && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button type="button" className="primary-btn" onClick={onBulk} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+            <Database size={14} /> Add From the Ledger
+          </button>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Pick an entity and its accounts by GL group - every account becomes a line that reads the ledger for any date.</span>
+        </div>
+      )}
       {categories.map((c) => {
         const rows = lines.filter((l) => l.category === c.key);
         const total = rows.reduce((s, l) => s + (real ? (figures.get(l.id)?.equity || 0) : (figures.get(l.id)?.adjusted || 0)), 0);
@@ -585,6 +612,178 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel }) {
         </div>
       )}
       {error && <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+    </div>
+  );
+}
+
+// Which statement category a ledger account most likely belongs to, from its
+// name. A suggestion the person can change per line.
+export function suggestCategory(section, title) {
+  const t = (title || '').toLowerCase();
+  if (section === 'liability') {
+    if (/mortgage|loan|note payable|notes payable|n\/p/.test(t)) return 'business_loan';
+    if (/line of credit|\bloc\b|credit line|heloc/.test(t)) return 'loc';
+    if (/auto|vehicle|car loan/.test(t)) return 'auto';
+    return 'other_liability';
+  }
+  if (/401\s*k|\bira\b|roth|retirement|pension|\bsep\b|403/.test(t)) return 'retirement';
+  if (/brokerage|etrade|e\*trade|webull|fidelity|schwab|robinhood|investment|stock|bond|mutual|vanguard|crypto|coinbase/.test(t)) return 'investment';
+  if (/insurance|life policy|cash value/.test(t)) return 'insurance';
+  if (/checking|chkg|savings|bank|cash|money market|\bcd\b|venmo|paypal|treasur/.test(t)) return 'bank';
+  return 'other_holding';
+}
+
+// Add From the Ledger: one entity, its balance sheet accounts of this
+// section grouped by GL code (the first three digits - Intacct's account
+// groups), a tick per account or per group, a category and a share for each.
+// Every tick becomes a line that reads the ledger (Neil, call of 09/29).
+function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
+  const [entities, setEntities] = useState(null);
+  const [entity, setEntity] = useState('');
+  const [accounts, setAccounts] = useState(null);
+  const [q, setQ] = useState('');
+  const [share, setShare] = useState(100);
+  const [rows, setRows] = useState({});     // code -> { on, category, pct }
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    api.getPfsLedgerEntities().then((d) => setEntities(d?.entities || [])).catch((e) => { setEntities([]); setError(e?.message || 'Could not load the entities.'); });
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  useEffect(() => {
+    if (!entity) { setAccounts(null); return undefined; }
+    let alive = true;
+    setAccounts(null);
+    setRows({});
+    api.getPfsLedgerAccounts(entity, asOf)
+      .then((d) => { if (alive) setAccounts((d?.accounts || []).filter((a) => a.section === section)); })
+      .catch((e) => { if (alive) { setAccounts([]); setError(e?.message || 'Could not load the accounts.'); } });
+    return () => { alive = false; };
+  }, [entity, asOf, section]);
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return (accounts || []).filter((a) => !s || a.code.toLowerCase().includes(s) || a.title.toLowerCase().includes(s));
+  }, [accounts, q]);
+  // GL groups: accounts sharing their first three digits.
+  const groups = useMemo(() => {
+    const m = new Map();
+    shown.forEach((a) => { const g = a.code.slice(0, 3); if (!m.has(g)) m.set(g, []); m.get(g).push(a); });
+    return [...m.entries()];
+  }, [shown]);
+  const state = (a) => rows[a.code] || { on: false, category: suggestCategory(section, a.title), pct: share };
+  const setRow = (code, patch) => setRows((r) => ({ ...r, [code]: { ...state({ code, title: (accounts || []).find((x) => x.code === code)?.title }), ...patch } }));
+  const toggleGroup = (list) => {
+    const allOn = list.every((a) => state(a).on);
+    setRows((r) => { const n = { ...r }; list.forEach((a) => { n[a.code] = { ...state(a), on: !allOn }; }); return n; });
+  };
+  const picked = (accounts || []).filter((a) => state(a).on);
+  const total = picked.reduce((s, a) => s + a.amount * (Number(state(a).pct) || 0) / 100, 0);
+  const entityName = (entities || []).find((e) => e.code === entity)?.name || '';
+  const save = () => {
+    if (!picked.length || busy) return;
+    setBusy(true);
+    setError('');
+    onSave({
+      section, category: categories[0]?.key, entity, entityName, ownershipPct: Number(share) || 0,
+      accounts: picked.map((a) => ({ code: a.code, label: a.title, category: state(a).category, ownershipPct: Number(state(a).pct) || 0 })),
+    }).catch((e) => { setError(e?.message || 'Could not add the lines.'); setBusy(false); });
+  };
+  const catLabel = (k) => categories.find((c) => c.key === k)?.label || k;
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Add from the ledger" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>
+        <div className="modal-header">
+          <div>
+            <h3 style={{ margin: 0 }}>Add {section === 'asset' ? 'Assets' : 'Liabilities'} From the Ledger</h3>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>Each account picked becomes a line that reads the ledger as of the statement date. Balances shown are as of {formatDate(asOf)}.</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '70vh', overflowY: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 2fr) minmax(120px, 1fr)', gap: 10 }}>
+            <div>
+              <label style={label} htmlFor="pfs-bulk-entity">Entity</label>
+              <select id="pfs-bulk-entity" value={entity} onChange={(e) => setEntity(e.target.value)} style={{ ...control, width: '100%' }}>
+                <option value="">{entities ? 'Pick an entity...' : 'Loading...'}</option>
+                {(entities || []).map((e) => <option key={e.code} value={e.code}>{e.name ? `${e.name} (${e.code})` : e.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={label} htmlFor="pfs-bulk-share">Share Owned (%) for New Lines</label>
+              <input id="pfs-bulk-share" type="number" min="0" max="100" step="0.01" value={share}
+                onChange={(e) => { setShare(e.target.value); setRows((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { ...v, pct: e.target.value }]))); }} style={{ ...control, width: '100%' }} />
+            </div>
+          </div>
+          {entity && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 360 }}>
+                  <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
+                  <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search account by name or code" aria-label="Search account by name or code" style={{ ...control, width: '100%', paddingLeft: 26 }} />
+                </div>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{picked.length} picked · at share {money(total)}</span>
+                {shown.length > 0 && (
+                  <button type="button" onClick={() => toggleGroup(shown)} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.76rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
+                    {shown.every((a) => state(a).on) ? 'Clear All' : 'Select All'}
+                  </button>
+                )}
+              </div>
+              {!accounts && <SkeletonBlocks count={3} height={28} />}
+              {accounts && !shown.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: 8 }}>{accounts.length ? 'No account matches.' : `This entity has no ${section} accounts with a balance as of this date.`}</div>}
+              {groups.length > 0 && (
+                <div className="acct-lines-wrap" style={{ maxHeight: 'min(440px, 50vh)' }}>
+                  <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                    <thead>
+                      <tr><th scope="col" aria-label="Pick" style={{ width: 30 }} /><th scope="col">Account</th><th scope="col">Listed Under</th><th scope="col" className="acct-num">Share %</th><th scope="col" className="acct-num">Balance</th></tr>
+                    </thead>
+                    <tbody>
+                      {groups.map(([g, list]) => (
+                        <Fragment key={g}>
+                          <tr className="acct-section" onClick={() => toggleGroup(list)} title="Click to pick or clear this GL group">
+                            <td><input type="checkbox" aria-label={`GL group ${g}`} checked={list.every((a) => state(a).on)} onChange={() => toggleGroup(list)} onClick={(e) => e.stopPropagation()} /></td>
+                            <td colSpan={3}>GL group {g}xx · {list.length} {list.length === 1 ? 'account' : 'accounts'}</td>
+                            <td className="acct-num">{money(list.reduce((s, a) => s + a.amount, 0))}</td>
+                          </tr>
+                          {list.map((a) => {
+                            const st = state(a);
+                            return (
+                              <tr key={a.code}>
+                                <td><input type="checkbox" aria-label={`${a.code} ${a.title}`} checked={st.on} onChange={(e) => setRow(a.code, { on: e.target.checked })} /></td>
+                                <td><span className="acct-code">{a.code}</span>{a.title}</td>
+                                <td>
+                                  <select value={st.category} aria-label={`Category for ${a.code}`} onChange={(e) => setRow(a.code, { category: e.target.value, on: true })} style={{ ...control, height: 26, fontSize: '0.76rem' }}>
+                                    {categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                                  </select>
+                                </td>
+                                <td className="acct-num"><input type="number" min="0" max="100" step="0.01" value={st.pct} aria-label={`Share for ${a.code}`} onChange={(e) => setRow(a.code, { pct: e.target.value, on: true })} style={{ ...control, height: 26, width: 84, fontSize: '0.76rem', textAlign: 'right' }} /></td>
+                                <td className="acct-num">{money(a.amount)}</td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {picked.length > 0 && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                  Listed under: {[...new Set(picked.map((a) => state(a).category))].map(catLabel).join(', ')}. An account already on this statement from the same entity is skipped.
+                </div>
+              )}
+            </div>
+          )}
+          {error && <div style={bad}>{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary-btn" onClick={save} disabled={!picked.length || busy}>{busy ? 'Adding...' : `Add ${picked.length || ''} ${picked.length === 1 ? 'Line' : 'Lines'}`.replace('  ', ' ')}</button>
+        </div>
+      </div>
     </div>
   );
 }

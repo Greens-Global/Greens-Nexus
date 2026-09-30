@@ -863,6 +863,8 @@ export const api = {
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),
+  // A priority notice for one person (managers and above): the yellow bar across the top of their screen.
+  sendPriorityNotice: (body)         => req('/notifications', { method: 'POST', body: JSON.stringify({ id: '', type: 'priority', priority: 1, ...body }) }),
   markNotifRead:    (id)             => req(`/notifications/${id}/read`, { method: 'PATCH' }),
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
@@ -1008,13 +1010,21 @@ export const api = {
   getMyAccountingAccess: () => req("/accounting/access/me"),
   // The accounting team and each person's entity limit (Full level on Accounting).
   getAccountingAccess: () => req("/accounting/access"),
+  // Entity access as Intacct has it: a preview beside what Nexus has, then apply for the people ticked.
+  getAccountingAccessFromIntacct: () => req("/accounting/access/intacct", { timeoutMs: 90_000 }),
+  applyAccountingAccessFromIntacct: (emails) => req("/accounting/access/intacct/apply", { method: "POST", body: JSON.stringify({ emails }), timeoutMs: 90_000 }),
   setAccountingAccess: (email, entities) =>
     req(`/accounting/access/${encodeURIComponent(email)}`, { method: "PUT", body: JSON.stringify({ entities }) }),
+  // I opened Accounting (the Access tab shows when each person last did).
+  markAccountingOpened: () => req("/accounting/opened", { method: "POST" }),
   // My own layout of the accounting screens: columns shown, widths, density.
   getAccountingPrefs: () => req("/accounting/prefs"),
   saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
   // Memorized reports (a Reports view saved under a name) and reporting
   // packages (an ordered set of them, sent out as one PDF).
+  // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
+  emailAccountingReport: (fields) => { const fd = new FormData(); Object.entries(fields).forEach(([k, v]) => fd.append(k, v)); return req("/accounting/reports/email", { method: "POST", body: fd }); },
+  shareAccountingReport: (body) => req("/accounting/reports/share", { method: "POST", body: JSON.stringify(body) }),
   getAccountingSavedReports: () => req("/accounting/saved-reports"),
   saveAccountingReport: (body) => req("/accounting/saved-reports", { method: "POST", body: JSON.stringify(body) }),
   updateAccountingSavedReport: (id, body) =>
@@ -1037,6 +1047,7 @@ export const api = {
   addPfsLine: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines`, { method: "POST", body: JSON.stringify(body) }),
   updatePfsLine: (id, lineId, body) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  addPfsLinesBulk: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines/bulk`, { method: "POST", body: JSON.stringify(body) }),
   deletePfsLine: (id, lineId) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
   getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),

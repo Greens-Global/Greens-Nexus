@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileDown, Maximize2, Minimize2, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { FolderUp, Mail, Maximize2, Minimize2, Search, Share2, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks, Spinner } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
+import SavedReportsManager from './SavedReportsManager';
+import SendReportDialog from './SendReportDialog';
 import { takePendingDrill } from './drill';
 import { useAccountingPrefs } from './prefs';
 import {
-  AccountsPicker, ClearButton, CustomizeButton, DENSITIES, DepartmentsPicker, DimensionsButton, EntitiesPicker, MemorizeButton, PeriodStepper,
+  AccountsPicker, ClearButton, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, PeriodStepper,
   SavedReportsMenu, control,
 } from './reportControls';
 import {
   BOOKS, REPORTS, activeColumns, bookLabel, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, csvFileName, csvRows,
-  defaultConfig, dimsText, downloadBlob, downloadCsv, entityText, iso, periodText, presetLabel, reportDef, resolveConfig, runReport,
+  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, iso, periodText, presetLabel, reportDef, resolveConfig, runReport,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -41,7 +43,13 @@ import {
 // customer, an invoice number or an amount and every posted line containing
 // it replaces the report. Every account amount on a report is a drill-down
 // into the same view - the lines behind that number, for that column's
-// period, book and entity.
+// period, book and entity. Since 09/30 the other Accounting tabs carry the
+// same box (`search` prop): typing there lands here with the words typed.
+//
+// Sep 30 (Charmi and Neil, call of 09/29): Entities, Accounts, then Filters
+// (departments inside); the Columns dropdown is labeled; the filters in
+// force sit under the title as chips that come off in one click; zero
+// balances are hidden unless Customize shows them; one Export menu.
 
 // What a memorized report keeps: the controls, never the figures. A named
 // period is kept by name so it moves with the calendar.
@@ -49,11 +57,11 @@ const storable = (c) => ({
   report: c.report, preset: c.preset, ...(c.preset === 'custom' ? { from: c.from, to: c.to } : {}),
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
   book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
-  ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.suppressZero ? { suppressZero: true } : {}),
+  ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.showZero ? { showZero: true } : {}),
 });
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab() {
+export default function ReportsTab({ search = null }) {
   const [config, setConfig] = useState(() => defaultConfig());
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
@@ -81,8 +89,13 @@ export default function ReportsTab() {
 
   // Global search + drill-down. `searchText` is what is typed; `term` follows it
   // after a pause so the ledger is not queried on every keystroke.
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState(() => search?.text || '');
   const [term, setTerm] = useState('');
+  // Words typed in another tab's search box arrive here ({ text, nonce }).
+  useEffect(() => { if (search?.text) setSearchText(search.text); }, [search?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Names behind the codes picked in Filters, for the chips under the title.
+  const [dimNames, setDimNames] = useState({});
+  const onNames = useCallback((kind, names) => setDimNames((m) => ({ ...m, [kind]: { ...(m[kind] || {}), ...names } })), []);
   const [drill, setDrill] = useState(null);   // { account, accountName, from, to, book, entity?, department?, party? }
   const [searchBusy, setSearchBusy] = useState(false);
   useEffect(() => {
@@ -133,7 +146,7 @@ export default function ReportsTab() {
     const mine = ++seq.current;
     setLoading(true);
     setError('');
-    const run = () => runReport(api, config)
+    const run = () => runReport(api, config, entities)
       .then((r) => { if (mine === seq.current) setResult(r); })
       .catch((e) => { if (mine === seq.current) { setResult(null); setError(e?.message || 'Could not load the report.'); } })
       .finally(() => { if (mine === seq.current) setLoading(false); });
@@ -143,7 +156,7 @@ export default function ReportsTab() {
     if (!started.current) { started.current = true; run(); return undefined; }
     const t = setTimeout(run, 250);
     return () => clearTimeout(t);
-  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, entities.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memorized reports.
   const [saved, setSaved] = useState([]);
@@ -154,9 +167,39 @@ export default function ReportsTab() {
   useEffect(() => { loadSaved(); }, [loadSaved]);
   const activeSaved = useMemo(() => saved.find((r) => sameView(resolveConfig(r.config), config)), [saved, config]);
   const memorize = (name, shared) => api.saveAccountingReport({ name, config: storable(config), shared }).then(loadSaved);
-  const openSaved = (r) => { closeSearch(); setCollapsed(new Set()); setConfig(resolveConfig(r.config)); };
-  const deleteSaved = (r) => api.deleteAccountingSavedReport(r.id).then(loadSaved).catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not delete the report.' }));
-  const shareSaved = (r, shared) => api.updateAccountingSavedReport(r.id, { shared }).then(loadSaved).catch((e) => setSavedState({ loading: false, error: e?.message || 'Could not change sharing.' }));
+  // The memorized report on screen, as it was opened. Once the controls
+  // differ from it, a bar offers to keep the changes (Charmi, 09/29 call:
+  // "do you want to save your changes?").
+  const [opened, setOpened] = useState(null);   // { id, name, mine, config }
+  const openSaved = (r) => { closeSearch(); setCollapsed(new Set()); const c = resolveConfig(r.config); setConfig(c); setOpened({ id: r.id, name: r.name, mine: r.mine, config: c }); };
+  const changed = !!opened && saved.some((r) => r.id === opened.id) && !sameView(opened.config, config);
+  const [saveAs, setSaveAs] = useState(null);   // '' | text - the Save as New name being typed
+  const [savingChange, setSavingChange] = useState(false);
+  const keepChanges = () => {
+    if (savingChange) return;
+    setSavingChange(true);
+    api.updateAccountingSavedReport(opened.id, { config: storable(config) })
+      .then(() => { setOpened((o) => ({ ...o, config })); return loadSaved(); })
+      .catch((e) => setSavedState((s) => ({ ...s, error: e?.message || 'Could not save the changes.' })))
+      .finally(() => setSavingChange(false));
+  };
+  const saveAsNew = (e) => {
+    e.preventDefault();
+    const name = (saveAs || '').trim();
+    if (!name || savingChange) return;
+    setSavingChange(true);
+    memorize(name, false)
+      .then(() => { setOpened(null); setSaveAs(null); })
+      .catch((err) => setSavedState((s) => ({ ...s, error: err?.message || 'Could not save the report.' })))
+      .finally(() => setSavingChange(false));
+  };
+  const [managing, setManaging] = useState(false);
+  // Export -> Email / Save to Egnyte / Share (Charmi, 09/29 call).
+  const [sending, setSending] = useState(null);   // 'email' | 'egnyte' | 'share'
+  const [sent, setSent] = useState(null);         // { text, url? }
+  const deleteSaved = (r) => api.deleteAccountingSavedReport(r.id).then(loadSaved).catch((e) => { setSavedState({ loading: false, error: e?.message || 'Could not delete the report.' }); throw e; });
+  const shareSaved = (r, shared) => api.updateAccountingSavedReport(r.id, { shared }).then(loadSaved).catch((e) => { setSavedState({ loading: false, error: e?.message || 'Could not change sharing.' }); throw e; });
+  const renameSaved = (r, name) => api.updateAccountingSavedReport(r.id, { name }).then(loadSaved);
 
   // The statement on screen as a PDF, laid out like a page of a package.
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -176,11 +219,28 @@ export default function ReportsTab() {
     }
   };
 
+  // The statement as a workbook: bold totals, fitted columns, live SUM
+  // formulas (Neil, 09/29 call: "critical"). The writer loads on demand.
+  const [xlsxBusy, setXlsxBusy] = useState(false);
+  const exportExcel = async (r) => {
+    if (xlsxBusy) return;
+    setXlsxBusy(true);
+    try {
+      const { buildStatementWorkbook } = await import('./reportExcel');
+      const bytes = await buildStatementWorkbook({ title: activeSaved?.name || r.def.label, result: r, entities });
+      downloadBlob(csvFileName(r).replace(/\.csv$/, '.xlsx'), new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    } catch (e) {
+      setError(e?.message || 'Could not build the workbook.');
+    } finally {
+      setXlsxBusy(false);
+    }
+  };
+
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report);
   const showColumns = modes.length > 1 && config.book !== 'both';
-  const filters = dimsText(config);
+  const chips = filterChips(config, entities, dimNames);
   const entityLabel = entityText(config, entities);
   // A column of one entity drills into that entity, whatever the report covers.
   const drillEntities = drill?.entity ? [drill.entity] : config.entities;
@@ -218,9 +278,12 @@ export default function ReportsTab() {
         <PeriodStepper config={config} period={def.period} onChange={patch} />
 
         {showColumns && (
-          <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={select(cols !== 'total')}>
-            {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-          </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            Columns
+            <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" style={select(cols !== 'total')}>
+              {modes.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </label>
         )}
 
         {canPickBook(config) && (
@@ -229,30 +292,68 @@ export default function ReportsTab() {
           </select>
         )}
 
-        <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} />
-        {canUseDims(config) && <DepartmentsPicker value={config.dims.departments} onChange={(departments) => patch({ dims: { ...config.dims, departments } })} />}
-        {canUseDims(config) && <DimensionsButton dims={config.dims} onChange={(dims) => patch({ dims })} />}
+        <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
         {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} />}
+        {canUseDims(config) && <FiltersButton dims={config.dims} onChange={(dims) => patch({ dims })} onNames={onNames} />}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
-            onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} nameOf={nameOf} />
+            onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
           <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
-          <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} suppressZero={config.suppressZero} onSuppressZero={(v) => patch({ suppressZero: v })} />
-          <button type="button" className="primary-btn" onClick={() => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities))} disabled={!shown || searching}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-            <Download size={14} /> Export CSV
-          </button>
-          <button type="button" className="secondary-btn" onClick={() => shown && exportPdf(shown)} disabled={!shown || searching || pdfBusy}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-            {pdfBusy ? <Spinner size={14} /> : <FileDown size={14} />} Export PDF
-          </button>
+          <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
+            showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })} />
+          <ExportMenu disabled={!shown || searching} items={[
+            { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
+            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
+            { key: 'pdf', label: 'PDF', hint: 'Laid out like a page of a package', onPick: () => shown && exportPdf(shown), busy: pdfBusy },
+            { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, statement attached', Icon: Mail, onPick: () => setSending('email') },
+            { key: 'egnyte', group: 'send', label: 'Save to Egnyte...', hint: 'Into a folder you name', Icon: FolderUp, onPick: () => setSending('egnyte') },
+            { key: 'share', group: 'send', label: 'Share With a Teammate...', hint: 'Memorized for the team, with a bell notice', Icon: Share2, onPick: () => setSending('share') },
+          ]} />
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
             style={{ ...control, width: 30, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}>
             {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
       </div>
+
+      {changed && !searching && (
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: 'var(--wk-brand, #2b45e1)', fontSize: '0.82rem' }}>
+          <span style={{ flex: '1 1 260px' }}>
+            <strong>{opened.name}</strong> has changed. Do you want to save your changes?
+          </span>
+          {saveAs === null ? (
+            <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+              {opened.mine && <button type="button" className="primary-btn" onClick={keepChanges} disabled={savingChange} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>{savingChange ? 'Saving...' : 'Save Changes'}</button>}
+              <button type="button" className="secondary-btn" onClick={() => setSaveAs(`${opened.name} (copy)`)} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Save as New</button>
+              <button type="button" className="secondary-btn" onClick={() => { setConfig(opened.config); setCollapsed(new Set()); }} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Discard</button>
+              <button type="button" onClick={() => setOpened(null)} aria-label="Keep working without saving" title="Keep working without saving" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 4 }}><X size={14} /></button>
+            </span>
+          ) : (
+            <form onSubmit={saveAsNew} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="text" value={saveAs} onChange={(e) => setSaveAs(e.target.value)} aria-label="Name for the new report" autoFocus maxLength={120} style={{ ...control, width: 280 }} />
+              <button type="submit" className="primary-btn" disabled={!saveAs.trim() || savingChange} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Save</button>
+              <button type="button" className="secondary-btn" onClick={() => setSaveAs(null)} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Cancel</button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {sent && (
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+          <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open in Egnyte</a></>}</span>
+          <button type="button" onClick={() => setSent(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
+        </div>
+      )}
+      {sending && shown && (
+        <SendReportDialog mode={sending} result={shown} entities={entities} title={activeSaved?.name || def.label} config={storable(config)}
+          onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
+      )}
+
+      {managing && (
+        <SavedReportsManager reports={saved} activeId={activeSaved?.id} nameOf={nameOf} onClose={() => setManaging(false)}
+          onOpen={openSaved} onRename={renameSaved} onShare={shareSaved} onDelete={deleteSaved} />
+      )}
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel}
@@ -271,7 +372,6 @@ export default function ReportsTab() {
                 {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
-              {filters.length > 0 && <span style={{ fontSize: '0.76rem', color: 'var(--wk-brand, #2b45e1)' }}>Filtered by {filters.join(' · ')}</span>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               {sections.length > 0 && (
@@ -282,6 +382,24 @@ export default function ReportsTab() {
               )}
             </div>
           </div>
+
+          {chips.length > 0 && (
+            <div aria-label="Active filters" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '0 2px 8px' }}>
+              {chips.map((c) => (
+                <span key={c.key} style={CHIP}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
+                  <button type="button" onClick={() => patch(c.patch)} aria-label={`Remove ${c.label}`} title="Remove this filter"
+                    style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'inherit', display: 'inline-flex' }}><X size={12} /></button>
+                </span>
+              ))}
+              {chips.length > 1 && (
+                <button type="button" onClick={() => patch({ entities: [], dims: { departments: [], vendor: [], customer: [], employee: [], project: [], item: [] }, accounts: [] })}
+                  style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.74rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          )}
 
           {shown.summary.length > 0 && (
             <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
@@ -298,13 +416,13 @@ export default function ReportsTab() {
               <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
               <thead>
                 <tr>
-                  <ResizableHead width={colW} onResize={(w) => setPrefs({ accountWidth: w })}>Account</ResizableHead>
-                  {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' ? undefined : 'acct-num'} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
+                  <ResizableHead width={colW} onResize={(w) => setPrefs({ accountWidth: w })}>{shown.glLabel || 'Account'}</ResizableHead>
+                  {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {shown.rows.map((r, i) => {
-                  if (r.kind === 'account' && r.section && collapsed.has(r.section)) return null;
+                  if (r.kind !== 'section' && r.section && collapsed.has(r.section)) return null;
                   const open = r.kind === 'section' && !collapsed.has(r.section);
                   return <StatementRow key={`${r.kind}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} colW={colW}
                     onToggle={() => toggleSection(r.section)} onDrill={drillInto} />;
@@ -312,6 +430,7 @@ export default function ReportsTab() {
               </tbody>
             </table>
           </div>
+          {(shown.notes || []).map((n) => <div key={n} style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{n}</div>)}
           <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
           </div>
@@ -323,6 +442,8 @@ export default function ReportsTab() {
 
 // The Total column beside a run of period or entity columns.
 const EMPHASIS = { fontWeight: 700, borderLeft: '2px solid var(--border-color)' };
+// A filter in force, under the report title; its X takes it off.
+const CHIP = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', maxWidth: 320, border: '1px solid var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 };
 
 const tint = (v) => (v < 0 ? 'var(--bad-fg, #dc2626)' : v > 0 ? 'var(--ok-fg, #15803d)' : undefined);
 
@@ -334,6 +455,7 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
   const cells = columns.map((c, i) => {
     const v = row.values[i];
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)' }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
+    if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: c.key === 'description' ? 460 : 220, overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : 'var(--text-secondary)' }}>{v || ''}</td>;
     if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}>{v || '-'}</td>;
     if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}>{cellText(row, c, v) || '-'}</td>;
     if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{cellText(row, c, v)}</td>;
@@ -357,6 +479,14 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
           </button>
           {row.label}{!open ? <span className="acct-count">{row.count}</span> : null}
         </td>
+        {cells}
+      </tr>
+    );
+  }
+  if (row.kind === 'line') {
+    return (
+      <tr>
+        <td className="acct-label acct-indent" style={{ color: 'var(--text-secondary)' }}>{row.label}</td>
         {cells}
       </tr>
     );

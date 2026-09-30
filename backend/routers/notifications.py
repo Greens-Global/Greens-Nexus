@@ -30,6 +30,9 @@ class NotificationIn(BaseModel):
     item_name:    Optional[str] = ""
     requested_by: Optional[str] = ""
     action:       Optional[dict] = None
+    # 1 = a priority notice: the bar across the top of the recipient's screen
+    # until they act (Neil, call of 09/29). Managers and above may raise one.
+    priority:     Optional[int] = 0
 
 
 
@@ -49,6 +52,11 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         raise HTTPException(400, "Title too long (max 200 chars)")
     if len(n.body) > 1000:
         raise HTTPException(400, "Body too long (max 1000 chars)")
+    priority = 1 if n.priority else 0
+    if priority and user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to raise a priority notice")
+    if priority and not (n.recipient or "").strip():
+        raise HTTPException(400, "A priority notice goes to a person, never to everyone")
     # Server-generate the id and INSERT (never merge/upsert on a client id) - a
     # client-supplied id + merge let a supervisor overwrite any existing
     # notification's contents/recipient. Ignore n.id entirely.
@@ -67,6 +75,7 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         read_by      = "",
         company      = company_of(user, db),   # company wall: sender's company
         created_at   = datetime.now(timezone.utc).isoformat(),
+        priority     = priority,
     )
     db.add(row)
     db.commit()
@@ -127,6 +136,7 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
             "actioned":     r.actioned,
             "read":         email in read_list,
             "created_at":   r.created_at,
+            "priority":     int(r.priority or 0),
         })
     return result
 

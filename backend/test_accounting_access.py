@@ -88,6 +88,12 @@ class AccountingAccessTests(unittest.TestCase):
                         "accounts": [{"gl_code": "10100", "account_name": "Operating", "balance": bal, "last_activity": f"2026-09-{'20' if clean.get('location') == '56000' else '10'}"}]}
             if path.endswith("/entry"):
                 return {"ok": True, "entry": {"id": ENTRY}, "lines": self.entry_lines, "intacct": []}
+            if path.endswith("/intacct/user-entities"):
+                return {"ok": True, "notes": ["USERINFO fields Intacct would not give: USERTYPE."], "generated_at": "2026-09-30T12:00:00Z", "users": [
+                    {"login": "open", "id": "open", "name": "Open Person", "email": OPEN, "status": "active", "type": "", "restricted": True, "entities": ["12000", "56000"], "departments": ["9100"]},
+                    {"login": "limited", "id": "limited", "name": "Limited Person", "email": LIMITED, "status": "active", "type": "", "restricted": False, "entities": [], "departments": []},
+                    {"login": "ghost", "id": "ghost", "name": "Nobody Here", "email": "ghost@elsewhere.com", "status": "inactive", "type": "", "restricted": True, "entities": ["15000"], "departments": []},
+                ]}
             return {"ok": True, "echo": clean}
 
         self._get = accounting._acct_get
@@ -280,6 +286,96 @@ class AccountingAccessTests(unittest.TestCase):
             self.assertEqual(db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_entity_access_set", models.AuditLog.resource_id == OPEN).count(), 2)
         finally:
             db.close()
+
+    def test_last_opened_is_stamped_and_listed(self):
+        """Opening Accounting stamps the caller's row; the Access tab lists it
+        (Charmi, call of 09/29)."""
+        _as(OPEN)
+        self.assertEqual(self.client.post("/accounting/opened").json(), {"ok": True})
+        self.assertEqual(self.client.post("/accounting/opened").json(), {"ok": True})
+        _as(MANAGER)
+        people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
+        self.assertEqual(people[OPEN]["opens"], 2)
+        self.assertTrue(people[OPEN]["lastOpened"].startswith("20"))
+        self.assertEqual((people[LIMITED]["opens"], people[LIMITED]["lastOpened"]), (0, ""))
+
+    def test_entity_access_from_intacct(self):
+        """Intacct's user restrictions, matched to Nexus people by email, previewed
+        and applied to the people ticked (Visesh, 09/30)."""
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusEmployee(id="emp-acct-test-open", first_name="Open", last_name="Person", work_email=OPEN))
+            db.add(models.NexusEmployee(id="emp-acct-test-limited", first_name="Limited", last_name="Person", work_email=LIMITED))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            _as(OPEN)
+            self.assertEqual(self.client.get("/accounting/access/intacct").status_code, 403)
+            _as(MANAGER)
+            r = self.client.get("/accounting/access/intacct")
+            self.assertEqual(r.status_code, 200, r.text)
+            rows = {p["login"]: p for p in r.json()["people"]}
+            self.assertEqual((rows["open"]["matched"], rows["open"]["entities"], rows["open"]["current"], rows["open"]["differs"]), (True, ["12000", "56000"], [], True))
+            self.assertEqual((rows["limited"]["matched"], rows["limited"]["entities"], rows["limited"]["current"], rows["limited"]["differs"]), (True, [], ["15000", "56000"], True))
+            self.assertFalse(rows["ghost"]["matched"])
+            self.assertIn("USERTYPE", r.json()["notes"][0])
+            # Apply to two: one gets Intacct's list, the unrestricted one has the limit lifted; the ghost is skipped.
+            a = self.client.post("/accounting/access/intacct/apply", json={"emails": [OPEN, LIMITED, "ghost@elsewhere.com"]})
+            self.assertEqual(a.status_code, 200, a.text)
+            self.assertEqual(sorted((x["email"], x["entities"]) for x in a.json()["applied"]), sorted([(OPEN, ["12000", "56000"]), (LIMITED, [])]))
+            people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
+            self.assertEqual(people[OPEN]["entities"], ["12000", "56000"])
+            self.assertEqual(people.get(LIMITED, {}).get("entities", []), [])
+            self.assertEqual(self.client.post("/accounting/access/intacct/apply", json={"emails": []}).status_code, 400)
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusEmployee).filter(models.NexusEmployee.id.in_(["emp-acct-test-open", "emp-acct-test-limited"])).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+    def test_share_and_email_a_statement(self):
+        """Export -> Share memorizes the view for the team and tells the person;
+        Export -> Email goes from the sender's own mailbox with the file attached
+        (Charmi, call of 09/29). Graph is replaced by a recorder."""
+        import graph_mail
+        _as(OPEN)
+        cfg = {"report": "pnl", "preset": "ytd", "book": "accrual", "entities": ["15000"], "dims": {}}
+        r = self.client.post("/accounting/reports/share", json={"recipient": LIMITED, "name": "September P&L", "config": cfg, "message": "Have a look."})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertTrue(r.json()["report"]["shared"])
+        db = database.SessionLocal()
+        try:
+            n = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == LIMITED, models.NexusNotification.type == "accounting_report_shared").first()
+            self.assertIsNotNone(n)
+            self.assertIn("September P&L", n.title)
+            self.assertEqual(n.priority, 0)
+            db.query(models.NexusNotification).filter(models.NexusNotification.type == "accounting_report_shared").delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.client.post("/accounting/reports/share", json={"recipient": OPEN, "name": "Me", "config": cfg}).status_code, 400)
+
+        sent = []
+        def fake_send(**kw):
+            sent.append(kw)
+            return {"messageId": "m1", "conversationId": "", "internetMessageId": ""}
+        real = (graph_mail.send_mail, graph_mail.graph_configured)
+        graph_mail.send_mail, graph_mail.graph_configured = fake_send, lambda: True
+        try:
+            r = self.client.post("/accounting/reports/email", data={"to": "lender@bank.com, cfo@bank.com", "subject": "September statements", "message": "Attached."},
+                                 files={"file": ("Income-Statement_15000.pdf", b"%PDF-1.4 test", "application/pdf")})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["from"], OPEN)
+            self.assertEqual(sent[0]["from_email"], OPEN)
+            self.assertEqual(sent[0]["to"], ["lender@bank.com", "cfo@bank.com"])
+            self.assertEqual(sent[0]["attachments"][0][0], "Income-Statement_15000.pdf")
+            self.assertEqual(self.client.post("/accounting/reports/email", data={"to": "nobody", "subject": "x"}, files={"file": ("a.pdf", b"x", "application/pdf")}).status_code, 400)
+            self.assertEqual(self.client.post("/accounting/reports/email", data={"to": "a@b.co", "subject": "x"}, files={"file": ("a.exe", b"x", "application/octet-stream")}).status_code, 400)
+        finally:
+            graph_mail.send_mail, graph_mail.graph_configured = real
 
     # ── memorized reports and packages ──────────────────────────────────────
     def test_memorized_reports(self):

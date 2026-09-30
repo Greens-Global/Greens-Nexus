@@ -239,6 +239,41 @@ class PfsTests(unittest.TestCase):
             db.close()
         self.assertTrue({"pfs_profile_created", "pfs_line_added", "pfs_line_changed", "pfs_statement_produced", "pfs_statement_opened"} <= actions)
 
+    def test_bulk_setup_from_the_ledger(self):
+        """One entity's accounts become one ledger line each, at the share
+        given, never doubled (Neil, call of 09/29)."""
+        pid = self._profile()["id"]
+        body = {"section": "asset", "category": "bank", "entity": "60100", "entityName": "Business - ANK", "ownershipPct": 50,
+                "accounts": [{"code": "10100", "label": "Operating Chkg 7546"}, {"code": "10120", "label": "Savings 2017", "category": "investment", "ownershipPct": 100}]}
+        r = self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json=body)
+        self.assertEqual(r.status_code, 201, r.text)
+        made = r.json()
+        self.assertEqual(made["added"], 2)
+        by = {l["ledgerAccounts"][0]: l for l in made["lines"]}
+        self.assertEqual((by["10100"]["category"], by["10100"]["ownershipPct"], by["10100"]["accountRef"], by["10100"]["institution"], by["10100"]["source"]),
+                         ("bank", 50.0, "7546", "Business - ANK", "ledger"))
+        self.assertEqual((by["10120"]["category"], by["10120"]["ownershipPct"], by["10120"]["accountRef"]), ("investment", 100.0, "2017"))
+        # Asked again: nothing doubles.
+        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json=body).json()["added"], 0)
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        self.assertEqual(st["totals"]["assets"], 500000.0 + 250000.5)
+        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json={**body, "section": "real_estate"}).status_code, 400)
+        _as(VIEWER)
+        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json=body).status_code, 403)
+
+    def test_spouse_and_the_four_real_estate_kinds(self):
+        pid = self._profile(kind="joint", details={"spouse": "Archana Kadakia"})["id"]
+        p = self.client.get(f"/pfs/profiles/{pid}").json()
+        self.assertEqual(p["displayName"], "Test Guarantor and Archana Kadakia")
+        self.assertEqual(self.client.get("/pfs/meta").json()["realEstateKinds"][0]["key"], "domestic_residential")
+        # The old three-way split still reads and saves, as the four.
+        line = self._line(pid, section="real_estate", category="commercial", label="Storage", manualValue=100, details={"loan": {"source": "manual", "value": 40}})
+        self.assertEqual(line["category"], "domestic_commercial")
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        self.assertEqual(st["profile"]["displayName"], "Test Guarantor and Archana Kadakia")
+        self.assertEqual([g["key"] for g in st["realEstate"]], ["domestic_commercial"])
+        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines", json={"section": "real_estate", "category": "international_commercial", "label": "Pune office", "manualValue": 1}).status_code, 201)
+
     def test_accounts_for_the_picker(self):
         _as(EDITOR)
         r = self.client.get("/pfs/ledger/accounts?entity=60100&asof=2026-09-28").json()

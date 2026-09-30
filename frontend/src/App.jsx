@@ -12,6 +12,7 @@ import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
 import NotificationToasts from "./components/NotificationToasts";
+import PriorityBar from "./components/PriorityBar";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
@@ -753,6 +754,8 @@ function MainApp() {
               prevLabel={prevLabel}
             />
             )}
+            {/* Priority notices (Neil, 09/29): the yellow bar that stays until acted on. */}
+            {!pdfHasDoc && <PriorityBar onNavigate={navigate} />}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

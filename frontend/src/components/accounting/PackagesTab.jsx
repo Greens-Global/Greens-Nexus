@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, FileDown, Plus, Trash2, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, FileDown, MessageSquareText, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
-import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConfig, runReport } from './reportModel';
+import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConfig, runReport, withAdjustments } from './reportModel';
+import { SkeletonBlocks as Blocks } from '../AsyncState';
 
 // Accounting -> Packages (Neil, Sep 25). A lender asks for the same set of
 // statements every quarter, for every property with a loan. A package is that
@@ -16,6 +17,12 @@ import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConf
 // Only the list is stored. A memorized report with a named period ("Last
 // Quarter") moves with the calendar, so the same package is right next
 // quarter without being touched.
+//
+// Sep 30 (Neil, call of 09/29): each statement in a package can carry
+// adjustments - an add-back and a note per line (the $100,000 gate booked as
+// Repairs and Maintenance) - and the PDF then prints As Reported, Adjustment,
+// Adjusted and Note, with the totals moved to match. The ledger is never
+// touched; the adjustment lives on the package.
 
 const blank = () => ({ id: '', name: '', description: '', shared: false, items: [], mine: true });
 
@@ -31,6 +38,7 @@ export default function PackagesTab() {
   const [note, setNote] = useState('');
   const [build, setBuild] = useState(null);       // { done, of, title } while a PDF is being made
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [adjusting, setAdjusting] = useState(null);   // index of the statement whose adjustments are open
 
   const load = useCallback(() => Promise.all([api.getAccountingPackages(), api.getAccountingSavedReports()])
     .then(([p, r]) => { setPackages(p || []); setReports(r || []); setError(''); return p || []; })
@@ -42,8 +50,8 @@ export default function PackagesTab() {
 
   const byId = useMemo(() => new Map(reports.map((r) => [r.id, r])), [reports]);
   const original = draft?.id ? (packages || []).find((p) => p.id === draft.id) : null;
-  const dirty = !!draft && JSON.stringify([draft.name, draft.description, draft.shared, draft.items.map((i) => [i.reportId, i.title])])
-    !== JSON.stringify(original ? [original.name, original.description, original.shared, original.items.map((i) => [i.reportId, i.title])] : ['', '', false, []]);
+  const shape = (p) => [p.name, p.description, p.shared, p.items.map((i) => [i.reportId, i.title, i.adjustments || []])];
+  const dirty = !!draft && JSON.stringify(shape(draft)) !== JSON.stringify(original ? shape(original) : ['', '', false, []]);
   const canEdit = !!draft && (draft.mine || !draft.id);
   const unused = reports.filter((r) => !draft?.items.some((i) => i.reportId === r.id));
   const missing = draft?.items.filter((i) => !byId.has(i.reportId)).length || 0;
@@ -62,7 +70,7 @@ export default function PackagesTab() {
     setSaving(true);
     setError('');
     try {
-      const body = { name: draft.name.trim(), description: draft.description || '', shared: !!draft.shared, items: draft.items.filter((i) => byId.has(i.reportId)).map((i) => ({ reportId: i.reportId, title: i.title || '' })) };
+      const body = { name: draft.name.trim(), description: draft.description || '', shared: !!draft.shared, items: draft.items.filter((i) => byId.has(i.reportId)).map((i) => ({ reportId: i.reportId, title: i.title || '', ...(i.adjustments?.length ? { adjustments: i.adjustments } : {}) })) };
       const out = draft.id ? await api.updateAccountingPackage(draft.id, body) : await api.createAccountingPackage(body);
       await load();
       setDraft({ ...out });
@@ -99,7 +107,7 @@ export default function PackagesTab() {
         const report = byId.get(items[i].reportId);
         const title = items[i].title || report.name;
         setBuild({ done: i, of: items.length, title });
-        const result = await runReport(api, resolveConfig(report.config));
+        const result = withAdjustments(await runReport(api, resolveConfig(report.config), entities), items[i].adjustments);
         statements.push({ title, result, entities });
       }
       setBuild({ done: items.length, of: items.length, title: 'Setting the pages' });
@@ -187,6 +195,12 @@ export default function PackagesTab() {
                           {r ? describe(r) : 'Deleted, or no longer shared with you. It is left out of the PDF - remove it or pick another.'}
                         </div>
                       </div>
+                      {r && (
+                        <button type="button" onClick={() => setAdjusting(i)} aria-label={`Adjustments on statement ${i + 1}`} title="Add-backs and notes on this statement's lines"
+                          style={{ ...icon, gap: 4, alignItems: 'center', fontSize: '0.74rem', color: it.adjustments?.length ? 'var(--wk-brand, #2b45e1)' : 'var(--text-muted)', fontWeight: it.adjustments?.length ? 700 : 400 }}>
+                          <MessageSquareText size={14} /> {it.adjustments?.length ? `${it.adjustments.length} ${it.adjustments.length === 1 ? 'adjustment' : 'adjustments'}` : 'Adjust'}
+                        </button>
+                      )}
                       {canEdit && (
                         <span style={{ display: 'inline-flex' }}>
                           <button type="button" style={icon} onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move statement ${i + 1} up`}><ArrowUp size={14} /></button>
@@ -246,6 +260,99 @@ export default function PackagesTab() {
           )}
         </div>
       </div>
+      {adjusting !== null && draft?.items[adjusting] && byId.has(draft.items[adjusting].reportId) && (
+        <AdjustmentsEditor item={draft.items[adjusting]} report={byId.get(draft.items[adjusting].reportId)} entities={entities} canEdit={canEdit} onClose={() => setAdjusting(null)}
+          onSave={(adjustments) => { patch({ items: draft.items.map((x, k) => (k === adjusting ? { ...x, adjustments } : x)) }); setAdjusting(null); }} />
+      )}
     </AsyncSection>
+  );
+}
+
+// The lines of one statement, each with an add-back and a note. Saved on the
+// package with Save Changes; the ledger is never touched.
+function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave }) {
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const [rows, setRows] = useState(() => Object.fromEntries((item.adjustments || []).map((a) => [a.account, { amount: a.amount || '', note: a.note || '' }])));
+  const [q, setQ] = useState('');
+  const [onlyAdjusted, setOnlyAdjusted] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    runReport(api, resolveConfig(report.config), entities).then((r) => { if (alive) setResult(r); }).catch((e) => { if (alive) setError(e?.message || 'Could not read the statement.'); });
+    return () => { alive = false; };
+  }, [report, entities]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const accounts = (result?.rows || []).filter((r) => r.kind === 'account' && r.code);
+  const at = result ? result.columns.findIndex((c) => c.type === 'amount') : 0;
+  const money = (n) => { const v = Number(n) || 0; const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return v < 0 ? `(${s})` : s; };
+  const shown = accounts.filter((a) => {
+    const s = q.trim().toLowerCase();
+    const has = rows[a.code] && (Number(rows[a.code].amount) || (rows[a.code].note || '').trim());
+    return (!onlyAdjusted || has) && (!s || a.code.toLowerCase().includes(s) || (a.title || '').toLowerCase().includes(s));
+  });
+  const set = (code, p) => setRows((r) => ({ ...r, [code]: { amount: '', note: '', ...(r[code] || {}), ...p } }));
+  const list = Object.entries(rows).map(([account, v]) => ({ account, amount: Number(v.amount) || 0, note: (v.note || '').trim() })).filter((a) => a.amount || a.note);
+  const total = list.reduce((s, a) => s + a.amount, 0);
+  const single = result && result.columns.filter((c) => c.type === 'amount').length === 1 && result.mode === 'single' && ['pnl', 'balance-sheet'].includes(result.config.report);
+  const ctl = { ...control, height: 26, fontSize: '0.76rem' };
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Adjustments" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1040px, 96vw)', maxHeight: '92vh' }}>
+        <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0 }}>Adjustments - {item.title || report.name}</h3>
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              An add-back in the statement's own sign (a negative amount on an expense takes it out), and a note the lender reads beside the line. {single ? 'The PDF prints As Reported, Adjustment, Adjusted and Note.' : 'This layout prints the notes only; amounts need a Total Only income statement or balance sheet.'}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '6px 18px 10px', display: 'grid', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 360 }}>
+              <Search size={12} style={{ position: 'absolute', left: 8, top: 8, color: 'var(--text-muted)' }} />
+              <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search account by name or code" aria-label="Search account by name or code" style={{ ...ctl, width: '100%', paddingLeft: 26 }} />
+            </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={onlyAdjusted} onChange={(e) => setOnlyAdjusted(e.target.checked)} /> Only lines with an adjustment
+            </label>
+            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong>{money(total)}</strong></span>
+          </div>
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
+          {!result && !error && <Blocks count={4} />}
+          {result && (
+            <div className="acct-lines-wrap" style={{ maxHeight: 'calc(92vh - 230px)' }}>
+              <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                <thead><tr><th scope="col">Account</th><th scope="col" className="acct-num">As Reported</th><th scope="col" className="acct-num">Adjustment</th><th scope="col" className="acct-num">Adjusted</th><th scope="col">Note</th></tr></thead>
+                <tbody>
+                  {shown.map((a) => {
+                    const v = rows[a.code] || { amount: '', note: '' };
+                    const adj = Number(v.amount) || 0;
+                    return (
+                      <tr key={a.code}>
+                        <td><span className="acct-code">{a.code}</span>{a.title}</td>
+                        <td className="acct-num">{money(a.values[at])}</td>
+                        <td className="acct-num"><input type="number" step="0.01" value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} onChange={(e) => set(a.code, { amount: e.target.value })} style={{ ...ctl, width: 130, textAlign: 'right' }} /></td>
+                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}>{money((a.values[at] || 0) + adj)}</td>
+                        <td style={{ whiteSpace: 'normal', minWidth: 260 }}><input type="text" value={v.note} maxLength={300} disabled={!canEdit} aria-label={`Note for ${a.code}`} placeholder="Why, for the lender" onChange={(e) => set(a.code, { note: e.target.value })} style={{ ...ctl, width: '100%' }} /></td>
+                      </tr>
+                    );
+                  })}
+                  {!shown.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '18px 10px' }}>{accounts.length ? 'No line matches.' : 'This statement has no account lines.'}</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          {canEdit && <button type="button" className="primary-btn" onClick={() => onSave(list)} disabled={!result}>Keep Adjustments</button>}
+        </div>
+      </div>
+    </div>
   );
 }
