@@ -1325,9 +1325,6 @@ class TicketDepartmentUpdate(BaseModel):
     name:         Optional[str] = None
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
-    # "up" / "down": swap places with the neighbor in the intake dropdown's
-    # order (Neil, Sep 30: IT first, then Construction, Admin, Operations).
-    move:         Optional[str] = None
 
 
 @router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
@@ -1354,19 +1351,31 @@ def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
         row.lead_email = (body.lead_email or "").strip().lower()
     if body.backup_email is not None:
         row.backup_email = (body.backup_email or "").strip().lower()
-    if body.move in ("up", "down"):
-        siblings = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == row.company_id)
-                    .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
-        i = next(n for n, d in enumerate(siblings) if d.id == row.id)
-        j = i - 1 if body.move == "up" else i + 1
-        if 0 <= j < len(siblings):
-            siblings[i], siblings[j] = siblings[j], siblings[i]
-        # Renumber the whole list: seeded rows can share a sort_order, and a
-        # swap between equal numbers would change nothing.
-        for n, d in enumerate(siblings):
-            d.sort_order = n
     db.commit()
     return _dept_list(db, row.company_id)
+
+
+class TicketDepartmentOrder(BaseModel):
+    company_id: str
+    ids: list[str]
+
+
+@router.put("/ticket-departments/order", dependencies=[Depends(require_ticket_desk)])
+def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends(require_manager),
+                               db: Session = Depends(get_db)):
+    """Saves a company's department order, as dragged in Settings - the order
+    the Submit a Ticket dropdown lists them in (Neil, Sep 30: IT first, then
+    Construction, Admin, Operations). Ids missing from the list (a department
+    added in another tab meanwhile) keep their relative order after the rest;
+    ids from another company are ignored."""
+    rows = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == body.company_id)
+            .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
+    pos = {dept_id: n for n, dept_id in enumerate(body.ids)}
+    rows.sort(key=lambda d: (pos.get(d.id, len(pos)), d.sort_order or 0))
+    for n, d in enumerate(rows):
+        d.sort_order = n
+    db.commit()
+    return _dept_list(db, body.company_id)
 
 
 @router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])

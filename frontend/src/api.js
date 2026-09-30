@@ -518,7 +518,8 @@ export const api = {
   renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
   setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
-  moveTicketDepartment: (deptId, move) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ move }) }),
+  // The whole order at once, as dragged in Settings.
+  reorderTicketDepartments: (companyId, ids) => req("/ticket-departments/order", { method: "PUT", body: JSON.stringify({ company_id: companyId, ids }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
