@@ -452,17 +452,9 @@ export default function ReportsTab({ search = null }) {
             </div>
           )}
 
-          {shown.summary.length > 0 && (
-            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '0 2px 10px' }}>
-              {shown.summary.map((f, i) => (
-                <div key={f.label} className={`acct-kpi${i === 0 ? '' : f.label === 'Net Income' || f.label === 'Net Worth' ? '' : ' is-muted'}`} title={f.value}>
-                  <span className="acct-caps">{f.label}</span>
-                  <span className="kpi-value">{f.value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
+          {/* The statement on the left, its figures line as a rail of KPI cards on the right (wraps under it on a narrow screen). */}
+          <div className="acct-statement-body">
+          <div className="acct-statement-main">
           <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
             <table className="acct-report" style={densityVars(density)}>
               <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
@@ -485,6 +477,18 @@ export default function ReportsTab({ search = null }) {
           {(shown.notes || []).map((n) => <div key={n} style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{n}</div>)}
           <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
+          </div>
+          </div>
+          {shown.summary.length > 0 && (
+            <aside className="acct-statement-side" aria-label="Summary">
+              {shown.summary.map((f, i) => (
+                <div key={f.label} className={`acct-kpi${i === 0 ? '' : f.label === 'Net Income' || f.label === 'Net Worth' ? '' : ' is-muted'}`} title={f.value}>
+                  <span className="acct-caps">{f.label}</span>
+                  <span className="kpi-value">{f.value}</span>
+                </div>
+              ))}
+            </aside>
+          )}
           </div>
         </div>
       )}

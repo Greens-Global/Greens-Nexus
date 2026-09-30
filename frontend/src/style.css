@@ -2379,13 +2379,19 @@ th.num.acct-caps, .acct-caps.num { text-align: right; }
    child accounts indented 24px; only group headers and totals bold. */
 .acct-report-wrap { overflow: auto; max-height: 78vh; border: 1px solid var(--border-color); border-radius: 10px; }
 .acct-report { border-collapse: separate; border-spacing: 0; width: auto; min-width: 0; margin: 0 auto; font-family: var(--font-ui); font-size: var(--acct-font, 14px); line-height: 20px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv05"; --acct-row-py: 8px; }
-/* A statement's CARD is as wide as its columns need (at least 780px, at
-   most the screen) and sits on the left, so a figure is beside its name
-   instead of a screen away, and a twelve-month layout still takes the whole
-   width. Columns keep a floor so a short statement still reads as one. */
-.acct-statement { width: fit-content; min-width: min(100%, 780px); max-width: 100%; }
+/* The statement fills its card beside a rail of KPI cards (the figures
+   line), so a wide screen carries the figures and the statement together
+   instead of a strip of cards over a table with a screen of air to the
+   right. Under 1100px the rail wraps below the statement as a row. */
+.acct-statement-body { display: flex; gap: 12px; align-items: flex-start; }
+.acct-statement-main { flex: 1 1 auto; min-width: 0; }
+.acct-statement-side { flex: 0 0 236px; display: grid; gap: 8px; align-content: start; position: sticky; top: 8px; }
+.acct-statement-side .acct-kpi { min-width: 0; }
+@media (max-width: 1100px) {
+  .acct-statement-body { flex-wrap: wrap; }
+  .acct-statement-side { flex: 1 1 100%; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); position: static; order: -1; }
+}
 .acct-report { min-width: 100%; margin: 0; }
-.acct-report th.acct-head { min-width: 420px; }
 .acct-report th.acct-num, .acct-report td.acct-num { min-width: 150px; padding-left: 18px; padding-right: 14px; }
 .acct-report th {
   position: sticky; top: 0; z-index: 3; background: var(--bg-secondary);
