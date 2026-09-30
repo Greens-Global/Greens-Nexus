@@ -1453,6 +1453,11 @@ class HrWorkSite(Base):
     # an older site whose point came from the map; the UI asks for a re-check.
     address_verified_at = Column(String, default="")
     address_verified_by = Column(String, default="")
+    # Where the point came from (Sep 30): "address" (a searched, picked
+    # address), "google_link" (a pasted Google Maps link or coordinates), ""
+    # (older sites). map_link keeps the pasted link as the record of it.
+    location_source = Column(String, default="")
+    map_link        = Column(String, default="")
 
 
 class HrCompanyWorkSite(Base):

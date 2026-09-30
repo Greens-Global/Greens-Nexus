@@ -1759,6 +1759,12 @@ export const api = {
   // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
   //    back as `notes` on timePayroll ──
   timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
+
+  // ── Work site from a Google Maps link (Sep 30) - the point in a pasted link
+  //    or coordinates (short links opened server-side), and a check of recent
+  //    punches against a proposed fence before it is saved ──
+  resolveWorkSiteLink: (link) => req('/hr/work-sites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) }),
+  workSiteFenceCheck:  ({ lat, lng, radiusM, siteId = '' }) => req(`/hr/work-sites/fence-check?lat=${lat}&lng=${lng}&radius_m=${Math.round(radiusM || 150)}&site_id=${encodeURIComponent(siteId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

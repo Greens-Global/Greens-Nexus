@@ -816,6 +816,9 @@ def _run_migrations():
             # Address-verified work sites (Sep 30) - see the Postgres list.
             "ALTER TABLE hr_work_sites ADD COLUMN address_verified_at TEXT DEFAULT ''",
             "ALTER TABLE hr_work_sites ADD COLUMN address_verified_by TEXT DEFAULT ''",
+            # Work site from a Google Maps link (Sep 30) - see the Postgres list.
+            "ALTER TABLE hr_work_sites ADD COLUMN location_source TEXT DEFAULT ''",
+            "ALTER TABLE hr_work_sites ADD COLUMN map_link TEXT DEFAULT ''",
             # Accounting: when each person last opened the screen (Sep 30).
             "ALTER TABLE accounting_user_prefs ADD COLUMN last_opened_at TEXT DEFAULT ''",
             "ALTER TABLE accounting_user_prefs ADD COLUMN opens INTEGER DEFAULT 0",
@@ -1771,6 +1774,10 @@ def _run_migrations():
         # older site, so the UI asks for each to be re-checked once.
         "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_at TEXT DEFAULT ''",
         "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_by TEXT DEFAULT ''",
+        # Work site placed from a pasted Google Maps link (Pranshu, Sep 30):
+        # how the point was set, and the link itself as the record of it.
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS location_source TEXT DEFAULT ''",
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS map_link TEXT DEFAULT ''",
         # Accounting: when each person last opened the screen (Sep 30).
         "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS last_opened_at TEXT DEFAULT ''",
         "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS opens INTEGER DEFAULT 0",
