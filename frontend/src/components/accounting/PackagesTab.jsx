@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, FileDown, MessageSquareText, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
-import Amount, { AmountInput } from './Amount';
 import AsyncSection, { SkeletonBlocks, Spinner } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
@@ -125,7 +124,7 @@ export default function PackagesTab() {
   };
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-  const label = { fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: '16px', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+  const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
   const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
   const describe = (r) => {
     const c = resolveConfig(r.config);
@@ -137,7 +136,7 @@ export default function PackagesTab() {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 300px) 1fr', gap: 12, alignItems: 'start' }} className="acct-packages">
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <h3 className="acct-card-title">Packages</h3>
+            <strong style={{ fontSize: '0.86rem' }}>Packages</strong>
             <button type="button" className="secondary-btn" onClick={() => { setDraft(blank()); setNote(''); setError(''); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
               <Plus size={13} /> New Package
             </button>
@@ -336,9 +335,9 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
                     return (
                       <tr key={a.code}>
                         <td><span className="acct-code">{a.code}</span>{a.title}</td>
-                        <td className="acct-num"><Amount value={a.values[at]} /></td>
-                        <td className="acct-num"><AmountInput value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} placeholder="" onChange={(n) => set(a.code, { amount: n == null ? '' : n })} style={{ ...ctl, width: 130, textAlign: 'right' }} /></td>
-                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}><Amount value={(a.values[at] || 0) + adj} /></td>
+                        <td className="acct-num">{money(a.values[at])}</td>
+                        <td className="acct-num"><input type="number" step="0.01" value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} onChange={(e) => set(a.code, { amount: e.target.value })} style={{ ...ctl, width: 130, textAlign: 'right' }} /></td>
+                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}>{money((a.values[at] || 0) + adj)}</td>
                         <td style={{ whiteSpace: 'normal', minWidth: 260 }}><input type="text" value={v.note} maxLength={300} disabled={!canEdit} aria-label={`Note for ${a.code}`} placeholder="Why, for the lender" onChange={(e) => set(a.code, { note: e.target.value })} style={{ ...ctl, width: '100%' }} /></td>
                       </tr>
                     );

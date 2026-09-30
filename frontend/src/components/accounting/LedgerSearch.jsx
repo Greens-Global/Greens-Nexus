@@ -5,7 +5,7 @@ import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import EntryDetail from './EntryDetail';
 import { useAccountingPrefs } from './prefs';
-import { PopoverPanel, densityVars, usePopover } from './reportControls';
+import { PopoverPanel, usePopover } from './reportControls';
 import { downloadCsv } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
@@ -72,6 +72,7 @@ export const LINE_COLUMNS = [
   { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
 ];
 const MIN_WIDTH = 60;
+const DENSITY_PY = { comfortable: '9px', compact: '5px', condensed: '2px' };
 
 const chip = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260, fontFamily: 'inherit' };
 const activeChip = { ...chip, cursor: 'default', border: '1px solid var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 };
@@ -353,7 +354,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           </div>
 
           <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1 }}>
-            <table className="acct-lines" style={{ width: tableWidth, ...densityVars(prefs.density) }}>
+            <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
               <thead>
                 <tr>

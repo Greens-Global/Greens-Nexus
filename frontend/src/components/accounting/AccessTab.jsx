@@ -64,7 +64,7 @@ export default function AccessTab() {
       <div style={{ ...card, padding: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
           <div style={{ minWidth: 0, flex: '1 1 320px' }}>
-            <h3 className="acct-heading">Who Can Read Which Entities</h3>
+            <h3 style={{ fontSize: '0.98rem', margin: 0 }}>Who Can Read Which Entities</h3>
             <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
               {(people || []).length} {(people || []).length === 1 ? 'person has' : 'people have'} Accounting access - {limited ? `${limited} limited to certain entities` : 'nobody is limited yet'}. Administrators always see everything.
             </div>

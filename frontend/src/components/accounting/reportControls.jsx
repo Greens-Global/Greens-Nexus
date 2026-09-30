@@ -5,7 +5,6 @@ import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate } from '../../lib/datetime';
 import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
-import { SCALES } from './Amount';
 import { Spinner } from '../AsyncState';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
@@ -326,24 +325,20 @@ export function PeriodStepper({ config, period, onChange }) {
   );
 }
 
-// Row density (the typography brief, 09/29): Comfortable = 14px text on
-// 36px rows, the default; Compact = 13px on 28px rows for power users. One
-// setting per person, every accounting table follows it.
+// Row density, the finance app's three steps.
 export const DENSITIES = [
-  { key: 'comfortable', label: 'Comfortable', py: '8px', font: '14px', title: '14px text, 36px rows' },
-  { key: 'compact', label: 'Compact', py: '4px', font: '13px', title: '13px text, 28px rows' },
+  { key: 'comfortable', label: 'Comfortable', py: '10px', title: 'Roomy rows' },
+  { key: 'compact', label: 'Compact', py: '5px', title: 'Tight rows, like Intacct' },
+  { key: 'condensed', label: 'Condensed', py: '2px', title: 'As many rows on screen as possible' },
 ];
-/** The density a person saved, as one of today's two ("condensed" from before reads as compact). */
-export const densityOf = (key) => (key === 'compact' || key === 'condensed' ? 'compact' : 'comfortable');
-export const densityVars = (key) => { const d = DENSITIES.find((x) => x.key === densityOf(key)) || DENSITIES[0]; return { '--acct-row-py': d.py, '--acct-font': d.font }; };
 
 // Customize: how the statement is drawn. The density and whether historical
 // entities are offered are the person's own (every accounting screen follows
 // them); showing the accounts with nothing in them belongs to the report and
 // is memorized with it.
-export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, scale, onScale, align = 'right' }) {
+export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
-  const on = !!showZero || !!showHistorical || (!!scale && scale !== 'exact');
+  const on = !!showZero || !!showHistorical;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
@@ -361,20 +356,6 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
             ))}
           </div>
         </div>
-        {onScale && (
-          <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Show figures as</div>
-            <div role="group" aria-label="Show figures as" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-              {SCALES.map((d) => (
-                <button key={d.key} type="button" onClick={() => onScale(d.key)} aria-pressed={(scale || 'exact') === d.key}
-                  style={{ border: 'none', borderRight: '1px solid var(--border-color)', background: (scale || 'exact') === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: (scale || 'exact') === d.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' }}>
-                  {d.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>On screen only - exports and the stored figures keep every cent.</div>
-          </div>
-        )}
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={!!showZero} onChange={(e) => onShowZero(e.target.checked)} style={{ marginTop: 2 }} />
           <span>

@@ -13,7 +13,7 @@ import { csvFileName, csvRows } from './reportModel';
 //   share   memorized, shared with the team, and a bell notification to the
 //           teammate picked, who opens it under Saved Reports
 
-const label = { fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: '16px', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
 const TITLES = { email: 'Email This Statement', egnyte: 'Save to Egnyte', share: 'Share With a Teammate' };
 const DEFAULT_FOLDER = '/Shared/Accounting/Reports';
