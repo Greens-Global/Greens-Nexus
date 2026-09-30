@@ -892,7 +892,7 @@ _SECTION_META = {
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
     "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
-    "pending":         ("Still to Do",                         "#b45309", "Still to do"),
+    "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light

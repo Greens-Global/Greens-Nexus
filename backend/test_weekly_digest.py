@@ -278,7 +278,7 @@ class ContentTests(_Case):
 
 class StillToDoTests(_Case):
     """Sep 29 (Sagar): the Daily Briefing's "Action Required" items ride along
-    as "Still to Do" - approvals, tickets, time off to decide."""
+    as "Needs Your Attention" - approvals, tickets, time off to decide."""
 
     def test_pending_work_joins_the_digest_without_repeating_overdue_tasks(self):
         self._emp(AMY)
@@ -311,7 +311,7 @@ class StillToDoTests(_Case):
         self._scan()
         self.assertEqual(len(self.sent), 1)
         html = self.sent[0]["html"]
-        self.assertIn("Still to Do", html)
+        self.assertIn("Needs Your Attention", html)
         self.assertIn("and everything else still waiting on you.", html)
         self.assertNotIn("Overdue Tasks", html)
 
