@@ -930,6 +930,193 @@ def _experience_letter_content() -> dict:
     ]}
 
 
+# Unsecured Promissory Note (Neil, Sep 29) - a United States loan note between
+# a Lender and a Borrower with no collateral. Kept to the clauses a note needs
+# to be enforceable and clear (promise to pay, interest, installments, prepayment,
+# late charge, default and acceleration with notice and a cure period, waivers,
+# usury savings, governing law, electronic signatures) and nothing more. It is
+# written to be a negotiable instrument under UCC Article 3 (unconditional
+# promise, fixed sum, "to the order of", definite time) and deliberately has
+# no confession of judgment, jury waiver or arbitration clause - those are
+# unenforceable or restricted in a number of states and would need per-state
+# language. Clause-by-clause reasoning and the state and federal checkpoints
+# for counsel: docs/Promissory-Note-Template-Review.md. Every
+# figure is a typed field (see _PROMISSORY_NOTE_FIELDS) so the fill form
+# validates the money and the dates before anything is generated. The fill
+# form writes a currency value grouped but WITHOUT a symbol (a rupee salary
+# once got a dollar sign that way), so the "$" is literal text before each
+# money chip - this note is US dollars by definition. It is a
+# starting point, not legal advice: state usury caps, late-charge limits and
+# consumer-lending rules vary, and the lender's counsel should review it before
+# it is first used.
+def _promissory_note_content() -> dict:
+    return {"type": "doc", "content": [
+        _h("Unsecured Promissory Note", align="center"),
+        _p(_t("Principal Amount: $", bold=True), _mf("loan.principal"),
+           _t("        Date: ", bold=True), _mf("note.date"), align="center"),
+        _p(_t("FOR VALUE RECEIVED, ", bold=True), _mf("borrower.name"), _t(", of "), _mf("borrower.address"),
+           _t(" (the \u201cBorrower\u201d), promises to pay to the order of "), _mf("lender.name"), _t(", of "),
+           _mf("lender.address"), _t(" (the \u201cLender\u201d), the principal sum of $"), _mf("loan.principal"),
+           _t(" (the \u201cPrincipal\u201d), together with interest on the unpaid Principal as set out in this Note.")),
+        _h("1. Interest", level=2),
+        _p(_t("Interest accrues on the unpaid Principal at the rate of "), _mf("loan.interest_rate"),
+           _t("% per year (simple interest) from the date of this Note until the Principal is paid in full, "
+              "computed on the basis of a 365-day year for the actual number of days elapsed.")),
+        _h("2. Payment", level=2),
+        _p(_t("The Borrower shall repay this Note in consecutive "), _mf("loan.payment_frequency"),
+           _t(" installments of $"), _mf("loan.installment_amount"), _t(" each, beginning on "),
+           _mf("loan.first_payment_date"), _t(" and continuing on the same day of each period thereafter. "
+              "The entire unpaid Principal and all accrued and unpaid interest are due and payable in full on "),
+           _mf("loan.maturity_date"), _t(" (the \u201cMaturity Date\u201d).")),
+        _p(_t("Each payment shall be applied first to any late charges and costs then due, then to accrued interest, "
+              "and then to Principal. Payments shall be made in United States dollars to the Lender at the address "
+              "above, or at such other place or by such other method as the Lender designates in writing. "
+              "A payment due on a Saturday, Sunday or legal holiday may be made on the next business day.")),
+        _h("3. Prepayment", level=2),
+        _p(_t("The Borrower may prepay all or any part of the Principal at any time without penalty or premium. "
+              "A partial prepayment is applied to the Principal and does not postpone the due date or change the "
+              "amount of any installment unless the Lender agrees in writing.")),
+        _h("4. Late Charge", level=2),
+        _p(_t("If any installment is not received within "), _mf("loan.late_grace_days"),
+           _t(" days after its due date, the Borrower shall pay a late charge of "), _mf("loan.late_fee_percent"),
+           _t("% of the overdue installment, to the extent permitted by applicable law. The parties agree that "
+              "this charge is a reasonable estimate of the Lender's administrative costs of a late payment, which "
+              "would be difficult to determine. A late charge is not a waiver of the default or of the Lender's "
+              "other rights.")),
+        _h("5. Default", level=2),
+        _p(_t("Each of the following is an \u201cEvent of Default\u201d:")),
+        _ul(
+            _li(_t("the Borrower fails to make any payment under this Note when due and the failure continues for "),
+                _mf("loan.cure_days"), _t(" days after the Lender gives the Borrower written notice of it;")),
+            _li(_t("the Borrower breaches any other term of this Note and does not cure the breach within "),
+                _mf("loan.cure_days"), _t(" days after written notice from the Lender;")),
+            _li(_t("any representation made by the Borrower in this Note proves to have been materially false when "
+                   "made;")),
+            _li(_t("the Borrower becomes insolvent, makes an assignment for the benefit of creditors, or becomes the "
+                   "subject of any bankruptcy, receivership or similar proceeding; or")),
+            _li(_t("the Borrower dies or, if the Borrower is an entity, dissolves or ceases to do business.")),
+        ),
+        _p(_t("On an Event of Default, the Lender may declare the entire unpaid Principal and all accrued interest "
+              "immediately due and payable, and may exercise any other right or remedy available under applicable "
+              "law. The Lender's rights and remedies are cumulative.")),
+        _h("6. Unsecured", level=2),
+        _p(_t("This Note is unsecured. Nothing in this Note grants the Lender a lien on or security interest in any "
+              "property of the Borrower.")),
+        _h("7. Purpose and Authority", level=2),
+        _p(_t("The Borrower represents that the loan evidenced by this Note is for "), _mf("loan.purpose"),
+           _t(" purposes, and that the Borrower has full power and authority to sign and perform this Note. If the "
+              "Borrower is an entity, the person signing for it represents that they are authorized to do so.")),
+        _h("8. Costs of Collection", level=2),
+        _p(_t("If this Note is not paid when due, the Borrower shall pay the Lender's reasonable costs of collection "
+              "and enforcement, including reasonable attorneys' fees and court costs, to the extent permitted by "
+              "applicable law.")),
+        _h("9. Waivers", level=2),
+        _p(_t("The Borrower and every endorser and guarantor of this Note waive presentment, demand for payment, "
+              "notice of dishonor, protest and notice of protest, and agree that the Lender may extend the time of "
+              "payment, accept partial payments, or otherwise modify this Note without affecting their liability.")),
+        _h("10. Maximum Lawful Interest", level=2),
+        _p(_t("Nothing in this Note requires the payment of interest, fees or charges in excess of the maximum "
+              "permitted by applicable law. If the Lender ever receives interest in excess of that maximum, the "
+              "excess is applied to reduce the Principal or, if the Principal has been paid in full, refunded to "
+              "the Borrower, and the rate under this Note is reduced to the maximum lawful rate.")),
+        _h("11. Joint and Several Liability", level=2),
+        _p(_t("If more than one person signs this Note as Borrower, each of them is jointly and severally liable "
+              "for the whole of it, and the Lender may enforce this Note against any of them without first "
+              "proceeding against the others.")),
+        _h("12. Assignment and Successors", level=2),
+        _p(_t("The Lender may assign or transfer this Note without the Borrower's consent. The Borrower may not "
+              "assign its obligations under this Note without the Lender's prior written consent. This Note binds "
+              "and benefits the parties and their respective heirs, personal representatives, successors and "
+              "permitted assigns.")),
+        _h("13. Amendment and Waiver", level=2),
+        _p(_t("This Note may be amended only by a writing signed by both the Borrower and the Lender. No delay or "
+              "failure by the Lender in exercising any right is a waiver of it, and a waiver on one occasion is not a "
+              "waiver on any other occasion.")),
+        _h("14. Notices", level=2),
+        _p(_t("Any notice under this Note must be in writing and delivered by hand, by nationally recognized "
+              "overnight courier, or by certified mail, return receipt requested, to the party's address above or to "
+              "any other address a party designates by notice. A notice is effective when delivered or, if sent by "
+              "certified mail, three business days after it is mailed.")),
+        _h("15. Governing Law and Venue", level=2),
+        _p(_t("This Note is governed by the laws of the State of "), _mf("governing.state"),
+           _t(", without regard to its conflict-of-laws rules. Any action on this Note may be brought in the state "
+              "or federal courts located in the State of "), _mf("governing.state"),
+           _t(", and the Borrower consents to the jurisdiction of those courts.")),
+        _h("16. Severability", level=2),
+        _p(_t("If any provision of this Note is held invalid or unenforceable, the remaining provisions remain in "
+              "full force and effect.")),
+        _h("17. Entire Agreement", level=2),
+        _p(_t("This Note is the entire agreement between the Borrower and the Lender about this loan and supersedes "
+              "all prior discussions and agreements about it.")),
+        _h("18. Time; Headings", level=2),
+        _p(_t("Time is of the essence of this Note. Section headings are for convenience only and do not affect "
+              "its interpretation.")),
+        _h("19. Electronic Signatures", level=2),
+        _p(_t("This Note may be signed electronically and in counterparts. An electronic signature or an "
+              "electronically transmitted copy of a signed Note has the same effect as an original.")),
+        _p(_t("IN WITNESS WHEREOF, the Borrower has signed this Note as of the date first written above.")),
+        _p(_t("BORROWER:", bold=True)),
+        _p(_t("Signature: ______________________________     Date: ______________")),
+        _p(_t("Name: "), _mf("borrower.name")),
+        _p(_t("Address: "), _mf("borrower.address")),
+        _p(_t("ACCEPTED BY LENDER:", bold=True)),
+        _p(_t("Signature: ______________________________     Date: ______________")),
+        _p(_t("Name: "), _mf("lender.name")),
+        _p(_t("Address: "), _mf("lender.address")),
+    ]}
+
+
+# The note's variables, in the dotted taxonomy (borrower.*, lender.*, loan.*),
+# typed so the fill form checks them. The three figures that are policy rather
+# than deal terms (grace days, late charge, cure period) carry defaults.
+_PROMISSORY_NOTE_FIELDS = [
+    {"token": "note.date", "label": "Date of Note", "type": "date", "required": True,
+     "description": "The date the note is made; interest runs from this date."},
+    {"token": "borrower.name", "label": "Borrower Name", "type": "person", "required": True,
+     "description": "Full legal name of the person or entity borrowing the money."},
+    {"token": "borrower.address", "label": "Borrower Address", "type": "address", "required": True},
+    {"token": "lender.name", "label": "Lender Name", "type": "person", "required": True,
+     "description": "Full legal name of the person or entity lending the money."},
+    {"token": "lender.address", "label": "Lender Address", "type": "address", "required": True},
+    {"token": "loan.principal", "label": "Principal Amount", "type": "currency", "required": True,
+     "description": "The amount lent, as a number (for example 10000). The note prints the dollar sign.", "validation": {"min": 0}},
+    {"token": "loan.interest_rate", "label": "Interest Rate (% per year)", "type": "number", "required": True,
+     "description": "Simple annual rate. Must not exceed the usury limit of the governing state.",
+     "validation": {"min": 0, "max": 100}},
+    {"token": "loan.payment_frequency", "label": "Payment Frequency", "type": "dropdown", "required": True,
+     "default": "monthly", "options": ["monthly", "quarterly", "annual"]},
+    {"token": "loan.installment_amount", "label": "Installment Amount", "type": "currency", "required": True,
+     "validation": {"min": 0}},
+    {"token": "loan.first_payment_date", "label": "First Payment Date", "type": "date", "required": True},
+    {"token": "loan.maturity_date", "label": "Maturity Date", "type": "date", "required": True,
+     "description": "When the whole remaining balance is due."},
+    {"token": "loan.late_grace_days", "label": "Late Charge Grace Period (days)", "type": "number",
+     "required": True, "default": "10", "validation": {"min": 0, "max": 60}},
+    {"token": "loan.late_fee_percent", "label": "Late Charge (% of installment)", "type": "number",
+     "required": True, "default": "5", "validation": {"min": 0, "max": 25},
+     "description": "Many states cap late charges; check the governing state's limit."},
+    {"token": "loan.cure_days", "label": "Cure Period After Notice (days)", "type": "number",
+     "required": True, "default": "10", "validation": {"min": 0, "max": 90}},
+    {"token": "loan.purpose", "label": "Loan Purpose", "type": "dropdown", "required": True,
+     "default": "business or commercial", "options": ["business or commercial", "personal, family or household"],
+     "description": "A personal, family or household loan is consumer credit: federal Truth in Lending "
+                    "disclosures and state consumer-lending rules may apply to the Lender."},
+    {"token": "governing.state", "label": "Governing Law State", "type": "text", "required": True,
+     "description": "The US state whose law governs the note, for example California."},
+]
+
+# Who normally signs a document generated from a starter, in order - the
+# send step's default. Only the note has one today.
+_STARTER_EXTRAS = {
+    "Unsecured Promissory Note": {
+        "tags": ["loan", "promissory note", "united states"],
+        "field_defs": _PROMISSORY_NOTE_FIELDS,
+        "signer_roles": [{"key": "borrower", "label": "Borrower", "order": 1},
+                         {"key": "lender", "label": "Lender", "order": 2}],
+    },
+}
+
+
 @router.post("/templates/starters")
 def seed_starter_templates(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Add-if-missing-by-name, mirrors esign.py's POST /esign/templates/starters.
@@ -937,7 +1124,8 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
     category, so the auto-attach-letterhead behavior has something real to
     demonstrate immediately. Phase 12 added 5 real HR-letter starters (Offer,
     Appointment/Joining, NDA, Relieving, Experience) with actual merge-field
-    content, not just an empty shell."""
+    content, not just an empty shell; Sep 29 added the Unsecured Promissory
+    Note, the first starter with typed field definitions and signer roles."""
     if user["level"] < _ADMIN_LEVEL:
         raise HTTPException(403, "Only administrators can seed starters")
     now = _now_iso()
@@ -963,6 +1151,7 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
         ("NDA (Non-Disclosure Agreement)", "legal", True, default_lh.id, _nda_content),
         ("Relieving Letter", "hr", True, default_lh.id, _relieving_letter_content),
         ("Experience Letter", "hr", True, default_lh.id, _experience_letter_content),
+        ("Unsecured Promissory Note", "finance", False, "", _promissory_note_content),
     ]
     existing = {t.name for t in db.query(DocTemplate).all()}
     added = 0
@@ -970,9 +1159,12 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
         if name in existing:
             continue
         body = content_fn() if content_fn else {"type": "doc", "content": [{"type": "paragraph"}]}
-        db.add(DocTemplate(id=str(uuid.uuid4()), name=name, category=category, tags=[],
+        extras = _STARTER_EXTRAS.get(name, {})
+        db.add(DocTemplate(id=str(uuid.uuid4()), name=name, category=category, tags=list(extras.get("tags") or []),
                             content={"pages": [{"id": str(uuid.uuid4()), "json": body}], "header": None, "footer": None},
                             requires_letterhead=requires_lh, letterhead_id=lh_id,
+                            field_defs=_clean_field_defs(extras.get("field_defs") or []),
+                            signer_roles=_clean_signer_roles(extras.get("signer_roles") or []),
                             status="active", version=1, created_by=user["email"], created_at=now,
                             updated_by=user["email"], updated_at=now))
         added += 1

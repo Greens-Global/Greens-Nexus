@@ -220,6 +220,12 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
   const [previewId, setPreviewId] = useState(null);
   const [busyId, setBusyId] = useState('');
   const [seeding, setSeeding] = useState(false);
+  // Starters are add-if-missing on the server, so an administrator can pull a
+  // newly shipped starter (the Unsecured Promissory Note, Sep 29) into a
+  // library that already has templates - the empty-state button alone only
+  // ever reached a brand-new library.
+  const { can } = useRole();
+  const isAdmin = can('administrator');
 
   const load = () => {
     api.getDocTemplates({ status: statusFilter, ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
@@ -274,6 +280,12 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
             <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
               <Plus size={13} /> New Template
             </button>
+            {isAdmin && templates?.length > 0 && statusFilter === 'active' && (
+              <button className="secondary-btn" disabled={seeding} onClick={seedStarters} title="Add any starter template the library does not have yet"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
+                <Star size={13} /> {seeding ? 'Adding…' : 'Add Starter Templates'}
+              </button>
+            )}
             <div style={{ position: 'relative', maxWidth: 320, flex: '1 1 220px' }}>
               <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
               <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
