@@ -419,7 +419,7 @@ export default function ReportsTab({ search = null }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
               <h3 className="acct-heading" style={{ margin: 0 }}>{def.label}</h3>
-              <span className="acct-label">
+              <span className="acct-caps">
                 {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : '', shown.generatedAt ? `As of ${formatDateTime(shown.generatedAt)}` : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
@@ -456,7 +456,7 @@ export default function ReportsTab({ search = null }) {
             <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '0 2px 10px' }}>
               {shown.summary.map((f, i) => (
                 <div key={f.label} className={`acct-kpi${i === 0 ? '' : f.label === 'Net Income' || f.label === 'Net Worth' ? '' : ' is-muted'}`} title={f.value}>
-                  <span className="acct-label">{f.label}</span>
+                  <span className="acct-caps">{f.label}</span>
                   <span className="kpi-value">{f.value}</span>
                 </div>
               ))}
@@ -527,7 +527,7 @@ function StatementRow({ row, columns, open, colW, scale, pinTotal, focused, onTo
   if (row.kind === 'section') {
     return (
       <tr className={`acct-section${focused ? ' acct-focus' : ''}`} onClick={onToggle} title={open ? 'Click to fold this section' : 'Click to open this section'}>
-        <td className="acct-label">
+        <td className="acct-caps">
           <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${row.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
             <Chevron size={13} />
           </button>
@@ -558,7 +558,7 @@ function StatementRow({ row, columns, open, colW, scale, pinTotal, focused, onTo
   }
   return (
     <tr className={row.kind === 'grand' ? 'acct-grand' : row.kind === 'subtotal' || row.kind === 'margin' ? 'acct-subtotal' : undefined} style={row.kind === 'warn' ? { color: 'var(--bad-fg, #dc2626)' } : undefined}>
-      <td className="acct-label">{row.label}</td>
+      <td className="acct-caps">{row.label}</td>
       {cells}
     </tr>
   );
