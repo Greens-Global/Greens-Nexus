@@ -2010,6 +2010,102 @@ def export_iif(start: str = "", end: str = "",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
+# The pay classes an Intacct payroll line is written for, in order, with the
+# payroll-card total each one reads (hourly cards). A salaried card is one
+# "Salary" line off totals.totalPay.
+_INTACCT_PAY_CLASSES = (("regPay", "Regular Pay", "regMin"), ("otPay", "Overtime Pay", "otMin"), ("dtPay", "Double-time Pay", "dtMin"),
+                        ("holidayPay", "Holiday Pay", ""), ("sickPay", "Sick Pay", "sickMin"), ("vacationPay", "Vacation Pay", "vacationMin"))
+
+
+def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
+                            location: str, description: str = "") -> list[dict]:
+    """The period's payroll as ONE Intacct GL entry (intacct_gl layout): per
+    employee, a debit to the wage expense account per pay class (the memo
+    names the class and the hours, DEPT_ID the person's department,
+    GLENTRY_EMPLOYEEID their employee code), and one credit to the payroll
+    clearing account for their total. `cards` are payroll cards with `name`,
+    `department`, `employeeId` and `payType` added. Pure, so it is testable
+    without punches."""
+    lines = []
+
+    def side(amount: float, debit_side: bool) -> dict:
+        # A negative figure (a salaried month docked below zero) flips sides
+        # rather than writing a negative amount, which Intacct refuses.
+        if (amount >= 0) == debit_side:
+            return {"debit": abs(amount), "credit": None}
+        return {"debit": None, "credit": abs(amount)}
+
+    for card in cards:
+        t = card.get("totals") or {}
+        name = card.get("name") or card.get("email") or ""
+        dept = card.get("department") or ""
+        emp_id = card.get("employeeId") or ""
+        base = {"acct_no": expense, "location_id": location, "dept_id": dept, "source_entity": location, "employee_id": emp_id}
+        total = 0.0
+        if (card.get("payType") or t.get("payType")) == "fixed":
+            amt = round(float(t.get("totalPay") or 0), 2)
+            if amt:
+                lines.append({**base, "memo": f"{name} - Salary", **side(amt, True)})
+                total += amt
+        else:
+            for key, label, mins_key in _INTACCT_PAY_CLASSES:
+                amt = round(float(t.get(key) or 0), 2)
+                if not amt:
+                    continue
+                hours = f" - {float(t.get(mins_key) or 0) / 60:.2f} h" if mins_key else ""
+                lines.append({**base, "memo": f"{name} - {label}{hours}", **side(amt, True)})
+                total += amt
+        total = round(total, 2)
+        if total:
+            lines.append({**base, "acct_no": clearing, "memo": f"{name} - Payroll {_us_date(start)} to {_us_date(end)}", **side(total, False)})
+    for i, line in enumerate(lines):
+        line["line_no"] = i + 1
+    if not lines:
+        return []
+    return [{"journal": journal, "date": end, "reference_no": "",
+             "description": (description or f"Payroll {_us_date(start)} to {_us_date(end)}")[:80], "lines": lines}]
+
+
+def _us_date(ds: str) -> str:
+    s = (ds or "")[:10]
+    return f"{s[5:7]}/{s[8:10]}/{s[0:4]}" if len(s) == 10 else s
+
+
+@router.get("/export-intacct.csv")
+def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expense: str = "", clearing: str = "",
+                   location: str = "", user: dict = Depends(require_team_read),
+                   _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """Intacct General Ledger import of the period's payroll by employee
+    (Neil, 10/01: "payroll export from QB to Intacct employee"). Same column
+    layout as the accounting app's bank import (intacct_gl.py), wages by pay
+    class off the SAME engine as the timecard (hourly: _compute_timecard;
+    salaried: _fixed_card anchored on `start`), department and location as
+    dimensions. `expense` / `clearing` are the GL accounts, `location` the
+    Intacct entity; blank ones are left blank for Intacct to ask."""
+    import intacct_gl
+    if not start or not end:
+        raise HTTPException(400, "start and end are required")
+    scope = _visible_emails(db, user)
+    rows = _team_rows(db, start, end, only_emails=scope, include_fixed=True)
+    emps = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    cards = []
+    for r in rows:
+        em = r["email"]
+        fixed = _pay_type(db, em) == "fixed"
+        card = _fixed_card(db, em, start) if fixed else _compute_timecard(db, em, start, end)
+        emp = emps.get(em)
+        card.update({"name": r["name"], "department": (emp.department if emp else "") or "",
+                     "employeeId": (emp.employee_code if emp else "") or "", "payType": "fixed" if fixed else "hourly"})
+        cards.append(card)
+    entries = payroll_intacct_entries(cards, start=start, end=end, journal=(journal or "PYRJ").strip()[:20],
+                                      expense=(expense or "").strip()[:40], clearing=(clearing or "").strip()[:40],
+                                      location=(location or "").strip()[:40])
+    body = intacct_gl.to_csv(entries)
+    fname = f"Intacct GL Import - Payroll - {start} to {end}.csv"
+    return PlainTextResponse(body, media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 # ── Work-session screenshots (consent-based screen capture) ──────────────────
 # The browser can only capture after the user explicitly picks their screen in
 # the OS dialog, and it shows a persistent "sharing" indicator - transparency

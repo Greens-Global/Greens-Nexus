@@ -1830,6 +1830,10 @@ def _run_migrations():
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
         "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
+        # Accounting (Oct 2): vendor / customer change requests and the monthly
+        # payroll allocation runs. New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_partner_changes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_allocation_runs ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2866,3 +2870,7 @@ from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
 from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
+from routers import accounting_budgets, accounting_partners, accounting_allocations  # noqa: E402
+app.include_router(accounting_budgets.router)      # Accounting > Budget: the budget grid through the accounting app (Oct 2)
+app.include_router(accounting_partners.router)     # Accounting > Vendors & Customers: records + change requests for approval (Oct 2)
+app.include_router(accounting_allocations.router)  # Accounting > Allocations: monthly payroll allocation entry from Time Clock hours (Oct 2)
