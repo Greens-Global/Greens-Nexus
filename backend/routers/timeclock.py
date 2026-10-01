@@ -6872,7 +6872,25 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
                 open_in = None
                 seg_breaks = []
-            # else: orphan out with no open in - ignored (its in was outside the range)
+            elif not end or (p.local_date or "") <= end:
+                # A clock-out with no open clock-in (Oct 1). The sign-off check
+                # (_day_summaries -> out_without_in) blocks Agree on it, and it
+                # used to be dropped here - so the card showed an empty day while
+                # Agree said "a clock-out with no clock-in", with nothing on
+                # screen to fix. It now shows on its day as "Missing -> out",
+                # counted, with the same flag. The fetched day after `end` only
+                # lends its out to an overnight shift, as before.
+                segs_by_day.setdefault(p.local_date, []).append(
+                    {"in": "", "out": p.at, "inR": "", "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "inId": "", "outId": p.id, "workedMin": 0, "flags": ["out_without_in"], "_break": 0,
+                     "breaks": [], "note": (p.note or "").strip(),
+                     "workSite": "", "workSiteId": "", "geo": "", "category": getattr(p, "category", "") or "",
+                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                     "distance": 0, "distanceOut": _dist_of(p.id),
+                     "inPendingAt": "", "inEditStatus": "", "inEditReason": "",
+                     "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
+                     "inAdjustNote": "", "outAdjustNote": (p.adjust_note or "")})
+                missing_punches += 1
         elif p.kind == "break_start":
             if open_break is None and open_in is not None:
                 open_break, open_break_at = t, p.at
