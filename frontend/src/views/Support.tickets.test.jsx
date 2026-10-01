@@ -12,9 +12,9 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
     myGrantedModules: new Set(), myEmail: 'req@example.com' }),
 }));
 const MINE = [
-  { id: 't1', code: '000001', subject: 'Printer jam', status: 'in_progress', assigneeId: 'agent@example.com',
+  { id: 't1', code: '000001', subject: 'Printer jam', status: 'in_progress', requesterId: 'req@example.com', assigneeId: 'agent@example.com',
     createdAt: '2026-09-30T10:00:00', latestComment: { authorId: 'agent@example.com', preview: 'On my way', createdAt: '2026-09-30T11:00:00', internal: false } },
-  { id: 't2', code: '000002', subject: 'Old laptop', status: 'closed', createdAt: '2026-09-01T10:00:00', latestComment: null },
+  { id: 't2', code: '000002', subject: 'Old laptop', status: 'closed', requesterId: 'req@example.com', createdAt: '2026-09-01T10:00:00', latestComment: null },
 ];
 const updateTaskTicket = vi.fn(() => Promise.resolve({}));
 vi.mock('../api', () => {
