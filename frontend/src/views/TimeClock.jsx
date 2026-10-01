@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, User, Lock,
-  TreePalm, Thermometer, Wallet, CircleEllipsis, CalendarOff, ChevronDown, Check,
+  ChevronDown, Check,
 } from 'lucide-react';
 import { api } from '../api';
+import { reasonLook } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
@@ -192,10 +193,6 @@ const gapBreakFromSegments = (segs) => {
   return total;
 };
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
-// A type's icon on the request form (Neil, Sep 30 - Teams lists each kind of
-// time off with its icon); a company's own types get the calendar.
-const REASON_ICON = { vacation: TreePalm, sick: Thermometer, personal: User, unpaid: Wallet, other: CircleEllipsis };
-const REASON_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // 'HH:MM' (24h, from the partial-day time-off fields) -> '2:30 PM'
 const hm12 = (v) => {
   if (!v) return '';
@@ -230,7 +227,10 @@ function ReasonPicker({ value, options, onChange, style }) {
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
   }, [open]);
   const label = (options.find(([k]) => k === value) || [value, value])[1];
-  const icon = (k, size = 14) => { const I = REASON_ICON[k] || CalendarOff; return <I size={size} color={REASON_COLOR[k] || 'var(--wk-brand)'} style={{ flexShrink: 0 }} />; };
+  const icon = (k, size = 14) => {
+    const { Icon, color } = reasonLook(k, (options.find(([key]) => key === k) || [])[1]);
+    return <Icon size={size} color={color} style={{ flexShrink: 0 }} />;
+  };
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0, ...style }}>
       <button type="button" className="form-input" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
@@ -764,6 +764,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     return () => window.removeEventListener('nexus:timeclock-changed', refresh);
   }, [tab]);
   const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>

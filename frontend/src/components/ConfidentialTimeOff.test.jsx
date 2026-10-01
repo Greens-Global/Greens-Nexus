@@ -96,4 +96,16 @@ describe('request form totals and types (Neil, Sep 30)', () => {
     fireEvent.click(screen.getByRole('option', { name: /Sick/ }));
     expect(screen.getByRole('button', { name: 'Type of time off: Sick' })).toBeTruthy();
   }, SLOW);
+
+  it("gives a company's own types their own icons, not one shared calendar (Oct 1)", async () => {
+    const { reasonLook } = await import('../lib/timeOffReasons');
+    const names = ['Approved Time Off', 'Off', 'Holiday', 'Parental Leave', 'Jury Duty', 'Bereavement Leave'];
+    const icons = names.map((n) => reasonLook(n, n).Icon);
+    expect(new Set(icons).size).toBe(names.length);
+    // "Approved Time Off" is approved, not "off"; "Coffee Break" is not "off".
+    expect(reasonLook('Approved Time Off').Icon).not.toBe(reasonLook('Off').Icon);
+    expect(reasonLook('Coffee Break').Icon).not.toBe(reasonLook('Off').Icon);
+    // Two unknown types still differ by color.
+    expect(reasonLook('Sabbatical').color).not.toBe(reasonLook('Garden Leave').color);
+  }, SLOW);
 });
