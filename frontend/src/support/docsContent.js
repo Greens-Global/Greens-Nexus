@@ -552,7 +552,7 @@ export const DOCS = [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
           'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
           'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it. The requester is only messaged when their ticket is assigned, gets a reply (the message includes it), or is resolved or closed - other edits show in their bell only.',
-          'The requester confirms it with a 1 to 5 star rating, or reopens it with a reason.',
+          'The requester confirms it (Confirm Resolution, then Done) and answers a 1 to 5 star satisfaction survey, or reopens it with a reason. The survey result shows at the top of the Overview tab of the ticket.',
         ],
       },
       {
@@ -1244,7 +1244,7 @@ export const DOCS = [
           'Find it in Open Tickets (search by ticket number or title). A blue dot means something changed since you last opened it, and Latest Comment shows the newest reply.',
           'Click the row to open the full thread and reply. While it is still Open, click the pencil to edit it.',
           'Sorted out already, maybe with a colleague\'s help? Click Mark Resolved, optionally say what fixed it, and the team is told.',
-          'When it is resolved, click Confirm and rate how it was handled, or Reopen and say why.',
+          'When it is resolved, click Confirm Resolution and then Done - a short survey asks how satisfied you are (1 to 5 stars, a comment is optional) and closes the ticket. Your rating then shows at the top of the Overview tab. Or click Reopen and say why.',
         ],
       },
     ],

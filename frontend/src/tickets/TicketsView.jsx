@@ -2245,7 +2245,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
     : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
     : mode === 'self_resolve' ? 'Mark Resolved'
-    : mode === 'confirm' ? 'Confirm Resolution' : 'Reopen Ticket';
+    : mode === 'confirm' ? 'How Satisfied Are You?' : 'Reopen Ticket';
   const go = async () => {
     if (busy) return;
     if (invalid) { setShowErr(true); return; }
@@ -2266,7 +2266,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy}>
           {busy ? 'Saving…' : (mode === 'resolve' || mode === 'self_resolve') ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
-            : mode === 'confirm' ? 'Confirm' : 'Reopen'}
+            : mode === 'confirm' ? 'Submit and Close Ticket' : 'Reopen'}
         </button>
       </>
     }>
@@ -2302,7 +2302,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       )}
       {mode === 'confirm' && (<>
         <div style={field}>
-          <label style={label}>How was your ticket handled? <span style={{ color: NX.red }}>*</span></label>
+          <label style={label}>How satisfied are you with how your ticket was handled? <span style={{ color: NX.red }}>*</span></label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onMouseLeave={() => setHover(0)}>
             {[1, 2, 3, 4, 5].map((n) => (
               <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={() => setHover(n)}
@@ -2310,9 +2310,9 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
                 <Star size={28} style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
               </button>
             ))}
-            {rating > 0 && <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
+            {(hover || rating) > 0 && <span style={{ fontSize: 13, color: NX.ink, fontWeight: 600, marginLeft: 8 }}>{CSAT_LABELS[hover || rating]}</span>}
           </div>
-          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to confirm.</div>}
+          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to close the ticket.</div>}
         </div>
         {ticket?.resolutionNote && (
           <div style={{ fontSize: 12.5, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
@@ -2320,7 +2320,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           </div>
         )}
         <div style={field}>
-          <label style={label}>Comments (optional)</label>
+          <label style={label}>Anything you would like to tell the team? (optional)</label>
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="Anything the team should know?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
         </div>
@@ -2632,8 +2632,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     setPending({});
     setReply({ body: '', internal: false });
   };
+  // The requester's Confirm Resolution is held like any other edit; Done is
+  // where it is asked how satisfied they are (Oct 1) - the survey saves the
+  // rating with everything else and closes the ticket.
+  const confirmingClose = requesterOnly && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
     if (saving) return;
+    if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
     try { await commit(); onClose(); }
@@ -2724,9 +2729,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             {/* The requester confirms with a rating; the desk just closes it
                 out (the resolution was written when it was resolved). */}
             {t.status === 'resolved' && (
-              <button style={{ ...btn('outline'), color: NX.green }}
-                onClick={() => (isRequester && !privileged && !isAssignee ? setDialog({ mode: 'confirm' }) : stage({ status: 'closed' }))}
-                title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
+              <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }) }}
+                aria-pressed={v.status === 'closed'}
+                onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
+                title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
+                  : 'Close this ticket now instead of waiting for it to auto-close'}>
+                <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
+              </button>
             )}
             <button style={btn('outline')} onClick={reopen}>Reopen</button>
           </>
@@ -2825,6 +2834,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </div>
 
         {tab === 'overview' && (<>
+      {(t.csatRating || 0) > 0 && <SatisfactionCard ticket={t} nameOf={nameOf} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -2840,7 +2850,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               style={sel} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {TICKET_STATUS_META[t.status]?.label || t.status}
+              {TICKET_STATUS_META[v.status]?.label || v.status}
             </div>
           )}
         </div>
@@ -3033,9 +3043,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
       </div>
 
-      {CLOSED_STATES.includes(v.status) && (
+      {CLOSED_STATES.includes(t.status) && !(t.csatRating > 0) && (
         <div style={field}>
-          <label style={label}>Satisfaction (CSAT)</label>
+          <label style={label}>Satisfaction</label>
           <CsatWidget ticket={v} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => stage({ csatRating: rating })}
             onComment={(comment) => stage({ csatComment: comment })} />
         </div>
@@ -3061,7 +3071,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         // and Reopen are the requester's own finishing moves, so they save
         // (with anything else held) right away.
         // Self-resolve is the requester's own finishing move too.
-        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p) : commit(p))} onClose={() => setDialog(null)} />
+        // The satisfaction survey raised by Done closes the drawer once saved.
+        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p)
+          : dialog.viaDone ? commit(p).then(() => onClose()) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
@@ -3292,6 +3304,36 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
         <button onClick={() => setAdding(true)} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><Link2 size={13} /> Link a ticket</button>
       )}
       </>)}
+    </div>
+  );
+}
+
+// What each star means, in the requester's words - shown while they pick and
+// on the Overview card afterwards.
+const CSAT_LABELS = { 1: 'Very Dissatisfied', 2: 'Dissatisfied', 3: 'Neutral', 4: 'Satisfied', 5: 'Very Satisfied' };
+
+// The requester's satisfaction survey, at the top of the Overview tab once it
+// is in (Oct 1) - the first thing anyone opening a closed ticket sees.
+function SatisfactionCard({ ticket, nameOf }) {
+  const rating = ticket.csatRating || 0;
+  const tone = rating >= 4 ? NX.green : rating === 3 ? NX.amber : NX.red;
+  const who = ticket.requesterId ? (nameOf?.(ticket.requesterId) || ticket.requesterId) : 'The requester';
+  return (
+    <div data-testid="satisfaction-card" style={{ border: `1px solid ${NX.border}`, borderLeft: `4px solid ${tone}`, borderRadius: 10,
+      background: NX.surface2, padding: '10px 14px', marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.dim, marginBottom: 6 }}>
+        Satisfaction Survey
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star key={n} size={18} aria-hidden style={{ color: rating >= n ? NX.amber : NX.border, fill: rating >= n ? NX.amber : 'none' }} />
+        ))}
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: tone, marginLeft: 8 }}>{CSAT_LABELS[rating] || `${rating}/5`}</span>
+        <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5 · rated by {who}</span>
+      </div>
+      {ticket.csatComment && (
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>“{ticket.csatComment}”</p>
+      )}
     </div>
   );
 }
