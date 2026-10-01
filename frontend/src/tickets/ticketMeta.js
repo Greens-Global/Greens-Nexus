@@ -714,42 +714,13 @@ export function helpWithLabel(t) {
   return topic && sub ? `${topic} / ${sub}` : topic;
 }
 
-// ── A topic's extra questions (Pranshu, Oct 1 2026) ─────────────────────────
-// "Which facility?", "Which camera or gate?" - the follow-up questions a topic
-// asks once picked. They used to come only from the topic's service area
-// (SERVICE_FIELDS above, compiled in); now an admin adds, edits and removes
-// them per topic in Settings > Ticket Manager > Help Topics. A topic nobody
-// has edited keeps asking its area's questions; once edited, its own list
-// (`questions` on the topic in the taxonomy config) is the whole answer - an
-// empty list asks nothing. Keys stay `svc_`-prefixed on typeFields, so the
-// rules for the area questions (cleared on a department change, kept on a type
-// change) carry over unchanged.
-//
-// Stored kinds are the few a requester can answer quickly. "site" is a
-// dropdown of the company's work sites (optionsFrom: 'sites' on the form).
-export const TOPIC_QUESTION_KINDS = [
-  { id: 'text', label: 'Short Answer' },
-  { id: 'textarea', label: 'Long Answer' },
-  { id: 'select', label: 'Dropdown' },
-  { id: 'site', label: 'Site' },
-  { id: 'number', label: 'Number' },
-  { id: 'date', label: 'Date' },
-];
-export const TOPIC_QUESTIONS_MAX = 6;
-// Which ticket types a question is asked on. "Every Type" includes Other.
-export const TOPIC_QUESTION_ASK_ON = [
-  { id: 'all', label: 'Every Type', types: Object.keys(TICKET_TYPE_META) },
-  { id: 'incident', label: 'Incidents Only', types: ['incident'] },
-  { id: 'incident_bug', label: 'Incidents and Bugs', types: ['incident', 'bug'] },
-];
-const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
-/** The Ask On choice for a stored `types` list ('all' when it lists none). */
-export function askOnOf(types) {
-  if (!Array.isArray(types) || !types.length) return 'all';
-  const hit = TOPIC_QUESTION_ASK_ON.find((o) => o.id !== 'all' && sameSet(o.types, types));
-  return hit ? hit.id : 'all';
-}
-
+// ── Topic follow-up answers on older tickets ─────────────────────────────────
+// "Which facility?", "Which camera or gate?" - Submit a Ticket used to ask a
+// few follow-up questions per topic (its service area's SERVICE_FIELDS above,
+// or a topic's own `questions` list for a short while on Oct 1). It no longer
+// asks any (Pranshu, Oct 1: "A Few More Details" was not needed). Tickets that
+// answered them keep their answers under `svc_` keys on typeFields, and these
+// helpers are how the drawer still labels and shows them.
 function findTopic(name) {
   const n = (name || '').trim().toLowerCase();
   if (!n) return null;
@@ -761,7 +732,7 @@ function findTopic(name) {
 }
 
 /** A stored topic question as a form field definition. */
-// No `types` means what the editor calls it: Every Type, Other included.
+// No `types` meant every type, Other included.
 export const questionToField = (q) => {
   const types = Array.isArray(q.types) && q.types.length ? q.types : Object.keys(TICKET_TYPE_META);
   return q.type === 'site'
@@ -769,28 +740,15 @@ export const questionToField = (q) => {
     : { ...q, types, full: q.full ?? q.type === 'textarea' };
 };
 
-/** An area question (SERVICE_FIELDS) in the stored topic-question shape. */
-export function fieldToQuestion(f) {
-  const { optionsFrom, full, ...rest } = f;   // eslint-disable-line no-unused-vars -- dropped on purpose
-  if (optionsFrom === 'sites') return { ...rest, type: 'site', options: undefined };
-  if (f.type === 'radio') return { ...rest, type: 'select' };
-  return rest;
-}
 
-/** What a topic asks before anyone edited it: its area's questions. */
-export const defaultTopicQuestions = (area) =>
-  (SERVICE_FIELDS[area] || []).filter((f) => !f.retired).map(fieldToQuestion);
 
-/** Every question a topic may ask (any type), as field definitions. */
+/** The follow-up questions a topic had, as field definitions. */
 export function topicQuestionDefs(name, area) {
   const tp = findTopic(name);
   if (tp && Array.isArray(tp.questions)) return tp.questions.map(questionToField);
   return SERVICE_FIELDS[area] || [];
 }
 
-/** The questions to ASK for this topic on a ticket of this type. */
-export const topicFields = (name, area, type) => topicQuestionDefs(name, area)
-  .filter((f) => !f.retired && type && serviceFieldApplies(f, type));
 
 /** Every admin-written topic question, for labeling answers on old tickets. */
 export const allTopicQuestionDefs = () => HELP_TOPICS.flatMap((g) => (g.topics || [])
