@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { TARGET_CLOSE_DAY } from '../../../accounting/dashboard/model/close';
 import { fmtMD, monthLabel, monthLong, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
@@ -46,7 +47,8 @@ export default function CloseTab({ canEdit, meName = '' }) {
   const explained = flux.filter((r) => fluxNotes.has(r.gl)).length;
   const paceData = state ? Array.from({ length: 13 }, (_, d) => ({ label: String(d), planned: state.planned[d], actual: d === 0 ? 0 : (state.actual[d - 1] ?? null) })) : [];
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 14 };
-  const wide = typeof window !== 'undefined' && window.innerWidth >= 900;
+  // Follows the viewport (a phone turned sideways re-lays out), not a one-shot read.
+  const wide = useMedia('(min-width: 900px)');
   const col = (n) => ({ gridColumn: `span ${wide ? n : 12}` });
   const tabs = [
     { id: 'checklist', label: 'Checklist', badge: state ? `${state.nDone}/${state.n}` : undefined },
@@ -93,7 +95,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
             {isLoading || !state ? <LoadingBox /> : !state.n ? <EmptyBox title="No tasks" style={{ margin: 16 }} /> : !state.rows.some(showRow) ? (
               <EmptyBox style={{ margin: 16 }} title={view === 'overdue' ? 'Nothing overdue' : view === 'mine' && !pickedRole ? 'Pick who you are' : 'No tasks for you this month'} body={view === 'mine' && !pickedRole ? 'Choose your role (Bookkeeper, Controller...) in the box above and My Tasks lists what is yours.' : undefined} />
             ) : (
-              <table className="req-table">
+              <div className="req-table-wrapper"><table className="req-table">
                 <thead><tr><th style={{ width: 32 }} /><th>Task</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
                 <tbody>
                   {state.phases.filter((p) => p.rows.some(showRow)).map((p) => (
@@ -110,7 +112,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
                     </PhaseRows>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </Panel>
         </div>
@@ -121,7 +123,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
       {section === 'flux' ? (
         <Panel title="Balance sheet flux - explain changes over $25K or 10%" sub={hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
           {!hasPrior ? <EmptyBox title="No prior month to compare." style={{ margin: 16 }} /> : !flux.length ? <EmptyBox title="No material balance changes" style={{ margin: 16 }} /> : (
-            <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <div className="req-table-wrapper"><table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
               <thead><tr><th>Account</th><th style={num}>{mShort(prevKey)}</th><th style={num}>{mShort(period)}</th><th style={num}>Change</th><th style={{ width: '38%' }}>Explanation</th></tr></thead>
               <tbody>
                 {flux.map((r) => {
@@ -144,7 +146,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
                   );
                 })}
               </tbody>
-            </table>
+            </table></div>
           )}
         </Panel>
       ) : null}
