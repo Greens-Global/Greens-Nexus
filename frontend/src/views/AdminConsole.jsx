@@ -59,6 +59,7 @@ import {
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
+  Clock, Users,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -91,6 +92,11 @@ const SecuritySettings = lazy(() => import('./SecuritySettings'));
 const BrandColorPanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.BrandColorPanel })));
 const EmailAppearancePanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.EmailAppearancePanel })));
 const SignInPolicyPanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.SignInPolicyPanel })));
+// Shifts (Oct 2026): the settings, shift types and groups that used to be a
+// Shifts tab - one self-contained module, three sections.
+const ShiftSettingsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftSettingsPanel })));
+const ShiftTypesPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftTypesPanel })));
+const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftGroupsPanel })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -119,7 +125,7 @@ function SectionFallback() {
 // can never disagree about what a section is called.
 const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
-    desc: 'Email signatures and the work sites employees punch in at.' },
+    desc: 'Email signatures and the locations employees punch in at.' },
   { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
     desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing and weekly digest, when HR is reminded about expiring documents, and equipment reminders.' },
   { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
@@ -130,6 +136,11 @@ const GLOBAL_CATEGORIES = [
     desc: 'How people sign in and how long sessions last. Only a Global Admin can change these.' },
   { key: 'branding',       label: 'Branding & Policies', Icon: Palette, adminOnly: true,
     desc: 'The Nexus brand color, how every Nexus email looks, and the policy everyone accepts at sign-in.' },
+  // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
+  { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
+    desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.' },
+  { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
+    desc: 'What staff may request and see on the schedule, the team time zone and week start, shift reminders and time-off reasons, the shift types managers place, and the groups people are scheduled in.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -139,9 +150,9 @@ const GLOBAL_SECTIONS = [
   { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in My Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
-  { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
-    sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
-    keywords: 'geofence location address time clock punch map' },
+  { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Location Library',
+    sub: 'Every location employees can punch in at, with its geofence. Pick the companies that use each one right here, or from the Locations tab of each company.',
+    keywords: 'geofence location address time clock punch map work site' },
   { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with' },
@@ -179,6 +190,21 @@ const GLOBAL_SECTIONS = [
   { id: 'signin-policy', category: 'branding', icon: FileCheck, title: 'Sign-In Policy',
     sub: 'The company policies and monitoring disclosure everyone accepts at sign-in, and who has not accepted the current version.',
     keywords: 'policy terms monitoring disclosure acknowledgment accept consent version publish report' },
+  // Time Clock (Charmi, Sep 30): rounding, auto-lunch and CA paid breaks used
+  // to be switches in the timecard's Options popover. Per-company scoping is
+  // deferred - one rule for the tenant today.
+  { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
+    sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every timecard.',
+    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california timecard payroll' },
+  { id: 'shift-settings', category: 'shifts', icon: CalendarClock, title: 'Shift Settings',
+    sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, shift reminders and the time-off reasons.',
+    keywords: 'shifts schedule requests swap offer open shift time off reasons reminders time zone week start sunday monday visibility' },
+  { id: 'shift-types', category: 'shifts', icon: Clock, title: 'Shift Types',
+    sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
+    keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },
+  { id: 'shift-groups', category: 'shifts', icon: Users, title: 'Groups',
+    sub: 'Who is scheduled together, the order they appear in, who may build each group\'s schedule, and the Teams chat its BOD / EOD messages go to.',
+    keywords: 'shifts groups teams members schedulers order teams chat bod eod' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -998,6 +1024,11 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
             <RolesAccess embedded />
           </Suspense>
         );
+      // Time Clock has exactly one section - rendered whole, like Security.
+      case 'timeclock-policy':     return <TimeClockPolicyPanel key={key} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }
@@ -1145,7 +1176,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
       {topTab === 'company' ? (
         <>
           <ScopeNote icon={Building2} title="Applies to one company at a time.">
-            Open a company to manage its profile, managers and HR contact, workforce analytics policy, departments, work sites and holiday calendar. Settings shared by every company are under Global Settings.
+            Open a company to manage its profile, managers and HR contact, workforce analytics policy, departments, locations and holiday calendar. Settings shared by every company are under Global Settings.
           </ScopeNote>
           <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
         </>
@@ -1167,6 +1198,119 @@ export default function AdminConsole({ activeSub, onSubChange }) {
           {toast.msg}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Time Clock pay rules (Charmi, Sep 30) ─────────────────────────────────────
+// Punch rounding, auto-lunch and CA paid breaks used to be switches inside the
+// Payroll timecard's Options popover ("this should all be in global
+// settings"). Same three settings rows (nexus_settings), same endpoints - only
+// the front door moved. Rounding is OFF for a new tenant; PROD keeps its own
+// saved row. Per-company scoping (one rule per hr_entities company) is
+// deferred: today each rule is one tenant-wide key.
+function PolicyCard({ title, desc, enabled, onToggle, busy, children }) {
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: busy ? 'default' : 'pointer' }}>
+        <input type="checkbox" checked={!!enabled} disabled={busy} onChange={e => onToggle(e.target.checked)} style={{ marginTop: 3 }} />
+        <span style={{ flex: 1 }}>
+          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{desc}</span>
+        </span>
+        {busy && <Spinner size={14} />}
+      </label>
+      {enabled && children && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingLeft: 26 }}>{children}</div>
+      )}
+    </div>
+  );
+}
+
+function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min', width = 80 }) {
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)' }}>
+      <span style={{ color: 'var(--muted)' }}>{label}</span>
+      <input className="form-input" type="number" min={min} max={max} step="1" value={value} onChange={e => onChange(e.target.value)} style={{ width, fontSize: 12.5 }} />
+      <span style={{ color: 'var(--muted)' }}>{unit}</span>
+    </label>
+  );
+}
+
+function TimeClockPolicyPanel({ toastOk, toastErr }) {
+  const [cfg, setCfg] = useState(null);     // { rounding, autoLunch, breakPolicy } | null while loading
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState('');     // which card is saving
+  const load = useCallback(() => {
+    setErr('');
+    Promise.all([api.timeRoundingGet(), api.timeAutoLunchGet(), api.timeBreakPolicyGet()])
+      .then(([rounding, autoLunch, breakPolicy]) => setCfg({ rounding, autoLunch, breakPolicy }))
+      .catch(e => setErr(e?.message || 'Could not load the Time Clock settings.'));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // Each save writes the whole rule, so a number typed and a switch flipped
+  // never race each other; the server echoes the saved rule back.
+  const save = async (key, next, label) => {
+    setBusy(key);
+    try {
+      const saved = key === 'rounding' ? await api.timeRoundingSet(next)
+        : key === 'autoLunch' ? await api.timeAutoLunchSet(next)
+        : await api.timeBreakPolicySet(next);
+      setCfg(c => ({ ...c, [key]: saved }));
+      toastOk?.(`${label} saved.`);
+    } catch (e) { toastErr?.(e?.message || `Could not save ${label.toLowerCase()}.`); }
+    setBusy('');
+  };
+  const num = (v, fallback) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
+
+  if (err) return <ErrorLine text={err} onRetry={load} />;
+  if (!cfg) return <SkeletonBlocks count={3} height={64} borderRadius={12} />;
+  const { rounding, autoLunch, breakPolicy } = cfg;
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
+        These rules shape every timecard the moment they are saved. They apply to the whole tenant today; a rule per company is planned.
+      </div>
+      <PolicyCard title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled}
+        desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the timecard). Off by default - turn it on only if the company has a rounding policy.`}
+        onToggle={on => save('rounding', { enabled: on, nearestMin: rounding.nearestMin || 5 }, 'Punch rounding')}>
+        <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin}
+          onChange={v => setCfg(c => ({ ...c, rounding: { ...c.rounding, nearestMin: v } }))} />
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'rounding'}
+          onClick={() => save('rounding', { enabled: true, nearestMin: Math.min(30, Math.max(1, num(rounding.nearestMin, 5))) }, 'Punch rounding')}>Save</button>
+      </PolicyCard>
+      <PolicyCard title="Auto-Lunch Deduction" busy={busy === 'autoLunch'} enabled={autoLunch.enabled}
+        desc={`Deduct ${autoLunch.deductMin} minutes of lunch from any shift longer than ${Math.round((autoLunch.afterMin || 0) / 60 * 10) / 10} hours that has no recorded break (the person forgot to clock lunch).`}
+        onToggle={on => save('autoLunch', { enabled: on, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>
+        <PolicyNumber label="Shifts over" min={0} max={1440} value={autoLunch.afterMin}
+          onChange={v => setCfg(c => ({ ...c, autoLunch: { ...c.autoLunch, afterMin: v } }))} />
+        <PolicyNumber label="Deduct" min={0} max={240} value={autoLunch.deductMin}
+          onChange={v => setCfg(c => ({ ...c, autoLunch: { ...c.autoLunch, deductMin: v } }))} />
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'autoLunch'}
+          onClick={() => save('autoLunch', { enabled: true, afterMin: num(autoLunch.afterMin, 360), deductMin: num(autoLunch.deductMin, 30) }, 'Auto-lunch')}>Save</button>
+      </PolicyCard>
+      <PolicyCard title="California Paid Rest Breaks" busy={busy === 'breakPolicy'} enabled={breakPolicy.enabled}
+        desc={`Pay the first ${breakPolicy.paidBreakMin} minutes of each short break (up to ${breakPolicy.restMaxMin} minutes long) - one per 4 hours worked, as California requires. Meal-length breaks stay unpaid. Only employees on the California overtime rule; the long-break flags are always on.`}
+        onToggle={on => save('breakPolicy', { ...breakPolicy, enabled: on, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>
+        <PolicyNumber label="Paid per break" min={0} max={60} value={breakPolicy.paidBreakMin}
+          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, paidBreakMin: v } }))} />
+        <PolicyNumber label="Rest break up to" min={1} max={120} value={breakPolicy.restMaxMin}
+          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, restMaxMin: v } }))} />
+        <PolicyNumber label="Flag breaks over" min={15} max={600} value={breakPolicy.longBreakMin}
+          onChange={v => setCfg(c => ({ ...c, breakPolicy: { ...c.breakPolicy, longBreakMin: v } }))} />
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'breakPolicy'}
+          onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
+      </PolicyCard>
+    </div>
+  );
+}
+
+function ErrorLine({ text, onRetry }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', padding: '10px 0' }}>
+      <span style={{ flex: 1 }}>{text}</span>
+      <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={onRetry}>Retry</button>
     </div>
   );
 }

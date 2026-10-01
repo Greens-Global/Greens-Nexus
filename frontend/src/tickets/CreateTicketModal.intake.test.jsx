@@ -78,6 +78,19 @@ describe('CreateTicketModal intake (Oct 1)', () => {
     expect(await screen.findByText(ERROR_Q)).toBeTruthy();
   });
 
+  it('asks no follow-up questions for a topic (Oct 1 - "A Few More Details" is gone)', async () => {
+    const { HELP_TOPICS } = await import('./ticketMeta');
+    // Cameras files under Security & Cameras, which used to ask "Which facility?".
+    HELP_TOPICS.push({ label: 'IT', departments: ['it'], topics: [{ name: 'Cameras', area: 'security' }] });
+    try {
+      await open();
+      await pickDepartment('Facilities');
+      fireEvent.change(screen.getByPlaceholderText(/Front gate keypad/), { target: { value: 'Cameras' } });
+      expect(screen.queryByText('A Few More Details')).toBeNull();
+      expect(screen.queryByText(/Which facility/)).toBeNull();
+    } finally { HELP_TOPICS.length = 0; }
+  });
+
   it('puts Record Screen and Upload Attachment under the description, with the paste hint', async () => {
     await open();
     expect(screen.getByRole('button', { name: /Record Screen/ })).toBeTruthy();

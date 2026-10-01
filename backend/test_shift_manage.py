@@ -120,10 +120,10 @@ class ShiftManageTests(unittest.TestCase):
         finally:
             db.close()
 
-    def _open(self, who):
+    def _open(self, who, start="10:00"):
         self._as(who)
         r = self.client.post("/timeclock/schedule", json={"employee_email": "", "work_date": DAY,
-                                                          "start_hhmm": "10:00", "end_hhmm": "14:00", "open_slots": 1})
+                                                          "start_hhmm": start, "end_hhmm": "14:00", "open_slots": 1, "group_id": GROUP})
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()["id"]
 
@@ -174,12 +174,12 @@ class ShiftManageTests(unittest.TestCase):
 
     def test_open_shifts_belong_to_the_manager_who_posted_them(self):
         boss_open = self._open(BOSS)
-        m1_open = self._open(M1)
+        m1_open = self._open(M1, "12:00")
         self._as(M1)
         grid = self.client.get(f"/timeclock/schedule?start={DAY}&end={DAY}").json()
         can = {s["id"]: s.get("canEdit") for s in grid["scheduled"] if not s["email"]}
         self.assertEqual(can, {boss_open: False, m1_open: True})
-        body = {"employee_email": "", "work_date": DAY, "start_hhmm": "11:00", "end_hhmm": "15:00", "open_slots": 1}
+        body = {"employee_email": "", "work_date": DAY, "start_hhmm": "11:00", "end_hhmm": "15:00", "open_slots": 1, "group_id": GROUP}
         self.assertEqual(self.client.patch(f"/timeclock/schedule/{boss_open}", json=body).status_code, 403)
         self.assertEqual(self.client.delete(f"/timeclock/schedule/{boss_open}").status_code, 403)
         self.assertEqual(self.client.post(f"/timeclock/schedule/{boss_open}/assign", json={"employee_email": A}).status_code, 403)

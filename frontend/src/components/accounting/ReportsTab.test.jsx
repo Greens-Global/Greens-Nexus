@@ -97,7 +97,7 @@ describe('ReportsTab statement table', () => {
     expect(screen.getByText('Rental Income')).toBeTruthy();
 
     // Every account amount is a drill button.
-    fireEvent.click(screen.getByText('400.00', { selector: 'button' }));
+    fireEvent.click(screen.getByRole('button', { name: '400.00' }));
     expect(screen.getByTestId('ledger-search').textContent).toContain('drill:61000');
   });
 

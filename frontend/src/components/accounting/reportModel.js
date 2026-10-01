@@ -599,9 +599,9 @@ function layout(config, read) {
     rows.push({ kind: 'margin', label: 'Net Profit Margin %', values: marginAcross });
     const at = derived === 'total' ? n : 0;
     summary = [
-      { label: 'Revenue', value: money(across(income)[at]), tone: 'good' },
-      { label: 'Expenses', value: money(across(cost)[at]), tone: 'bad' },
-      { label: 'Net Income', value: money(across(net)[at]), tone: across(net)[at] >= 0 ? 'good' : 'bad' },
+      { label: 'Revenue', value: money(across(income)[at]), amount: across(income)[at], tone: 'good' },
+      { label: 'Expenses', value: money(across(cost)[at]), amount: across(cost)[at], tone: 'bad' },
+      { label: 'Net Income', value: money(across(net)[at]), amount: across(net)[at], tone: across(net)[at] >= 0 ? 'good' : 'bad' },
       { label: 'Net Margin', value: share(marginAcross[at]) || '-', tone: (marginAcross[at] || 0) >= 0 ? 'good' : 'bad' },
     ];
     if (derived === 'compare') summary.push({ label: 'Net Change', value: [money(net[0] - net[1]), pct(net[0], net[1])].filter(Boolean).join(' · '), tone: net[0] - net[1] >= 0 ? 'good' : 'bad' });
@@ -614,9 +614,9 @@ function layout(config, read) {
     if (!wanted && off.some((v) => Math.abs(v) >= 0.01)) rows.push({ kind: 'warn', label: 'Out of balance by', values: across(off) });
     const at = derived === 'total' ? n : 0;
     summary = [
-      { label: 'Assets', value: money(across(t('asset'))[at]) },
-      { label: 'Liabilities', value: money(across(t('liability'))[at]) },
-      { label: 'Equity', value: money(across(t('equity'))[at]) },
+      { label: 'Assets', value: money(across(t('asset'))[at]), amount: across(t('asset'))[at] },
+      { label: 'Liabilities', value: money(across(t('liability'))[at]), amount: across(t('liability'))[at] },
+      { label: 'Equity', value: money(across(t('equity'))[at]), amount: across(t('equity'))[at] },
     ];
   }
   return { columns, rows, summary, pickable };
@@ -728,7 +728,7 @@ async function generalLedger(api, config, book, drillCur) {
   if (cut) notes.push(`${cut.toLocaleString('en-US')} more lines were not listed (${GL_MAX_LINES.toLocaleString('en-US')} per account at most). Narrow the period for the whole run.`);
   if (dimsText({ ...config, accounts: [] }).length) notes.push('Department, vendor, customer, employee, Project-Job and item filters narrow the balances; the lines listed are the account\'s whole activity for the entities and period.');
   const summary = [
-    { label: 'Debits', value: money(totalDebit) }, { label: 'Credits', value: money(totalCredit) },
+    { label: 'Debits', value: money(totalDebit), amount: totalDebit }, { label: 'Credits', value: money(totalCredit), amount: totalCredit },
     { label: 'Lines', value: rows.filter((r) => r.kind === 'line').length.toLocaleString('en-US') },
   ];
   return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Date / Account' };

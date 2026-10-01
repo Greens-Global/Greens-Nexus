@@ -2,9 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, User, Lock,
-  TreePalm, Thermometer, Wallet, CircleEllipsis, CalendarOff, ChevronDown, Check,
+  ChevronDown, Check, ClipboardCheck,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
+import TimesheetsToReview from '../components/TimesheetsToReview';
+import { openNotificationTarget } from '../lib/openTarget';
+import { reasonLook } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
@@ -18,6 +22,7 @@ import { getPosition, punchPosition } from '../lib/geoPosition';
 import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays } from '../lib/workdayStats';
+import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -192,10 +197,6 @@ const gapBreakFromSegments = (segs) => {
   return total;
 };
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
-// A type's icon on the request form (Neil, Sep 30 - Teams lists each kind of
-// time off with its icon); a company's own types get the calendar.
-const REASON_ICON = { vacation: TreePalm, sick: Thermometer, personal: User, unpaid: Wallet, other: CircleEllipsis };
-const REASON_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // 'HH:MM' (24h, from the partial-day time-off fields) -> '2:30 PM'
 const hm12 = (v) => {
   if (!v) return '';
@@ -230,7 +231,10 @@ function ReasonPicker({ value, options, onChange, style }) {
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
   }, [open]);
   const label = (options.find(([k]) => k === value) || [value, value])[1];
-  const icon = (k, size = 14) => { const I = REASON_ICON[k] || CalendarOff; return <I size={size} color={REASON_COLOR[k] || 'var(--wk-brand)'} style={{ flexShrink: 0 }} />; };
+  const icon = (k, size = 14) => {
+    const { Icon, color } = reasonLook(k, (options.find(([key]) => key === k) || [])[1]);
+    return <Icon size={size} color={color} style={{ flexShrink: 0 }} />;
+  };
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0, ...style }}>
       <button type="button" className="form-input" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
@@ -300,7 +304,7 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title={`Not inside any of your company's work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM >= 1000 ? `${(p.distanceM / 1000).toFixed(1)} km` : `${p.distanceM} m`} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM >= 1000 ? `${(p.distanceM / 1000).toFixed(1)} km` : `${p.distanceM} m`} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
       <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
@@ -320,7 +324,7 @@ function GeoChip({ p }) {
   // punch shows nothing (Neil, Jul 28 - an empty chip read as an error state).
   if (p.lat && p.lng) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
-      title="Location recorded. No geofenced work site to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
+      title="Location recorded. No geofenced location to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
       <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
     </span>);
   return null;
@@ -765,6 +769,38 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   }, [tab]);
   const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
 
+  // Timesheets to Review lives on this Time Sheet tab (Oct 1): the list of
+  // timesheets submitted to me, with Agree / Send Back on each row - where the
+  // "Timesheet to review" bell lands (timesheet_review._notify). It used to be
+  // only in People > Time, which needs the HR grant a reviewing manager may
+  // not have; Agree / Send Back themselves only need manager level. The count
+  // is read once for the whole Workday (the badge, and the tab for a
+  // time-tracking-exempt reviewer, who otherwise has no Time Sheet tab).
+  // `|| {}`: the role context is null outside RoleProvider (render tests).
+  const { can = () => false, myGrantedModules } = useRole() || {};
+  const mayOpenTime = can('administrator') || !!myGrantedModules?.has('hr');
+  const [toReview, setToReview] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.timesheetReviewWaiting()
+      .then(r => { if (live) setToReview(Array.isArray(r?.reviews) ? r.reviews.length : 0); })
+      .catch(() => {});
+    load();
+    window.addEventListener('nexus:timesheet-review-changed', load);
+    return () => { live = false; window.removeEventListener('nexus:timesheet-review-changed', load); };
+  }, []);
+  const reviewRef = useRef(null);
+  // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
+  const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
+  const showReview = tab === 'timesheet' && toReview > 0;
+  const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Review opens that employee's full timecard in People > Time - only for
+  // those who can open it (administrator, or the HR grant - App.jsx's gate).
+  const openTimecardFor = mayOpenTime ? (r) => {
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-time' } }));
+    openNotificationTarget({ timecard: r.employeeEmail, start: r.periodStart, payType: r.payType });
+  } : undefined;
+
   return (
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* Standard module header band (view-header carries the hairline divider
@@ -779,6 +815,17 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
           </div>
         </div>
+        {showReview && (
+          <button type="button" className={toReview > 0 ? 'primary-btn' : 'secondary-btn'} onClick={openReview}
+            title="Jump to the timesheets submitted to you - agree to them or send them back"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, alignSelf: 'center', whiteSpace: 'nowrap' }}>
+            <ClipboardCheck size={15} /> Timesheets to Review
+            {toReview > 0 && (
+              <span aria-label={`${toReview} waiting`} style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: '#fff', color: 'var(--wk-brand)',
+                fontSize: 11.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{toReview}</span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
@@ -791,7 +838,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'clock', 'timeoff']
+          ? ['overview', 'clock', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
           : ['overview', 'clock', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
@@ -1028,6 +1075,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       </div>
       </>)}
 
+      {/* Timesheets submitted to me, not decided yet - above my own timesheet,
+          for exempt reviewers too. Renders nothing when nothing is waiting. */}
+      {tab === 'timesheet' && (
+        <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
+          <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
+            onCount={onReviewCount} onOpen={openTimecardFor} />
+        </div>
+      )}
+      {tab === 'timesheet' && status?.timeTrackingExempt && toReview === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on you to review.</div>
+      )}
+
       {/* Timesheet - day list + week summary side panel */}
       {tab === 'timesheet' && !status?.timeTrackingExempt && (<>
       {/* One employee time view - the SAME payroll timecard HR sees, scoped to me.
@@ -1197,6 +1256,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           );
         })()}
       </div>
+      {/* Shift Requests (Charmi, 09/30): swaps, offers and open-shift requests
+          live here with the time-off form, not in the Shifts module. */}
+      <WorkdayShiftRequests toast={toast} />
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
         {(timeoff || []).length === 0 && (

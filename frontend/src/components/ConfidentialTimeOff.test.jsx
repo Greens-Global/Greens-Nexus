@@ -36,14 +36,14 @@ beforeEach(() => { for (const k of Object.keys(calls)) delete calls[k]; globalTh
 
 describe('manager inbox', () => {
   it('shows a confidential request with its type, no note, and who decides it', async () => {
-    globalThis.__apiAnswers = { timeOffList: [REDACTED, PLAIN] };
+    // The inbox takes its data from the module (Shifts.jsx, useManagerInbox) since Oct 2026.
     const Inbox = (await import('./ShiftRequestsInbox')).default;
-    render(<Inbox onClose={() => {}} />);
+    render(<Inbox inbox={{ pending: [], recent: [], waitingOnPeer: [] }} timeoff={[REDACTED, PLAIN]} loading={false} error={null} onRetry={() => {}} />);
     expect(await screen.findByText('Valinda Test decides this request.')).toBeTruthy();
     expect(screen.getAllByText('Confidential').length).toBe(1);
-    expect(screen.getByText('Time off · sick')).toBeTruthy();
+    expect(screen.getByText(/Time Off · Sick/)).toBeTruthy();
     // The plain request keeps its type, note and buttons.
-    expect(screen.getByText('Time off · vacation')).toBeTruthy();
+    expect(screen.getByText(/Time Off · Vacation/)).toBeTruthy();
     expect(screen.getByText('Beach week')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Approve' }).length).toBe(1);
   });
@@ -95,5 +95,17 @@ describe('request form totals and types (Neil, Sep 30)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Type of time off: Vacation' }));
     fireEvent.click(screen.getByRole('option', { name: /Sick/ }));
     expect(screen.getByRole('button', { name: 'Type of time off: Sick' })).toBeTruthy();
+  }, SLOW);
+
+  it("gives a company's own types their own icons, not one shared calendar (Oct 1)", async () => {
+    const { reasonLook } = await import('../lib/timeOffReasons');
+    const names = ['Approved Time Off', 'Off', 'Holiday', 'Parental Leave', 'Jury Duty', 'Bereavement Leave'];
+    const icons = names.map((n) => reasonLook(n, n).Icon);
+    expect(new Set(icons).size).toBe(names.length);
+    // "Approved Time Off" is approved, not "off"; "Coffee Break" is not "off".
+    expect(reasonLook('Approved Time Off').Icon).not.toBe(reasonLook('Off').Icon);
+    expect(reasonLook('Coffee Break').Icon).not.toBe(reasonLook('Off').Icon);
+    // Two unknown types still differ by color.
+    expect(reasonLook('Sabbatical').color).not.toBe(reasonLook('Garden Leave').color);
   }, SLOW);
 });

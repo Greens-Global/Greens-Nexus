@@ -2307,6 +2307,27 @@ html { overflow-x: hidden; }
   [style*="minmax(3"] { grid-template-columns: 1fr !important; }
 }
 
+/* ── Accounting figures (Charmi, 09/30: the numbers part of the typography
+   brief, for Accounting only) ───────────────────────────────────────────
+   Scoped to .acct-module, the Accounting view's root, so nothing outside
+   Accounting moves. Figures and words are Inter; digits are tabular so
+   100.00 sits over 79.98; a negative reads (27,680.64); and every amount
+   reserves an invisible closing-parenthesis slot (a pseudo-element - never
+   copied, never exported) so the parentheses stand outside the digit column
+   and the digits of positives, negatives, zero and the total line up.
+   Numeric column headers carry the same slot and sit right. Figures render
+   through <Amount /> (components/accounting/Amount.jsx), never per screen. */
+.acct-module { font-variant-numeric: tabular-nums; }
+.acct-module .num {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+.acct-module .num::after { content: ")"; visibility: hidden; }
+.acct-module .num.neg::after { content: none; }
+.acct-module td.acct-num, .acct-module th.acct-num { text-align: right; }
+.acct-module th.acct-num::after { content: ")"; visibility: hidden; }
+
 /* ── Accounting -> Reports: dense statement table (Neil, Sep 25) ─────────────
    Sized to its content like Intacct / the finance app, never cut: the wrapper
    scrolls sideways, the Account column is sticky, rows take --acct-row-py
@@ -5070,3 +5091,10 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
    reads as "opens the conversation", not just "opens the ticket". */
 .nx-latest-comment:hover, .nx-latest-comment:focus-visible { background: var(--nx-hover) !important; }
 .nx-latest-comment:hover b { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Payroll timecard day rows (Charmi, Sep 30 - A8): zebra banding per date, a
+   brand-tinted hover, weekends keep their mist. The week-total band is its own
+   row (brand tint + brand text) and is not a .pr-day-row, so it stays distinct. */
+.pr-day-row.pr-band > td { background: color-mix(in srgb, var(--wk-hover) 60%, transparent); }
+.pr-day-row.pr-weekend > td { background: var(--mist); }
+@media (hover: hover) { .pr-day-row:hover > td { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); } }

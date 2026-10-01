@@ -198,7 +198,7 @@ export const DOCS = [
         steps: [
           'Open Workday from the left menu, then click the Clock tab.',
           'Click Punch In. The first time, read the monitoring notice and acknowledge it.',
-          'Allow location if your browser asks. On a phone this gives the most accurate work-site check.',
+          'Allow location if your browser asks. On a phone this gives the most accurate location check.',
         ],
       },
       {
@@ -231,14 +231,14 @@ export const DOCS = [
       { name: 'Clock', desc: 'Punch In, Start Break, End Break and Punch Out, with today\'s punches and location tags.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
       { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
-      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, judged by where the punch was made, even if you move between several sites in a day. A punch inside any of your company work sites shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the work site of the punch from there.' },
+      { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
     ],
     manager: {
       title: 'Managers & Admins',
       points: [
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
         'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Shifts.',
-        'HR sets work sites (the geofence used for on-site checks) and holiday calendars in People.',
+        'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
       ],
     },
     tips: [
@@ -255,7 +255,7 @@ export const DOCS = [
     purpose: 'Workforce Analytics is the disclosed monitoring dashboard. It shows who is working right now, where each person last punched from, activity on enrolled company computers and screenshots taken under the company policy. Employees are told about it before they first clock in.',
     gains: [
       'Know at a glance who is working, on break or not clocked in.',
-      'Spot punches made away from the work site.',
+      'Spot punches made away from the location.',
       'Keep company computers enrolled and accounted for.',
     ],
     walkthroughs: [
@@ -295,10 +295,10 @@ export const DOCS = [
   },
   {
     id: 'shifts', name: 'Shifts', group: 'My Desk', icon: 'CalendarClock', view: 'shifts',
-    tagline: 'See your shifts and your team\'s; managers build and publish the schedule.',
-    where: 'Left menu > Shifts (managers: Shifts > Manage)',
-    access: 'Everyone sees My Shifts. Managers and above also get Manage: the schedule grid and Presets & Teams.',
-    purpose: 'Shifts is where you see when you work and where the team schedule is made. Everyone opens on My Shifts: your next shift, this week\'s hours and time off at a glance, your week, then your team\'s shifts with you pinned at the top. Managers click Manage to place shifts on a weekly grid, fill a whole group from a preset in one go, post open shifts and publish when it is ready. Nothing is shared until it is published.',
+    tagline: 'See your shifts and your group\'s; managers build and share the schedule.',
+    where: 'Left menu > Shifts (managers: Schedule and Requests tabs)',
+    access: 'Everyone sees My Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
+    purpose: 'Shifts is where you see when you work and where the team schedule is made. Everyone opens on My Shifts: your next shift, this week\'s hours and time off at a glance, your week, then your team\'s shifts with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Nothing reaches the team until it is shared.',
     gains: [
       'See your next shift and this week\'s hours without opening a calendar.',
       'Ask for an open shift, or swap or offer a shift, without messaging your manager.',
@@ -325,11 +325,11 @@ export const DOCS = [
         ],
       },
       {
-        title: 'Set Up a Shift Preset and a Group',
+        title: 'Set Up a Shift Type and a Group',
         steps: [
-          'Managers: open Shifts, click Manage, then click the Presets & Teams tab.',
-          'Add a shift: name, a short code for the grid, start and end time, unpaid break, grace minutes and days. Click Save.',
-          'Add a group: name it, pick its members, then click Save.',
+          'Administrators: open Settings > Global Settings > Shifts.',
+          'Under Shift Types, add one: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. Click Save.',
+          'Under Groups, add one: name it, pick its members from the People list, then click Save.',
         ],
       },
       {
@@ -367,27 +367,27 @@ export const DOCS = [
     ],
     features: [
       { name: 'My Shifts', desc: 'Everyone: your next shift (or the one you are on now), this week\'s paid hours and time off, your week, then Team Shifts with you pinned at the top.' },
-      { name: 'Requests From Staff', desc: 'On My Shifts: ask for an open shift, swap or offer a shift to a teammate, and set My Availability. Every request goes to a manager.' },
-      { name: 'Manage', desc: 'Managers and above: the button that opens the schedule grid and Presets & Teams. Back to My Shifts returns.' },
+      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on My Shifts. Every request goes to a manager.' },
+      { name: 'Add', desc: 'Managers and above: one button on the Schedule for a shift, an open shift, time off or a day note. Editing opens a panel on the right so the grid stays in view.' },
       { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
       { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
-      { name: 'Fill Schedule', desc: 'Apply one preset to a whole group, or everyone in view, across a date range. It can skip days a person has time off.' },
-      { name: 'Copy Schedule', desc: 'Copy a range of shifts to later dates, as many times as you need, with or without notes. It can skip days a person has time off.' },
-      { name: 'Clear Schedule', desc: 'Remove every shift in a date range. Drafts are deleted; published shifts are marked for removal until you publish.' },
+      { name: 'Fill From Usual Hours', desc: 'Under the ... menu: apply one shift type to a whole group, or everyone in view, across a date range. It can skip days a person has time off.' },
+      { name: 'Copy Week', desc: 'Under the ... menu: copy a range of shifts to later dates, as many times as you need, with or without notes. It can skip days a person has time off.' },
+      { name: 'Clear Week', desc: 'Under the ... menu: remove every shift in a date range. Drafts are deleted; shared shifts are marked for removal until you share.' },
       { name: 'Import', desc: 'Add shifts from a spreadsheet. They come in as drafts.' },
-      { name: 'Requests', desc: 'Open-shift requests, time off, and swaps and offers a teammate has already accepted, waiting for a manager.' },
-      { name: 'Publish', desc: 'Share drafts and edits with the team. Until then the team keeps seeing the last published version.' },
-      { name: 'Discard Changes', desc: 'Undo edits and removals that are not published yet, going back to what the team sees.' },
+      { name: 'Requests', desc: 'The manager\'s inbox: Time Off, Swaps, Offers and Open Shifts tabs, with what still waits on a teammate. A time-off request shows the shared shifts inside it, with Approve And Remove Shifts.' },
+      { name: 'Share', desc: 'Share drafts, edits and removals in a date range with the team, and choose who is told. Until then the team keeps seeing the last shared version.' },
+      { name: 'Discard Changes', desc: 'Under the ... menu: undo edits and removals that are not shared yet, going back to what the team sees.' },
       { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
       { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
-      { name: 'Presets & Teams', desc: 'Shift presets (time, unpaid break, grace, days, color, code) and teams of people. Assign a Shift to a Team sets a preset for everyone on a team.' },
+      { name: 'Shift Types and Groups', desc: 'Settings > Global Settings > Shifts: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, and the shift settings (what staff may request and see, the team time zone, week start, reminders, time-off reasons).' },
     ],
     manager: {
       title: 'Who Can Do What',
       points: [
         'Everyone sees their own shifts and their team\'s. The schedule itself is read-only for them.',
-        'Managers and above see Manage, and build and publish schedules there.',
+        'Managers and above see Schedule and Requests, and build and share schedules there.',
         'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off, and when shift reminders go out.',
       ],
     },
@@ -581,7 +581,7 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in, and switch off any department that should not take tickets), Notifications, SLA & Ticket Types (intake questions and SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department and each optional Which One? list).',
+        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in, and switch off any department that should not take tickets), Notifications, SLA & Ticket Types (the five ticket types - Incident, Bug Report, Feature Request, Access Request and Other - each with its label, hint and questions, switched on or off for Submit a Ticket, at least one on; SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department and each optional Which One? list).',
         'Departments are the company\'s own list from Settings > Company Settings - the same one Tasks uses. Add, rename or delete them there; the Ticket Manager only turns each one on or off for tickets.',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
@@ -1075,8 +1075,8 @@ export const DOCS = [
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
       { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it). The tiles on top open what they count: Team Hours (hours by person and day), Timesheets to Review, Punch Exceptions (the Missing Punches list) and Time Off Pending. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
-      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy. The most accurate way to place a work site is its Google Maps link: in Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and keeps the link on the site, marked Google Maps in the list. You can also search the street address instead. Either way the map jumps to the site, you can drag the pin (or click the map) onto the exact building, and a pin moved far from the link or address is flagged. Set the radius with the slider (100-300 m suits most sites; under 100 m, phone GPS drift flags people who are on-site). Before you save, Punches Here shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A site marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
-      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, optionally click their usual work sites - any number of them. A punch inside any company work site counts as at that site; their usual sites only win where two sites overlap.' },
+      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Locations (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius with the slider (100-300 m suits most locations; under 100 m, phone GPS drift flags people who are on-site). In the Location Library, the Companies dropdown sets who punches in there: tick All, or tick the companies that use it. The radius slider sits under the map. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
+      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, optionally click their usual locations - any number of them. A punch inside any company location counts as at that site; their usual sites only win where two sites overlap.' },
     ],
     manager: {
       title: 'HR & Admins',
@@ -1084,7 +1084,7 @@ export const DOCS = [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
         'Offboarding: hand over their tasks, set mailbox handling, then mark them Left.',
         'Changing a status asks for a reason, and every change is kept in history.',
-        'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company work site the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
+        'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
       ],
     },
     tips: ['People pickers across Nexus use this directory, so keep names and emails correct here.'],
@@ -1287,7 +1287,7 @@ export const DOCS = [
         steps: [
           'Click the Company Settings tab.',
           'Click Edit on the company, or Add Company.',
-          'Use its tabs for the profile, workforce analytics policy, departments, work sites and holiday calendar.',
+          'Use its tabs for the profile, workforce analytics policy, departments, locations and holiday calendar.',
         ],
       },
       {
@@ -1309,8 +1309,8 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, SLA & Ticket Types, and Help Topics for each department), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
-      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Location Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, SLA & Ticket Types, and Help Topics for each department), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
+      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the locations it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
       { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
       { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },

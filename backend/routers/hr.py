@@ -13,7 +13,7 @@ from typing import Optional
 from database import get_db
 from auth import require_module_grant, hr_scope
 from routers.stepup import require_stepup
-from models import NexusEmployee, PayrollRate, HrRemovedIdentity
+from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
 from services import logo_video
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
@@ -2545,6 +2545,9 @@ class WorkSiteIn(BaseModel):
     # coordinates (map_link keeps what was pasted); "address" for a search pick.
     location_source: Optional[str] = ""
     map_link: Optional[str] = ""
+    # The companies that use this location (Neil, Oct 1: pick them right in
+    # the library - All, or some). None = leave the links alone.
+    company_ids: Optional[List[str]] = None
 
 
 class WorkSiteUpdate(BaseModel):
@@ -2557,6 +2560,7 @@ class WorkSiteUpdate(BaseModel):
     address_verified: Optional[bool] = None
     location_source: Optional[str] = None
     map_link: Optional[str] = None
+    company_ids: Optional[List[str]] = None
 
 
 class CompanySitesIn(BaseModel):
@@ -2661,6 +2665,30 @@ def _link_site(db: Session, company_id: str, site_id: str, email: str) -> bool:
     return True
 
 
+def _set_site_companies(db: Session, site_id: str, company_ids: list, scope, email: str) -> None:
+    """Make `company_ids` the companies using a location (Neil, Oct 1 - picked
+    in the library form: All, or some). A company-scoped admin changes only
+    their own companies' links; links to companies outside their scope are
+    kept as they are. Unknown company ids are refused."""
+    wanted = list(dict.fromkeys(str(c).strip() for c in (company_ids or []) if str(c).strip()))
+    if wanted:
+        known = {e.id for e in db.query(HrEntity.id).filter(HrEntity.id.in_(wanted)).all()}
+        missing = [c for c in wanted if c not in known]
+        if missing:
+            raise HTTPException(404, "Company not found")
+    if scope is not None:
+        outside = [c for c in wanted if c not in scope]
+        if outside:
+            raise HTTPException(403, "Pick only your own companies - your People access is limited to specific companies")
+    current = set(_site_links(db, [site_id]).get(site_id, []))
+    changeable = current if scope is None else {c for c in current if c in scope}
+    for cid in changeable - set(wanted):
+        db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == cid,
+                                           HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
+    for cid in wanted:
+        _link_site(db, cid, site_id, email)
+
+
 def _assert_site_editable(db: Session, site_id: str, scope) -> None:
     """A library site is shared, so a company-scoped admin may only change or
     delete one that no company outside their scope uses."""
@@ -2668,7 +2696,7 @@ def _assert_site_editable(db: Session, site_id: str, scope) -> None:
         return
     used_by = set(_site_links(db, [site_id]).get(site_id, []))
     if used_by - set(scope):
-        raise HTTPException(403, "Another company uses this work site - ask an admin with access to every company")
+        raise HTTPException(403, "Another company uses this location - ask an admin with access to every company")
 
 
 @router.get("/work-sites")
@@ -2687,7 +2715,9 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
         raise HTTPException(400, "name is required")
     company = (body.company or "").strip()
     scope = hr_scope(user, db)
-    if scope is not None and company not in scope:
+    # A company-scoped admin's new location must belong to one of their
+    # companies - from a company's tab (`company`) or picked in the form.
+    if scope is not None and company not in scope and not (body.company_ids or []):
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     if company and not db.query(HrEntity).filter(HrEntity.id == company).first():
         raise HTTPException(404, "Company not found")
@@ -2709,15 +2739,18 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
     # global also").
     if company:
         _link_site(db, company, row.id, user["email"])
+    if body.company_ids is not None:
+        db.flush()
+        _set_site_companies(db, row.id, body.company_ids + ([company] if company else []), scope, user["email"])
     db.commit(); db.refresh(row)
-    return _serialize_site(row, [company] if company else [])
+    return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
 
 
 @router.patch("/work-sites/{site_id}")
 def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if not row:
-        raise HTTPException(404, "Work site not found")
+        raise HTTPException(404, "Location not found")
     _assert_site_editable(db, site_id, hr_scope(user, db))
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
@@ -2726,6 +2759,9 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     verified = fields.pop("address_verified", None)
     source = fields.pop("location_source", None)
     link = fields.pop("map_link", None)
+    company_ids = fields.pop("company_ids", None)
+    if company_ids is not None:
+        _set_site_companies(db, site_id, company_ids, hr_scope(user, db), user["email"])
     for key, value in fields.items():
         if value is None:
             continue
@@ -2764,9 +2800,13 @@ def resolve_work_site_link(body: MapLinkIn, user: dict = Depends(require_hr_writ
     if len(link) > 2000:
         raise HTTPException(400, "That link is too long to be a Google Maps link")
     try:
-        return resolve_link(link)
+        point = resolve_link(link)
     except MapLinkError as e:
         raise HTTPException(422, str(e))
+    # The location's address comes from the same link (Neil, Oct 1): read off
+    # the link, or looked up from the point, written the US way. "" = HR types it.
+    from site_address import address_for
+    return {**point, **address_for(point)}
 
 
 _FENCE_CHECK_DAYS = 30
@@ -3269,7 +3309,8 @@ def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
-    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+    return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
 # ── Pay-record link: the inline "Payroll wage" (PayrollRate, drives the timecard)
@@ -3293,8 +3334,42 @@ def sync_comp_from_rate(db: Session, email: str) -> None:
     emp.compensation = comp
 
 
+_OT_RULES = ("ca", "federal", "none")
+
+
+def default_overtime_rule(db: Session, emp: NexusEmployee) -> str:
+    """The overtime law that follows from the company's country, not typed per
+    person (Charmi, Sep 30): US -> California, IN -> none (India's weekend
+    policy is calculated separately), anywhere else -> federal."""
+    ent = (db.query(HrEntity).filter(HrEntity.id == emp.company).first()
+           if emp is not None and (emp.company or "").strip() else None)
+    country = ((ent.country if ent else "") or "US").strip().upper()
+    return {"US": "ca", "IN": "none"}.get(country, "federal")
+
+
+def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
+    """The timecard-only part of the pay record, as the Pay & Benefits screen
+    shows it: the OT rule in force, full-day hours and the exemption flag."""
+    row = (db.query(PayrollRate).filter(PayrollRate.employee_email == (emp.work_email or "").lower()).first()
+           if emp is not None and emp.work_email else None)
+    return {
+        "payType": (getattr(row, "pay_type", None) or "hourly") if row else "hourly",
+        "overtimeRule": (getattr(row, "overtime_rule", None) or default_overtime_rule(db, emp)) if row
+                        else default_overtime_rule(db, emp),
+        "defaultOvertimeRule": default_overtime_rule(db, emp),
+        "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
+        "timeTrackingExempt": bool(getattr(row, "time_tracking_exempt", 0) or 0) if row else False,
+        "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
+        "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
+        "isSet": row is not None,
+    }
+
+
 def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
-    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate."""
+    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate,
+    plus the timecard-only fields that live on the comp record since Sep 30
+    (overtimeRule, fullDayHours, timeTrackingExempt). Pay & Benefits is the
+    ONLY writer of PayrollRate from the UI."""
     if not emp or not emp.work_email:
         return
     comp = emp.compensation or {}
@@ -3302,7 +3377,8 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
     base = float(comp.get("base") or 0)
     row = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
     if not row:
-        row = PayrollRate(employee_email=emp.work_email.lower())
+        row = PayrollRate(employee_email=emp.work_email.lower(),
+                          overtime_rule=default_overtime_rule(db, emp))
         db.add(row)
     cur = comp.get("currency") or ""
     if cur in ("USD", "INR"):
@@ -3318,6 +3394,94 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
         # daily / fixed_fee have NO timecard pay model - zero the timecard pay so it
         # can't keep silently paying the previous (hourly/salary) model.
         row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", 0.0, 0.0
+    # Overtime rule: an explicit choice wins; '' / "company default" follows the
+    # company's country (never a per-person guess on the timecard).
+    rule = (comp.get("overtimeRule") or "").strip().lower()
+    row.overtime_rule = rule if rule in _OT_RULES else default_overtime_rule(db, emp)
+    if comp.get("fullDayHours") not in (None, ""):
+        try:
+            row.full_day_hours = max(1.0, float(comp.get("fullDayHours") or 8))
+        except (TypeError, ValueError):
+            pass
+    if "timeTrackingExempt" in comp:
+        row.time_tracking_exempt = 1 if comp.get("timeTrackingExempt") else 0
+
+
+def _rate_history_rows(db: Session, email: str) -> list:
+    return sorted(db.query(PayrollRateHistory).filter(PayrollRateHistory.employee_email == (email or "").lower()).all(),
+                  key=lambda r: ((r.effective_date or ""), (r.created_at or "")))
+
+
+def ensure_rate_history(db: Session, email: str, by: str = "") -> None:
+    """Lazy backfill: a person with a PayrollRate but no history yet gets one
+    row from the current rate with effective_date '' ("since always"), so the
+    days before their first dated change keep the rate they were paid at.
+    Call BEFORE overwriting PayrollRate with a new value."""
+    em = (email or "").lower()
+    if not em or _rate_history_rows(db, em):
+        return
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not rate:
+        return
+    db.add(PayrollRateHistory(id=str(uuid.uuid4()), employee_email=em, effective_date="",
+                              pay_type=rate.pay_type or "hourly", hourly_rate=float(rate.hourly_rate or 0),
+                              monthly_salary=float(rate.monthly_salary or 0), currency=rate.currency or "USD",
+                              overtime_rule=rate.overtime_rule or "ca", created_by=by,
+                              created_at=datetime.now(timezone.utc).isoformat()))
+    db.flush()
+
+
+def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by: str) -> None:
+    """One row per compensation save that changes the pay or its effective
+    date. Saving the same effective date twice corrects that row in place (a
+    typo fixed a minute later is not a second raise). Called AFTER
+    sync_rate_from_comp, so PayrollRate already holds the new values."""
+    if not emp or not emp.work_email:
+        return
+    em = emp.work_email.lower()
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not rate:
+        return
+    eff = (effective_date or "").strip()[:10]
+    vals = {"pay_type": rate.pay_type or "hourly", "hourly_rate": float(rate.hourly_rate or 0),
+            "monthly_salary": float(rate.monthly_salary or 0), "currency": rate.currency or "USD",
+            "overtime_rule": rate.overtime_rule or "ca"}
+    rows = _rate_history_rows(db, em)
+    same = next((r for r in rows if (r.effective_date or "") == eff), None)
+    if same is not None:
+        for k, v in vals.items():
+            setattr(same, k, v)
+        return
+    if rows:
+        last = rows[-1]
+        unchanged = all(getattr(last, k) == v for k, v in vals.items())
+        if unchanged:
+            return   # nothing about the pay changed - no new period
+    db.add(PayrollRateHistory(id=str(uuid.uuid4()), employee_email=em, effective_date=eff,
+                              created_by=by, created_at=datetime.now(timezone.utc).isoformat(), **vals))
+
+
+def rate_history_out(db: Session, emp: NexusEmployee) -> list:
+    """The History table on Pay & Benefits: newest first. With no rows yet,
+    the current PayrollRate is shown as the "since always" entry."""
+    if not emp or not emp.work_email:
+        return []
+    rows = _rate_history_rows(db, emp.work_email)
+    out = [{"id": r.id, "effectiveDate": r.effective_date or "", "payType": r.pay_type or "hourly",
+            "base": float(r.monthly_salary or 0) if (r.pay_type or "hourly") == "fixed" else float(r.hourly_rate or 0),
+            "payBasis": "salary" if (r.pay_type or "hourly") == "fixed" else "hourly",
+            "currency": r.currency or "USD", "overtimeRule": r.overtime_rule or "ca",
+            "changedBy": r.created_by or "", "changedAt": r.created_at or ""} for r in rows]
+    if not out:
+        rate = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
+        if rate and (float(rate.hourly_rate or 0) or float(rate.monthly_salary or 0)):
+            fixed = (rate.pay_type or "hourly") == "fixed"
+            out = [{"id": "", "effectiveDate": "", "payType": rate.pay_type or "hourly",
+                    "base": float(rate.monthly_salary or 0) if fixed else float(rate.hourly_rate or 0),
+                    "payBasis": "salary" if fixed else "hourly", "currency": rate.currency or "USD",
+                    "overtimeRule": rate.overtime_rule or "ca", "changedBy": rate.updated_by or "",
+                    "changedAt": rate.updated_at or ""}]
+    return list(reversed(out))
 
 
 @router.put("/employees/{eid}/compensation")
@@ -3327,6 +3491,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
+    effective = ""
     if body.compensation is not None:
         incoming = dict(body.compensation or {})
         current = dict(row.compensation or {})
@@ -3341,12 +3506,20 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
             })
         incoming["history"] = history
         row.compensation = incoming
+        effective = str(incoming.get("effectiveDate") or "")
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
-    sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
+    if body.compensation is not None:
+        # Pay priced per day: keep what was paid before this change (backfill),
+        # then record this change from its effective date.
+        ensure_rate_history(db, row.work_email, by=user["email"])
+        sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
+        db.flush()
+        append_rate_history(db, row, effective, by=user["email"])
     db.commit()
-    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+    return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
 # ---------------------------------------------------------------------------
@@ -3517,7 +3690,7 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     _assert_scope(emp, hr_scope(user, db))
     if body.remote is None and body.work_site_id is None and body.work_site_ids is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
-                                 "or leave them on-site to punch from any company work site.")
+                                 "or leave them on-site to punch from any company location.")
     if body.remote is not None:
         emp.work_remote = 1 if body.remote else 0
     if body.work_site_ids is not None or body.work_site_id is not None:
@@ -3525,7 +3698,7 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
                else ([body.work_site_id.strip()] if body.work_site_id.strip() else []))
         found = {s.id for s in db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all()} if ids else set()
         if any(i not in found for i in ids):
-            raise HTTPException(404, "Work site not found")
+            raise HTTPException(404, "Location not found")
         _set_allowed_sites(emp, ids)
     emp.geofence_set_by = user["email"]
     emp.geofence_set_at = datetime.now(timezone.utc).isoformat()

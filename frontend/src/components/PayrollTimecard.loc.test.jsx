@@ -16,7 +16,7 @@ describe('LocCell', () => {
     const { container } = render(<LocCell seg={{ geo: 'low_accuracy', workSite: 'Menifee', out: '' }} />);
     expect(container.textContent.trim()).toBe('Approx. Location');
     expect(container.textContent).not.toContain('Menifee');
-    expect(container.querySelector('[title]').getAttribute('title')).toContain('Nearest work site to that rough point: Menifee');
+    expect(container.querySelector('[title]').getAttribute('title')).toContain('Nearest location to that rough point: Menifee');
   });
 
   it('inside an allowed site shows that site', () => {

@@ -144,7 +144,18 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // department on/off settings - about 16 KB, less 5.5 KB for the retired Report
 // a Bug composer, so ~10 KB net. Dev measured 10144 KB in CI (6 KB under),
 // so it tipped at 10154 KB. Deliberate; every piece was asked for.
-const TOTAL_KB     = 10200;
+// Oct 2, 2026: 10200 -> 10320. Charmi's 09/30 call + the Shifts QA against
+// Teams (Visesh: "do recommended ... make it big clean and easier"): the
+// Schedule rebuilt with a side-panel editor, Day/Week/Month, Share dialog,
+// context menus and keyboard support; a Requests inbox with tabs; the Shifts
+// settings category; Workday shift requests; pay history priced per day and
+// the Time Clock settings section; Accounting figures through <Amount />.
+// Measured exactly 10200 KB locally after merging dev's Locations work, and
+// CI's clean install reads about 10 KB higher. +120 KB of headroom for the
+// batch; the old ShiftsPanel, ShiftSelfService and modal editors came out as
+// the new screens went in. No new dependency. Deliberate; every piece was
+// asked for (Visesh, 10/02).
+const TOTAL_KB     = 10320;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

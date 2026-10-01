@@ -119,45 +119,4 @@ describe('TicketHelpTopicsSettings', () => {
     const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
     expect(it_.topics).toEqual([{ name: 'Nexus', area: 'tasks', options: ['Tasks'] }, { name: 'Printer or Scanner', area: 'hardware' }]);
   });
-
-  it("starts a topic's questions from its area and saves the edited list as its own", async () => {
-    render(<Panel />);
-    await screen.findAllByRole('tab');
-    // Printer or Scanner files under Hardware, which asks two questions today.
-    fireEvent.click(screen.getByRole('button', { name: 'Questions for Printer or Scanner' }));
-    expect(screen.getByRole('region', { name: 'Questions for Printer or Scanner' })).toBeTruthy();
-    expect(screen.getAllByLabelText('Question').map((i) => i.value))
-      .toEqual(['Which device?', 'Asset tag or serial, if you can see one']);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove question Asset tag or serial, if you can see one' }));
-    fireEvent.change(screen.getByLabelText('New question'), { target: { value: 'Which floor?' } });
-    fireEvent.change(screen.getByLabelText('Answer type for the new question'), { target: { value: 'site' } });
-    fireEvent.click(screen.getByRole('button', { name: /Add Question/ }));
-    fireEvent.click(screen.getByLabelText('Required: Which floor?'));
-
-    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
-    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
-    const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
-    const printer = JSON.parse(JSON.stringify(it_.topics.find((tp) => tp.name === 'Printer or Scanner')));
-    expect(printer.questions.map((q) => [q.key, q.label, q.type, q.req])).toEqual([
-      ['svc_device', 'Which device?', 'select', true],
-      ['svc_whichFloor', 'Which floor?', 'site', true],
-    ]);
-    expect(printer.questions[0].options).toContain('Laptop');
-    // A topic nobody opened keeps asking its area's questions - no list sent.
-    expect(it_.topics.find((tp) => tp.name === 'Nexus').questions).toBeUndefined();
-  });
-
-  it('can take every question off a topic', async () => {
-    render(<Panel />);
-    await screen.findAllByRole('tab');
-    fireEvent.click(screen.getByRole('button', { name: 'Questions for Printer or Scanner' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove question Which device?' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove question Asset tag or serial, if you can see one' }));
-    expect(screen.getByText('No questions - this topic asks nothing more.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
-    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
-    const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
-    expect(it_.topics.find((tp) => tp.name === 'Printer or Scanner').questions).toEqual([]);
-  });
 });

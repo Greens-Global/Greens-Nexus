@@ -105,3 +105,39 @@ export function toDateInputValue(v) {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
+
+// ── Shifts (Oct 2026) - the one set of formatters the Shifts module uses ──
+// A shift keeps its times as 'HH:MM' wall-clock strings in its own zone, so
+// they are formatted as text, never through a Date (which would move them
+// into the viewer's zone).
+
+// 'HH:MM' -> "8:30 AM"; '' / unreadable -> fallback.
+export function formatHHMM(hhmm, fallback = '') {
+  const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return fallback;
+  const h = Number(m[1]), min = Number(m[2]);
+  if (h > 23 || min > 59) return fallback;
+  return `${h % 12 || 12}:${String(min).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+// Weekday name  ->  formatWeekday('2026-09-29') = "Tuesday", ('2026-09-29', 'short') = "Tue"
+export function formatWeekday(v, style = 'long', fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  const weekday = style === 'short' ? 'short' : style === 'narrow' ? 'narrow' : 'long';
+  return new Intl.DateTimeFormat('en-US', { weekday }).format(d);
+}
+
+// Month and year  ->  "September 2026"
+export function formatMonthYear(v, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
+}
+
+// Month and day - the cue a day header needs across a month boundary  ->  "Sep 29"
+export function formatMonthDay(v, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
+}
