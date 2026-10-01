@@ -1830,6 +1830,9 @@ def _run_migrations():
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
         "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
+        # Accounting > Reports > Flux Analysis explanation notes (Neil, 10/02).
+        # New table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_flux_notes ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2866,3 +2869,5 @@ from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
 from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
+from routers import accounting_flux  # noqa: E402
+app.include_router(accounting_flux.router)  # Accounting > Reports > Flux Analysis explanation notes (routers/accounting_flux.py)

@@ -73,6 +73,11 @@ export function InterestIncome() {
   }, [data]);
   const totals = MONTHS.map((_m, i) => rows.reduce((s, r) => s + r.months[i], 0));
   const grand = rows.reduce((s, r) => s + r.total, 0);
+  // When nothing matches, say what WOULD (Neil, 10/02: "nothing has been done
+  // on MRI ... for me to review" - on production the screen was empty with
+  // no word on why): how many income accounts had activity, and which titles
+  // this section reads.
+  const incomeAccounts = useMemo(() => new Set((data?.rows || []).filter((r) => ['revenue', 'other_income'].includes(r.section)).map((r) => r.account_no)).size, [data]);
   return (
     <div style={{ ...card, padding: 10, display: 'grid', gap: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -86,7 +91,14 @@ export function InterestIncome() {
       </div>
       {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
       {loading && !data ? <SkeletonBlocks count={3} /> : !rows.length ? (
-        <p style={{ margin: 0, padding: '18px 6px', fontSize: '0.86rem', color: 'var(--text-secondary)' }}>Nothing posted to an interest or loan income account in {year}.</p>
+        <div style={{ padding: '18px 6px', fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 720 }}>
+          <strong style={{ color: 'var(--text-primary)' }}>Nothing to show for {year} yet.</strong>
+          <span>
+            This section reads the ledger's income accounts whose title says <em>Interest</em>, <em>Loan</em>, <em>Note Receivable</em> or <em>Mortgage Income</em> (accrual book, every entity you may read).
+            {error ? ' The ledger could not be read - see above.' : incomeAccounts ? ` ${incomeAccounts.toLocaleString('en-US')} income ${incomeAccounts === 1 ? 'account has' : 'accounts have'} activity in ${year}, none with one of those words in its title.` : ` No income account has activity in ${year}.`}
+          </span>
+          <span>To set it up: post interest and loan receipts in Intacct to an income account named that way, or ask for the account to be added to this list. Loans themselves are kept under Accounting &gt; Data &gt; Loans (balances read from the ledger by GL account); leases live under Leasing beside this section.</span>
+        </div>
       ) : (
         <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1 }}>
           <table className="acct-report">

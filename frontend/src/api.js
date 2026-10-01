@@ -205,7 +205,8 @@ function _isRetryable(options) {
 // array of Intacct codes; an empty or missing key adds nothing.
 function dimsQuery(dims) {
   if (!dims) return "";
-  return ["locations", "departments", "vendor", "customer", "employee", "project", "item"]
+  // `journals` (Neil, 10/02): journal symbols, passed through on every report read.
+  return ["locations", "departments", "vendor", "customer", "employee", "project", "item", "journals"]
     .filter((k) => Array.isArray(dims[k]) && dims[k].length)
     .map((k) => `&${k}=${encodeURIComponent(dims[k].join(","))}`)
     .join("");
@@ -1791,6 +1792,13 @@ export const api = {
   shiftRequestSettingsGet: ()      => req('/timeclock/shift-requests/settings'),
   timeOffListRange:    (status = '', from = '', to = '', limit = 2000) =>
     req(`/timeclock/timeoff?status=${encodeURIComponent(status)}&from=${from}&to=${to}&limit=${limit}`),
+  // ── Accounting > Reports, batch of 10/02 (Charmi, Neil): the journal list
+  //    for the Journals filter ({available, journals}; available false = the
+  //    accounting app has no list yet), and the Flux Analysis explanation
+  //    notes kept per entity set, account and period ──
+  getAccountingJournals:   ()               => req('/accounting/journals'),
+  getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
+  saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

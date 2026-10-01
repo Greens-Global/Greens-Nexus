@@ -5098,3 +5098,14 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .pr-day-row.pr-band > td { background: color-mix(in srgb, var(--wk-hover) 60%, transparent); }
 .pr-day-row.pr-weekend > td { background: var(--mist); }
 @media (hover: hover) { .pr-day-row:hover > td { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); } }
+
+/* ── Accounting -> Reports, 10/02 (Charmi, Neil) ──────────────────────────
+   Flux Analysis: a line over the thresholds is tinted amber across the row
+   (the sticky Account cell too), and the Explanation cell is a button that
+   reads as text - muted while empty. Banding and the hover row (above)
+   apply to every report table, Trial Balance and General Ledger included. */
+.acct-report tbody tr.acct-flag td { background: color-mix(in srgb, #f59e0b 14%, var(--bg-card)); }
+.acct-report tbody tr.acct-flag:hover td { background: color-mix(in srgb, #f59e0b 24%, var(--bg-card)); }
+.acct-report .acct-note { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.acct-report .acct-note:hover { color: var(--wk-brand, #2b45e1); }
+.acct-report .acct-note-empty { color: var(--text-muted); font-style: italic; }
