@@ -1229,11 +1229,13 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
                                  "Check the times - a clock-out has to come after the clock-in it closes.")
 
 
-def _guard_review(db: Session, email: str, local_date: str, actor_email: str) -> None:
+def _guard_review(db: Session, email: str, local_date: str, actor_email: str, *,
+                  employee_request: bool = False) -> None:
     """Timesheet review (timesheet_review.py): one side edits at a time while a
-    timesheet is being reviewed, and nobody while it is out for signature."""
+    timesheet is being reviewed, and nobody while it is out for signature.
+    `employee_request`: deciding the employee's own punch fix - see guard_edit."""
     import timesheet_review
-    timesheet_review.guard_edit(db, email, local_date, actor_email)
+    timesheet_review.guard_edit(db, email, local_date, actor_email, employee_request=employee_request)
 
 
 # ── Punch exceptions (SwipeClock "missing punch" model) ──────────────────────
@@ -1255,14 +1257,44 @@ _EXCEPTION_LABELS = {
 _BLOCKING_EXCEPTIONS = ("missing_out", "out_without_in", "missing_break_end")
 
 
-def _period_exceptions(db: Session, email: str, start: str, end: str) -> list:
+def _with_pending_fixes(db: Session, email: str, punches: list, start: str, end: str) -> list:
+    """The punches as they will be once the employee's pending fixes are
+    approved: proposed times applied, requested removals gone, requested
+    additions in. Copies - nothing is written."""
+    from types import SimpleNamespace
+    cols = [c.key for c in TimePunch.__table__.columns]
+    out = []
+    for p in punches:
+        c = SimpleNamespace(**{k: getattr(p, k) for k in cols})
+        if c.edit_status == "pending" and c.pending_at:
+            c.at = c.pending_at[:19]
+            c.local_date = _local_date(c.at, c.tz_offset_min or 0)
+        out.append(c)
+    reqs = db.query(PunchRequest).filter(PunchRequest.employee_email == email,
+                                         PunchRequest.status == "pending").all()
+    gone = {r.target_punch_id for r in reqs if r.action == "remove"}
+    out = [c for c in out if c.id not in gone]
+    for r in reqs:
+        if r.action == "add" and r.at and (not start or r.local_date >= start) and (not end or r.local_date <= end):
+            blank = {k: None for k in cols}
+            blank.update(id=r.id, employee_email=email, kind=r.punch_kind or "in", at=r.at[:19],
+                         local_date=r.local_date, tz_offset_min=r.tz_offset_min or 0, voided=0)
+            out.append(SimpleNamespace(**blank))
+    return sorted(out, key=lambda c: c.at or "")
+
+
+def _period_exceptions(db: Session, email: str, start: str, end: str, with_pending: bool = False) -> list:
     """[{date, type, label, blocking}] for a period - the SwipeClock 'missing
     punch' exceptions, derived from the same paired-shift flags approve/finalize
     already compute. Only days within [start, end] are reported (the extra fetched
-    day just lends its out-punch to an overnight shift)."""
+    day just lends its out-punch to an overnight shift). `with_pending`: as if
+    the employee's pending punch fixes were approved (_with_pending_fixes) -
+    what the employee's own Submit is judged on (Oct 1)."""
     _end_nx = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else end
-    summ = _day_summaries(_live_punches(db, email, start, _end_nx), _round_min(db),
-                          break_cfg=_break_cfg_for(db, email))
+    punches = _live_punches(db, email, start, _end_nx)
+    if with_pending:
+        punches = _with_pending_fixes(db, email, punches, start, _end_nx)
+    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email))
     out = []
     for d in sorted(summ):
         if end and d > end:
@@ -1274,8 +1306,18 @@ def _period_exceptions(db: Session, email: str, start: str, end: str) -> list:
     return out
 
 
-def _blocking_exceptions(db: Session, email: str, start: str, end: str) -> list:
-    return [e for e in _period_exceptions(db, email, start, end) if e["blocking"]]
+def _blocking_exceptions(db: Session, email: str, start: str, end: str, with_pending: bool = False) -> list:
+    return [e for e in _period_exceptions(db, email, start, end, with_pending) if e["blocking"]]
+
+
+def _pending_fixes(db: Session, email: str, start: str, end: str) -> int:
+    """How many of the employee's punch fixes for [start, end] wait on an approver."""
+    reqs = (db.query(PunchRequest).filter(PunchRequest.employee_email == email, PunchRequest.status == "pending",
+                                          PunchRequest.local_date >= start, PunchRequest.local_date <= end).count())
+    edits = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                                        TimePunch.edit_status == "pending", TimePunch.local_date >= start,
+                                        TimePunch.local_date <= end).count())
+    return reqs + edits
 
 
 # What each blocking exception is, in words a person can act on (Sep 29: the
@@ -2595,7 +2637,7 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     visible = _visible_emails(db, user)
     if visible is not None and r.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
-    _guard_review(db, r.employee_email, r.local_date, user["email"])
+    _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
@@ -2740,7 +2782,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     if visible is not None and row.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
-    _guard_review(db, row.employee_email, row.local_date, user["email"])
+    _guard_review(db, row.employee_email, row.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
