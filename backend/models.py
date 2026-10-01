@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index
 from database import Base
 
 
@@ -2362,6 +2362,16 @@ class ScheduledShift(Base):
     activities_json = Column(String, default="")
     # This shift's own color (#rrggbb, Sep 29); '' = its preset's color.
     color           = Column(String, default="")
+    # The scheduling group (team) this placement belongs to (Oct 2, Shifts
+    # rebuild): open shifts, day notes, hours and "publish this team" key on
+    # it; '' = none. An OPEN shift always carries one.
+    group_id        = Column(String, default="", index=True)
+    # The IANA zone the wall-clock times above are in, stamped from the
+    # preset / team setting when placed (Oct 2); '' on older rows, which
+    # resolve preset -> team at read time (_sched_dict).
+    timezone        = Column(String, default="")
+    # The grid and the reminder scan read one person's days (Oct 2).
+    __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 
 
 class ShiftGroup(Base):

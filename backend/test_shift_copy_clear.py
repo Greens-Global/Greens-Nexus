@@ -171,7 +171,7 @@ class CopyClearTests(unittest.TestCase):
         self.assertEqual(b["09:00"].published, 0)
 
     def test_open_shifts_copy_when_included_and_are_never_doubled(self):
-        self._place("", MON, open_slots=2)
+        self._place("", MON, open_slots=2, group_id=GROUP)
         self.assertEqual(self._copy(include_open=False).json()["created"], 0)
         self.assertEqual(self._copy().json()["created"], 1)
         self.assertEqual(self._copy().json()["skipped"], 1)
@@ -181,7 +181,7 @@ class CopyClearTests(unittest.TestCase):
     def test_a_group_copy_takes_only_its_members(self):
         self._place(A, MON)
         self._place(B, MON)
-        self._place("", MON)
+        self._place("", MON, group_id=GROUP)
         self.assertEqual(self._copy(group_id=GROUP).json()["created"], 1)
         self.assertEqual(len(self._rows(employee_email=A, work_date=NEXT_MON)), 1)
         self.assertEqual(self._rows(employee_email=B, work_date=NEXT_MON), [])
@@ -216,7 +216,7 @@ class CopyClearTests(unittest.TestCase):
         self._place(A, MON)
         self._publish(MON, MON)
         self._place(A, WED)                 # a draft
-        self._place("", WED)                # an open draft
+        self._place("", WED, group_id=GROUP)   # an open draft
         r = self.client.post("/timeclock/schedule/clear", json={"start_date": MON, "end_date": SUN,
                                                                 "include_open": False})
         self.assertEqual(r.json(), {"removed": 1, "pending": 1})

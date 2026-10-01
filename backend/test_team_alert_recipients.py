@@ -126,10 +126,16 @@ class TeamAlertTests(unittest.TestCase):
         self.assertEqual(timeclock._timecard_action(self.db, PRANSHU, ""),
                          {"view": "hr", "sub": "hr-time", "timecard": PRANSHU})
 
-    def test_time_off_request_goes_to_manager_and_global_admins_only(self):
+    def test_time_off_request_goes_to_the_manager_owners_only_without_one(self):
+        """A NEW request is for whoever decides it: the manager (else the HR
+        contact); the Global Admins hear only when there is neither (Oct 2)."""
         timeclock.request_timeoff(
             timeclock.TimeOffIn(type="vacation", start_date="2026-10-01", end_date="2026-10-02"),
             user={"email": PRANSHU, "level": 1}, db=self.db)
+        self.assertEqual(self._recipients(), [VISESH])
+        timeclock.request_timeoff(
+            timeclock.TimeOffIn(type="vacation", start_date="2026-10-01", end_date="2026-10-02"),
+            user={"email": ORPHAN, "level": 1}, db=self.db)
         self.assertEqual(self._recipients(), sorted([VISESH, NEIL]))
 
     # ── Home screen "Time off to review" ─────────────────────────────────
