@@ -125,7 +125,7 @@ function SectionFallback() {
 // can never disagree about what a section is called.
 const GLOBAL_CATEGORIES = [
   { key: 'organization',   label: 'Organization',   Icon: Building2,
-    desc: 'Email signatures and the work sites employees punch in at.' },
+    desc: 'Email signatures and the locations employees punch in at.' },
   { key: 'notifications',  label: 'Notifications & Communications', Icon: Bell,
     desc: 'Where tickets go and who hears about them, how task emails are sent and batched, the daily briefing and weekly digest, when HR is reminded about expiring documents, and equipment reminders.' },
   { key: 'access',         label: 'Access',         Icon: Shield, adminOnly: true,
@@ -150,9 +150,9 @@ const GLOBAL_SECTIONS = [
   { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
     sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in My Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
-  { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Work Site Library',
-    sub: 'Every location employees can punch in at, with its geofence. Each company chooses its own sites from this list.',
-    keywords: 'geofence location address time clock punch map' },
+  { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Location Library',
+    sub: 'Every location employees can punch in at, with its geofence. Pick the companies that use each one right here, or from the Locations tab of each company.',
+    keywords: 'geofence location address time clock punch map work site' },
   { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
     keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with' },
@@ -1176,7 +1176,7 @@ export default function AdminConsole({ activeSub, onSubChange }) {
       {topTab === 'company' ? (
         <>
           <ScopeNote icon={Building2} title="Applies to one company at a time.">
-            Open a company to manage its profile, managers and HR contact, workforce analytics policy, departments, work sites and holiday calendar. Settings shared by every company are under Global Settings.
+            Open a company to manage its profile, managers and HR contact, workforce analytics policy, departments, locations and holiday calendar. Settings shared by every company are under Global Settings.
           </ScopeNote>
           <CompanySetupSection toastOk={toastOk} toastErr={toastErr} />
         </>

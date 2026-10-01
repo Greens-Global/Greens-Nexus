@@ -304,7 +304,7 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title={`Not inside any of your company's work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM >= 1000 ? `${(p.distanceM / 1000).toFixed(1)} km` : `${p.distanceM} m`} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM >= 1000 ? `${(p.distanceM / 1000).toFixed(1)} km` : `${p.distanceM} m`} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
       <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
@@ -324,7 +324,7 @@ function GeoChip({ p }) {
   // punch shows nothing (Neil, Jul 28 - an empty chip read as an error state).
   if (p.lat && p.lng) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
-      title="Location recorded. No geofenced work site to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
+      title="Location recorded. No geofenced location to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
       <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
     </span>);
   return null;

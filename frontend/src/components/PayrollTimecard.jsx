@@ -148,7 +148,7 @@ function periodStartFor(date) {
 // showing it as the location read as "she was at Menifee" when she was not.
 const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
 function outOfLocationHint(site, dist) {
-  return site ? `Not inside any company work site. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not inside any company work site.';
+  return site ? `Not inside any company location. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not inside any company location.';
 }
 // Clickable (Sep 30 - "still not able to click on locations"): the cell was
 // only ever a tooltip, so nothing happened on click. With `onOpen` every chip -
@@ -167,7 +167,7 @@ export function LocCell({ seg, onOpen }) {
   const outDiffers = !!seg.out && geoOut && (geoOut !== geo || (seg.workSiteOut || '') !== site);
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
-      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their work sites is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
+      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their locations is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
       <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
@@ -182,7 +182,7 @@ export function LocCell({ seg, onOpen }) {
     chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Out of Location</span>{outTail}</>;
   } else if (geo === 'no_site') {
     style = { ...style, color: 'var(--muted)' };
-    title = 'Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.';
+    title = 'Location was shared, but none of their locations is on the map yet. Map it under Settings - Companies - Locations.';
     chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">No Site Mapped</span>{outTail}</>;
   } else if (geo === 'low_accuracy') {
     // A rough location (no GPS - a desktop's IP/Wi-Fi fix, worse than ±500 m) is
@@ -190,7 +190,7 @@ export function LocCell({ seg, onOpen }) {
     // name here with a grey pin, which read as "she was at Menifee" when she was in
     // Temecula (Charmi, Sep 29). Say what it is; the nearest site is a hint only.
     style = { ...style, color: 'var(--muted)' };
-    title = `This punch came with only a rough location (no GPS on the device), too rough to tell which work site it was at.${site ? ` Nearest work site to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`;
+    title = `This punch came with only a rough location (no GPS on the device), too rough to tell which location it was at.${site ? ` Nearest location to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`;
     chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Approx. Location</span>{outTail}</>;
   } else if (!site) {
     if (!outTail) return <span style={{ color: 'var(--muted)' }}>-</span>;
@@ -797,7 +797,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg && !r.seg.in
+                    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
+                    ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                    : r.seg
                     ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                     : self && !fin
                       ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
@@ -1229,7 +1234,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // The location dot links to the Locations map (only for viewers who can
               // reach it: HR/managers on someone else's card, or an admin on their own).
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
-              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
+              // A clock-out with no clock-in (Oct 1) reads "Missing" on the in
+              // side, like a missing clock-out - it blocks sign-off, and this is
+              // where it gets fixed (add the in, or void the out).
+              const inCell = (seg) => !seg.in
+                ? ((self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                    : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                : <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
               const outCell = (seg) => seg.out
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
@@ -1551,7 +1562,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
   // Clicking the location dot opens the Geofence Punch view for this person and
   // period (SwipeClock-style map + punch table, Charmi Sep 25).
   const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
-  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No work site mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
+  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No location mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail
@@ -1707,6 +1718,15 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
       toastErr?.('Set the clock-out time - it has to be after the clock-in.'); return;
     }
+    // ...and a clock-in added in front of an existing clock-out comes first (Oct 1).
+    if (needIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
+      toastErr?.('Set the clock-in time - it has to be before the clock-out.'); return;
+    }
+    // Whichever side changed, the clock-out never ends up before the clock-in
+    // (Oct 1) - the server refuses it too (_guard_punch_order).
+    if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
+      toastErr?.('The clock-out has to be after the clock-in.'); return;
+    }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
@@ -1729,18 +1749,27 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     setBusy(true);
     try {
       // Edit existing in-punch, or add one
-      if (seg?.inId) {
-        if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
-        // Reassign location (work site) on the in-punch if it changed.
-        if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
-        // Job-costing category on the in-punch.
-        if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
-      } else {
-        await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
-      }
+      const saveIn = async () => {
+        if (seg?.inId) {
+          if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
+          // Reassign location (work site) on the in-punch if it changed.
+          if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
+          // Job-costing category on the in-punch.
+          if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
+        } else {
+          await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
+        }
+      };
       // Edit existing out-punch, or add one
-      if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
-      else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      const saveOut = async () => {
+        if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
+        else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      };
+      // Moving a whole shift later (9-5 -> 6-10 PM): saving the new in first
+      // would sit it after the old out for a moment, which the server refuses
+      // as a clock-out before a clock-in. Then the out goes first.
+      const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
+      if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
       toastOk?.('Timecard updated - original times stay on record.'); onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);
@@ -1782,7 +1811,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
             </label>
           )}
           {!self && seg?.inId && (
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Location (work site)
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Location
               <select className="form-input" value={siteId} onChange={e => setSiteId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
                 <option value="">- No location -</option>
                 {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}

@@ -2545,6 +2545,9 @@ class WorkSiteIn(BaseModel):
     # coordinates (map_link keeps what was pasted); "address" for a search pick.
     location_source: Optional[str] = ""
     map_link: Optional[str] = ""
+    # The companies that use this location (Neil, Oct 1: pick them right in
+    # the library - All, or some). None = leave the links alone.
+    company_ids: Optional[List[str]] = None
 
 
 class WorkSiteUpdate(BaseModel):
@@ -2557,6 +2560,7 @@ class WorkSiteUpdate(BaseModel):
     address_verified: Optional[bool] = None
     location_source: Optional[str] = None
     map_link: Optional[str] = None
+    company_ids: Optional[List[str]] = None
 
 
 class CompanySitesIn(BaseModel):
@@ -2661,6 +2665,30 @@ def _link_site(db: Session, company_id: str, site_id: str, email: str) -> bool:
     return True
 
 
+def _set_site_companies(db: Session, site_id: str, company_ids: list, scope, email: str) -> None:
+    """Make `company_ids` the companies using a location (Neil, Oct 1 - picked
+    in the library form: All, or some). A company-scoped admin changes only
+    their own companies' links; links to companies outside their scope are
+    kept as they are. Unknown company ids are refused."""
+    wanted = list(dict.fromkeys(str(c).strip() for c in (company_ids or []) if str(c).strip()))
+    if wanted:
+        known = {e.id for e in db.query(HrEntity.id).filter(HrEntity.id.in_(wanted)).all()}
+        missing = [c for c in wanted if c not in known]
+        if missing:
+            raise HTTPException(404, "Company not found")
+    if scope is not None:
+        outside = [c for c in wanted if c not in scope]
+        if outside:
+            raise HTTPException(403, "Pick only your own companies - your People access is limited to specific companies")
+    current = set(_site_links(db, [site_id]).get(site_id, []))
+    changeable = current if scope is None else {c for c in current if c in scope}
+    for cid in changeable - set(wanted):
+        db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == cid,
+                                           HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
+    for cid in wanted:
+        _link_site(db, cid, site_id, email)
+
+
 def _assert_site_editable(db: Session, site_id: str, scope) -> None:
     """A library site is shared, so a company-scoped admin may only change or
     delete one that no company outside their scope uses."""
@@ -2668,7 +2696,7 @@ def _assert_site_editable(db: Session, site_id: str, scope) -> None:
         return
     used_by = set(_site_links(db, [site_id]).get(site_id, []))
     if used_by - set(scope):
-        raise HTTPException(403, "Another company uses this work site - ask an admin with access to every company")
+        raise HTTPException(403, "Another company uses this location - ask an admin with access to every company")
 
 
 @router.get("/work-sites")
@@ -2687,7 +2715,9 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
         raise HTTPException(400, "name is required")
     company = (body.company or "").strip()
     scope = hr_scope(user, db)
-    if scope is not None and company not in scope:
+    # A company-scoped admin's new location must belong to one of their
+    # companies - from a company's tab (`company`) or picked in the form.
+    if scope is not None and company not in scope and not (body.company_ids or []):
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     if company and not db.query(HrEntity).filter(HrEntity.id == company).first():
         raise HTTPException(404, "Company not found")
@@ -2709,15 +2739,18 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
     # global also").
     if company:
         _link_site(db, company, row.id, user["email"])
+    if body.company_ids is not None:
+        db.flush()
+        _set_site_companies(db, row.id, body.company_ids + ([company] if company else []), scope, user["email"])
     db.commit(); db.refresh(row)
-    return _serialize_site(row, [company] if company else [])
+    return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
 
 
 @router.patch("/work-sites/{site_id}")
 def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if not row:
-        raise HTTPException(404, "Work site not found")
+        raise HTTPException(404, "Location not found")
     _assert_site_editable(db, site_id, hr_scope(user, db))
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
@@ -2726,6 +2759,9 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     verified = fields.pop("address_verified", None)
     source = fields.pop("location_source", None)
     link = fields.pop("map_link", None)
+    company_ids = fields.pop("company_ids", None)
+    if company_ids is not None:
+        _set_site_companies(db, site_id, company_ids, hr_scope(user, db), user["email"])
     for key, value in fields.items():
         if value is None:
             continue
@@ -2764,9 +2800,13 @@ def resolve_work_site_link(body: MapLinkIn, user: dict = Depends(require_hr_writ
     if len(link) > 2000:
         raise HTTPException(400, "That link is too long to be a Google Maps link")
     try:
-        return resolve_link(link)
+        point = resolve_link(link)
     except MapLinkError as e:
         raise HTTPException(422, str(e))
+    # The location's address comes from the same link (Neil, Oct 1): read off
+    # the link, or looked up from the point, written the US way. "" = HR types it.
+    from site_address import address_for
+    return {**point, **address_for(point)}
 
 
 _FENCE_CHECK_DAYS = 30
@@ -3650,7 +3690,7 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     _assert_scope(emp, hr_scope(user, db))
     if body.remote is None and body.work_site_id is None and body.work_site_ids is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
-                                 "or leave them on-site to punch from any company work site.")
+                                 "or leave them on-site to punch from any company location.")
     if body.remote is not None:
         emp.work_remote = 1 if body.remote else 0
     if body.work_site_ids is not None or body.work_site_id is not None:
@@ -3658,7 +3698,7 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
                else ([body.work_site_id.strip()] if body.work_site_id.strip() else []))
         found = {s.id for s in db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all()} if ids else set()
         if any(i not in found for i in ids):
-            raise HTTPException(404, "Work site not found")
+            raise HTTPException(404, "Location not found")
         _set_allowed_sites(emp, ids)
     emp.geofence_set_by = user["email"]
     emp.geofence_set_at = datetime.now(timezone.utc).isoformat()

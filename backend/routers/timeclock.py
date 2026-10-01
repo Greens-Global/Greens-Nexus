@@ -357,7 +357,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     on it or fail because of it)."""
     who = f"{emp.first_name} {emp.last_name}".strip() or emp.work_email
     verb = "punched in" if row.kind == "in" else "punched out"
-    site = geo.get("work_site_name") or "the nearest work site"
+    site = geo.get("work_site_name") or "the nearest location"
     dist = int(geo.get("distance_m") or 0)
     when = _fmt_local(row.at, row.tz_offset_min or 0)
     _hr_notify(db, emp.manager_email, "Out-of-fence punch",
@@ -372,7 +372,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
     maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
     html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
-            f"<p>Nearest work site: <b>{site}</b> - {dist:,} m away"
+            f"<p>Nearest location: <b>{site}</b> - {dist:,} m away"
             f"{' (GPS accuracy ±' + str(int(row.accuracy_m or 0)) + ' m)' if row.accuracy_m else ''}.</p>"
             + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
             + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
@@ -944,6 +944,8 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
     _guard_review(db, user["email"], _local_date(body.at, body.tz_offset_min or 0), user["email"])
+    _guard_punch_order(db, user["email"], kind=body.kind, at=body.at,
+                       local_date=_local_date(body.at, body.tz_offset_min or 0))
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=user["email"], kind=body.kind,
                     at=body.at[:19], local_date=_local_date(body.at, body.tz_offset_min or 0),
@@ -1177,6 +1179,54 @@ def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
 def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = ""):
     if _finalized_row(db, email, d_start, d_end):
         raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
+
+
+def _inverted_days(punches: list, days: set) -> set:
+    """Days (local_date) in `days` holding a clock-out that comes BEFORE a
+    clock-in of the same day with nothing open ahead of it - the out-before-in
+    a typo or a wrong edit makes. A lone clock-out with no clock-in that day is
+    a missing punch, not an inversion, so it is not counted here."""
+    out, open_in = set(), False
+    ordered = sorted(punches, key=lambda p: p.at or "")
+    for i, p in enumerate(ordered):
+        if p.kind == "in":
+            open_in = True
+        elif p.kind == "out":
+            if open_in:
+                open_in = False
+            elif p.local_date in days and any(
+                    q.kind == "in" and q.local_date == p.local_date for q in ordered[i + 1:]):
+                out.add(p.local_date)
+    return out
+
+
+def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_date: str,
+                       punch_id: str = "", extra: list = None) -> None:
+    """Refuse a change that would put a clock-out before its clock-in (Oct 1:
+    "Punch out time should not be before the punch in time"). Simulates the
+    day (and its neighbours, for overnight shifts) with the change applied and
+    compares with how it is now, so a day that is already wrong never blocks an
+    unrelated fix. `punch_id` = the punch being moved (edit), else a new punch;
+    `extra` = punches not yet real (an employee's pending add requests)."""
+    from types import SimpleNamespace
+    if kind not in ("in", "out") or not at or not local_date:
+        return
+    try:
+        d = date.fromisoformat(local_date[:10])
+    except ValueError:
+        return
+    days = {(d + timedelta(days=k)).isoformat() for k in (-1, 0, 1)}
+    cols = [c.key for c in TimePunch.__table__.columns]
+    now = [SimpleNamespace(**{c: getattr(p, c) for c in cols})
+           for p in _live_punches(db, email, min(days), max(days))]
+    now += list(extra or [])
+    after = [p for p in now if not (punch_id and p.id == punch_id)]
+    after.append(SimpleNamespace(id=punch_id or "new", kind=kind, at=at[:19], local_date=local_date[:10]))
+    new_bad = _inverted_days(after, days) - _inverted_days(now, days)
+    if new_bad:
+        when = datetime.strptime(min(new_bad), "%Y-%m-%d").strftime("%m/%d/%Y")
+        raise HTTPException(400, f"The clock-out can't be before the clock-in ({when}). "
+                                 "Check the times - a clock-out has to come after the clock-in it closes.")
 
 
 def _guard_review(db: Session, email: str, local_date: str, actor_email: str) -> None:
@@ -1676,6 +1726,8 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
         t = _parse_iso(body.at)
         if t is None:
             raise HTTPException(400, "at must be an ISO timestamp")
+        _guard_punch_order(db, row.employee_email, kind=row.kind, at=body.at, punch_id=row.id,
+                           local_date=_local_date(body.at[:19], row.tz_offset_min or 0))
         if not row.original_at:            # freeze the original exactly once
             row.original_at = row.at
         row.at = body.at[:19]
@@ -1690,7 +1742,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
         else:
             site = db.query(HrWorkSite).filter(HrWorkSite.id == wsid).first()
             if not site:
-                raise HTTPException(404, "Work site not found")
+                raise HTTPException(404, "Location not found")
             # A manager asserting the site counts as on-site (in_fence), distance 0.
             row.work_site_id, row.work_site_name = site.id, site.name or ""
             row.geo_status, row.distance_m = "in_fence", 0
@@ -1749,6 +1801,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                          _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, body.employee_email.strip().lower(),
                   _local_date(body.at, body.tz_offset_min or 0), user["email"])
+    _guard_punch_order(db, body.employee_email.strip().lower(), kind=body.kind, at=body.at,
+                       local_date=_local_date(body.at, body.tz_offset_min or 0))
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
                     kind=body.kind, at=body.at[:19],
@@ -1762,7 +1816,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     # learn who put it there.
     if row.employee_email != user["email"]:
         _hr_notify(db, row.employee_email, "Punch added to your timecard",
-                   f"A {row.kind.replace('_', ' ')} punch on {row.local_date} was added to your "
+                   f"A {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was added to your "
                    "timecard by a manager - open your timecard to review.",
                    ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
     _notify_timecard_change(
@@ -2394,6 +2448,16 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
             raise HTTPException(404, "That punch isn't yours or no longer exists.")
         local_date = tp.local_date
     _guard_review(db, email, local_date, email)
+    if action == "add":
+        # The employee's other pending add requests count as if real: asking
+        # for an in, then for its out, is how a missing pair gets requested.
+        from types import SimpleNamespace
+        pending = [SimpleNamespace(id=r.id, kind=r.punch_kind, at=(r.at or "")[:19], local_date=r.local_date)
+                   for r in db.query(PunchRequest).filter(PunchRequest.employee_email == email,
+                                                          PunchRequest.status == "pending",
+                                                          PunchRequest.action == "add").all()]
+        _guard_punch_order(db, email, kind=body.punch_kind or "in", at=at_utc, local_date=local_date,
+                           extra=pending)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
@@ -2646,6 +2710,8 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     _tz = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
     if _tz > datetime.now(timezone.utc) + timedelta(minutes=5):
         raise HTTPException(400, "You can't set a punch time in the future.")
+    _guard_punch_order(db, email, kind=row.kind, at=at, punch_id=row.id,
+                       local_date=_local_date(at[:19], row.tz_offset_min or 0))
     row.pending_at = at[:19]
     row.edit_reason = (body.reason or "").strip()[:300]
     row.edited_by, row.edited_at, row.edit_status = email, _now_iso(), "pending"
@@ -2687,6 +2753,8 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     now = _now_iso()
     note = (body.note or "").strip()
     if decision == "approved":
+        _guard_punch_order(db, row.employee_email, kind=row.kind, at=row.pending_at, punch_id=row.id,
+                           local_date=_local_date(row.pending_at[:19], row.tz_offset_min or 0))
         if not row.original_at:            # freeze the pre-edit value once
             row.original_at = row.at
         row.at = row.pending_at[:19]
@@ -7359,7 +7427,25 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
                 open_in = None
                 seg_breaks = []
-            # else: orphan out with no open in - ignored (its in was outside the range)
+            elif not end or (p.local_date or "") <= end:
+                # A clock-out with no open clock-in (Oct 1). The sign-off check
+                # (_day_summaries -> out_without_in) blocks Agree on it, and it
+                # used to be dropped here - so the card showed an empty day while
+                # Agree said "a clock-out with no clock-in", with nothing on
+                # screen to fix. It now shows on its day as "Missing -> out",
+                # counted, with the same flag. The fetched day after `end` only
+                # lends its out to an overnight shift, as before.
+                segs_by_day.setdefault(p.local_date, []).append(
+                    {"in": "", "out": p.at, "inR": "", "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "inId": "", "outId": p.id, "workedMin": 0, "flags": ["out_without_in"], "_break": 0,
+                     "breaks": [], "note": (p.note or "").strip(),
+                     "workSite": "", "workSiteId": "", "geo": "", "category": getattr(p, "category", "") or "",
+                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                     "distance": 0, "distanceOut": _dist_of(p.id),
+                     "inPendingAt": "", "inEditStatus": "", "inEditReason": "",
+                     "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
+                     "inAdjustNote": "", "outAdjustNote": (p.adjust_note or "")})
+                missing_punches += 1
         elif p.kind == "break_start":
             if open_break is None and open_in is not None:
                 open_break, open_break_at = t, p.at
