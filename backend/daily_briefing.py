@@ -969,11 +969,31 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
 _BUTTON_COLOR = {"approve": "#15803d", "reject": "#b91c1c", "open": "#166534"}
 
 
-def _button(label: str, url: str, kind: str) -> str:
-    color = _BUTTON_COLOR[kind]
-    style = ("display:inline-block;padding:5px 14px;border-radius:4px;font-size:12px;font-weight:600;"
-             f"text-decoration:none;margin:0 6px 4px 0;background:{color};color:#ffffff;border:1px solid {color}")
-    return f"<a href='{escape(url)}' class='nx-btn' style='{style}'>{escape(label)}</a>"
+def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str = "12px") -> str:
+    """One button, as a table CELL holding the link - put it in _button_bar.
+
+    Outlook desktop draws mail with Word, which ignores padding, border-radius
+    and inline-block on a link: the old <a>-only button came out as a thin
+    outline with the color only behind the words (Oct 1, Outlook Classic vs
+    Outlook web). A cell's bgcolor and padding (mso-padding-alt) are what Word
+    does honor, so the button is the cell; everywhere else the link's own
+    padding makes the whole button clickable."""
+    color = _BUTTON_COLOR.get(kind, kind)
+    link = (f"display:inline-block;padding:{pad};font-size:{size};font-weight:600;line-height:1.3;"
+            "color:#ffffff;text-decoration:none;border-radius:4px;white-space:nowrap")
+    return (f"<td class='nx-btn' bgcolor='{color}' style='background:{color};border-radius:4px;mso-padding-alt:{pad}'>"
+            f"<a href='{escape(url)}' style='{link}'>{escape(label)}</a></td>")
+
+
+def _button_bar(cells: list, align: str = "left") -> str:
+    """Buttons side by side, 6px apart, in one table row (Outlook desktop has
+    no inline-block to line them up with)."""
+    gap = "<td width='6' style='width:6px;font-size:0;line-height:0'>&nbsp;</td>"
+    cells = [c for c in cells if c]
+    if not cells:
+        return ""
+    return (f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' align='{align}' "
+            f"style='border-collapse:separate'><tr>{gap.join(cells)}</tr></table>")
 
 
 def _links(pairs: list) -> str:
@@ -990,15 +1010,15 @@ def _decision_buttons(kind: str, action_id: str, email: str) -> str:
     # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
     # message; each link opens a one-tap confirm page
     # (routers/briefing_actions.py) that only acts on its own POST.
-    return (_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve") +
-            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject"))
+    return [_button("Approve", briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve"),
+            _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject")]
 
 
 def _row_actions_html(row: dict) -> str:
     parts = []
     if row.get("action_kind"):
         parts.append(f"<div style='margin-top:8px'>"
-                     f"{_decision_buttons(row['action_kind'], row['action_id'], row['action_email'])}</div>")
+                     f"{_button_bar(_decision_buttons(row['action_kind'], row['action_id'], row['action_email']))}</div>")
     links = []
     if row.get("task_id"):
         # Same Comment / React / status / complete forms the task notification
@@ -1011,18 +1031,18 @@ def _row_actions_html(row: dict) -> str:
             links += [("Change Status", f"{base}&do=status"), ("Mark Complete", f"{base}&do=complete")]
     if links:
         parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
-    buttons = ""
+    buttons = []
     if row.get("task_extend") and row.get("task_id"):
         # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" - the
         # same signed one-tap page as the links above, do=extend
         # (routers/mail_actions.py), which applies the app's own due-date rule.
         tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
-        buttons += _button("Extend Due Date",
-                           f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}&do=extend", "approve")
+        buttons.append(_button("Extend Due Date",
+                               f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}&do=extend", "approve"))
     if row.get("url"):
-        buttons += _button("Open in Nexus", row["url"], "open")
+        buttons.append(_button("Open in Nexus", row["url"], "open"))
     if buttons:
-        parts.append(f"<div style='margin-top:8px'>{buttons}</div>")
+        parts.append(f"<div style='margin-top:8px'>{_button_bar(buttons)}</div>")
     return "".join(parts)
 
 
@@ -1037,7 +1057,7 @@ def _sub_actions_html(row: dict, tone: tuple) -> str:
         f"<td align='right' style='padding:6px 0 2px;border-top:1px solid {tone[2]};white-space:nowrap'>"
         # A copy for someone else (the Weekly Digest's test mode) carries the
         # dates without the act-as-them buttons.
-        f"{_decision_buttons(s['action_kind'], s['action_id'], s['action_email']) if s.get('action_kind') else ''}</td></tr>"
+        f"{_button_bar(_decision_buttons(s['action_kind'], s['action_id'], s['action_email']), 'right') if s.get('action_kind') else ''}</td></tr>"
         for s in subs)
     return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
 
@@ -1135,17 +1155,20 @@ def _section_html(key: str, rows: list, expanded: bool = False) -> str:
     # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
     # The content's own inline style is display:block, so a client that
     # ignores the CSS (Outlook desktop) shows the section expanded - never
-    # stuck hidden. mso-hide:all stops Outlook drawing the checkbox as "[ ]"
-    # (Sep 22).
+    # stuck hidden. Outlook desktop still drew the checkbox - "[ ]", or "[X]"
+    # on the Weekly Digest's open sections - despite mso-hide:all (Oct 1), and
+    # it cannot collapse anyway, so the checkbox and the arrow sit inside
+    # <!--[if !mso]> comments: every other client gets them, Outlook desktop
+    # never sees them.
     return f"""
     <tr><td class="nx-pad" style="padding:26px 32px 0">
-      <input type="checkbox" id="{sid}" class="nx-acc"{" checked" if expanded else ""} style="display:none;mso-hide:all">
+      <!--[if !mso]><!--><input type="checkbox" id="{sid}" class="nx-acc"{" checked" if expanded else ""} style="display:none;mso-hide:all"><!--<![endif]-->
       <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer">
         <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:2px solid {accent}">
           <tr>
             <td style="padding:0 0 8px;font-size:16px;font-weight:600;color:{_INK}">{escape(heading)}
               <span style="font-weight:400;color:{_MUTED}">({len(rows)})</span></td>
-            <td align="right" style="padding:0 0 8px;font-size:12px;color:{_MUTED}"><span class="nx-arrow" style="display:inline-block">&#9656;</span></td>
+            <td align="right" style="padding:0 0 8px;font-size:12px;color:{_MUTED}"><!--[if !mso]><!--><span class="nx-arrow" style="display:inline-block">&#9656;</span><!--<![endif]--></td>
           </tr>
         </table>
       </label>
@@ -1234,7 +1257,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        <a href="{escape(app_url())}{escape(cta_path)}" class="nx-btn" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{_BRAND};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">{escape(cta_label)}</a>
+        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", _BRAND, pad="10px 22px", size="13px")])}
         <div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>
       </td>
     </tr>

@@ -275,6 +275,25 @@ class ContentTests(_Case):
         self.assertIn("/tasks/mine", html)
         self.assertNotIn("Open My Briefing", html)
 
+    def test_outlook_desktop_gets_no_checkbox_or_arrow_and_real_buttons(self):
+        """Oct 1: Outlook Classic (the Word engine) drew the open section's
+        collapse checkbox as "[X]", showed the arrow, and turned each button
+        into an outline with color only behind the words - unlike Outlook web."""
+        import re
+        self._emp(AMY)
+        self._task("Old task", "2026-09-20")
+        self._config(defaultSendTime="07:00")
+        self._scan()
+        html = self.sent[0]["html"]
+        # Every checkbox and arrow sits inside a block Outlook desktop skips.
+        hidden = "".join(re.findall(r"<!--\[if !mso\]><!-->(.*?)<!--<!\[endif\]-->", html, re.S))
+        self.assertEqual(html.count('type="checkbox"'), hidden.count('type="checkbox"'))
+        self.assertEqual(html.count("&#9656;"), hidden.count("&#9656;"))
+        self.assertGreater(hidden.count('type="checkbox"'), 0)
+        # Buttons are colored cells (bgcolor + mso-padding-alt), not a bare link.
+        self.assertRegex(html, r"<td class='nx-btn' bgcolor='#[0-9a-f]{6}'[^>]*mso-padding-alt[^>]*><a [^>]*>Extend Due Date</a></td>")
+        self.assertRegex(html, r"<td class='nx-btn'[^>]*><a [^>]*>Open in Nexus</a></td>")
+
 
 class StillToDoTests(_Case):
     """Sep 29 (Sagar): the Daily Briefing's "Action Required" items ride along
