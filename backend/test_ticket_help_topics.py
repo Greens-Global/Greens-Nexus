@@ -74,6 +74,134 @@ class HelpTopicsAndOrderTests(unittest.TestCase):
         # Plumbing is no longer a curated topic - it reads as a typed answer.
         self.assertEqual(ticket_taxonomy.topic_area(self.db, "Plumbing or Water Leak"), "")
 
+    # ── Sub-options (Neil, Oct 1 2026) ────────────────────────────────────
+    def _it_topics(self):
+        groups = ticket_taxonomy.get_config(self.db)["helpTopics"]
+        return {tp["name"]: tp for tp in next(g for g in groups if "it" in g["departments"])["topics"]}
+
+    def test_default_topics_use_end_user_names_and_carry_sub_options(self):
+        it = self._it_topics()
+        self.assertIn("Outlook", it["Microsoft (Outlook, Teams, OneDrive)"]["options"])
+        self.assertIn("Accounts Payable", it["Sage Intacct"]["options"])
+        self.assertIn("Tasks", it["Nexus"]["options"])
+        self.assertIn("Cameras", it)
+        self.assertIn("Gate Access", it)
+        self.assertNotIn("Cameras or Gate Access", it)
+        self.assertNotIn("options", it["Egnyte"])   # sub-options are optional
+
+    def test_sub_options_are_saved_trimmed_and_deduped(self):
+        ticket_taxonomy.save_config(self.db, {"helpTopics": [
+            {"label": "IT", "departments": ["it"], "topics": [
+                {"name": "Microsoft", "area": "email", "options": [" Outlook ", "outlook", "", "Teams"]},
+                {"name": "Egnyte", "area": "files", "options": []}]},
+        ]}, MANAGER["email"])
+        it = self._it_topics()
+        self.assertEqual(it["Microsoft"]["options"], ["Outlook", "Teams"])
+        self.assertNotIn("options", it["Egnyte"])
+
+    def test_too_many_or_too_long_sub_options_are_refused(self):
+        for options in (["x" * 51], [f"o{n}" for n in range(ticket_taxonomy.OPTIONS_MAX + 1)], "Outlook"):
+            with self.assertRaises(ticket_taxonomy.TaxonomyError):
+                ticket_taxonomy.save_config(self.db, {"helpTopics": [
+                    {"departments": ["it"], "topics": [{"name": "Microsoft", "area": "email", "options": options}]}]},
+                    MANAGER["email"])
+
+    # ── a topic's extra questions (Oct 1) ───────────────────────────────────
+    def _save_questions(self, questions):
+        ticket_taxonomy.save_config(self.db, {"helpTopics": [
+            {"label": "IT", "departments": ["it"], "topics": [
+                {"name": "Cameras", "area": "security", "questions": questions},
+                {"name": "Egnyte", "area": "files"}]},
+        ]}, MANAGER["email"])
+        return self._it_topics()
+
+    def test_topic_questions_are_saved_cleaned_with_keys(self):
+        it = self._save_questions([
+            {"key": "svc_facility", "label": " Which facility? ", "type": "site", "req": True, "types": ["incident"]},
+            {"label": "Which camera?", "type": "select", "options": ["Front Gate", " front gate ", "Office"]},
+            {"label": "", "type": "text"},
+        ])
+        qs = it["Cameras"]["questions"]
+        self.assertEqual([q["label"] for q in qs], ["Which facility?", "Which camera?"])
+        self.assertEqual(qs[0], {"key": "svc_facility", "label": "Which facility?", "type": "site", "req": True, "types": ["incident"]})
+        self.assertEqual(qs[1]["key"], "svc_whichCamera")
+        self.assertEqual(qs[1]["options"], ["Front Gate", "Office"])
+        self.assertFalse(qs[1]["req"])
+        # A topic nobody edited carries no list - it keeps asking its area's.
+        self.assertNotIn("questions", it["Egnyte"])
+
+    def test_an_empty_question_list_is_kept_meaning_ask_nothing(self):
+        self.assertEqual(self._save_questions([])["Cameras"]["questions"], [])
+
+    def test_keys_never_collide_or_take_the_which_one_key(self):
+        qs = self._save_questions([
+            {"key": "svc_helpSubtopic", "label": "Door", "type": "text"},
+            {"key": "svc_x", "label": "One", "type": "text"},
+            {"key": "svc_x", "label": "Two", "type": "text"},
+            {"key": "not a key", "label": "Three", "type": "text"},
+        ])["Cameras"]["questions"]
+        keys = [q["key"] for q in qs]
+        self.assertEqual(len(set(keys)), 4)
+        self.assertNotIn("svc_helpSubtopic", keys)
+        self.assertTrue(all(k.startswith("svc_") for k in keys))
+
+    def test_bad_questions_are_refused(self):
+        for questions in (
+            "Which door?",
+            [{"label": "Which door?", "type": "person"}],
+            [{"label": "Which door?", "type": "select", "options": []}],
+            [{"label": "x" * 121, "type": "text"}],
+            [{"label": f"Q{n}", "type": "text"} for n in range(ticket_taxonomy.QUESTIONS_MAX + 1)],
+        ):
+            with self.assertRaises(ticket_taxonomy.TaxonomyError):
+                self._save_questions(questions)
+
+    def test_the_activity_feed_reads_a_question_by_its_label(self):
+        self._save_questions([{"key": "svc_whichDoor", "label": "Which door?", "type": "text"}])
+        self.assertEqual(ticket_taxonomy.question_label(self.db, "svc_whichDoor"), "Which door?")
+        self.assertEqual(ticket_taxonomy.question_label(self.db, "svc_nope"), "")
+
+    def _save_v1(self, groups):
+        """A config saved before sub-options existed (no helpTopicsVersion)."""
+        import json
+        self.db.add(models.NexusSetting(key="ticket_taxonomy_config", value=json.dumps({"helpTopics": groups})))
+        self.db.commit()
+
+    def test_a_v1_saved_list_is_upgraded_without_clobbering_admin_choices(self):
+        self._save_v1([
+            {"label": "IT Support", "departments": ["it"], "topics": [
+                {"name": "Printer or Scanner", "area": "hardware"},
+                {"name": "Microsoft 365 (Outlook, Teams, OneDrive)", "area": "email"},
+                {"name": "Badge Printer", "area": "hardware"},
+                {"name": "Cameras or Gate Access", "area": "security"},
+                {"name": "Sage Intacct", "area": "finance"}]},
+            {"label": "HR", "departments": ["hr"], "topics": [{"name": "Payroll", "area": "hr"}]},
+        ])
+        groups = ticket_taxonomy.get_config(self.db)["helpTopics"]
+        it = [tp["name"] for tp in groups[0]["topics"]]
+        # Admin's order and custom topic kept; the two Neil changes applied;
+        # the topic added in v2 appended at the end.
+        self.assertEqual(it, ["Printer or Scanner", "Microsoft (Outlook, Teams, OneDrive)", "Badge Printer",
+                              "Cameras", "Gate Access", "Sage Intacct", "Access to a Nexus Module"])
+        topics = {tp["name"]: tp for tp in groups[0]["topics"]}
+        self.assertIn("Teams", topics["Microsoft (Outlook, Teams, OneDrive)"]["options"])
+        self.assertIn("General Ledger", topics["Sage Intacct"]["options"])
+        self.assertNotIn("options", topics["Badge Printer"])
+        self.assertEqual(groups[1], {"label": "HR", "departments": ["hr"], "topics": [{"name": "Payroll", "area": "hr"}]})
+
+    def test_a_saved_v2_list_is_never_upgraded_again(self):
+        """Once saved with sub-options, an admin who removed a topic's options
+        or the new topic keeps that choice."""
+        ticket_taxonomy.save_config(self.db, {"helpTopics": [
+            {"label": "IT", "departments": ["it"], "topics": [{"name": "Sage Intacct", "area": "finance"}]}]},
+            MANAGER["email"])
+        self.assertEqual(list(self._it_topics()), ["Sage Intacct"])
+        self.assertNotIn("options", self._it_topics()["Sage Intacct"])
+
+    def test_tickets_under_a_renamed_topic_keep_their_area(self):
+        self.assertEqual(ticket_taxonomy.topic_area(self.db, "Cameras or Gate Access"), "security")
+        self.assertEqual(ticket_taxonomy.topic_area(self.db, "Microsoft 365 (Outlook, Teams, OneDrive)"), "email")
+
     def test_a_topic_over_fifty_characters_is_refused(self):
         with self.assertRaises(ticket_taxonomy.TaxonomyError):
             ticket_taxonomy.save_config(self.db, {"helpTopics": [

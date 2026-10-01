@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
 // Routing & Escalation: a list of desks on the left (each saying where its
 // tickets go), one desk at a time on the right, and Save only once something
@@ -9,8 +9,17 @@ vi.mock('../api', () => ({
   api: {
     getTicketNotifySettings: vi.fn(() => Promise.resolve({ agentEmails: [], agentEmailsByCompany: { acme: ['a@x.com'] } })),
     getTicketCompanies: vi.fn(() => Promise.resolve([{ id: 'acme', name: 'Acme' }, { id: 'beta', name: 'Beta' }])),
-    getTicketDepartments: vi.fn(() => Promise.resolve([{ id: 'd1', name: 'Finance', companyId: 'beta', leadEmail: '' }])),
+    getTicketDepartments: vi.fn(() => Promise.resolve([
+      { id: 'd1', name: 'Finance', companyId: 'beta', leadEmail: '', enabled: true },
+      { id: 'd2', name: 'Construction', companyId: 'beta', leadEmail: '', enabled: true },
+      // Deleted from the company's global list - only there to name old tickets.
+      { id: 'd3', name: 'Old Dept', companyId: 'beta', leadEmail: '', enabled: true, removed: true },
+    ])),
     updateTicketNotifySettings: vi.fn((b) => Promise.resolve(b)),
+    setTicketDepartmentEnabled: vi.fn((id, enabled) => Promise.resolve([
+      { id: 'd1', name: 'Finance', companyId: 'beta', leadEmail: '', enabled: true },
+      { id: 'd2', name: 'Construction', companyId: 'beta', leadEmail: '', enabled },
+    ])),
   },
 }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myLevel: 4 }) }));
@@ -22,6 +31,7 @@ vi.mock('../tasks/components', () => ({
   PersonSelect: () => <span>Head picker</span>,
 }));
 
+const { api } = await import('../api');
 const TicketDeskSettings = (await import('./TicketDeskSettings')).default;
 
 afterEach(() => { cleanup(); });
@@ -49,5 +59,34 @@ describe('TicketDeskSettings', () => {
     fireEvent.click(screen.getByText('Agents: 0'));
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
     expect(save).toBeEnabled();
+  });
+
+  // Oct 1 2026 (Neil): departments come from the company's global list - no
+  // add/rename/delete here, just an on/off switch for Submit a Ticket.
+  it('shows the global departments with an on/off switch and no add, rename or delete', async () => {
+    render(<TicketDeskSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: /Beta/ }));
+    expect(screen.getByText('Construction')).toBeInTheDocument();
+    expect(screen.queryByText('Old Dept')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Add a department/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Rename|Delete/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Company Settings/ }).length).toBeGreaterThan(0);
+
+    const sw = screen.getByRole('switch', { name: 'Offer Construction on Submit a Ticket' });
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(sw);
+    expect(api.setTicketDepartmentEnabled).toHaveBeenCalledWith('d2', false);
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Offer Construction on Submit a Ticket' }))
+      .toHaveAttribute('aria-checked', 'false'));
+  });
+
+  it('links to Company Settings, where departments are managed', async () => {
+    const seen = vi.fn();
+    window.addEventListener('nexus:navigate', seen);
+    render(<TicketDeskSettings />);
+    fireEvent.click(await screen.findByRole('button', { name: /Beta/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /Company Settings/ })[0]);
+    expect(seen.mock.calls[0][0].detail).toEqual({ view: 'admin-console', sub: 'company' });
+    window.removeEventListener('nexus:navigate', seen);
   });
 });

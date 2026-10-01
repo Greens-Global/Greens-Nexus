@@ -12,7 +12,7 @@ import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import LiveView from '../components/LiveView';
-import { filesFromPaste, richBodyHtml } from '../tasks/lib';
+import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
@@ -35,9 +35,13 @@ import {
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
-  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
+  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFieldApplies, withDynamicOptions,
+  topicFields, topicQuestionDefs, allTopicQuestionDefs, labelFromKey,
   OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
+  intakeFieldsFor, intakeDefaults, defaultIntakeType, richToPlain,
 } from './ticketMeta';
+// The help topic's optional "Which one?" level (Neil, Oct 1 2026).
+import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
@@ -49,6 +53,8 @@ import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
+import { LatestCommentPreview, latestCommentText } from './LatestComment';
+import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -73,7 +79,10 @@ const TICKET_VIEW_TABS = [
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
-  { key: 'title', label: 'Title', width: 260, sort: (t) => (t.subject || '').toLowerCase() },
+  // minWidth: a floor even under a width someone dragged - the title is what
+  // the row IS, and it must never be squeezed to nothing to make room for
+  // another column (Neil, Oct 1).
+  { key: 'title', label: 'Title', width: 260, minWidth: 200, sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
@@ -84,6 +93,9 @@ const TICKET_COLUMNS = [
   { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
   { key: 'assignee', label: 'Assigned To', width: 150, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
+  // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
+  // enough by default for a name and a line of the preview; sorts by when.
+  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, sort: (t) => t.latestComment?.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── What do you need help with? ──────────────────────────────────────────────
@@ -118,6 +130,19 @@ function areaForTopic(topic) {
   return topicArea(name) || 'general';
 }
 
+// Is this department offered on Submit a Ticket? Off in Settings > Ticket
+// Manager (Neil, Oct 1: "I don't want a construction ticket"), or deleted from
+// the company's global list - both still name the tickets already filed.
+const offeredAtIntake = (d) => d.enabled !== false && !d.removed;
+
+// typeFields with the help topic's "Which one?" answer set ('' removes it).
+function withHelpSubtopic(typeFields, sub) {
+  const next = { ...(typeFields || {}) };
+  if (sub) next[HELP_SUBTOPIC_KEY] = sub;
+  else delete next[HELP_SUBTOPIC_KEY];
+  return next;
+}
+
 // Is `value` one of this department's listed topics? (case-insensitive)
 function listedTopic(group, value) {
   const v = (value || '').trim().toLowerCase();
@@ -128,9 +153,31 @@ function listedTopic(group, value) {
 // answer it requires - max TOPIC_MAX_LEN characters, a name for the thing
 // rather than a second description (Neil: "it cannot be like a huge long
 // sentence... max 50 characters").
-function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false }) {
+//
+// `subValue` / `onSubChange` (optional, Oct 1 2026): when the picked topic has
+// sub-options, a second "Which one?" dropdown appears under it (Microsoft ->
+// Outlook). Never required. Picking a different topic clears it. Without
+// onSubChange the field behaves exactly as before.
+function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false, subValue = '', onSubChange = null }) {
   const group = helpGroupFor(deptName);
   const listed = listedTopic(group, value);
+  const subOptions = listed ? topicOptions(listed.name, group) : [];
+  const subPicker = onSubChange && subOptions.length > 0 ? (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, margin: '2px 0 5px' }}>
+        {HELP_SUBTOPIC_LABEL} <span style={{ fontWeight: 400, color: NX.faint }}>(optional)</span>
+      </div>
+      <TicketSelect value={subOptions.includes(subValue) ? subValue : ''} disabled={disabled}
+        placeholder="Pick one, if it fits" searchPlaceholder="Search…"
+        options={[['', 'Not Sure'], ...subOptions.map((o) => [o, o])]}
+        onChange={(v) => onSubChange(v)} />
+    </div>
+  ) : null;
+  // A new topic has its own list - the old "which one" belonged to the other.
+  const changeTopic = (v) => {
+    if (onSubChange && (v || '').trim().toLowerCase() !== (value || '').trim().toLowerCase() && subValue) onSubChange('');
+    onChange(v);
+  };
   // "Other" picked but nothing typed yet is a real state the value alone
   // cannot express ("" also means "nothing picked").
   const [otherPicked, setOtherPicked] = useState(!!(value && !listed));
@@ -140,7 +187,7 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
   const textInput = (
     <div style={{ position: 'relative' }}>
       <input value={listed ? '' : (value || '')} maxLength={TOPIC_MAX_LEN} disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => changeTopic(e.target.value)}
         placeholder={group ? 'Tell us what it is, in a few words' : 'e.g. Front gate keypad, Outlook, Payroll report'}
         style={{ ...inputStyle, paddingRight: 52, ...(invalid ? { borderColor: NX.red } : null) }} />
       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: NX.faint, pointerEvents: 'none' }}>
@@ -156,11 +203,12 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
         placeholder="Select one" searchPlaceholder="Search…"
         options={[['', 'Select one'], ...group.topics.map((tp) => [tp.name, tp.name]), [OTHER_TOPIC, 'Other']]}
         onChange={(v) => {
-          if (v === OTHER_TOPIC) { setOtherPicked(true); onChange(''); return; }
+          if (v === OTHER_TOPIC) { setOtherPicked(true); changeTopic(''); return; }
           setOtherPicked(false);
-          onChange(v);
+          changeTopic(v);
         }} />
       {showText && textInput}
+      {subPicker}
     </div>
   );
 }
@@ -205,15 +253,16 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description'];
+  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
-    t.application || '', serviceAreaLabel(t.serviceArea) || '',
+    helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
-    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', t.description || '',
+    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
+    latestCommentText(t.latestComment, nameOf),
   ]);
   const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -509,6 +558,10 @@ export default function TicketsView() {
   const [view, setView] = useState('list');   // 'list' | 'board' | 'reports'
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
+  // Which drawer tab to land on - the Latest Comment cell opens straight onto
+  // the Conversation (Neil, Oct 1).
+  const [openTab, setOpenTab] = useState(null);
+  const openTicket = (id, tab = null) => { setOpenTab(tab); setOpenId(id); };
   const [selected, setSelected] = useState(() => new Set());
 
   // A screen recording that ended while the user was on ANOTHER view navigates
@@ -661,7 +714,7 @@ export default function TicketsView() {
       if (q) {
         // Application is searchable too - "egnyte" is how someone looks for the
         // ticket they raised, and it is rarely the word they put in the title.
-        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${t.application || ''} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
+        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${helpWithLabel(t)} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -735,7 +788,10 @@ export default function TicketsView() {
   // Resolving needs a written resolution now (Neil, Sep 30), so every quick
   // path into Resolved/Closed - the row's status cell, a board drag, the bulk
   // bar - opens the Resolve dialog instead of saving straight away.
-  const [resolveReq, setResolveReq] = useState(null);   // { ids, status }
+  const [resolveReq, setResolveReq] = useState(null);   // { ids, status, mode? }
+  // The row's Mark Resolved: `mode` is 'self_resolve' for the requester (an
+  // optional "What fixed it?") or 'resolve' for the desk (a written resolution).
+  const requestResolve = (tk, mode = 'resolve') => setResolveReq({ ids: [tk.id], status: 'resolved', mode });
   const guardedUpdate = (id, patch) => {
     const tk = tickets.find((x) => x.id === id);
     if (patch?.status && needsResolution(tk, patch.status)) {
@@ -882,7 +938,9 @@ export default function TicketsView() {
                 scope on the way in - otherwise a card reading 4 opens a list of
                 1 because "My Requests" was still selected, and the number looks
                 broken. */}
-            {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
+            {/* The Open status color (ticketMeta's TICKET_STATUS_META) - not
+                blue, which no status uses any more (Neil, Oct 1). */}
+            {tile('Open', TICKET_STATUS_META.open.tint, TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
             {/* Red once there's actually a backlog - purple read as "just an
@@ -899,7 +957,7 @@ export default function TicketsView() {
             {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); },
               statusFilter === 'resolved')}
-            {tile('Closed', 'rgba(100,116,139,0.16)', '#475569', closedCount, 'done and filed',
+            {tile('Closed', TICKET_STATUS_META.closed.tint, TICKET_STATUS_META.closed.color, closedCount, 'done and filed',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'closed' ? 'all' : 'closed'); },
               statusFilter === 'closed')}
           </div>
@@ -926,7 +984,8 @@ export default function TicketsView() {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -946,7 +1005,8 @@ export default function TicketsView() {
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -988,7 +1048,8 @@ export default function TicketsView() {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -1010,7 +1071,8 @@ export default function TicketsView() {
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -1066,9 +1128,9 @@ export default function TicketsView() {
       )}
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
-      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
+      {openId && <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} onClose={() => { setOpenId(null); setOpenTab(null); }} />}
       {resolveReq && (
-        <TicketActionDialog mode="resolve" targetStatus={resolveReq.status}
+        <TicketActionDialog mode={resolveReq.mode || 'resolve'} targetStatus={resolveReq.status}
           ticket={resolveReq.ids.length === 1 ? tickets.find((x) => x.id === resolveReq.ids[0]) : null}
           onSubmit={async (p) => {
             // Bulk: one resolution for all of them, each still refused
@@ -1230,11 +1292,12 @@ function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryCo
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, checked, onToggle, cols, band = false }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false }) {
   const isMobile = useIsMobile();
-  // Resting background: selection wins, then the zebra band (same NX.zebra /
-  // NX.hover pair the task list rows use). Selected tint matches the task
-  // list's row-select highlight exactly, rather than a plain surface swap.
+  const [assigning, setAssigning] = useState(false);
+  // Resting background: selection wins, then the zebra band. Hover is the
+  // .nx-row-hover class (style.css) - the Accounting ledger's whole-row
+  // highlight, layered over both (Neil, Oct 1).
   const rowBg = checked ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
   // Every cell shares this base (minHeight/padding/border) - the same cellPad
   // contract the task rich-list rows use, so the two grids read identically.
@@ -1260,6 +1323,17 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   const rowRequesterLocked = rowIsRequester && !rowPrivileged && t.status !== 'open';
   const rowLocked = t.status === 'in_progress' && !!t.assigneeId;
   const canWorking = rowPrivileged || (!rowRequesterLocked && (rowLocked ? rowIsAssignee : true));
+  // Mark Resolved from the row (Neil, Oct 1): the person who raised it may
+  // resolve their own still-active ticket whatever its state ("a colleague
+  // helped me" - optional comment, no write-up); anyone who can work it gets
+  // the desk's Resolve dialog. Mirrors _requester_self_resolve server-side.
+  const rowRequesterOnly = rowIsRequester && !rowPrivileged && !rowIsAssignee;
+  const canResolveRow = !!onResolve && !CLOSED_STATES.includes(t.status) && (rowRequesterOnly || canWorking);
+  const resolveRow = (e) => { e.stopPropagation(); onResolve(t, rowRequesterOnly ? 'self_resolve' : 'resolve'); };
+  // Assigning is the desk's (the drawer hides Assign To from a requester on an
+  // Open ticket) and waits for any approval - the same gates as the drawer.
+  const canAssignRow = isMobile && !!people && canWorking && !rowRequesterOnly
+    && t.approvalStatus !== 'pending' && !CLOSED_STATES.includes(t.status);
 
   // Phones: two stacked lines instead of eight columns. Subject leads; the chips
   // and the assignee wrap underneath. Requester, the separate SLA date column and
@@ -1267,7 +1341,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   // and bulk edit is a desktop job.
   if (isMobile) {
     return (
-      <div onClick={onOpen} style={{
+      <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
         borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
@@ -1283,6 +1357,12 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
+          {canResolveRow && (
+            <button type="button" onClick={resolveRow} title="Mark Resolved" aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}
+              style={{ ...btn('outline'), flexShrink: 0, padding: '5px 8px', fontSize: 12, gap: 4, color: NX.green, minHeight: 32 }}>
+              <CheckCircle2 size={14} /> Resolve
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <TicketStatusChip status={t.status} />
@@ -1295,13 +1375,38 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
               <staleM.Icon size={11} />
             </span>
           )}
-          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-            {t.assigneeId
-              ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
-                  <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
-              : <UnassignedAvatar size={20} />}
-          </span>
+          {/* Tap to assign right from the card (Neil, Oct 1: assigning "is
+              not working for me on mobile") - a bottom sheet, saved at once
+              like the desktop list's inline Status/Priority. Only for someone
+              who could assign it in the drawer. */}
+          {canAssignRow ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); setAssigning(true); }}
+              aria-label={t.assigneeId ? `Assigned to ${nameOf(t.assigneeId) || t.assigneeId} - change` : 'Assign this ticket'}
+              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, minHeight: 32, padding: '3px 8px 3px 4px',
+                border: `1px solid ${NX.border}`, borderRadius: 999, background: NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+              {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} card={false} /> : <UnassignedAvatar size={22} />}
+              <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.blue, fontWeight: t.assigneeId ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                {t.assigneeId ? nameOf(t.assigneeId) || t.assigneeId : 'Assign'}
+              </span>
+              <ChevronDown size={13} style={{ color: NX.faint, flexShrink: 0 }} />
+            </button>
+          ) : (
+            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              {t.assigneeId
+                ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
+                    <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
+                : <UnassignedAvatar size={20} />}
+            </span>
+          )}
         </div>
+        {t.latestComment && (
+          <LatestCommentPreview compact comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+        )}
+        {assigning && (
+          <TicketAssignSheet value={t.assigneeId || ''} people={people}
+            onPick={(email) => { updateTicket(t.id, { assigneeId: email || '' }).catch((err) => alert(`Could not assign: ${err.message || err}`)); }}
+            onClose={() => setAssigning(false)} />
+        )}
       </div>
     );
   }
@@ -1398,20 +1503,33 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
     ),
+    latestComment: (
+      <div style={{ ...cell, overflow: 'hidden', padding: '0 10px' }}>
+        <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+      </div>
+    ),
+    // The resolved gutter doubles as the row's Mark Resolved action: a faint
+    // outline check on a ticket still in flight (solid green once on hover),
+    // the filled green check once it is resolved.
     resolved: (
-      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none' }}>
-        {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />}
+      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none', padding: 0 }}>
+        {t.resolvedAt
+          ? <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
+          : canResolveRow && (
+            <button type="button" className="nx-row-resolve" onClick={resolveRow} title="Mark Resolved"
+              aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}>
+              <CheckCircle2 size={16} />
+            </button>
+          )}
       </div>
     ),
   };
 
   return (
-    <div onClick={onOpen} style={{
+    <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
       display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch',
       borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
-    }}
-      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = rowBg; }}>
+    }}>
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
@@ -1456,7 +1574,10 @@ async function uploadTicketFile(ticketId, f) {
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange }) {
+// `compact` (the Create a Ticket form, Oct 1): a slimmer pair that sits in a
+// row directly under the description editor instead of a featured red button
+// at the foot of the form - same actions, same recording flow.
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -1511,29 +1632,32 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               likely getting reflexively dismissed. That's the "come back"
               cue this button promises. */}
           <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
-            style={{
+            style={compact ? {
+              ...btn('outline'), fontSize: 12.5, fontWeight: 600, color: NX.red,
+              borderColor: 'rgba(220,38,38,0.45)', display: 'inline-flex', alignItems: 'center', gap: 6,
+            } : {
               ...btn('primary'), background: NX.red, borderColor: NX.red,
               padding: '11px 18px', fontSize: 14, fontWeight: 700, borderRadius: 10,
               boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
               display: 'inline-flex', alignItems: 'center', gap: 8,
             }}>
-            {recording ? <Spinner size="inline" /> : <CircleDot size={17} />}
-            {recording ? 'Recording…' : 'Record screen'}
+            {recording ? <Spinner size="inline" /> : <CircleDot size={compact ? 14 : 17} />}
+            {recording ? 'Recording…' : 'Record Screen'}
           </button>
           <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
             <button type="button" role="menuitem" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Video size={14} /> Screen recording
+              <Video size={14} /> Screen Recording
             </button>
             <button type="button" role="menuitem" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Mic size={14} /> Screen + narration
+              <Mic size={14} /> Screen + Narration
             </button>
           </AnchoredMenu>
         </div>
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
-        style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <UploadIcon size={13} /> Upload
+        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <UploadIcon size={13} /> {compact ? 'Upload Attachment' : 'Upload'}
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
@@ -1554,6 +1678,10 @@ function PendingFileChip({ file, onRemove }) {
   );
 }
 
+// Does a (possibly rich) description say anything? An editor that was opened
+// and left empty saves "<p></p>"; a screenshot on its own still counts.
+const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
+
 // ── Create ───────────────────────────────────────────────────────────────────
 export function CreateTicketModal({ onClose }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
@@ -1561,6 +1689,12 @@ export function CreateTicketModal({ onClose }) {
   // overrides are loaded before the type-dependent form renders there too.
   useTicketConfig();
   const { createTicket, projects = [], myEmail } = useTasks();
+  const { myEmail: roleEmail } = useRole();
+  // Who "me" is - the Requester field's default. The store's copy first, the
+  // signed-in identity as the fallback for a form mounted outside the Tasks
+  // view (Support), before the store has loaded.
+  const me = (myEmail || roleEmail || '').toLowerCase();
+  // The curated Nexus People list (/myhr/directory) - never M365/GAL.
   const people = usePeople();
   const isMobile = useIsMobile();
   const [companies, setCompanies] = useState([]);
@@ -1584,33 +1718,47 @@ export function CreateTicketModal({ onClose }) {
   const seedRef = useRef(undefined);
   if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
   const seed = seedRef.current;
+  // Opens on Incident (Neil, Oct 1 2026: "nine times out of ten it is simply
+  // an incident") - preselected, still changeable. See defaultIntakeType.
+  const initialType = useRef(defaultIntakeType()).current;
   const [form, setForm] = useState(seed?.form || {
-    // Opens on the first type offered, read from the order rather than named
-    // here, so the two can never drift into a default that isn't in the list.
-    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'open',
-    requesterId: myEmail || null, companyId: '', hrDepartmentId: '', application: '',
+    subject: '', description: '', type: initialType, priority: 'medium', status: 'open',
+    // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
+    requesterId: (myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
   });
-  const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
+  // Per-type field values (keyed by field key), pre-answered where the
+  // question has a sensible default - Who is affected? = One User, When did
+  // it start? = now.
+  const [tf, setTf] = useState(() => seed?.tf || intakeDefaults(initialType));
   const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
-  // intakeFields, not TYPE_FIELDS: retired fields stay in the definitions so
-  // tickets that already captured one still render it, but nobody is asked
-  // for them again.
-  const typeFieldDefs = useMemo(() => intakeFields(form.type), [form.type]);
+  // The admin's saved type order arrives after mount (useTicketConfig). If it
+  // took Incident out of intake, move off it - but only while the person has
+  // not picked a type themselves.
+  const typeTouched = useRef(!!seed?.form);
+  const typeOrderKey = TICKET_TYPE_ORDER.join(',');
+  useEffect(() => {
+    if (typeTouched.current || TICKET_TYPE_ORDER.includes(form.type)) return;
+    const next = defaultIntakeType();
+    setForm((f) => ({ ...f, type: next }));
+    setTf((prev) => ({ ...Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_'))), ...intakeDefaults(next) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeOrderKey]);
   // The work-site list the Which site? / Which facility? questions use.
   const sites = useTicketSites();
   // Derived, not asked. The server derives it again on save from the same
   // topic list - this copy only lets the form ask the follow-up questions that
   // area needs, so the requester is never made to classify their own problem.
   const serviceArea = useMemo(() => areaForTopic(form.application), [form.application]);
-  // Driven by BOTH the topic's service area and the ticket type: "which
-  // facility?" is the right question for a camera that has stopped working and
-  // noise on a request to reword a report. See SERVICE_FIELDS' `types`.
+  // The picked topic's own questions (admin-edited in Help Topics, Oct 1), or
+  // its area's when nobody has edited them - each asked only on the ticket
+  // types it names: "which facility?" is the right question for a camera that
+  // has stopped working and noise on a request to reword a report.
   const svcFieldDefs = useMemo(
-    () => withDynamicOptions(serviceFields(serviceArea, form.type), { sites }),
-    [serviceArea, form.type, sites]);
+    () => withDynamicOptions(topicFields(form.application, serviceArea, form.type), { sites }),
+    [form.application, serviceArea, form.type, sites]);
   // Company field on intake (Sep 19, Pranshu: "End user don't have the
   // ability to choose company... admin have the control to turn on/off the
   // company field"). Off (the default): no picker, departments come
@@ -1628,11 +1776,31 @@ export function CreateTicketModal({ onClose }) {
   }, [COMPANY_FIELD.enabled, enabledCompanies.length && enabledCompanies[0]?.id]);
   // Departments narrow to whichever company is in play: the requester's own
   // (the field is off, or on with nothing picked yet) or the one they chose.
-  const deptOptions = COMPANY_FIELD.enabled
+  const deptOptions = (COMPANY_FIELD.enabled
     ? allDepts.filter((d) => d.companyId === form.companyId)
-    : allDepts;
+    : allDepts).filter(offeredAtIntake);
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
+  // intakeFieldsFor, not TYPE_FIELDS: retired fields stay in the definitions
+  // so tickets that already captured one still render it, but nobody is asked
+  // for them again; radios are asked as dropdowns; and the error-message
+  // question only appears once the department is IT (Neil, Oct 1).
+  const typeFieldDefs = useMemo(() => intakeFieldsFor(form.type, deptName), [form.type, deptName]);
+  // Requester picker: me first, then everyone else on the People list.
+  const requester = form.requesterId || me;
+  const requesterOptions = useMemo(() => {
+    const nameFor = (email) => people.find((p) => p.email === email)?.name || email;
+    const others = people.filter((p) => p.email !== me && !p.external)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }))
+      .map((p) => ({ id: p.email, label: p.name, desc: p.email }));
+    const mine = me ? [{ id: me, label: `${nameFor(me)} (Me)`, desc: me }] : [];
+    // Someone picked who is not in the loaded list (a recording draft from a
+    // session where the list differed) still shows as themselves.
+    const known = new Set([me, ...others.map((o) => o.id)]);
+    const extra = requester && !known.has(requester) ? [{ id: requester, label: requester, desc: '' }] : [];
+    return [...mine, ...extra, ...others];
+  }, [people, me, requester]);
+  const onBehalf = !!requester && !!me && requester !== me;
 
   // ── Validation ──
   // One step now (Neil, Sep 30: "consolidate step one and step 2... there's
@@ -1685,6 +1853,17 @@ export function CreateTicketModal({ onClose }) {
     const list = Array.from(e.target.files || []); e.target.value = '';
     if (list.length) setAttachments((prev) => [...prev, ...list]);
   };
+  const addFile = (f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); };
+  // Ctrl+V of a screenshot anywhere in the form. Inside the description the
+  // editor has already embedded it in place (and marked the event handled);
+  // anywhere else - the title, a dropdown - it is attached instead.
+  const onFormPaste = (e) => {
+    if (e.defaultPrevented) return;
+    const files = filesFromPaste(e);
+    if (!files.length) return;
+    e.preventDefault();
+    files.forEach(addFile);
+  };
   // ABC scanner → OCR the photo server-side and append the text to the Title.
   const onScan = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -1712,11 +1891,32 @@ export function CreateTicketModal({ onClose }) {
       for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
         if (!isBlankFieldValue(tf[f.key])) typeFields[f.key] = tf[f.key];
       }
+      // Rich description (Oct 1). A picture pasted into it is held inline (a
+      // data: URL) while typing, exactly like Create a Task; before saving it
+      // goes to ticket storage and the description points at the stored copy,
+      // so the ticket, its activity snapshot and its emails never carry a
+      // megabyte of base64. Each one is also filed under Attachments once the
+      // ticket exists. A failed upload keeps the inline copy - never worse.
+      const inlineImages = [];
+      // A screenshot alone is a description too - isEmptyDoc only sees text.
+      const description = (isEmptyDoc(form.description) && !/<img\b/i.test(form.description || '')) ? ''
+        : await externalizeInlineImages(form.description, async (f) => {
+          const url = await uploadTicketEvidence(f, 'image');
+          inlineImages.push({ name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: 'image', url });
+          return { url };
+        });
+      // The topic's "Which one?" - only while it is still one of the picked
+      // topic's own sub-options (a company or department change can leave a
+      // stale one behind).
+      if (topicOptions(form.application, helpGroupFor(deptName)).includes(tf[HELP_SUBTOPIC_KEY])) {
+        typeFields[HELP_SUBTOPIC_KEY] = tf[HELP_SUBTOPIC_KEY];
+      }
       const created = await createTicket({
-        subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
-        // Requester defaults to the current user; SLA due date is derived from
-        // priority; the service area is derived server-side from the topic.
-        requesterId: form.requesterId || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
+        subject: form.subject.trim(), description, type: form.type, priority: form.priority, status: form.status,
+        // Requester = who it is for (defaults to me; the server checks anyone
+        // else against the People list and records me as the creator). SLA due
+        // date is derived from priority; the service area from the topic.
+        requesterId: requester || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
         application: form.application.trim(),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
@@ -1725,6 +1925,9 @@ export function CreateTicketModal({ onClose }) {
       // failure here must not lose the ticket that was just created - the
       // ticket still saves, and any failed file gets one combined warning
       // (not one alert per file) rather than being silently dropped.
+      if (created?.id && inlineImages.length) {
+        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(() => {})));
+      }
       if (created?.id && attachments.length) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
@@ -1832,7 +2035,7 @@ export function CreateTicketModal({ onClose }) {
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Ticket'}</button>
       </>
     ),
-    children: (<>
+    children: (<div onPaste={onFormPaste} style={{ display: 'contents' }}>
       <div style={field}>
         <label style={label}>Title {req}</label>
         <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue? e.g. Light out in the front office"
@@ -1840,17 +2043,47 @@ export function CreateTicketModal({ onClose }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
         {err('subject') && <div style={requiredHint}>Required</div>}
       </div>
+
+      {/* Requester (Neil, Oct 1 2026) - replaces the "Email & Microsoft 365"
+          section, which was really asking who this is for. You by default;
+          anyone on the People list otherwise. They get the updates, see it as
+          theirs, and confirm or reopen it; you stay on it as a watcher. */}
+      <div style={field}>
+        <label style={label}>Requester</label>
+        <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
+          options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
+          emptyText="No one matches." style={sel} />
+        {sub(onBehalf
+          ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
+          : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+      </div>
+
+      {/* Rich description (Neil, Oct 1): the Task module's own editor, with
+          Record Screen / Upload Attachment directly beneath it rather than at
+          the foot of the form. */}
       <div style={field}>
         <label style={label}>Description</label>
-        <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3}
-          placeholder="A few words on what is happening" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+        <RichDescription value={form.description} onChange={(html) => set('description', html)} minHeight={isMobile ? 90 : 110}
+          placeholder="What is happening? What were you doing, and what did you expect?" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <RecordUploadButtons compact showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+            onFile={addFile} onRecordingChange={onRecChange} />
+          <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+        </div>
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {attachments.map((f, i) => (
+              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Self-service before a ticket (Neil, Sep 26): guide articles that
           match what is being typed. Advisory only - it never blocks Create
           Ticket, and shows nothing when nothing is a confident match.
           "This Solved My Problem" closes the form without creating one. */}
-      <TicketDeflection subject={form.subject} description={form.description} onSolved={onClose} />
+      <TicketDeflection subject={form.subject} description={richToPlain(form.description)} onSolved={onClose} />
 
       {/* Company picker (Sep 19, Pranshu) - hidden by default; appears only
           once an admin has turned it on AND picked 2+ companies to offer
@@ -1893,15 +2126,15 @@ export function CreateTicketModal({ onClose }) {
           <label style={label}>What Do You Need Help With? {req}</label>
           <HelpTopicField key={form.hrDepartmentId || 'none'} deptName={deptName} value={form.application}
             invalid={err('application')}
+            subValue={tf[HELP_SUBTOPIC_KEY] || ''} onSubChange={(v) => setTfVal(HELP_SUBTOPIC_KEY, v)}
             onChange={(name) => {
               set('application', name);
-              // Only when the AREA changes: swapping one maintenance topic for
-              // another asks the same questions, and throwing away the site
-              // they already picked would be gratuitous.
-              if (areaForTopic(name) !== serviceArea) {
-                setTf((prev) => Object.fromEntries(
-                  Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
-              }
+              // Keep only the answers the new topic also asks: swapping one
+              // maintenance topic for another asks the same "Which site?", and
+              // throwing away the site already picked would be gratuitous.
+              const asks = new Set(topicQuestionDefs(name, areaForTopic(name)).map((f) => f.key));
+              setTf((prev) => Object.fromEntries(
+                Object.entries(prev).filter(([k]) => !k.startsWith('svc_') || asks.has(k))));
             }} />
           {err('application') && <div style={requiredHint}>Required</div>}
           {sub(helpGroupFor(deptName) ? 'Pick the closest match, or Other to type it.' : 'Name it in a few words.')}
@@ -1918,8 +2151,11 @@ export function CreateTicketModal({ onClose }) {
             // SERVICE_FIELDS' `types`) - one that no longer applies is simply
             // not rendered and never submitted, because both the form and the
             // save walk the current definitions.
-            setTf((prev) => Object.fromEntries(
-              Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
+            typeTouched.current = true;
+            setTf((prev) => {
+              const kept = Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_')));
+              return { ...kept, ...intakeDefaults(v, kept) };
+            });
           }} />
           {/* The definition of whichever type is picked - the same one each
               option carries in the open list. */}
@@ -1962,7 +2198,7 @@ export function CreateTicketModal({ onClose }) {
       {svcFieldDefs.length > 0 && (
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginBottom: 10 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10 }}>
-            {serviceAreaLabel(serviceArea)} Details
+            A Few More Details
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             {svcFieldDefs.map((f) => (
@@ -1977,28 +2213,7 @@ export function CreateTicketModal({ onClose }) {
         </div>
       )}
 
-      <div style={field}>
-        <label style={label}>Attachments</label>
-        {/* Framed as a benefit to the requester (faster triage), not an
-            instruction. Only shown when recording is actually offered for this
-            ticket type (NO_RECORDING_TYPES hides the Record button itself). */}
-        {!NO_RECORDING_TYPES.includes(form.type) && (
-          <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 8, lineHeight: 1.4 }}>
-            A photo or a quick screen recording shows us exactly what's happening - usually faster than typing it out.
-          </div>
-        )}
-        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
-          onRecordingChange={onRecChange} />
-        {attachments.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {attachments.map((f, i) => (
-              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
-            ))}
-          </div>
-        )}
-      </div>
-    </>),
+    </div>),
   });
 }
 
@@ -2011,6 +2226,10 @@ export function CreateTicketModal({ onClose }) {
 //   confirm - the requester rates how it was handled, 1-5 stars ("you need to
 //             give them stars... comments are optional"). Stars required.
 //   reopen  - the requester says why it is not fixed.
+//   self_resolve - the requester marks their own ticket Resolved while it is
+//             still Open or being worked (Neil, Oct 1: "a colleague helped
+//             me"). "What fixed it?" is optional and goes out as a public
+//             reply; the server records the resolution as theirs.
 // A dialog rather than window.prompt so the rating can be stars and the note
 // can be more than one line. `onSubmit(patch)` does the save and returns a
 // promise; the caller decides how (the TasksContext store, or Support's api).
@@ -2023,15 +2242,19 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
-  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1 : !reason.trim();
+  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1
+    : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
-    : mode === 'confirm' ? 'Confirm Resolution' : 'Reopen Ticket';
+    : mode === 'self_resolve' ? 'Mark Resolved'
+    : mode === 'confirm' ? 'How Satisfied Are You?' : 'Reopen Ticket';
   const go = async () => {
     if (busy) return;
     if (invalid) { setShowErr(true); return; }
     setBusy(true);
     const patch = mode === 'resolve'
       ? { status: targetStatus, resolution, resolutionNote: note.trim() }
+      : mode === 'self_resolve'
+        ? { status: 'resolved', ...(comment.trim() ? { comment: textToHtml(comment) } : {}) }
       : mode === 'confirm'
         ? { status: 'closed', csatRating: rating, csatComment: comment.trim() }
         : { status: 'reopened', reopen_reason: reason.trim() };
@@ -2043,8 +2266,8 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       <>
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy}>
-          {busy ? 'Saving…' : mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
-            : mode === 'confirm' ? 'Confirm' : 'Reopen'}
+          {busy ? 'Saving…' : (mode === 'resolve' || mode === 'self_resolve') ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
+            : mode === 'confirm' ? 'Submit and Close Ticket' : 'Reopen'}
         </button>
       </>
     }>
@@ -2067,9 +2290,20 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
             options={TICKET_RESOLUTION.map((r) => [r.key, r.label])} />
         </div>
       </>)}
+      {mode === 'self_resolve' && (
+        <div style={field}>
+          <label style={label}>What fixed it? (optional)</label>
+          <textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+            placeholder="e.g. A colleague showed me how to reconnect the printer."
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            Posted on the ticket's conversation so the team knows. You can still reopen it if the problem comes back.
+          </div>
+        </div>
+      )}
       {mode === 'confirm' && (<>
         <div style={field}>
-          <label style={label}>How was your ticket handled? <span style={{ color: NX.red }}>*</span></label>
+          <label style={label}>How satisfied are you with how your ticket was handled? <span style={{ color: NX.red }}>*</span></label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onMouseLeave={() => setHover(0)}>
             {[1, 2, 3, 4, 5].map((n) => (
               <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={() => setHover(n)}
@@ -2077,9 +2311,9 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
                 <Star size={28} style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
               </button>
             ))}
-            {rating > 0 && <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
+            {(hover || rating) > 0 && <span style={{ fontSize: 13, color: NX.ink, fontWeight: 600, marginLeft: 8 }}>{CSAT_LABELS[hover || rating]}</span>}
           </div>
-          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to confirm.</div>}
+          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to close the ticket.</div>}
         </div>
         {ticket?.resolutionNote && (
           <div style={{ fontSize: 12.5, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
@@ -2087,7 +2321,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           </div>
         )}
         <div style={field}>
-          <label style={label}>Comments (optional)</label>
+          <label style={label}>Anything you would like to tell the team? (optional)</label>
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="Anything the team should know?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
         </div>
@@ -2106,6 +2340,12 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   );
 }
 
+// Plain text from a dialog going out as a reply - escaped, one <p> per line,
+// the same shape the rich editor writes.
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+const textToHtml = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  .map((l) => `<p>${escapeHtml(l)}</p>`).join('');
+
 // Does moving this ticket to `status` need the Resolve dialog? Any move INTO
 // Resolved/Closed from a status that is still being worked.
 export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && !CLOSED_STATES.includes(t?.status);
@@ -2113,16 +2353,22 @@ export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && 
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
 // is an audit row and a requester notification).
-function DrawerHelpTopic({ value, deptName, onCommit }) {
+//
+// `subValue` / `onCommitSub` (optional): the topic's "Which one?" answer
+// (typeFields.svc_helpSubtopic), saved the moment it is picked. A picked
+// topic commits as onCommit(name, '') - its old sub-option no longer applies.
+function DrawerHelpTopic({ value, deptName, onCommit, subValue = '', onCommitSub = null }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const group = helpGroupFor(deptName);
   return (
     <div onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget) && v.trim()) onCommit(v.trim()); }}>
-      <HelpTopicField deptName={deptName} value={v} onChange={(n) => {
-        setV(n);
-        if (listedTopic(group, n)) onCommit(n);
-      }} />
+      <HelpTopicField deptName={deptName} value={v} subValue={subValue}
+        onSubChange={onCommitSub ? (s) => { if (s !== subValue) onCommitSub(s); } : null}
+        onChange={(n) => {
+          setV(n);
+          if (listedTopic(group, n)) onCommit(n, '');
+        }} />
     </div>
   );
 }
@@ -2156,7 +2402,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 // module for someone without the desk grant.
 // `startEditing` opens straight into the title/description editor - the
 // Support list's pencil (Neil, Sep 30) lands here.
-export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
+export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
@@ -2167,7 +2413,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
-  const [tab, setTab] = useState('overview');
+  // initialTab: the list's Latest Comment cell lands on the Conversation.
+  const [tab, setTab] = useState(initialTab || 'overview');
   // Up here with the other hooks, and NOT next to canRequestControl where it is
   // used, because `if (!t) return null` sits between the two: a hook after that
   // return runs on some renders and not others, which is the one thing React
@@ -2251,13 +2498,19 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const shownSvcFields = (() => {
     const area = t?.serviceArea || '';
     const answered = (f) => !isBlankFieldValue(t?.typeFields?.[f.key]);
-    const own = (SERVICE_FIELDS[area] || []).filter(
+    const own = topicQuestionDefs(t?.application, area).filter(
       (f) => (!f.retired && serviceFieldApplies(f, t?.type)) || answered(f));
     const ownKeys = new Set(own.map((f) => f.key));
-    const orphans = Object.values(SERVICE_FIELDS).flat()
+    const orphans = [...allTopicQuestionDefs(), ...Object.values(SERVICE_FIELDS).flat()]
       .filter((f) => !ownKeys.has(f.key) && answered(f));
+    // An answer whose question an admin has since removed still shows,
+    // under a label read off its key.
+    const known = new Set([...own, ...orphans].map((f) => f.key));
+    const loose = Object.keys(t?.typeFields || {})
+      .filter((k) => k.startsWith('svc_') && k !== HELP_SUBTOPIC_KEY && !known.has(k) && !isBlankFieldValue(t.typeFields[k]))
+      .map((k) => ({ key: k, label: labelFromKey(k), type: 'text' }));
     const seen = new Set();
-    return [...own, ...orphans].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
+    return [...own, ...orphans, ...loose].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
   })();
   // Opened from an email link before the ticket list has landed: show the
   // "Opening your ticket" screen rather than nothing (Oct 1 - it read as the
@@ -2318,6 +2571,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // privileged) keeps normal dropdown access; this only takes it away from a
   // requester who isn't.
   const canEditStatus = canWorking && !(isRequester && !privileged && !isAssignee);
+  // Just the person who raised it - not working it, not a manager.
+  const requesterOnly = isRequester && !privileged && !isAssignee;
+  // The person it was raised by and for, who is not working it - whatever
+  // their role. They get the requester's own Mark Resolved and are the one
+  // asked how satisfied they are (a manager's own ticket included).
+  const ownRequester = isRequester && !isAssignee;
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
@@ -2373,14 +2632,24 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // own change (Confirm / Reopen) that goes out with the rest.
   const commit = async (extra = {}) => {
     const body = { ...pending, ...extra };
-    if (hasReply) { body.comment = reply.body; body.comment_internal = reply.internal; }
+    if (hasReply) {
+      // A reply being written AND a dialog's own comment (Mark Resolved's
+      // "What fixed it?") go out as one reply, the dialog's line last.
+      body.comment = extra.comment ? `${reply.body}${extra.comment}` : reply.body;
+      body.comment_internal = reply.internal;
+    }
     if (!Object.keys(body).length) return;
     await updateTicket(t.id, body);
     setPending({});
     setReply({ body: '', internal: false });
   };
+  // The requester's Confirm Resolution is held like any other edit; Done is
+  // where it is asked how satisfied they are (Oct 1) - the survey saves the
+  // rating with everything else and closes the ticket.
+  const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
     if (saving) return;
+    if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
     try { await commit(); onClose(); }
@@ -2457,19 +2726,35 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           // status jump" the requester is carved out of above; their only
           // status moves are Confirm Resolution / Reopen below, once there
           // actually is a resolution to confirm or reopen.
-          canEditStatus && !CLOSED_STATES.includes(v.status) && (
-            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => setDialog({ mode: 'resolve', targetStatus: 'resolved' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+          // The one exception (Neil, Oct 1): the requester may mark their own
+          // ticket Resolved - "a colleague helped me" - with an optional
+          // comment instead of the desk's written resolution.
+          (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
+            <button style={{ ...btn('outline'), color: NX.green }}
+              onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
+              <CheckCircle2 size={14} /> Mark Resolved
+            </button>
           )
         ) : (
           <>
             {/* The requester confirms with a rating; the desk just closes it
                 out (the resolution was written when it was resolved). */}
             {t.status === 'resolved' && (
-              <button style={{ ...btn('outline'), color: NX.green }}
-                onClick={() => (isRequester && !privileged && !isAssignee ? setDialog({ mode: 'confirm' }) : stage({ status: 'closed' }))}
-                title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
+              <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }) }}
+                aria-pressed={v.status === 'closed'}
+                onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
+                title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
+                  : 'Close this ticket now instead of waiting for it to auto-close'}>
+                <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
+              </button>
             )}
-            <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
+                for the requester - the desk can still reopen one. */}
+            {(t.status === 'resolved' || canEditStatus) ? (
+              <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            ) : (
+              <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
+            )}
           </>
         )}
         {dirty && (
@@ -2489,9 +2774,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <input autoFocus value={(draft ?? { subject: v.subject }).subject ?? ''} placeholder="Title"
               onChange={(e) => setDraft((d) => ({ ...(d || { description: v.description || '' }), subject: e.target.value }))}
               style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
-            <textarea value={(draft ?? { description: v.description }).description ?? ''} rows={4} placeholder="Describe the issue"
-              onChange={(e) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: e.target.value }))}
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+            {/* The same rich editor the Create a Ticket form uses (Oct 1) - a
+                plain-text description written before then opens as one paragraph. */}
+            <RichDescription value={(draft ?? { description: v.description }).description ?? ''} minHeight={90}
+              placeholder="Describe the issue"
+              onChange={(html) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: html }))} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
               <button style={btn('primary')} onClick={saveEdit} title="Saved with everything else when you click Done">Apply</button>
@@ -2505,8 +2792,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
                 style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
             )}
           </div>
-          {v.description
-            ? <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{v.description}</p>
+          {/* Rich text since Oct 1: richBodyHtml sanitizes it, and wraps an
+              older plain-text description in paragraphs so both read alike. */}
+          {hasRichText(v.description)
+            ? <div className="nx-rich-body" style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim }}
+                dangerouslySetInnerHTML={{ __html: richBodyHtml(v.description, nameOf) }} />
             : canEditText && (
               <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
                 <Plus size={13} /> Add a Description
@@ -2561,6 +2851,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         </div>
 
         {tab === 'overview' && (<>
+      {(t.csatRating || 0) > 0 && <SatisfactionCard ticket={t} nameOf={nameOf} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -2576,7 +2867,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
               style={sel} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {TICKET_STATUS_META[t.status]?.label || t.status}
+              {TICKET_STATUS_META[v.status]?.label || v.status}
             </div>
           )}
         </div>
@@ -2603,9 +2894,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <label style={label}>Assign To</label>
             {/* Locked until the request is approved - the backend refuses it anyway,
                 so showing an open picker would only produce a 409 the user can't act on. */}
-            <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
-              disabled={!canWorking || t.approvalStatus === 'pending'}
-              placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+            {/* Phones get a bottom sheet (TicketAssignSheet) - the anchored
+                dropdown and its auto-focused search fought the keyboard. */}
+            {isMobile ? (
+              <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
+                disabled={!canWorking || t.approvalStatus === 'pending'}
+                placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
+            ) : (
+              <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
+                disabled={!canWorking || t.approvalStatus === 'pending'}
+                placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+            )}
           </div>
         )}
         {t.assignedById && (
@@ -2635,7 +2934,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             disabled={!v.companyId || !canWorking} searchPlaceholder="Search departments…"
             placeholder={v.companyId ? 'Select department' : 'Select a company first'}
             options={[['', v.companyId ? 'Select department' : 'Select a company first'],
-              ...allDepts.filter((d) => d.companyId === v.companyId).map((d) => [d.id, d.name]),
+              // Turned off for tickets / deleted globally: not offered, but the
+              // one this ticket is already filed under still shows its name.
+              ...allDepts.filter((d) => d.companyId === v.companyId
+                && (offeredAtIntake(d) || d.id === v.hrDepartmentId)).map((d) => [d.id, d.name]),
               // Filed against a department since removed from the desk list -
               // still show what it was filed under rather than a blank.
               ...(v.hrDepartmentId && allDepts.length && !allDepts.some((d) => d.id === v.hrDepartmentId)
@@ -2651,9 +2953,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           {fullAccess ? (
             <DrawerHelpTopic key={`${t.id}:${v.hrDepartmentId || ''}`} value={v.application || ''}
               deptName={allDepts.find((d) => d.id === v.hrDepartmentId)?.name || ''}
-              onCommit={(name) => { if (name !== (v.application || '')) stage({ application: name }); }} />
+              subValue={v.typeFields?.[HELP_SUBTOPIC_KEY] || ''}
+              onCommitSub={(sub) => stage({ typeFields: withHelpSubtopic(v.typeFields, sub) })}
+              onCommit={(name) => {
+                if (name === (v.application || '')) return;
+                // A different topic: its old "which one" no longer applies.
+                stage(v.typeFields?.[HELP_SUBTOPIC_KEY]
+                  ? { application: name, typeFields: withHelpSubtopic(v.typeFields, '') }
+                  : { application: name });
+              }} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.application || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
         </div>
         {/* Derived from the application by the server, and re-derived whenever
@@ -2750,9 +3060,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
       </div>
 
-      {CLOSED_STATES.includes(v.status) && (
+      {CLOSED_STATES.includes(t.status) && !(t.csatRating > 0) && (
         <div style={field}>
-          <label style={label}>Satisfaction (CSAT)</label>
+          <label style={label}>Satisfaction</label>
           <CsatWidget ticket={v} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => stage({ csatRating: rating })}
             onComment={(comment) => stage({ csatComment: comment })} />
         </div>
@@ -2777,7 +3087,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         // Resolving is a status change like any other - held for Done. Confirm
         // and Reopen are the requester's own finishing moves, so they save
         // (with anything else held) right away.
-        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p) : commit(p))} onClose={() => setDialog(null)} />
+        // Self-resolve is the requester's own finishing move too.
+        // The satisfaction survey raised by Done closes the drawer once saved.
+        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p)
+          : dialog.viaDone ? commit(p).then(() => onClose()) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
@@ -3008,6 +3321,36 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
         <button onClick={() => setAdding(true)} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><Link2 size={13} /> Link a ticket</button>
       )}
       </>)}
+    </div>
+  );
+}
+
+// What each star means, in the requester's words - shown while they pick and
+// on the Overview card afterwards.
+const CSAT_LABELS = { 1: 'Very Dissatisfied', 2: 'Dissatisfied', 3: 'Neutral', 4: 'Satisfied', 5: 'Very Satisfied' };
+
+// The requester's satisfaction survey, at the top of the Overview tab once it
+// is in (Oct 1) - the first thing anyone opening a closed ticket sees.
+function SatisfactionCard({ ticket, nameOf }) {
+  const rating = ticket.csatRating || 0;
+  const tone = rating >= 4 ? NX.green : rating === 3 ? NX.amber : NX.red;
+  const who = ticket.requesterId ? (nameOf?.(ticket.requesterId) || ticket.requesterId) : 'The requester';
+  return (
+    <div data-testid="satisfaction-card" style={{ border: `1px solid ${NX.border}`, borderLeft: `4px solid ${tone}`, borderRadius: 10,
+      background: NX.surface2, padding: '10px 14px', marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.dim, marginBottom: 6 }}>
+        Satisfaction Survey
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star key={n} size={18} aria-hidden style={{ color: rating >= n ? NX.amber : NX.border, fill: rating >= n ? NX.amber : 'none' }} />
+        ))}
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: tone, marginLeft: 8 }}>{CSAT_LABELS[rating] || `${rating}/5`}</span>
+        <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5 · rated by {who}</span>
+      </div>
+      {ticket.csatComment && (
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>“{ticket.csatComment}”</p>
+      )}
     </div>
   );
 }
@@ -3416,8 +3759,10 @@ function TicketAttachments({ ticketId, ticketType }) {
 // time), falling back to the raw key if nothing matches at all.
 function auditFieldDef(type, key) {
   return (TYPE_FIELDS[type] || []).find((f) => f.key === key)
+    || allTopicQuestionDefs().find((f) => f.key === key)
     || Object.values(SERVICE_FIELDS).flat().find((f) => f.key === key)
-    || { key, label: key, type: 'text' };
+    || (key === HELP_SUBTOPIC_KEY ? { key, label: HELP_SUBTOPIC_LABEL, type: 'text' } : null)
+    || { key, label: key.startsWith('svc_') ? labelFromKey(key) : key, type: 'text' };
 }
 
 // The original submission, exactly as raised - see _ticket_snapshot on the
@@ -3443,10 +3788,11 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{snapshot.subject || '-'}</div>
       </div>
-      {snapshot.description && (
+      {hasRichText(snapshot.description) && (
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Description</div>
-          <p style={{ margin: 0, fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>
+          <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim }}
+            dangerouslySetInnerHTML={{ __html: richBodyHtml(snapshot.description, nameOf) }} />
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>

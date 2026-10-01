@@ -510,10 +510,10 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
-  // Manage -> Service Desk -> Departments: add / rename / delete a department,
-  // or set who gets the escalation email for it, without needing an HR module
-  // grant. Its own ticket_departments table - independent of the People ->
-  // Companies -> Global Company Setup department list (Sept 13, 2026).
+  // Ticket Manager -> Routing & Escalation: a company's GLOBAL departments
+  // (Settings > Company Settings) with the Tickets module's own settings -
+  // on/off for intake, escalation head, order (Oct 1, 2026). Add / rename /
+  // delete answer 410 now: the list itself is only edited globally.
   addTicketDepartment: (companyId, name) => req("/ticket-departments", { method: "POST", body: JSON.stringify({ company_id: companyId, name }) }),
   renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
@@ -523,6 +523,8 @@ export const api = {
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
+  // Offer this department on Submit a Ticket, or not (Neil, Oct 1, 2026).
+  setTicketDepartmentEnabled: (deptId, enabled) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
   // Work-site names for the intake form's Facility / Site questions. Ticket-
   // scoped on purpose - /hr/work-sites needs an HR grant a requester won't have.
   getTicketSites: () => cachedGet("/ticket-sites", 120_000),

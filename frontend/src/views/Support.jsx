@@ -14,7 +14,7 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
-  Ticket, Users, ArrowUpRight, Shield, FileSignature, Bug, Search,
+  Ticket, Users, ArrowUpRight, Shield, FileSignature, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
   Pencil, CheckCircle2, RotateCcw,
 } from 'lucide-react';
@@ -30,6 +30,7 @@ import GuidedTour from '../components/GuidedTour';
 import ModuleTabs from '../components/ModuleTabs';
 import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncState';
 import { buildSupportTourSteps } from './supportTourSteps';
+import { LatestCommentPreview } from '../tickets/LatestComment';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab.
@@ -46,22 +47,9 @@ const SUPPORT_TABS = [
 // pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
 const SUPPORT_TOUR_ID = 'support';
 
-// Report a Bug used to float as its own button, hovering bottom-right over
-// every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
-// a help action like everything else on this page, not a persistent overlay.
-// Same trick as TicketComposer below: mount the Tasks module's own modal
-// (it needs TasksProvider for createTicket) instead of building a second form.
-const BugComposer = lazy(async () => {
-  const [{ TasksProvider }, { ReportBugModal }] = await Promise.all([
-    import('../tasks/TasksContext'),
-    import('../tasks/ReportBug'),
-  ]);
-  return {
-    default: ({ onClose }) => (
-      <TasksProvider><ReportBugModal onClose={onClose} /></TasksProvider>
-    ),
-  };
-});
+// Report a Bug used to be its own tile here (a Tasks-module modal). Neil, Oct 1
+// 2026: folded into Submit a Ticket - a bug is just the Bug Report type there,
+// so there is one form to learn and one set of routing rules behind it.
 
 // The Ticket module's OWN create form, mounted here instead of navigating to
 // that module. A second form would be a second set of fields to keep in step
@@ -97,8 +85,8 @@ const TicketDetail = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ ticketId, onClose, startEditing }) => (
-      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} /></TasksProvider>
+    default: ({ ticketId, onClose, startEditing, initialTab }) => (
+      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} initialTab={initialTab} /></TasksProvider>
     ),
   };
 });
@@ -141,6 +129,9 @@ const SUPPORT_TABLE_COLUMNS = [
   { key: 'created', label: 'Created Date', width: 150, sort: (t) => t.createdAt || '' },
   // Neil, Sep 30: "when was the last update" - any change or reply.
   { key: 'updated', label: 'Last Updated', width: 150, sort: (t) => lastUpdated(t) },
+  // The newest public reply (Neil, Oct 1) - click it to land on the
+  // conversation. The server never sends an internal note here.
+  { key: 'latestComment', label: 'Latest Comment', width: 280, sort: (t) => t.latestComment?.createdAt || '' },
 ];
 
 // The later of the ticket's own modified time and a reply by the team - so a
@@ -164,12 +155,11 @@ export default function Support({ activeSub, onSubChange }) {
   const tab = activeSub === 'documentation' ? 'documentation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
-  const [reportingBug, setReportingBug] = useState(false);
   // { id, edit } - `edit` opens the drawer straight into its editor (the pencil).
   const [viewing, setViewing] = useState(null);
   const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), []);
   const [listTab, setListTab] = useState('open');   // 'open' | 'closed'
-  const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen', ticket }
+  const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen' | 'self_resolve' | 'resolve', ticket }
   const [tickets, setTickets] = useState(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -258,10 +248,8 @@ export default function Support({ activeSub, onSubChange }) {
   useEffect(() => setPage(1), [search]);
 
   const OPTIONS = [
-    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or request help from any department.',
+    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
-    { icon: Bug, title: 'Report a Bug', desc: 'Flag something broken in Nexus, with screenshots if you have them.',
-      onOpen: () => setReportingBug(true), tour: 'support-report-bug' },
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
     // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
@@ -274,14 +262,26 @@ export default function Support({ activeSub, onSubChange }) {
       onOpen: () => setTab('documentation'), tour: 'support-documentation' },
   ];
 
-  // Closed tickets are not what "My Open Tickets" means, but a requester whose
+  // Closed tickets are not what "Open Tickets" means, but a requester whose
   // ticket was just resolved should still see that it was - so resolved stays
   // (with Confirm / Reopen beside it) until it is closed out. Closed ones have
   // their own tab.
   const open = (tickets || []).filter((t) => t.status !== 'closed');
   const closed = (tickets || []).filter((t) => t.status === 'closed');
   const listed = listTab === 'closed' ? closed : open;
-  const hasActions = listed.some((t) => t.status === 'resolved' || t.status === 'closed');
+  // A ticket raised FOR someone else (Oct 1: the form's Requester field) is
+  // listed for whoever filed it too, but confirming, rating, reopening and
+  // editing stay with the person it is for - the server enforces the same.
+  const mineToAct = (t) => (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  // Every ticket the person it is FOR can see has an action: Mark Resolved
+  // while it is still in flight (Neil, Oct 1), Confirm / Reopen once resolved.
+  // A closed ticket has none: Reopen is only while it is Resolved (Oct 1).
+  const hasActions = listed.some((t) => mineToAct(t) && t.status !== 'closed');
+  // Mark Resolved: the requester's own optional-comment version - unless they
+  // also work the ticket, who resolve it the desk's way (with a written
+  // resolution). A manager's own ticket is theirs as a requester.
+  const resolveMode = (t) => ((t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase()
+    ? 'resolve' : 'self_resolve');
   // Ticket number OR title - the two things someone actually remembers about
   // their own ticket. Matched against both the raw and normalized code so
   // "9", "000009" and "#000009" all find the same row.
@@ -346,7 +346,9 @@ export default function Support({ activeSub, onSubChange }) {
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}
           <div className="scroll-tabs" role="tablist" style={{ display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
-            {[['open', 'My Open Tickets', open.length], ['closed', 'My Closed Tickets', closed.length]].map(([k, lab, n]) => (
+            {/* "Open Tickets" / "Closed Tickets" - no "My" (Neil, Oct 1): the
+                page is already only yours. */}
+            {[['open', 'Open Tickets', open.length], ['closed', 'Closed Tickets', closed.length]].map(([k, lab, n]) => (
               <button key={k} type="button" role="tab" aria-selected={listTab === k} onClick={() => { setListTab(k); setPage(1); }}
                 style={{
                   border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 700, padding: '6px 12px', borderRadius: 7,
@@ -379,7 +381,7 @@ export default function Support({ activeSub, onSubChange }) {
               {listTab === 'open' ? 'Nothing open right now' : 'No closed tickets yet'}
             </div>
             <p style={{ fontSize: '0.85rem', margin: '0 0 14px' }}>
-              {listTab === 'open' ? 'Anything you submit shows up here with its status.' : 'Tickets you confirm as resolved move here, and you can reopen them.'}
+              {listTab === 'open' ? 'Anything you submit shows up here with its status.' : 'Tickets you confirm as resolved move here.'}
             </p>
             {listTab === 'open' && (
               <button className="primary-btn" onClick={() => setSubmitting(true)}>
@@ -421,7 +423,8 @@ export default function Support({ activeSub, onSubChange }) {
                 {paged.map((t, idx) => {
                   const last = idx === paged.length - 1;
                   const unread = isUnread(t);
-                  const editable = t.status === 'open';
+                  const forOther = !mineToAct(t);
+                  const editable = t.status === 'open' && !forOther;
                   return (
                     <Fragment key={t.id}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingRight: 6 }}>
@@ -440,7 +443,7 @@ export default function Support({ activeSub, onSubChange }) {
                       {/* The whole row opens the ticket's real detail drawer
                           (Ticket module). role="button" + cursor:pointer since
                           a grid row isn't natively interactive. */}
-                      <div role="button" tabIndex={0} onClick={() => setViewing({ id: t.id })}
+                      <div role="button" tabIndex={0} className="nx-row-hover" onClick={() => setViewing({ id: t.id })}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewing({ id: t.id }); } }}
                         style={{
                           display: 'grid', gridTemplateColumns: 'var(--nx-grid)', '--nx-grid': template,
@@ -453,7 +456,12 @@ export default function Support({ activeSub, onSubChange }) {
                           {ticketNoShort(t.code) || '-'}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 13, color: NX.ink, fontWeight: unread ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRight: `1px solid ${NX.border2}` }}>
-                          {t.subject}
+                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subject}</span>
+                          {forOther && (
+                            <span title="You raised this on their behalf" style={{ marginLeft: 8, flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: NX.dim }}>
+                              For {nameOf(t.requesterId) || t.requesterId}
+                            </span>
+                          )}
                         </div>
                         <div style={{ minHeight: 40, borderRight: `1px solid ${NX.border2}` }}>
                           <StatusCell status={t.status} />
@@ -466,12 +474,22 @@ export default function Support({ activeSub, onSubChange }) {
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: NX.dim, borderRight: `1px solid ${NX.border2}` }}>
                           {formatDateTime(t.createdAt)}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: unread ? NX.ink : NX.dim, fontWeight: unread ? 700 : 400 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: unread ? NX.ink : NX.dim, fontWeight: unread ? 700 : 400, borderRight: `1px solid ${NX.border2}` }}>
                           {formatDateTime(lastUpdated(t))}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 40, padding: '0 10px', overflow: 'hidden' }}>
+                          <LatestCommentPreview comment={t.latestComment} nameOf={nameOf}
+                            onOpen={() => setViewing({ id: t.id, tab: 'conversation' })} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: hasActions ? 10 : 0 }}>
-                        {t.status === 'resolved' && (<>
+                        {!forOther && t.status !== 'resolved' && t.status !== 'closed' && (
+                          <button type="button" onClick={() => setAction({ mode: resolveMode(t), ticket: t })}
+                            style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
+                            <CheckCircle2 size={13} /> Mark Resolved
+                          </button>
+                        )}
+                        {!forOther && t.status === 'resolved' && (<>
                           <button type="button" onClick={() => setAction({ mode: 'confirm', ticket: t })}
                             style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
                             <CheckCircle2 size={13} /> Confirm
@@ -480,11 +498,6 @@ export default function Support({ activeSub, onSubChange }) {
                             <RotateCcw size={13} /> Reopen
                           </button>
                         </>)}
-                        {t.status === 'closed' && (
-                          <button type="button" onClick={() => setAction({ mode: 'reopen', ticket: t })} style={rowBtn}>
-                            <RotateCcw size={13} /> Reopen
-                          </button>
-                        )}
                       </div>
                     </Fragment>
                   );
@@ -521,18 +534,12 @@ export default function Support({ activeSub, onSubChange }) {
         </Suspense>
       )}
 
-      {reportingBug && (
-        <Suspense fallback={<ModalLoading />}>
-          <BugComposer onClose={() => setReportingBug(false)} />
-        </Suspense>
-      )}
-
       {viewing && (
         <Suspense fallback={<ModalLoading />}>
           {/* Reload on close too - the drawer can change the ticket (within
               the requester's own edit access) and marks it seen, and the
               table above should reflect both without a manual refresh. */}
-          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} onClose={() => { setViewing(null); load(); }} />
+          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} initialTab={viewing.tab || null} onClose={() => { setViewing(null); load(); }} />
         </Suspense>
       )}
 

@@ -138,7 +138,13 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // reports screen, PFS from the ledger, MRI, package adjustments, the Send
 // dialog, the priority bar and the Intacct access import - about 76 KB of
 // new screens, measured at 10076 KB. Deliberate; every piece was asked for.
-const TOTAL_KB     = 10150;
+// Oct 1, 2026: 10150 -> 10200. Neil's Oct 1 Ticket review (PR #407): the
+// rich-text intake, Requester picker, help-topic Which One? lists, Latest
+// Comment column, requester Mark Resolved, satisfaction survey and the
+// department on/off settings - about 16 KB, less 5.5 KB for the retired Report
+// a Bug composer, so ~10 KB net. Dev measured 10144 KB in CI (6 KB under),
+// so it tipped at 10154 KB. Deliberate; every piece was asked for.
+const TOTAL_KB     = 10200;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
