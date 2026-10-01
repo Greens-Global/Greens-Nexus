@@ -131,7 +131,12 @@ export default function LoginPage() {
   ];
 
   return (
-    <div className={`nxl${on ? " nxl-on" : ""}`}>
+    // `nxl-page`, never bare `nxl`: that is the global loader ring's class
+    // (style.css, Sep 29) - its 20px width/height won over this page's own
+    // rule and shrank the whole sign-in screen to a 20px square - a white page
+    // for everyone signed out after the Oct 1 release. Keep this root off the
+    // loader's name.
+    <div className={`nxl-page${on ? " nxl-on" : ""}`}>
       {/* Left: the product's world - brand panel with floating module cards */}
       <aside className="nxl-hero" aria-hidden="true">
         <div className="nxl-hero-wash" />
@@ -286,7 +291,7 @@ export default function LoginPage() {
       </p>
 
       <style>{`
-        .nxl {
+        .nxl-page {
           position: fixed; inset: 0; overflow: hidden;
           background: #ffffff; color: #323338;
           font-family: 'Figtree', 'Inter', sans-serif;
