@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
@@ -3773,54 +3773,75 @@ function SwitchRow({ on, onChange, label, hint }) {
 
 // Which companies' people punch in at this location (Neil, Oct 1: "option A
 // should be all ... or you select some", right here instead of backing into
-// each company's settings). All = every company there is today; a company
-// added later picks it from its own Locations tab.
+// each company's settings). A multi-select dropdown (Neil, Oct 2): All at the
+// top, then every company with a checkbox. All = every company there is
+// today; a company added later picks it from its own Locations tab.
 function LocationCompanyPicker({ entities, value, onChange }) {
+  const btnRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
   const ids = entities.map(e => e.id);
-  const isAll = ids.length > 0 && ids.every(id => value.includes(id));
-  const [mode, setMode] = useState(isAll ? 'all' : 'some');
   const picked = new Set(value);
-  const seg = (m, label) => (
-    <button type="button" aria-pressed={mode === m} onClick={() => { setMode(m); if (m === 'all') onChange(ids); else if (isAll) onChange([]); }}
-      style={{ flex: 1, padding: '6px 10px', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
-        background: mode === m ? 'var(--card)' : 'transparent', color: mode === m ? 'var(--ink)' : 'var(--muted)', boxShadow: mode === m ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' }}>
-      {label}
-    </button>
+  const isAll = ids.length > 0 && ids.every(id => picked.has(id));
+  const some = !isAll && value.length > 0;
+  const names = entities.filter(e => picked.has(e.id)).map(e => e.name);
+  const summary = isAll ? 'All Companies'
+    : names.length === 0 ? 'Select companies'
+    : names.length <= 2 ? names.join(', ')
+    : `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? entities.filter(e => (e.name || '').toLowerCase().includes(needle)) : entities;
+  const toggle = id => onChange(picked.has(id) ? value.filter(x => x !== id) : [...value, id]);
+  const row = { display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '7px 10px', border: 'none', borderRadius: 7,
+    background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', textAlign: 'left' };
+  const box = (on, partial = false) => (
+    <span aria-hidden style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, display: 'grid', placeItems: 'center',
+      border: `1.5px solid ${on || partial ? 'hsl(var(--color-green))' : 'var(--line)'}`, background: on ? 'hsl(var(--color-green))' : 'var(--card)' }}>
+      {on ? <Check size={11} color="#fff" strokeWidth={3} /> : partial ? <span style={{ width: 8, height: 2, borderRadius: 1, background: 'hsl(var(--color-green))' }} /> : null}
+    </span>
   );
   return (
     <div>
-      <label style={FL}>COMPANIES</label>
-      <div role="group" aria-label="Which companies use this location" style={{ display: 'flex', gap: 4, padding: 3, borderRadius: 9, background: 'var(--mist)' }}>
-        {seg('all', 'All Companies')}
-        {seg('some', 'Choose Companies')}
-      </div>
-      {mode === 'all' ? (
-        <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
-          People at every company can punch in here. A company added later picks it from its own Locations tab.
-        </p>
-      ) : (
-        <>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {entities.map(e => {
-              const on = picked.has(e.id);
-              return (
-                <button key={e.id} type="button" aria-pressed={on}
-                  onClick={() => onChange(on ? value.filter(x => x !== e.id) : [...value, e.id])}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
-                    fontSize: 12, fontWeight: 600, border: `1px solid ${on ? 'hsl(var(--color-green))' : 'var(--line)'}`,
-                    background: on ? 'rgba(22,163,74,0.1)' : 'var(--card)', color: on ? '#15803d' : 'var(--ink)' }}>
-                  {on && <CheckCircle size={12} />} {e.name}
-                </button>
-              );
-            })}
-          </div>
-          <p style={{ fontSize: 11.5, color: value.length ? 'var(--muted)' : '#b45309', margin: '6px 0 0' }}>
-            {value.length
-              ? `${value.length} of ${entities.length} compan${entities.length === 1 ? 'y' : 'ies'} - their people can punch in here.`
-              : 'No company yet - it stays in the library until one is picked.'}
-          </p>
-        </>
-      )}
+      <label style={FL} id="loc-companies-label">COMPANIES</label>
+      <button ref={btnRef} type="button" aria-haspopup="listbox" aria-expanded={open} aria-labelledby="loc-companies-label"
+        onClick={() => { setOpen(o => !o); setQ(''); }} className="form-input"
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+          color: value.length ? 'var(--ink)' : 'var(--muted)' }}>
+        <Building2 size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</span>
+        <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+      </button>
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="start"
+        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.14)',
+          padding: 6, minWidth: Math.max(240, btnRef.current?.offsetWidth || 0), maxHeight: 360, overflowY: 'auto' }}>
+        <div role="listbox" aria-multiselectable="true" aria-label="Companies">
+          {entities.length > 8 && (
+            <input className="form-input" autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search companies"
+              style={{ width: '100%', fontSize: 12.5, marginBottom: 6 }} />
+          )}
+          {!needle && (
+            <>
+              <button type="button" role="option" aria-selected={isAll} onClick={() => onChange(isAll ? [] : ids)} style={{ ...row, fontWeight: 700 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                {box(isAll, some)} All
+              </button>
+              <div style={{ height: 1, background: 'var(--line)', margin: '4px 2px' }} />
+            </>
+          )}
+          {shown.map(e => (
+            <button key={e.id} type="button" role="option" aria-selected={picked.has(e.id)} onClick={() => toggle(e.id)} style={row}
+              onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--mist)'; }} onMouseLeave={ev => { ev.currentTarget.style.background = 'none'; }}>
+              {box(picked.has(e.id))} {e.name}
+            </button>
+          ))}
+          {shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--muted)' }}>No companies match.</div>}
+        </div>
+      </AnchoredMenu>
+      <p style={{ fontSize: 11.5, color: value.length ? 'var(--muted)' : '#b45309', margin: '6px 0 0' }}>
+        {isAll ? 'People at every company can punch in here. A company added later picks it from its own Locations tab.'
+          : value.length ? `${value.length} of ${entities.length} compan${entities.length === 1 ? 'y' : 'ies'} - their people can punch in here.`
+          : 'No company yet - it stays in the library until one is picked.'}
+      </p>
     </div>
   );
 }
@@ -3908,30 +3929,6 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
           </div>
         </div>
 
-        <div>
-          <label style={FL}>GEOFENCE RADIUS</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="range" min={50} max={1000} step={10} value={Math.min(1000, Math.max(50, r || 150))} aria-label="Geofence radius slider"
-              onChange={e => set('radius_m', Number(e.target.value))} style={{ flex: 1, accentColor: 'hsl(217,91%,50%)' }} />
-            <input className="form-input" type="number" min={25} max={5000} value={f.radius_m} aria-label="Geofence radius in meters"
-              onChange={e => set('radius_m', e.target.value)} style={{ width: 84 }} />
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>m</span>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
-            {RADIUS_PRESETS.map(v => (
-              <button key={v} type="button" onClick={() => set('radius_m', v)} aria-pressed={r === v}
-                style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${r === v ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: r === v ? 'rgba(37,99,235,0.1)' : 'var(--card)',
-                  color: r === v ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v} m</button>
-            ))}
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${ftText(r)} across the building` : ''}</span>
-          </div>
-          <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
-            {r > 0 && r < 100
-              ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 100 m, normal phone GPS drift will mark people who are on-site as Out of Location.</>
-              : 'Most locations work well at 100-300 m. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
-          </p>
-        </div>
-
         {entities && (
           <LocationCompanyPicker entities={entities} value={f.company_ids || []} onChange={ids => set('company_ids', ids)} />
         )}
@@ -3972,6 +3969,30 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
             set('pin_adjusted', true); set('loc_changed', true);
             if (!f.location_source) set('location_source', 'address');
           }} />
+        {/* The circle's size sits with the circle (Neil, Oct 2). */}
+        <div style={{ marginTop: 14 }}>
+          <label style={FL}>GEOFENCE RADIUS</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="range" min={50} max={1000} step={10} value={Math.min(1000, Math.max(50, r || 150))} aria-label="Geofence radius slider"
+              onChange={e => set('radius_m', Number(e.target.value))} style={{ flex: 1, accentColor: 'hsl(217,91%,50%)' }} />
+            <input className="form-input" type="number" min={25} max={5000} value={f.radius_m} aria-label="Geofence radius in meters"
+              onChange={e => set('radius_m', e.target.value)} style={{ width: 84 }} />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>m</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+            {RADIUS_PRESETS.map(v => (
+              <button key={v} type="button" onClick={() => set('radius_m', v)} aria-pressed={r === v}
+                style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${r === v ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: r === v ? 'rgba(37,99,235,0.1)' : 'var(--card)',
+                  color: r === v ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v} m</button>
+            ))}
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${ftText(r)} across the building` : ''}</span>
+          </div>
+          <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+            {r > 0 && r < 100
+              ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 100 m, normal phone GPS drift will mark people who are on-site as Out of Location.</>
+              : 'Most locations work well at 100-300 m. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
+          </p>
+        </div>
       </div>
     </div>
   );
