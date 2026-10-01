@@ -11,10 +11,15 @@
 // carry across companies): two companies' "IT" share one list. A department
 // with no topics asks the requester to type what it is about instead.
 //
+// Sub-options (Neil, Oct 1 2026): a topic may carry a short "Which one?"
+// list - Microsoft -> Outlook, Teams, OneDrive; Nexus -> its modules. Edited
+// per topic below the topic list (its own drag list, so the two lists' drags
+// never mix). Optional for the requester; a topic without any asks nothing more.
+//
 // Manager+ only, like the SLA & Ticket Types panel next to it; the backend's
 // require_manager on the save is the real boundary.
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Save, RotateCcw, X, Tags } from 'lucide-react';
+import { Plus, Save, RotateCcw, X, Tags, ListTree } from 'lucide-react';
 import { LoadingState } from '../components/AsyncState';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -41,7 +46,10 @@ function buildState(groups, depts) {
   const lists = {};
   for (const n of names) {
     const g = (groups || []).find((x) => (x.departments || []).includes(norm(n)));
-    lists[norm(n)] = (g?.topics || []).map((tp) => ({ id: tid(), name: tp.name || '', area: tp.area || 'general' }));
+    lists[norm(n)] = (g?.topics || []).map((tp) => ({
+      id: tid(), name: tp.name || '', area: tp.area || 'general',
+      options: (Array.isArray(tp.options) ? tp.options : []).map((o) => ({ id: tid(), name: String(o || '') })),
+    }));
   }
   const orphans = (groups || [])
     .map((g) => ({ ...g, departments: (g.departments || []).filter((a) => !seen.has(a)) }))
@@ -55,6 +63,8 @@ export default function TicketHelpTopicsSettings() {
   const [state, setState] = useState(null);     // { names, lists, orphans }
   const [sel, setSel] = useState('');           // normalized department name
   const [newTopic, setNewTopic] = useState('');
+  const [optFor, setOptFor] = useState(null);   // id of the topic whose sub-options are open
+  const [newOption, setNewOption] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -65,7 +75,12 @@ export default function TicketHelpTopicsSettings() {
     setSel((cur) => (cur && next.lists[cur] ? cur : norm(next.names[0])));
   };
   const load = () => Promise.all([api.getTicketTaxonomySettings(), api.getTicketDepartments()])
-    .then(([cfg, ds]) => { setDepts(ds || []); apply(cfg.helpTopics || [], ds || []); })
+    .then(([cfg, ds]) => {
+      // Deleted from the company's department list - nothing to set up for.
+      const live = (ds || []).filter((d) => !d.removed);
+      setDepts(live);
+      apply(cfg.helpTopics || [], live);
+    })
     .catch((e) => setErr(e.message || String(e)));
   useEffect(() => { load(); }, []);   // eslint-disable-line react-hooks/exhaustive-deps -- once, on mount
 
@@ -82,8 +97,19 @@ export default function TicketHelpTopicsSettings() {
   const addTopic = () => {
     const n = newTopic.trim();
     if (!n || dup(n)) return;
-    setTopics([...topics, { id: tid(), name: n.slice(0, TOPIC_MAX_LEN), area: 'general' }]);
+    setTopics([...topics, { id: tid(), name: n.slice(0, TOPIC_MAX_LEN), area: 'general', options: [] }]);
     setNewTopic('');
+  };
+
+  const optTopic = topics.find((tp) => tp.id === optFor) || null;
+  const options = optTopic ? optTopic.options || [] : [];
+  const setOptions = (next) => setTopics(topics.map((x) => (x.id === optFor ? { ...x, options: next } : x)));
+  const dupOption = (name, id) => options.some((o) => o.id !== id && norm(o.name) === norm(name));
+  const addOption = () => {
+    const n = newOption.trim();
+    if (!n || dupOption(n)) return;
+    setOptions([...options, { id: tid(), name: n.slice(0, TOPIC_MAX_LEN) }]);
+    setNewOption('');
   };
 
   const save = async () => {
@@ -93,7 +119,11 @@ export default function TicketHelpTopicsSettings() {
         .map((n) => ({
           label: n, departments: [norm(n)],
           topics: (state.lists[norm(n)] || [])
-            .map((tp) => ({ name: tp.name.trim(), area: tp.area || 'general' }))
+            .map((tp) => {
+              const opts = (tp.options || []).map((o) => o.name.trim())
+                .filter((o, i, arr) => o && arr.findIndex((x) => norm(x) === norm(o)) === i);
+              return { name: tp.name.trim(), area: tp.area || 'general', ...(opts.length ? { options: opts } : {}) };
+            })
             .filter((tp, i, arr) => tp.name && arr.findIndex((x) => norm(x.name) === norm(tp.name)) === i),
         }))
         .filter((g) => g.topics.length);
@@ -120,7 +150,7 @@ export default function TicketHelpTopicsSettings() {
       </div>
 
       {state.names.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: NX.faint }}>No ticket departments yet - add them under Routing &amp; Escalation first.</div>
+        <div style={{ fontSize: 12.5, color: NX.faint }}>No departments yet - add them in Settings &gt; Company Settings.</div>
       ) : (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div role="tablist" aria-label="Departments" style={{ ...card, padding: 6, flex: '0 0 220px', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -129,7 +159,7 @@ export default function TicketHelpTopicsSettings() {
               const on = k === sel;
               const count = (state.lists[k] || []).filter((tp) => tp.name.trim()).length;
               return (
-                <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setSel(k); setNewTopic(''); }}
+                <button key={k} type="button" role="tab" aria-selected={on} onClick={() => { setSel(k); setNewTopic(''); setOptFor(null); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, border: 'none',
                     cursor: 'pointer', fontFamily: FONT, fontSize: 13, textAlign: 'left',
@@ -159,7 +189,13 @@ export default function TicketHelpTopicsSettings() {
                     style={{ ...inputStyle, width: 190, flexShrink: 0 }}>
                     {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
                   </select>
-                  <button type="button" onClick={() => setTopics(topics.filter((x) => x.id !== tp.id))}
+                  <button type="button" onClick={() => { setOptFor(optFor === tp.id ? null : tp.id); setNewOption(''); }}
+                    aria-pressed={optFor === tp.id} aria-label={`Sub-options for ${tp.name}`}
+                    title="The optional Which One? list for this topic"
+                    style={{ ...btn(optFor === tp.id ? 'primary' : 'ghost'), padding: '5px 8px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <ListTree size={12} /> {(tp.options || []).length || 'None'}
+                  </button>
+                  <button type="button" onClick={() => { if (optFor === tp.id) setOptFor(null); setTopics(topics.filter((x) => x.id !== tp.id)); }}
                     title={`Remove ${tp.name}`} aria-label={`Remove ${tp.name}`}
                     style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', padding: 4, flexShrink: 0 }}>
                     <X size={14} />
@@ -176,6 +212,41 @@ export default function TicketHelpTopicsSettings() {
               </button>
             </div>
             {newTopic.trim() && dup(newTopic) && <div style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{selName} already has that topic.</div>}
+
+            {optTopic && (
+              <div role="region" aria-label={`Which One? options for ${optTopic.name}`}
+                style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${NX.border}` }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Which One? - {optTopic.name || 'New Topic'}</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginBottom: 10, lineHeight: 1.5 }}>
+                  Optional second dropdown once this topic is picked. Keep it short and use the names people know
+                  (Outlook, Teams), so it narrows to the exact issue quickly. Leave it empty to ask nothing more.
+                </div>
+                <DragList items={options} getKey={(o) => o.id} onReorder={setOptions} label="option" gap={6}
+                  renderItem={(o, handle) => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {handle}
+                      <input value={o.name} maxLength={TOPIC_MAX_LEN} aria-label="Option name"
+                        onChange={(e) => setOptions(options.map((x) => (x.id === o.id ? { ...x, name: e.target.value } : x)))}
+                        style={{ ...inputStyle, flex: 1, minWidth: 0, ...(dupOption(o.name, o.id) || !o.name.trim() ? { borderColor: NX.red } : null) }} />
+                      <button type="button" onClick={() => setOptions(options.filter((x) => x.id !== o.id))}
+                        title={`Remove ${o.name}`} aria-label={`Remove option ${o.name}`}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', padding: 4, flexShrink: 0 }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )} />
+                <div style={{ display: 'flex', gap: 8, marginTop: options.length ? 10 : 0 }}>
+                  <input value={newOption} maxLength={TOPIC_MAX_LEN} onChange={(e) => setNewOption(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addOption()} placeholder={`Add an option for ${optTopic.name || 'this topic'}…`}
+                    style={{ ...inputStyle, flex: 1 }} />
+                  <button type="button" onClick={addOption} disabled={!newOption.trim() || dupOption(newOption)}
+                    style={{ ...btn('outline'), display: 'inline-flex', alignItems: 'center', gap: 5, opacity: (!newOption.trim() || dupOption(newOption)) ? 0.55 : 1 }}>
+                    <Plus size={13} /> Add Option
+                  </button>
+                </div>
+                {newOption.trim() && dupOption(newOption) && <div style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>That option is already listed.</div>}
+              </div>
+            )}
           </div>
         </div>
       )}

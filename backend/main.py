@@ -833,6 +833,8 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN resolution_note TEXT DEFAULT ''",
             # Closed notifications (Oct 1) - see the Postgres list.
             "ALTER TABLE nexus_notifications ADD COLUMN closed_by VARCHAR DEFAULT ''",
+            # Ticket departments come from the global list (Oct 1) - see the Postgres list.
+            "ALTER TABLE ticket_departments ADD COLUMN enabled BOOLEAN DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1805,6 +1807,10 @@ def _run_migrations():
         # Closed notifications (Neil, 10/01): clearing moves a row to the
         # person's Closed list instead of deleting it; rows live 30 days.
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
+        # Ticket departments come from the company's GLOBAL department list
+        # (Neil, 10/01): ticket_departments is now only the Tickets module's
+        # per-department settings, and `enabled` is whether intake offers it.
+        "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

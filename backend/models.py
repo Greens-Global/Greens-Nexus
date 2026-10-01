@@ -1413,14 +1413,22 @@ class HrDepartment(Base):
 
 
 class TicketDepartment(Base):
-    """A department for TICKET routing/escalation, scoped to one company
-    (HrEntity). Deliberately its own table, NOT HrDepartment: those two used to
-    be the same rows, so adding/renaming/deleting a department from Tickets ->
-    Manage -> Service Desk silently changed the People -> Companies -> Global
-    Company Setup list too, and vice versa (Pranshu, Sept 13 2026).
-    Seeded once from HrDepartment (same ids, so every ticket's existing
-    hr_department_id keeps resolving) - after that the two lists are
-    independent. New table - create_all builds it, no migration line needed."""
+    """The Tickets module's SETTINGS for one of a company's global departments
+    (HrDepartment) - not a department list of its own any more.
+
+    History: split off HrDepartment as an independent copy on Sept 13 2026
+    (Pranshu) so editing the ticket desk's list stopped changing People ->
+    Companies. Neil rejected that on Oct 1 2026 ("the departments should come
+    from global... It can't be that tasks have different departments and
+    tickets have different"): the department list - names, adding, renaming,
+    deleting - now lives ONLY in the company's global setup (HrDepartment),
+    and this row, keyed by the SAME id, holds what is ticket-specific: whether
+    the department is offered at intake (`enabled`), its escalation lead /
+    backup, and the order the intake dropdown lists it in. `name` is a mirror
+    of the global name, refreshed on every department read (routers/tickets.py
+    _sync_ticket_departments) so older readers of this table still see the
+    current name. Kept, never dropped: it is also the record of the ticket
+    desk's settings from before the merge."""
     __tablename__ = "ticket_departments"
     id         = Column(String, primary_key=True)   # uuid
     company_id = Column(String, nullable=False)     # HrEntity.id this department belongs to
@@ -1433,6 +1441,10 @@ class TicketDepartment(Base):
     backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Offered at ticket intake? (Neil, Oct 1 2026: "I don't want a construction
+    # ticket.") Off hides it from the Submit a Ticket picker only - tickets
+    # already filed against it keep showing its name.
+    enabled    = Column(Boolean, default=True)
 
 
 class HrWorkSite(Base):

@@ -569,7 +569,7 @@ export const DOCS = [
       { name: 'Tiles', desc: 'Live counts for Open, Unassigned, SLA Breached, Resolved and Closed. Click one to filter the list.' },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
-      { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Other takes a short typed answer.' },
+      { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
       { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },
@@ -579,7 +579,8 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in), Notifications, SLA & Ticket Types (intake questions and SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department, and the area each one files under).',
+        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in, and switch off any department that should not take tickets), Notifications, SLA & Ticket Types (intake questions and SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department, the area each one files under, and each optional Which One? list).',
+        'Departments are the company\'s own list from Settings > Company Settings - the same one Tasks uses. Add, rename or delete them there; the Ticket Manager only turns each one on or off for tickets.',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],
     },
@@ -1221,7 +1222,7 @@ export const DOCS = [
         steps: [
           'Open Support and click Submit a Ticket.',
           'Give it a title and a short description.',
-          'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words.',
+          'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words. If a Which One? list appears (for example Outlook or Teams), pick the one it is about - it is optional.',
           'Pick the type (each one says what it means), answer its questions, attach a photo if it helps, and click Create Ticket.',
         ],
       },

@@ -596,3 +596,30 @@ export function topicArea(name) {
   }
   return '';
 }
+
+// ── "Which one?" - a topic's optional sub-options (Neil, Oct 1 2026) ────────
+// IT -> Microsoft (Outlook, Teams, OneDrive) -> Outlook. A short list, named
+// the way the requester sees the thing, and always optional. Stored on the
+// ticket's typeFields under this key: `svc_` like the area questions, so a
+// department change clears it the same way and a type change keeps it.
+export const HELP_SUBTOPIC_KEY = 'svc_helpSubtopic';
+export const HELP_SUBTOPIC_LABEL = 'Which One?';
+
+/** The sub-options of a picked topic (case-insensitive), or []. */
+export function topicOptions(name, group = null) {
+  const n = (name || '').trim().toLowerCase();
+  if (!n) return [];
+  for (const g of group ? [group] : HELP_TOPICS) {
+    const hit = (g.topics || []).find((tp) => (tp.name || '').trim().toLowerCase() === n);
+    if (hit) return Array.isArray(hit.options) ? hit.options : [];
+  }
+  return [];
+}
+
+/** "Microsoft (Outlook, Teams, OneDrive) / Outlook" - the topic plus its
+ * sub-option, wherever a ticket's Help With is shown, exported or searched. */
+export function helpWithLabel(t) {
+  const topic = (t?.application || '').trim();
+  const sub = String(t?.typeFields?.[HELP_SUBTOPIC_KEY] || '').trim();
+  return topic && sub ? `${topic} / ${sub}` : topic;
+}

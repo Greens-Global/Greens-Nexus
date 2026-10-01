@@ -38,6 +38,8 @@ import {
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
   OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
 } from './ticketMeta';
+// The help topic's optional "Which one?" level (Neil, Oct 1 2026).
+import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
@@ -118,6 +120,19 @@ function areaForTopic(topic) {
   return topicArea(name) || 'general';
 }
 
+// Is this department offered on Submit a Ticket? Off in Settings > Ticket
+// Manager (Neil, Oct 1: "I don't want a construction ticket"), or deleted from
+// the company's global list - both still name the tickets already filed.
+const offeredAtIntake = (d) => d.enabled !== false && !d.removed;
+
+// typeFields with the help topic's "Which one?" answer set ('' removes it).
+function withHelpSubtopic(typeFields, sub) {
+  const next = { ...(typeFields || {}) };
+  if (sub) next[HELP_SUBTOPIC_KEY] = sub;
+  else delete next[HELP_SUBTOPIC_KEY];
+  return next;
+}
+
 // Is `value` one of this department's listed topics? (case-insensitive)
 function listedTopic(group, value) {
   const v = (value || '').trim().toLowerCase();
@@ -128,9 +143,31 @@ function listedTopic(group, value) {
 // answer it requires - max TOPIC_MAX_LEN characters, a name for the thing
 // rather than a second description (Neil: "it cannot be like a huge long
 // sentence... max 50 characters").
-function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false }) {
+//
+// `subValue` / `onSubChange` (optional, Oct 1 2026): when the picked topic has
+// sub-options, a second "Which one?" dropdown appears under it (Microsoft ->
+// Outlook). Never required. Picking a different topic clears it. Without
+// onSubChange the field behaves exactly as before.
+function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false, subValue = '', onSubChange = null }) {
   const group = helpGroupFor(deptName);
   const listed = listedTopic(group, value);
+  const subOptions = listed ? topicOptions(listed.name, group) : [];
+  const subPicker = onSubChange && subOptions.length > 0 ? (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, margin: '2px 0 5px' }}>
+        {HELP_SUBTOPIC_LABEL} <span style={{ fontWeight: 400, color: NX.faint }}>(optional)</span>
+      </div>
+      <TicketSelect value={subOptions.includes(subValue) ? subValue : ''} disabled={disabled}
+        placeholder="Pick one, if it fits" searchPlaceholder="Search…"
+        options={[['', 'Not Sure'], ...subOptions.map((o) => [o, o])]}
+        onChange={(v) => onSubChange(v)} />
+    </div>
+  ) : null;
+  // A new topic has its own list - the old "which one" belonged to the other.
+  const changeTopic = (v) => {
+    if (onSubChange && (v || '').trim().toLowerCase() !== (value || '').trim().toLowerCase() && subValue) onSubChange('');
+    onChange(v);
+  };
   // "Other" picked but nothing typed yet is a real state the value alone
   // cannot express ("" also means "nothing picked").
   const [otherPicked, setOtherPicked] = useState(!!(value && !listed));
@@ -140,7 +177,7 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
   const textInput = (
     <div style={{ position: 'relative' }}>
       <input value={listed ? '' : (value || '')} maxLength={TOPIC_MAX_LEN} disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => changeTopic(e.target.value)}
         placeholder={group ? 'Tell us what it is, in a few words' : 'e.g. Front gate keypad, Outlook, Payroll report'}
         style={{ ...inputStyle, paddingRight: 52, ...(invalid ? { borderColor: NX.red } : null) }} />
       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: NX.faint, pointerEvents: 'none' }}>
@@ -156,11 +193,12 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
         placeholder="Select one" searchPlaceholder="Search…"
         options={[['', 'Select one'], ...group.topics.map((tp) => [tp.name, tp.name]), [OTHER_TOPIC, 'Other']]}
         onChange={(v) => {
-          if (v === OTHER_TOPIC) { setOtherPicked(true); onChange(''); return; }
+          if (v === OTHER_TOPIC) { setOtherPicked(true); changeTopic(''); return; }
           setOtherPicked(false);
-          onChange(v);
+          changeTopic(v);
         }} />
       {showText && textInput}
+      {subPicker}
     </div>
   );
 }
@@ -208,7 +246,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
   const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
-    t.application || '', serviceAreaLabel(t.serviceArea) || '',
+    helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
@@ -661,7 +699,7 @@ export default function TicketsView() {
       if (q) {
         // Application is searchable too - "egnyte" is how someone looks for the
         // ticket they raised, and it is rarely the word they put in the title.
-        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${t.application || ''} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
+        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${helpWithLabel(t)} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -1628,9 +1666,9 @@ export function CreateTicketModal({ onClose }) {
   }, [COMPANY_FIELD.enabled, enabledCompanies.length && enabledCompanies[0]?.id]);
   // Departments narrow to whichever company is in play: the requester's own
   // (the field is off, or on with nothing picked yet) or the one they chose.
-  const deptOptions = COMPANY_FIELD.enabled
+  const deptOptions = (COMPANY_FIELD.enabled
     ? allDepts.filter((d) => d.companyId === form.companyId)
-    : allDepts;
+    : allDepts).filter(offeredAtIntake);
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
 
@@ -1711,6 +1749,12 @@ export function CreateTicketModal({ onClose }) {
       const typeFields = {};
       for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
         if (!isBlankFieldValue(tf[f.key])) typeFields[f.key] = tf[f.key];
+      }
+      // The topic's "Which one?" - only while it is still one of the picked
+      // topic's own sub-options (a company or department change can leave a
+      // stale one behind).
+      if (topicOptions(form.application, helpGroupFor(deptName)).includes(tf[HELP_SUBTOPIC_KEY])) {
+        typeFields[HELP_SUBTOPIC_KEY] = tf[HELP_SUBTOPIC_KEY];
       }
       const created = await createTicket({
         subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
@@ -1893,6 +1937,7 @@ export function CreateTicketModal({ onClose }) {
           <label style={label}>What Do You Need Help With? {req}</label>
           <HelpTopicField key={form.hrDepartmentId || 'none'} deptName={deptName} value={form.application}
             invalid={err('application')}
+            subValue={tf[HELP_SUBTOPIC_KEY] || ''} onSubChange={(v) => setTfVal(HELP_SUBTOPIC_KEY, v)}
             onChange={(name) => {
               set('application', name);
               // Only when the AREA changes: swapping one maintenance topic for
@@ -2113,16 +2158,22 @@ export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && 
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
 // is an audit row and a requester notification).
-function DrawerHelpTopic({ value, deptName, onCommit }) {
+//
+// `subValue` / `onCommitSub` (optional): the topic's "Which one?" answer
+// (typeFields.svc_helpSubtopic), saved the moment it is picked. A picked
+// topic commits as onCommit(name, '') - its old sub-option no longer applies.
+function DrawerHelpTopic({ value, deptName, onCommit, subValue = '', onCommitSub = null }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const group = helpGroupFor(deptName);
   return (
     <div onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget) && v.trim()) onCommit(v.trim()); }}>
-      <HelpTopicField deptName={deptName} value={v} onChange={(n) => {
-        setV(n);
-        if (listedTopic(group, n)) onCommit(n);
-      }} />
+      <HelpTopicField deptName={deptName} value={v} subValue={subValue}
+        onSubChange={onCommitSub ? (s) => { if (s !== subValue) onCommitSub(s); } : null}
+        onChange={(n) => {
+          setV(n);
+          if (listedTopic(group, n)) onCommit(n, '');
+        }} />
     </div>
   );
 }
@@ -2635,7 +2686,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             disabled={!v.companyId || !canWorking} searchPlaceholder="Search departments…"
             placeholder={v.companyId ? 'Select department' : 'Select a company first'}
             options={[['', v.companyId ? 'Select department' : 'Select a company first'],
-              ...allDepts.filter((d) => d.companyId === v.companyId).map((d) => [d.id, d.name]),
+              // Turned off for tickets / deleted globally: not offered, but the
+              // one this ticket is already filed under still shows its name.
+              ...allDepts.filter((d) => d.companyId === v.companyId
+                && (offeredAtIntake(d) || d.id === v.hrDepartmentId)).map((d) => [d.id, d.name]),
               // Filed against a department since removed from the desk list -
               // still show what it was filed under rather than a blank.
               ...(v.hrDepartmentId && allDepts.length && !allDepts.some((d) => d.id === v.hrDepartmentId)
@@ -2651,9 +2705,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           {fullAccess ? (
             <DrawerHelpTopic key={`${t.id}:${v.hrDepartmentId || ''}`} value={v.application || ''}
               deptName={allDepts.find((d) => d.id === v.hrDepartmentId)?.name || ''}
-              onCommit={(name) => { if (name !== (v.application || '')) stage({ application: name }); }} />
+              subValue={v.typeFields?.[HELP_SUBTOPIC_KEY] || ''}
+              onCommitSub={(sub) => stage({ typeFields: withHelpSubtopic(v.typeFields, sub) })}
+              onCommit={(name) => {
+                if (name === (v.application || '')) return;
+                // A different topic: its old "which one" no longer applies.
+                stage(v.typeFields?.[HELP_SUBTOPIC_KEY]
+                  ? { application: name, typeFields: withHelpSubtopic(v.typeFields, '') }
+                  : { application: name });
+              }} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.application || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
         </div>
         {/* Derived from the application by the server, and re-derived whenever
@@ -3417,6 +3479,7 @@ function TicketAttachments({ ticketId, ticketType }) {
 function auditFieldDef(type, key) {
   return (TYPE_FIELDS[type] || []).find((f) => f.key === key)
     || Object.values(SERVICE_FIELDS).flat().find((f) => f.key === key)
+    || (key === HELP_SUBTOPIC_KEY ? { key, label: HELP_SUBTOPIC_LABEL, type: 'text' } : null)
     || { key, label: key, type: 'text' };
 }
 
