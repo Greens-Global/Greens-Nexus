@@ -2566,6 +2566,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const canEditStatus = canWorking && !(isRequester && !privileged && !isAssignee);
   // Just the person who raised it - not working it, not a manager.
   const requesterOnly = isRequester && !privileged && !isAssignee;
+  // The person it was raised by and for, who is not working it - whatever
+  // their role. They get the requester's own Mark Resolved and are the one
+  // asked how satisfied they are (a manager's own ticket included).
+  const ownRequester = isRequester && !isAssignee;
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
@@ -2635,7 +2639,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // The requester's Confirm Resolution is held like any other edit; Done is
   // where it is asked how satisfied they are (Oct 1) - the survey saves the
   // rating with everything else and closes the ticket.
-  const confirmingClose = requesterOnly && t.status === 'resolved' && pending.status === 'closed';
+  const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
     if (saving) return;
     if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
@@ -2718,9 +2722,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           // The one exception (Neil, Oct 1): the requester may mark their own
           // ticket Resolved - "a colleague helped me" - with an optional
           // comment instead of the desk's written resolution.
-          (canEditStatus || requesterOnly) && !CLOSED_STATES.includes(v.status) && (
+          (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
             <button style={{ ...btn('outline'), color: NX.green }}
-              onClick={() => setDialog({ mode: canEditStatus ? 'resolve' : 'self_resolve', targetStatus: 'resolved' })}>
+              onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
               <CheckCircle2 size={14} /> Mark Resolved
             </button>
           )

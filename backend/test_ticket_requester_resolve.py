@@ -141,6 +141,16 @@ class RequesterResolveTests(unittest.TestCase):
         out = self._update(MANAGER, status="resolved", resolution_note="Swapped the toner")
         self.assertEqual(out["status"], "resolved")
 
+    def test_a_manager_resolving_their_own_ticket_is_a_requester(self):
+        # Raised by a manager, worked by someone else: Mark Resolved is the
+        # requester's, with no written resolution required.
+        t = self._ticket("in_progress", assignee=ASSIGNEE["email"])
+        t.requester_email = MANAGER["email"]
+        self.db.commit()
+        out = self._update(MANAGER, status="resolved")
+        self.assertEqual(out["status"], "resolved")
+        self.assertEqual(out["resolutionNote"], "Resolved by the requester.")
+
     # ── latest comment on the list ──────────────────────────────────────────
     def test_latest_comment_never_leaks_an_internal_note_to_the_requester(self):
         self._ticket("open")

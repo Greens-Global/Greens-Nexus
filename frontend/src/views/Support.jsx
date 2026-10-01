@@ -168,7 +168,7 @@ export default function Support({ activeSub, onSubChange }) {
   // one long unbroken list.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
   const [page, setPage] = useState(1);
-  const { myEmail, myLevel } = useRole();
+  const { myEmail } = useRole();
   const people = usePeople();
   const nameOf = useCallback((email) => {
     const e = (email || '').toLowerCase();
@@ -277,9 +277,9 @@ export default function Support({ activeSub, onSubChange }) {
   // while it is still in flight (Neil, Oct 1), Confirm / Reopen once resolved.
   const hasActions = listed.some(mineToAct);
   // Mark Resolved: the requester's own optional-comment version - unless they
-  // also work the ticket or are a manager, who resolve it the desk's way
-  // (with a written resolution), as the server requires of them.
-  const resolveMode = (t) => (myLevel >= 3 || (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase()
+  // also work the ticket, who resolve it the desk's way (with a written
+  // resolution). A manager's own ticket is theirs as a requester.
+  const resolveMode = (t) => ((t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase()
     ? 'resolve' : 'self_resolve');
   // Ticket number OR title - the two things someone actually remembers about
   // their own ticket. Matched against both the raw and normalized code so

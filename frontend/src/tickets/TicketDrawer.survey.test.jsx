@@ -8,7 +8,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
-  useRole: () => ({ isExternal: false, can: () => true, myLevel: 1, canAccessModule: () => true,
+  useRole: () => ({ isExternal: false, can: () => true, myLevel: globalThis.__surveyLevel ?? 1, canAccessModule: () => true,
     myGrantedModules: new Set(), myEmail: 'req@example.com' }),
 }));
 vi.mock('../api', () => {
@@ -30,7 +30,7 @@ vi.mock('../tasks/TasksContext', () => ({
 
 const { TicketDrawer } = await import('./TicketsView');
 
-afterEach(() => { cleanup(); updateTicket.mockClear(); current = RESOLVED; });
+afterEach(() => { cleanup(); updateTicket.mockClear(); current = RESOLVED; globalThis.__surveyLevel = undefined; });
 
 describe('Confirm Resolution asks for a satisfaction survey on Done', () => {
   it('holds the confirm, then Done opens the survey, which saves the rating and closes', async () => {
@@ -65,6 +65,15 @@ describe('Confirm Resolution asks for a satisfaction survey on Done', () => {
     expect(screen.queryByText('How Satisfied Are You?')).toBeNull();
     expect(updateTicket).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('asks a manager too when it is their own ticket someone else worked', async () => {
+    globalThis.__surveyLevel = 3;
+    render(<TicketDrawer ticketId="t1" onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Confirm Resolution/ }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Done' })); });
+    expect(screen.getByText('How Satisfied Are You?')).toBeTruthy();
+    expect(updateTicket).not.toHaveBeenCalled();
   });
 
   it('shows the survey result at the top of Overview once rated', () => {

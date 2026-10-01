@@ -852,9 +852,15 @@ def _is_requester_only(db: Session, t: models.TaskTicket, user: dict) -> bool:
 def _requester_self_resolve(db: Session, t: models.TaskTicket, user: dict, data: dict) -> bool:
     """Is this save the requester marking their own still-active ticket
     Resolved? Only that move - an already resolved/closed ticket has its own
-    Confirm / Reopen flow."""
+    Confirm / Reopen flow.
+
+    Whoever raised it and is not working it - a manager or desk agent who
+    raised their own ticket included: they are its requester, and the screen
+    offers them the requester's Mark Resolved, not the desk's write-up."""
+    email = (user.get("email") or "").lower()
     return (data.get("status") == "resolved" and (t.status or "open") not in ("resolved", "closed")
-            and _is_requester_only(db, t, user))
+            and (t.requester_email or "").lower() == email
+            and email != (t.assignee_email or "").lower())
 
 
 def _may_patch_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
