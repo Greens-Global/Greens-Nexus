@@ -14,7 +14,7 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
-  Ticket, Users, ArrowUpRight, Shield, FileSignature, Bug, Search,
+  Ticket, Users, ArrowUpRight, Shield, FileSignature, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
   Pencil, CheckCircle2, RotateCcw,
 } from 'lucide-react';
@@ -46,22 +46,9 @@ const SUPPORT_TABS = [
 // pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
 const SUPPORT_TOUR_ID = 'support';
 
-// Report a Bug used to float as its own button, hovering bottom-right over
-// every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
-// a help action like everything else on this page, not a persistent overlay.
-// Same trick as TicketComposer below: mount the Tasks module's own modal
-// (it needs TasksProvider for createTicket) instead of building a second form.
-const BugComposer = lazy(async () => {
-  const [{ TasksProvider }, { ReportBugModal }] = await Promise.all([
-    import('../tasks/TasksContext'),
-    import('../tasks/ReportBug'),
-  ]);
-  return {
-    default: ({ onClose }) => (
-      <TasksProvider><ReportBugModal onClose={onClose} /></TasksProvider>
-    ),
-  };
-});
+// Report a Bug used to be its own tile here (a Tasks-module modal). Neil, Oct 1
+// 2026: folded into Submit a Ticket - a bug is just the Bug Report type there,
+// so there is one form to learn and one set of routing rules behind it.
 
 // The Ticket module's OWN create form, mounted here instead of navigating to
 // that module. A second form would be a second set of fields to keep in step
@@ -164,7 +151,6 @@ export default function Support({ activeSub, onSubChange }) {
   const tab = activeSub === 'documentation' ? 'documentation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
-  const [reportingBug, setReportingBug] = useState(false);
   // { id, edit } - `edit` opens the drawer straight into its editor (the pencil).
   const [viewing, setViewing] = useState(null);
   const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), []);
@@ -258,10 +244,8 @@ export default function Support({ activeSub, onSubChange }) {
   useEffect(() => setPage(1), [search]);
 
   const OPTIONS = [
-    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or request help from any department.',
+    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
-    { icon: Bug, title: 'Report a Bug', desc: 'Flag something broken in Nexus, with screenshots if you have them.',
-      onOpen: () => setReportingBug(true), tour: 'support-report-bug' },
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
     // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
@@ -281,7 +265,11 @@ export default function Support({ activeSub, onSubChange }) {
   const open = (tickets || []).filter((t) => t.status !== 'closed');
   const closed = (tickets || []).filter((t) => t.status === 'closed');
   const listed = listTab === 'closed' ? closed : open;
-  const hasActions = listed.some((t) => t.status === 'resolved' || t.status === 'closed');
+  // A ticket raised FOR someone else (Oct 1: the form's Requester field) is
+  // listed for whoever filed it too, but confirming, rating, reopening and
+  // editing stay with the person it is for - the server enforces the same.
+  const mineToAct = (t) => (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  const hasActions = listed.some((t) => mineToAct(t) && (t.status === 'resolved' || t.status === 'closed'));
   // Ticket number OR title - the two things someone actually remembers about
   // their own ticket. Matched against both the raw and normalized code so
   // "9", "000009" and "#000009" all find the same row.
@@ -421,7 +409,8 @@ export default function Support({ activeSub, onSubChange }) {
                 {paged.map((t, idx) => {
                   const last = idx === paged.length - 1;
                   const unread = isUnread(t);
-                  const editable = t.status === 'open';
+                  const forOther = !mineToAct(t);
+                  const editable = t.status === 'open' && !forOther;
                   return (
                     <Fragment key={t.id}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingRight: 6 }}>
@@ -453,7 +442,12 @@ export default function Support({ activeSub, onSubChange }) {
                           {ticketNoShort(t.code) || '-'}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 13, color: NX.ink, fontWeight: unread ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRight: `1px solid ${NX.border2}` }}>
-                          {t.subject}
+                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subject}</span>
+                          {forOther && (
+                            <span title="You raised this on their behalf" style={{ marginLeft: 8, flexShrink: 0, fontSize: 11.5, fontWeight: 600, color: NX.dim }}>
+                              For {nameOf(t.requesterId) || t.requesterId}
+                            </span>
+                          )}
                         </div>
                         <div style={{ minHeight: 40, borderRight: `1px solid ${NX.border2}` }}>
                           <StatusCell status={t.status} />
@@ -471,7 +465,7 @@ export default function Support({ activeSub, onSubChange }) {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: hasActions ? 10 : 0 }}>
-                        {t.status === 'resolved' && (<>
+                        {!forOther && t.status === 'resolved' && (<>
                           <button type="button" onClick={() => setAction({ mode: 'confirm', ticket: t })}
                             style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
                             <CheckCircle2 size={13} /> Confirm
@@ -480,7 +474,7 @@ export default function Support({ activeSub, onSubChange }) {
                             <RotateCcw size={13} /> Reopen
                           </button>
                         </>)}
-                        {t.status === 'closed' && (
+                        {!forOther && t.status === 'closed' && (
                           <button type="button" onClick={() => setAction({ mode: 'reopen', ticket: t })} style={rowBtn}>
                             <RotateCcw size={13} /> Reopen
                           </button>
@@ -518,12 +512,6 @@ export default function Support({ activeSub, onSubChange }) {
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
           <TicketComposer onClose={() => { setSubmitting(false); load(); }} />
-        </Suspense>
-      )}
-
-      {reportingBug && (
-        <Suspense fallback={<ModalLoading />}>
-          <BugComposer onClose={() => setReportingBug(false)} />
         </Suspense>
       )}
 

@@ -60,6 +60,15 @@ export const TICKET_TYPE_META = {
 // still add a type back in Settings, but these five are the default.
 export const TICKET_TYPE_ORDER = ['incident', 'bug', 'feature_request', 'access_request', 'other'];
 
+// What the Create a Ticket form opens on (Neil, Oct 1 2026: "nine times out of
+// ten it is simply an incident"). Named, not read off the order: an admin can
+// reorder the types in Settings, and that reorders the dropdown without
+// changing what most tickets are. Falls back to the first offered type only
+// when an admin has taken Incident out of intake altogether.
+export const DEFAULT_INTAKE_TYPE = 'incident';
+export const defaultIntakeType = () => (TICKET_TYPE_ORDER.includes(DEFAULT_INTAKE_TYPE)
+  ? DEFAULT_INTAKE_TYPE : (TICKET_TYPE_ORDER[0] || DEFAULT_INTAKE_TYPE));
+
 // Screen recording is for showing a problem happening - a bug or an incident.
 // The rest are asks, not something to demonstrate on screen, so the Record
 // option is hidden for them (Upload still works).
@@ -117,23 +126,31 @@ export const TYPE_FIELDS = {
     { key: 'actualResult', label: 'Actual Result', type: 'textarea', req: true, retired: true },
     // Whether it happens every time is the difference between "fix it now" and
     // "watch it". Options unchanged - old tickets hold these exact values.
-    { key: 'reproducibility', label: 'How often does it happen?', type: 'radio', options: ['Always', 'Sometimes', 'Saw It Once'] },
+    // A dropdown, not chips (Neil, Oct 1: "take away the chips"). Same options.
+    { key: 'reproducibility', label: 'How often does it happen?', type: 'select', options: ['Always', 'Sometimes', 'Saw It Once'] },
     // Retired: IT can read the browser and OS off the session; asking the
     // requester to name them is homework for no benefit.
     { key: 'browser', label: 'Browser', type: 'select', options: ['Chrome', 'Firefox', 'Safari', 'Edge', 'Other'], retired: true },
     { key: 'os', label: 'OS', type: 'select', options: ['Windows', 'macOS', 'Linux', 'iOS', 'Android', 'Other'], retired: true },
-    { key: 'errorMessage', label: 'Error message, if you saw one', type: 'textarea', full: true },
+    // IT only (Neil, Oct 1): a maintenance or HR ticket has no error message,
+    // and asking for one made those forms read like an IT form. See onlyIt.
+    { key: 'errorMessage', label: 'Error message, if you saw one', type: 'textarea', full: true, onlyIt: true },
   ],
   // Something has stopped working. Four questions, one required.
   incident: [
     // Retired: step 1's Application is this question.
     { key: 'affectedService', label: 'Affected Service', type: 'text', req: true, retired: true },
-    { key: 'impact', label: 'Who is affected?', type: 'radio',
-      options: ['One User', 'Multiple Users', 'Department', 'Entire Organization'], req: true },
-    { key: 'occurredAt', label: 'When did it start?', type: 'datetime' },
-    { key: 'workedBefore', label: 'Was it working before?', type: 'radio',
+    // Dropdowns, not chips (Neil, Oct 1 2026: "take away the chips"), each
+    // pre-answered with what is true most of the time so the common ticket
+    // needs no clicks here at all. Options are the stored values - unchanged,
+    // so every incident already raised still reads back its answer.
+    { key: 'impact', label: 'Who is affected?', type: 'select',
+      options: ['One User', 'Multiple Users', 'Department', 'Entire Organization'], req: true, default: 'One User' },
+    // Defaults to the moment the form opened; still changeable, never required.
+    { key: 'occurredAt', label: 'When did it start?', type: 'datetime', default: () => localDateTimeNow() },
+    { key: 'workedBefore', label: 'Was it working before?', type: 'select',
       options: ['Yes, it stopped recently', 'No, it never worked', 'Not sure'] },
-    { key: 'errorMessage', label: 'Error message, if you saw one', type: 'text', full: true },
+    { key: 'errorMessage', label: 'Error message, if you saw one', type: 'text', full: true, onlyIt: true },
     // Retired: "is there a workaround" is a triage judgement, not something the
     // person stuck without one can answer; naming every affected colleague in a
     // people picker is work the desk can do faster from the impact answer.
@@ -237,7 +254,7 @@ export const TYPE_FIELDS = {
     // What KIND of access change, from the reviewed draft - joiner, leaver,
     // add, remove, role change. It is the first thing the desk needs and the
     // easiest thing for the requester to answer, so it leads.
-    { key: 'requestKind', label: 'What do you need?', type: 'radio', req: true,
+    { key: 'requestKind', label: 'What do you need?', type: 'select', req: true,
       options: ['New employee setup', 'Employee leaving', 'Add access', 'Remove access', 'Change their role'] },
     { key: 'user', label: 'Who is this for? (blank = yourself)', type: 'person' },
     // Optional, not required: "Employee leaving" and "Remove access" have no
@@ -246,7 +263,7 @@ export const TYPE_FIELDS = {
     // Options left as Read/Write/Admin - existing access tickets hold these
     // exact values, and rewording them would orphan those answers against a
     // radio that no longer offers them.
-    { key: 'accessType', label: 'What level of access?', type: 'radio', options: ['Read', 'Write', 'Admin'] },
+    { key: 'accessType', label: 'What level of access?', type: 'select', options: ['Read', 'Write', 'Admin'] },
     { key: 'reason', label: 'Why do they need it?', type: 'textarea', full: true, req: true },
     // Standing access is what audits object to, so the expiry stays a
     // first-class question. Blank is allowed - some access genuinely is
@@ -427,6 +444,63 @@ export const requiredHint = { fontSize: 11.5, color: NX.red, marginTop: 4, fontW
 // merely stop collecting it - but it is never asked for again.
 export const intakeFields = (type) => (TYPE_FIELDS[type] || []).filter((f) => !f.retired);
 
+// Is this department the IT team? Matched on the name, case-insensitively, so
+// "IT", "I.T.", "IT Support" and "Information Technology" all count - the
+// department list is admin-edited per company, so there is no fixed id to key on.
+export const isItDepartment = (name) => /^(i\.?\s?t\.?|information\s+technology)(\b|$)/i.test(String(name || '').trim());
+
+// The Oct 1 intake rules, re-applied here as well as written into TYPE_FIELDS
+// above, because an admin's saved field list (Settings > Ticket Manager,
+// applied by ticketConfig.js) REPLACES a type's definitions wholesale - a list
+// saved before Oct 1 would otherwise bring the chips and the always-on error
+// question straight back.
+const INTAKE_DEFAULTS = {
+  incident: { impact: 'One User', occurredAt: () => localDateTimeNow() },
+};
+
+// The intake questions for a type, given the department picked:
+//   - no chip-style radios: a radio is asked as a dropdown (same options,
+//     same stored values - Neil, Oct 1: "take away the chips");
+//   - the error message (`onlyIt`) is asked only when that team is IT;
+//   - `default` pre-answers a question (see intakeDefaults).
+export const intakeFieldsFor = (type, deptName) => intakeFields(type)
+  .map((f) => ({
+    ...f,
+    type: f.type === 'radio' ? 'select' : f.type,
+    onlyIt: f.onlyIt ?? f.key === 'errorMessage',
+    default: f.default ?? INTAKE_DEFAULTS[type]?.[f.key],
+  }))
+  .filter((f) => !f.onlyIt || isItDepartment(deptName));
+
+// "Now" as a datetime-local value (YYYY-MM-DDTHH:mm, local time) - what the
+// When did it start? input takes, and what earlier tickets stored.
+export function localDateTimeNow(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Pre-filled answers for a type's intake questions (a field's `default`, a
+// value or a function returning one). Only seeds what is still blank.
+export function intakeDefaults(type, current = {}) {
+  const out = {};
+  // Every field, IT-only ones included - none of those carries a default, and
+  // the department is not known yet when the form opens.
+  for (const f of intakeFieldsFor(type, 'IT')) {
+    if (f.default === undefined || !isBlankFieldValue(current[f.key])) continue;
+    out[f.key] = typeof f.default === 'function' ? f.default() : f.default;
+  }
+  return out;
+}
+
+// HTML (the rich description) as plain text - for the deflection search and
+// anywhere a one-line preview is wanted. Plain-text descriptions pass through.
+export const richToPlain = (html) => String(html || '')
+  .replace(/<(br|\/p|\/li|\/h\d|\/div)\s*\/?>/gi, '\n')
+  .replace(/<[^>]*>/g, '')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+
 
 // ── Service areas ────────────────────────────────────────────────────────────
 // The desk's triage taxonomy. An app is classified ONCE, on the External Links
@@ -491,7 +565,10 @@ export const SERVICE_FIELDS = {
     // Whose mailbox is misbehaving. Not asked on a service or access request:
     // those types already ask "Who is it for?" / "Who is this for?", and the
     // same question twice on one form is exactly the confusion being removed.
-    { key: 'svc_account', label: 'Whose account is affected? (blank = yours)', type: 'person', types: ['incident', 'bug'] },
+    // Retired (Neil, Oct 1 2026): "whose account" was really "who is this
+    // for", and that is now the form's own Requester field, right under the
+    // title, for every ticket. Kept so tickets that answered it still show it.
+    { key: 'svc_account', label: 'Whose account is affected? (blank = yours)', type: 'person', types: ['incident', 'bug'], retired: true },
   ],
   files: [
     { key: 'svc_folderPath', label: 'Which folder?', type: 'text', full: true, placeholder: '/Shared/…' },
@@ -506,7 +583,7 @@ export const SERVICE_FIELDS = {
   ],
   network: [
     { key: 'svc_facility', label: 'Which site?', type: 'select', optionsFrom: 'sites', req: true, types: PLACE },
-    { key: 'svc_connection', label: 'How are you connected?', type: 'radio', options: ['Wi-Fi', 'Wired', 'VPN'], types: PLACE },
+    { key: 'svc_connection', label: 'How are you connected?', type: 'select', options: ['Wi-Fi', 'Wired', 'VPN'], types: PLACE },
   ],
   hardware: [
     // A device is a thing you use, not a place - so unlike the facility

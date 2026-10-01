@@ -96,10 +96,11 @@ describe('service questions depend on the type, not just the app', () => {
     expect(keys('hardware', 'service_request')).not.toContain('svc_assetTag');
   });
 
-  it('does not ask whose account on the types that already ask who it is for', () => {
-    expect(keys('email', 'incident')).toEqual(['svc_account']);
-    expect(keys('email', 'service_request')).toEqual([]);
-    expect(keys('email', 'access_request')).toEqual([]);
+  it('no longer asks whose account - the form-wide Requester field is that question (Oct 1)', () => {
+    ['incident', 'bug', 'service_request', 'access_request'].forEach((type) =>
+      expect(keys('email', type), type).toEqual([]));
+    // Retired, not deleted: tickets that answered it still read it back.
+    expect(SERVICE_FIELDS.email.find((f) => f.key === 'svc_account')?.retired).toBe(true);
   });
 
   it('asks the area-wide questions on every type except Other', () => {
