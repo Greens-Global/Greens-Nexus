@@ -3704,7 +3704,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
+        <div className="scroll-tabs" data-tour="documents-esign-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
           {tabs.map(([id, label]) => (
             <button key={id} onClick={() => switchSub(id)}
               style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === id ? 'var(--pine)' : 'transparent'}`, color: sub === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
@@ -3712,7 +3712,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             </button>
           ))}
         </div>
-        <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button className="primary-btn" data-tour="documents-send" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Send size={13} /> Send for Signature
         </button>
       </div>
