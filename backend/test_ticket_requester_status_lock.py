@@ -170,9 +170,16 @@ class RequesterStatusLockTests(unittest.TestCase):
         out = self._update(REQUESTER, status="reopened", reopen_reason="still broken")
         self.assertEqual(out["status"], "reopened")
 
-    def test_requester_can_reopen_a_closed_ticket(self):
+    def test_requester_cannot_reopen_a_closed_ticket(self):
+        # Oct 1: Reopen is while it is Resolved; closed is closed for good.
         self._ticket("closed")
-        out = self._update(REQUESTER, status="reopened", reopen_reason="came back")
+        with self.assertRaises(HTTPException) as ctx:
+            self._update(REQUESTER, status="reopened", reopen_reason="came back")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_the_desk_can_still_reopen_a_closed_ticket(self):
+        self._ticket("closed")
+        out = self._update(MANAGER, status="reopened", reopen_reason="came back")
         self.assertEqual(out["status"], "reopened")
 
     def test_requester_cannot_close_a_closed_ticket_straight_to_resolved(self):

@@ -981,7 +981,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # ticket Resolved (self_resolve, above) - "a colleague helped me".
     is_requester_only = _is_requester_only(db, t, user)
     if is_requester_only and "status" in data and not self_resolve:
-        allowed_transitions = {("resolved", "closed"), ("resolved", "reopened"), ("closed", "reopened")}
+        # Reopen is for a RESOLVED ticket only (Pranshu, Oct 1): once the
+        # requester has confirmed it - or it auto-closed - it is closed for
+        # good, and a problem that comes back is a new ticket. The desk can
+        # still reopen a closed one.
+        if t.status == "closed" and data["status"] == "reopened":
+            raise HTTPException(403, "This ticket is closed. If the problem is back, submit a new ticket.")
+        allowed_transitions = {("resolved", "closed"), ("resolved", "reopened")}
         if (t.status, data["status"]) not in allowed_transitions:
             raise HTTPException(403, "You can only resolve, close or reopen your ticket from here - other status changes are the desk's to make.")
         # Confirming a resolution rates the person who handled it, 1-5 stars
@@ -1177,7 +1183,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         ov, nv = prev_type_fields.get(key), new_type_fields.get(key)
         if ov != nv:
             # The help topic's "Which One?" reads by its on-screen name, not its key.
-            label = "Which One?" if key == "svc_helpSubtopic" else key
+            label = ("Which One?" if key == "svc_helpSubtopic"
+                     else ticket_taxonomy.question_label(db, key) or key)
             _log("field_changed", f'changed "{label}" from {_fmt_audit_value(ov)} to {_fmt_audit_value(nv)}')
     # The gate moving is a fact about the ticket, not a side effect to hide: log
     # it, and put a re-gated ticket back in front of the desk that has to route it.

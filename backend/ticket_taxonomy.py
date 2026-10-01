@@ -261,6 +261,78 @@ def _clean_options(topic: str, options: Any) -> list:
     return out
 
 
+# A topic's extra questions (Pranshu, Oct 1 2026): "Which facility?", "Which
+# camera or gate?" - added, edited and removed per topic in Help Topics. A
+# topic without `questions` asks its service area's compiled-in questions (the
+# frontend's SERVICE_FIELDS); with it, exactly these (an empty list = none).
+# Answers are stored on the ticket's typeFields under each `svc_` key.
+QUESTIONS_MAX = 6
+QUESTION_LABEL_MAX = 120
+QUESTION_KINDS = {"text", "textarea", "select", "site", "number", "date"}
+_KEY_RE = re.compile(r"^svc_[A-Za-z0-9_]{1,40}$")
+_RESERVED_KEYS = {"svc_helpSubtopic"}
+
+
+def _question_key(label: str, taken: set) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", label) or ["question"]
+    base = "svc_" + words[0].lower() + "".join(w.capitalize() for w in words[1:])
+    base = base[:44]
+    key, i = base, 2
+    while key in taken or key in _RESERVED_KEYS:
+        key, i = f"{base}{i}", i + 1
+    return key
+
+
+def _clean_questions(topic: str, questions: Any) -> list:
+    """A topic's extra questions, each {key, label, type, req, options?, types?}."""
+    if not isinstance(questions, list):
+        raise TaxonomyError(f"The questions of {topic!r} must be a list.")
+    out, taken = [], set()
+    for q in questions:
+        if not isinstance(q, dict):
+            raise TaxonomyError(f"Each question of {topic!r} must be an object.")
+        label = str(q.get("label") or "").strip()
+        if not label:
+            continue
+        if len(label) > QUESTION_LABEL_MAX:
+            raise TaxonomyError(f"The question {label[:40]!r}... is too long ({QUESTION_LABEL_MAX} characters max).")
+        kind = str(q.get("type") or "text").strip().lower()
+        if kind not in QUESTION_KINDS:
+            raise TaxonomyError(f"{label!r} has an unknown answer type {kind!r}.")
+        key = str(q.get("key") or "").strip()
+        if not _KEY_RE.match(key) or key in taken or key in _RESERVED_KEYS:
+            key = _question_key(label, taken)
+        taken.add(key)
+        clean = {"key": key, "label": label, "type": kind, "req": bool(q.get("req"))}
+        if kind == "select":
+            options = _clean_options(label, q.get("options") or [])
+            if not options:
+                raise TaxonomyError(f"The dropdown {label!r} needs at least one choice.")
+            clean["options"] = options
+        types = q.get("types")
+        if isinstance(types, list):
+            kept = [str(t).strip() for t in types if str(t).strip()][:20]
+            if kept:
+                clean["types"] = kept
+        placeholder = str(q.get("placeholder") or "").strip()
+        if placeholder:
+            clean["placeholder"] = placeholder[:QUESTION_LABEL_MAX]
+        out.append(clean)
+    if len(out) > QUESTIONS_MAX:
+        raise TaxonomyError(f"{topic!r} has too many questions ({QUESTIONS_MAX} max) - keep it quick to fill in.")
+    return out
+
+
+def question_label(db: Session, key: str) -> str:
+    """The label an admin gave a topic question, for the activity feed; "" if none."""
+    for g in get_config(db).get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            for q in tp.get("questions") or []:
+                if q.get("key") == key:
+                    return q.get("label") or ""
+    return ""
+
+
 def _clean_help_topics(groups: Any) -> list:
     if not isinstance(groups, list):
         raise TaxonomyError("helpTopics must be a list.")
@@ -280,6 +352,8 @@ def _clean_help_topics(groups: Any) -> list:
             options = _clean_options(name, tp.get("options"))
             if options:
                 topic["options"] = options
+            if "questions" in tp and tp["questions"] is not None:
+                topic["questions"] = _clean_questions(name, tp["questions"])
             topics.append(topic)
         out.append({"label": str(g.get("label") or "").strip(), "departments": depts, "topics": topics})
     return out
