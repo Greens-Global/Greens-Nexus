@@ -432,3 +432,43 @@ def escalated_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> 
         note="Action required.",
     )
     return subject, html
+
+
+# ── Teams chat message to the requester (Neil, Oct 1 2026) ──────────────────
+# Only three things reach a requester in Teams: their ticket was ASSIGNED, a
+# public REPLY from someone else (with what was said), or it was RESOLVED /
+# CLOSED (with the resolution). One message per save, however many of those
+# it carried. Status moves, priority and field edits stay in the bell and the
+# Support list - "we don't need any other Teams spam".
+
+def _has_text(raw: str) -> bool:
+    return bool(str(rich_to_email_html(raw or "", limit=10)).replace("<br>", "").strip())
+
+
+def requester_teams_dm_html(*, code: str, subject: str, link: str, actor_name: str = "",
+                            assigned_to: str = "", closed_status: str = "",
+                            resolution_note: str = "", comment: str = "") -> str:
+    """The HTML body of one Teams chat message, or "" when nothing in it is
+    news to the requester. One summary line per event, the reply or the
+    resolution quoted under it, and a short masked link ("Open Ticket #27")
+    instead of the raw URL. Every value is escaped; rich-text comment bodies
+    are reduced to text first (mail_text.rich_to_email_html), never pasted
+    in as markup."""
+    no = ticket_no(code) or "Ticket"
+    title = f'{escape(no)} "{escape(subject or "")}"'
+    parts = []
+    if assigned_to:
+        parts.append(f"<p>{title} has been assigned to {escape(assigned_to)}.</p>")
+    if closed_status in ("resolved", "closed"):
+        lead = "It" if parts else title
+        parts.append(f"<p>{lead} has been {closed_status}.</p>")
+        if _has_text(resolution_note):
+            parts.append(f"<p><b>Resolution:</b> {rich_to_email_html(resolution_note, limit=1500)}</p>")
+    if _has_text(comment):
+        who = escape(actor_name or "Someone")
+        lead = f"{who} replied:" if parts else f"{who} replied on {title}:"
+        parts.append(f"<p>{lead}</p><blockquote>{rich_to_email_html(comment, limit=2000)}</blockquote>")
+    if not parts:
+        return ""
+    parts.append(f'<p><a href="{escape(link, quote=True)}">Open {escape(no)}</a></p>')
+    return "".join(parts)

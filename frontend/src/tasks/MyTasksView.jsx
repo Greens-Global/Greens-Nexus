@@ -233,8 +233,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     // text, but the Due Date/Collaborators columns are mostly blank, so
     // there's nothing else to read the row boundary from and the divider
     // needs to actually show up. NX.border is the same 1px line, darker.
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
-      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = rowBg; }}>
+    // Hover: .nx-row-hover (style.css) - the whole-row highlight every list shares.
+    <div onClick={() => onOpen(t.id)} className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>

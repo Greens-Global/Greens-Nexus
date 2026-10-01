@@ -398,6 +398,30 @@ def _duration(start_iso: str, end_iso: str) -> str:
 
 # ── Main entry point - called from routers/tickets.py via BackgroundTasks ──
 
+def requester_hears(event_type: str, actor_email: str, requester_email: str, kw: dict | None = None) -> bool:
+    """Whether the requester gets an email for this event (Neil, Oct 1 2026 -
+    the same policy as their Teams messages, after a requester was messaged
+    every time an agent touched her ticket):
+
+    - created:  yes, always - the "we received your ticket" receipt, even
+                when they raised it themselves.
+    - anything they caused themselves: no (replying, reopening, confirming,
+                or resolving their own ticket - the desk and the assignee
+                still hear about it).
+    - assigned, resolved: yes.
+    - updated, reopened: only when the save carried a public reply
+                (`latest_comment`) - a status move, priority or field edit
+                alone is not mailed.
+    Other events (approval_required, escalated) never list the requester."""
+    if event_type == "created":
+        return True
+    if (actor_email or "").strip().lower() == (requester_email or "").strip().lower():
+        return False
+    if event_type in ("updated", "reopened"):
+        return bool((kw or {}).get("latest_comment"))
+    return True
+
+
 def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw) -> None:
     """event_type ∈ created|assigned|updated|resolved|reopened|approval_required|escalated.
     kw: prev_status, update_kind, latest_comment, reopen_reason (all optional,
@@ -413,10 +437,12 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
         cfg = get_settings(db)
         if not cfg["enabledEvents"].get(event_type, True):
             return
-        if event_type == "updated" and t.status in ("resolved", "closed"):
-            return   # spec: update emails stop once the ticket is resolved
+        if event_type == "updated" and t.status in ("resolved", "closed") and not kw.get("latest_comment"):
+            return   # spec: update emails stop once the ticket is resolved - a reply still goes
 
         recipients = _recipients_for(db, t, event_type, cfg)
+        if not requester_hears(event_type, actor_email, t.requester_email or "", kw):
+            recipients = [(e, r) for e, r in recipients if r != "requester"]
         # only_roles: caller wants a subset (e.g. decide_approval re-queues
         # "created" for just the IT Admins after releasing the approval gate,
         # without re-emailing the requester their submission receipt).

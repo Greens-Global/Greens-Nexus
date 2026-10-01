@@ -6,7 +6,7 @@
 // in WHICH order.
 //
 // No access gating here, unlike the Task/Ticket tours: Support shows the
-// same six cards and the same "my tickets" table to every signed-in person
+// same five cards and the same "my tickets" table to every signed-in person
 // regardless of role, so there is nothing to filter by `when`.
 //
 // Step shape (GuidedTour's contract):
@@ -17,18 +17,13 @@ export function buildSupportTourSteps() {
   return [
     {
       target: 'support-options',
-      title: 'Six shortcuts, one page',
-      body: 'Everything you might need help with starts from one of these cards. The two you will use most are Submit a Ticket and Report a Bug - the rest jump to the Contact Directory, Privacy Policy, Terms and the Documentation guide.',
+      title: 'Five shortcuts, one page',
+      body: 'Everything you might need help with starts from one of these cards. The one you will use most is Submit a Ticket - the rest jump to the Contact Directory, Privacy Policy, Terms and the Documentation guide.',
     },
     {
       target: 'support-submit-ticket',
       title: 'Submit a Ticket',
-      body: 'Raise an IT, HR, Facility or other request - the same form the Ticket module\'s own Create button opens, so you do not need that module\'s access to use it. Pick a type, answer only the questions that type needs, and it routes to the right person and gets a due date on its own.',
-    },
-    {
-      target: 'support-report-bug',
-      title: 'Report a Bug',
-      body: 'For something broken IN Nexus itself, not a request. Describe what happened and attach a screenshot or two if you have them - it goes in as its own ticket type, so whoever picks it up knows it is a bug, not a request.',
+      body: 'Raise an IT, HR, Facility or other request - the same form the Ticket module\'s own Create button opens, so you do not need that module\'s access to use it. It starts as an Incident (switch the type to Bug Report for something broken in Nexus itself, or to a request), you can raise it on behalf of a colleague, and it routes to the right person and gets a due date on its own.',
     },
     {
       target: 'support-documentation',
@@ -43,7 +38,7 @@ export function buildSupportTourSteps() {
     {
       target: 'support-options',
       title: 'That is the tour',
-      body: 'Submit a Ticket and Report a Bug cover almost everything - the rest of this page is there for the occasional Contact Directory lookup or a policy question. You can run this again any time from the profile menu\'s Tour row.',
+      body: 'Submit a Ticket covers almost everything - the rest of this page is there for the occasional Contact Directory lookup or a policy question. You can run this again any time from the profile menu\'s Tour row.',
     },
   ];
 }

@@ -494,7 +494,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
       // split Excel and every file manager make. A bare click still opens.
       if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); onPick(t.id, e); return; }
       onOpen(t.id);
-    }} data-task-row data-row-id={t.id} draggable
+    }} data-task-row data-row-id={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
@@ -505,9 +505,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // replacing the row.
         boxShadow: dropEdge === 'above' ? `inset 0 2px 0 ${groupColor}`
           : dropEdge === 'below' ? `inset 0 -2px 0 ${groupColor}` : 'none',
-      }}
-      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = rowBg; }}>
+      }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {cols.map((c) => <Fragment key={c.key}>{cells[c.key] ?? cfCell(c.key)}</Fragment>)}
         <div />
