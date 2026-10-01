@@ -275,7 +275,8 @@ export default function Support({ activeSub, onSubChange }) {
   const mineToAct = (t) => (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   // Every ticket the person it is FOR can see has an action: Mark Resolved
   // while it is still in flight (Neil, Oct 1), Confirm / Reopen once resolved.
-  const hasActions = listed.some(mineToAct);
+  // A closed ticket has none: Reopen is only while it is Resolved (Oct 1).
+  const hasActions = listed.some((t) => mineToAct(t) && t.status !== 'closed');
   // Mark Resolved: the requester's own optional-comment version - unless they
   // also work the ticket, who resolve it the desk's way (with a written
   // resolution). A manager's own ticket is theirs as a requester.
@@ -380,7 +381,7 @@ export default function Support({ activeSub, onSubChange }) {
               {listTab === 'open' ? 'Nothing open right now' : 'No closed tickets yet'}
             </div>
             <p style={{ fontSize: '0.85rem', margin: '0 0 14px' }}>
-              {listTab === 'open' ? 'Anything you submit shows up here with its status.' : 'Tickets you confirm as resolved move here, and you can reopen them.'}
+              {listTab === 'open' ? 'Anything you submit shows up here with its status.' : 'Tickets you confirm as resolved move here.'}
             </p>
             {listTab === 'open' && (
               <button className="primary-btn" onClick={() => setSubmitting(true)}>
@@ -497,11 +498,6 @@ export default function Support({ activeSub, onSubChange }) {
                             <RotateCcw size={13} /> Reopen
                           </button>
                         </>)}
-                        {!forOther && t.status === 'closed' && (
-                          <button type="button" onClick={() => setAction({ mode: 'reopen', ticket: t })} style={rowBtn}>
-                            <RotateCcw size={13} /> Reopen
-                          </button>
-                        )}
                       </div>
                     </Fragment>
                   );

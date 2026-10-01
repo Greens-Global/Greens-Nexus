@@ -552,7 +552,7 @@ export const DOCS = [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
           'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
           'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it. The requester is only messaged when their ticket is assigned, gets a reply (the message includes it), or is resolved or closed - other edits show in their bell only.',
-          'The requester confirms it (Confirm Resolution, then Done) and answers a 1 to 5 star satisfaction survey, or reopens it with a reason. The survey result shows at the top of the Overview tab of the ticket.',
+          'The requester confirms it (Confirm Resolution, then Done) and answers a 1 to 5 star satisfaction survey, or, while it is still Resolved, reopens it with a reason - once it is Closed it stays closed, and a problem that comes back is a new ticket. The survey result shows at the top of the Overview tab of the ticket.',
         ],
       },
       {
@@ -1255,7 +1255,7 @@ export const DOCS = [
       { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
       { name: 'Privacy Policy & Terms', desc: 'What Nexus collects, and the terms of use.' },
       { name: 'Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated and the latest comment. Sort, search and page through it, or mark one Resolved yourself.' },
-      { name: 'Closed Tickets', desc: 'Your finished tickets. Reopen one if the same problem comes back.' },
+      { name: 'Closed Tickets', desc: 'Your finished tickets, for reference. If the same problem comes back, submit a new ticket.' },
       { name: 'Documentation', desc: 'This guide.' },
     ],
     manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Support is the requester\'s side.'] },

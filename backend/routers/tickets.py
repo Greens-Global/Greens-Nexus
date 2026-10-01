@@ -981,7 +981,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # ticket Resolved (self_resolve, above) - "a colleague helped me".
     is_requester_only = _is_requester_only(db, t, user)
     if is_requester_only and "status" in data and not self_resolve:
-        allowed_transitions = {("resolved", "closed"), ("resolved", "reopened"), ("closed", "reopened")}
+        # Reopen is for a RESOLVED ticket only (Pranshu, Oct 1): once the
+        # requester has confirmed it - or it auto-closed - it is closed for
+        # good, and a problem that comes back is a new ticket. The desk can
+        # still reopen a closed one.
+        if t.status == "closed" and data["status"] == "reopened":
+            raise HTTPException(403, "This ticket is closed. If the problem is back, submit a new ticket.")
+        allowed_transitions = {("resolved", "closed"), ("resolved", "reopened")}
         if (t.status, data["status"]) not in allowed_transitions:
             raise HTTPException(403, "You can only resolve, close or reopen your ticket from here - other status changes are the desk's to make.")
         # Confirming a resolution rates the person who handled it, 1-5 stars

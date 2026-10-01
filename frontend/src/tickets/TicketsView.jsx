@@ -2748,7 +2748,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
                 <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
               </button>
             )}
-            <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
+                for the requester - the desk can still reopen one. */}
+            {(t.status === 'resolved' || canEditStatus) ? (
+              <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            ) : (
+              <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
+            )}
           </>
         )}
         {dirty && (

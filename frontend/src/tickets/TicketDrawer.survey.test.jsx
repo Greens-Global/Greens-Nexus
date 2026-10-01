@@ -76,6 +76,16 @@ describe('Confirm Resolution asks for a satisfaction survey on Done', () => {
     expect(updateTicket).not.toHaveBeenCalled();
   });
 
+  it('offers the requester Reopen while Resolved, and not once it is Closed', () => {
+    render(<TicketDrawer ticketId="t1" onClose={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Reopen' })).toBeTruthy();
+    cleanup();
+    current = RATED;
+    render(<TicketDrawer ticketId="t1" onClose={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Reopen' })).toBeNull();
+    expect(screen.getByText(/if the problem is back, submit a new ticket/)).toBeTruthy();
+  });
+
   it('shows the survey result at the top of Overview once rated', () => {
     current = RATED;
     render(<TicketDrawer ticketId="t1" onClose={vi.fn()} />);
