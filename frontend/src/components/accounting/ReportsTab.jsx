@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
+import { useIsMobile } from '../../lib/useIsMobile';
 import LedgerSearch from './LedgerSearch';
 import SavedReportsManager from './SavedReportsManager';
 import SendReportDialog from './SendReportDialog';
@@ -236,6 +237,16 @@ export default function ReportsTab({ search = null }) {
     }
   };
 
+  // On a phone (Oct 1, Neil) the search box comes first and full width, the
+  // report picker stays, and every other control folds behind one Filters
+  // button that counts the filters in force. Desktop is unchanged.
+  const isPhone = useIsMobile('(max-width: 640px)');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const showControls = !isPhone || moreOpen;
+  // What the folded controls hold that is not the default: the entity,
+  // department, account picks (the chips) and a book other than accrual.
+  const folded = (c) => c.length + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0);
+
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report);
@@ -261,7 +272,7 @@ export default function ReportsTab({ search = null }) {
     <div style={shell}>
       {/* One slim row: search, then every control as a dropdown. */}
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
+        <div style={{ position: 'relative', flex: isPhone ? '1 1 100%' : '1 1 240px', minWidth: 0, maxWidth: isPhone ? 'none' : 460 }}>
           {waiting
             ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
@@ -271,10 +282,18 @@ export default function ReportsTab({ search = null }) {
           {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
         </div>
 
-        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600 }}>
+        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600, flex: isPhone ? '1 1 auto' : undefined, minWidth: 0 }}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
 
+        {isPhone && (
+          <button type="button" className="secondary-btn" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-controls="acct-report-controls"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px', fontWeight: folded(chips) ? 600 : 400 }}>
+            {moreOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Filters{folded(chips) ? ` (${folded(chips)})` : ''}
+          </button>
+        )}
+
+        {showControls && (<div id="acct-report-controls" style={{ display: 'contents' }}>
         <PeriodStepper config={config} period={def.period} onChange={patch} />
 
         {showColumns && (
@@ -315,6 +334,7 @@ export default function ReportsTab({ search = null }) {
             {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
+        </div>)}
       </div>
 
       {changed && !searching && (

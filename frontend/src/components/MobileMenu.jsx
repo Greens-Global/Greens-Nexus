@@ -9,6 +9,10 @@ import { NAV } from './Sidebar';
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
 // (Dashboard, Tasks, Asset Management, Investor Relations…) navigate directly.
+// Accounting left this list on Oct 1 (Neil): its one-row folder made every
+// visit two taps and only ever reached Reports; a tap now lands on the first
+// tab the person may see (Overview, or Reports for entity-limited readers),
+// exactly like the desktop sidebar, with the tab strip pinned under the header.
 export const SUBMENUS = {
   // Staff have My Shifts (their week + their team) and Requests.
   shifts: {
@@ -50,9 +54,6 @@ export const SUBMENUS = {
     { sub: 'fms',        label: 'FMS Integration' },
     { sub: 'reputation', label: 'Reputation Management' },
     { sub: 'site-staff', label: 'Site Staff & Scheduling' },
-  ],
-  accounting: [
-    { sub: 'reports',        label: 'Reports' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },
