@@ -581,7 +581,7 @@ export const DOCS = [
       title: 'Desk Leads & Admins',
       points: [
         'To Route holds new tickets waiting for an owner. To Approve holds tickets waiting on your approval.',
-        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in, and switch off any department that should not take tickets), Notifications, SLA & Ticket Types (intake questions and SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department and each optional Which One? list).',
+        'Settings > Global Settings > Notifications & Communications has the Ticket Manager section, with tabs for Routing & Escalation (default agents, and departments - drag the grip to set the order requesters see them in, and switch off any department that should not take tickets), Notifications, SLA & Ticket Types (the five ticket types - Incident, Bug Report, Feature Request, Access Request and Other - each with its label, hint and questions, switched on or off for Submit a Ticket, at least one on; SLA hours; drag types and questions to reorder), and Help Topics (the "What do you need help with?" choices for each department and each optional Which One? list).',
         'Departments are the company\'s own list from Settings > Company Settings - the same one Tasks uses. Add, rename or delete them there; the Ticket Manager only turns each one on or off for tickets.',
         'Reports shows recurring issues, so you can fix the cause, not just the ticket.',
       ],

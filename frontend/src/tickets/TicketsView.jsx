@@ -29,7 +29,7 @@ import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
 import {
-  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
+  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
@@ -232,7 +232,9 @@ const GROUP_BY_OPTIONS = [
 // hand-written <option> list of the same choices.
 const statusOptions = () => TICKET_STATUS_ORDER.map((s) => [s, TICKET_STATUS_META[s].label]);
 const priorityOptions = () => PRIORITY_ORDER.map((p) => [p, PRIORITY_META[p].label]);
-const typeOptions = () => TICKET_TYPE_ORDER.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
+// The list's Type filter: all five, on or off - a type switched off at intake
+// still has its tickets to find.
+const typeOptions = () => TICKET_TYPE_KEYS.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
 // Same list, each with its plain-English definition under it in the open
 // dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
 // ticket) actually picks one.
@@ -3356,7 +3358,8 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
   const stats = useMemo(() => {
     const open = tickets.filter((t) => !CLOSED_STATES.includes(t.status));
     const byStatus = TICKET_STATUS_ORDER.map((s) => ({ label: TICKET_STATUS_META[s].label, value: tickets.filter((t) => t.status === s).length, color: TICKET_STATUS_META[s].color })).filter((d) => d.value > 0);
-    const byType = TICKET_TYPE_ORDER.map((ty) => ({ label: TICKET_TYPE_META[ty].label, value: tickets.filter((t) => (t.type || 'request') === ty).length, color: TICKET_TYPE_META[ty].color })).filter((d) => d.value > 0);
+    // Every type that has tickets - a type switched off, or retired, still counts.
+    const byType = Object.keys(TICKET_TYPE_META).map((ty) => ({ label: TICKET_TYPE_META[ty].label, value: tickets.filter((t) => (t.type || 'request') === ty).length, color: TICKET_TYPE_META[ty].color })).filter((d) => d.value > 0);
     const byPriority = PRIORITY_ORDER.map((p) => ({ label: PRIORITY_META[p].label, value: tickets.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
     const PAL = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
     // top assignees among open tickets

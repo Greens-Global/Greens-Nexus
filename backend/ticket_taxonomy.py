@@ -186,6 +186,29 @@ def _upgrade_help_topics(groups: list) -> list:
     return out
 
 
+# The five ticket types (Pranshu, Oct 1 2026) - the only ones Settings lists
+# and the only ones intake can switch on. Mirrors TICKET_TYPE_KEYS in
+# frontend/src/tickets/ticketMeta.js. Tickets already raised as a retired type
+# (service_request, change_request, task, question, request) keep it.
+TICKET_TYPES = ("incident", "bug", "feature_request", "access_request", "other")
+
+
+def _clean_type_order(order: Any):
+    """The intake order as saved: only the five, each once. None = default."""
+    if order is None:
+        return None
+    if not isinstance(order, list):
+        raise TaxonomyError("typeOrder must be a list.")
+    out = []
+    for k in order:
+        k = str(k or "").strip()
+        if k in TICKET_TYPES and k not in out:
+            out.append(k)
+    if not out:
+        raise TaxonomyError("Keep at least one ticket type on for Submit a Ticket.")
+    return out
+
+
 class TaxonomyError(ValueError):
     """A save patch the server refuses - the router turns it into a 400."""
 
@@ -393,7 +416,10 @@ def get_config(db: Session) -> dict:
     merged["types"] = {k: dict(v) for k, v in (cfg.get("types") or {}).items() if isinstance(v, dict)}
     _fill_approval_defaults(merged["types"])
     if isinstance(cfg.get("typeOrder"), list):
-        merged["typeOrder"] = cfg["typeOrder"]
+        # An order saved before Oct 1 may name a retired type - read only the
+        # five back; none of them left means the default order.
+        kept = [k for i, k in enumerate(cfg["typeOrder"]) if k in TICKET_TYPES and k not in cfg["typeOrder"][:i]]
+        merged["typeOrder"] = kept or None
     if isinstance(cfg.get("helpTopics"), list):
         merged["helpTopics"] = cfg["helpTopics"]
         if not isinstance(cfg.get("helpTopicsVersion"), int) or cfg["helpTopicsVersion"] < HELP_TOPICS_VERSION:
@@ -421,7 +447,7 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
         merged["types"] = {**merged["types"], **{k: dict(v) for k, v in patch["types"].items()}}
         _fill_approval_defaults(merged["types"])
     if "typeOrder" in patch:
-        merged["typeOrder"] = patch["typeOrder"]
+        merged["typeOrder"] = _clean_type_order(patch["typeOrder"])
     if "helpTopics" in patch:
         merged["helpTopics"] = _clean_help_topics(patch["helpTopics"])
     if "companyField" in patch and isinstance(patch["companyField"], dict):
