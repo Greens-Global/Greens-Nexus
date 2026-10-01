@@ -513,14 +513,12 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
             </div>
           );
           return (
-            <div key={p.id} onClick={() => onOpen(p.id)} className="stack-table-row"
+            <div key={p.id} onClick={() => onOpen(p.id)} className="stack-table-row nx-row-hover"
               style={{
                 display: 'grid', gridTemplateColumns: cols, gap: isMobile ? 6 : 12, alignItems: 'center',
                 padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
                 cursor: 'pointer', opacity: p.archived ? 0.62 : 1, background: rowBg,
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
-              onMouseLeave={(e) => (e.currentTarget.style.background = rowBg)}>
+              }}>
 
               {/* Cells are keyed and rendered in the header's order, not in
                   source order - once columns can be dragged, a row that renders

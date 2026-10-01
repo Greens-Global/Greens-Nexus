@@ -331,7 +331,7 @@ const SHOTS = {
     ),
   },
   support: {
-    legend: ['Submit a Ticket - help from any team', 'My Open Tickets - click a row to follow up', 'Documentation tab - this guide'],
+    legend: ['Submit a Ticket - help from any team', 'Open Tickets - click a row to follow up', 'Documentation tab - this guide'],
     render: () => (
       <Frame title="Support" tabs={['Help Center', 'Documentation']} active="Help Center" activeRail={5} tabMark={3} markedTab="Documentation">
         <Row style={{ alignItems: 'stretch' }} gap={10}>
@@ -350,7 +350,7 @@ const SHOTS = {
         </Row>
         <Mark n={2} block style={{ marginTop: 14 }}>
           <Card style={{ padding: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>My Open Tickets</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Open Tickets</div>
             <Row><span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)' }}>#000231</span><span style={{ flex: 1, fontSize: 10, color: 'var(--ink)' }}>Laptop will not charge</span><span style={pill('blue')}>New</span></Row>
           </Card>
         </Mark>

@@ -364,12 +364,10 @@ function TaskRow({ t, store, selected, toggleSel, onOpen, band = false }) {
   const overdue = t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10) && !t.completed;
   const rowBg = selected.has(t.id) ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
   return (
-    <div onClick={() => onOpen(t.id)} data-task-row style={{
+    <div onClick={() => onOpen(t.id)} data-task-row className="nx-row-hover" data-selected={selected.has(t.id) ? 'true' : undefined} style={{
       display: 'grid', gridTemplateColumns: '26px 26px 1fr auto auto auto', alignItems: 'center', gap: 10,
       padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
-    }}
-      onMouseEnter={(e) => { if (!selected.has(t.id)) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!selected.has(t.id)) e.currentTarget.style.background = rowBg; }}>
+    }}>
       <input type="checkbox" checked={selected.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
       <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} title="Toggle Complete" style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>
         {t.completed ? <CheckCircle2 size={19} /> : <Circle size={19} />}

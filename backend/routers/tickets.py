@@ -183,6 +183,61 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
+# ── Latest comment (the list's last column - Neil, Oct 1 2026) ───────────────
+# The most recent reply on each ticket, so the queue can be read without
+# opening every row. ONE query for the whole list, never one per ticket: the
+# newest created_at per ticket in a grouped subquery, joined back for the row.
+# Joined to task_tickets because the comment table is shared with tasks.
+#
+# Internal notes never leave the desk. `internal_ok=False` drops them BEFORE
+# the "newest" is picked (so a public reply older than an internal note still
+# shows, rather than nothing); list_tickets only asks for internal ones for a
+# caller who would see them in the drawer too (same rule as
+# list_ticket_comments) - a requester always gets the public thread only.
+def _latest_comments(db: Session, internal_ok: bool, ticket_id: str | None = None) -> dict:
+    C = models.TaskComment
+
+    def _scoped(q):
+        if not internal_ok:
+            q = q.filter((C.internal.is_(False)) | (C.internal.is_(None)))
+        if ticket_id is not None:
+            q = q.filter(C.task_id == ticket_id)
+        return q
+
+    newest = _scoped(db.query(C.task_id.label("tid"), func.max(C.created_at).label("mx"))
+                     .join(models.TaskTicket, models.TaskTicket.id == C.task_id)
+                     ).group_by(C.task_id).subquery()
+    rows = _scoped(db.query(C.task_id, C.author_email, C.body, C.created_at, C.internal)
+                   .join(newest, (C.task_id == newest.c.tid) & (C.created_at == newest.c.mx))).all()
+    out: dict = {}
+    for tid, author, body, created, internal in rows:
+        if tid in out:   # two replies in the same instant - either is "the latest"
+            continue
+        out[tid] = {"authorId": _nz((author or "").lower()), "preview": _comment_preview(body or "", 160),
+                    "createdAt": created or "", "internal": bool(internal)}
+    return out
+
+
+def _sees_internal(db: Session, t: models.TaskTicket, user: dict, desk: bool) -> bool:
+    """list_ticket_comments' rule, per ticket: the desk sees internal notes,
+    except on a ticket they raised themselves (unless they work it or are a
+    manager)."""
+    if not desk:
+        return False
+    email = (user.get("email") or "").lower()
+    return (email != (t.requester_email or "").lower()
+            or email == (t.assignee_email or "").lower()
+            or _ticket_privileged(db, t, user))
+
+
+def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict) -> dict:
+    """One ticket's dict with its latestComment - for update_ticket's reply,
+    which replaces the row in the list (it would otherwise blank the column)."""
+    internal_ok = _sees_internal(db, t, user, _has_desk_grant(user, db))
+    d["latestComment"] = _latest_comments(db, internal_ok, ticket_id=t.id).get(t.id)
+    return d
+
+
 # ── Approval workflow rules ──────────────────────────────────────────────────
 # Which types are gated is an admin switch per type (Sep 2026) - the
 # `requiresApproval` flag in the ticket taxonomy config, read through
@@ -612,7 +667,17 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         rows = [t for t in rows
                 if (t.requester_email or "").lower() == me
                 or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
-    return [ticket_to_dict(t) for t in rows]
+    # Latest comment per ticket - at most two queries for the whole list (the
+    # public thread, plus the full one only when the caller is on the desk).
+    desk = _has_desk_grant(user, db)
+    public_latest = _latest_comments(db, internal_ok=False)
+    any_latest = _latest_comments(db, internal_ok=True) if desk else public_latest
+    out = []
+    for t in rows:
+        d = ticket_to_dict(t)
+        d["latestComment"] = (any_latest if _sees_internal(db, t, user, desk) else public_latest).get(t.id)
+        out.append(d)
+    return out
 
 
 def _valid_requester(db: Session, user: dict, requested: str | None) -> str:
@@ -768,6 +833,28 @@ _ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
 # What the requester may still send once their ticket has left Open: the
 # confirm / reopen move and the rating that goes with confirming.
 _REQUESTER_AFTER_OPEN_FIELDS = {"status", "csat_rating", "csat_comment"}
+# What a requester resolving their own ticket may send (Neil, Oct 1 2026: "a
+# colleague helped me" - they can mark it Resolved while it is still Open or
+# being worked). The status itself and the note; the optional "What fixed it?"
+# rides as the save's `comment`, which only ever needs participation.
+_REQUESTER_RESOLVE_FIELDS = {"status", "resolution_note"}
+
+
+def _is_requester_only(db: Session, t: models.TaskTicket, user: dict) -> bool:
+    """The person who raised it - and nothing more: not also its assignee, not
+    a manager. This is who the narrower status rules in update_ticket apply to."""
+    email = (user.get("email") or "").lower()
+    return ((t.requester_email or "").lower() == email
+            and email != (t.assignee_email or "").lower()
+            and not _ticket_privileged(db, t, user))
+
+
+def _requester_self_resolve(db: Session, t: models.TaskTicket, user: dict, data: dict) -> bool:
+    """Is this save the requester marking their own still-active ticket
+    Resolved? Only that move - an already resolved/closed ticket has its own
+    Confirm / Reopen flow."""
+    return (data.get("status") == "resolved" and (t.status or "open") not in ("resolved", "closed")
+            and _is_requester_only(db, t, user))
 
 
 def _may_patch_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
@@ -849,6 +936,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # endpoint - never the field-edit scope below.
         _require_ticket_participant(db, user, t)
     scope = _ticket_edit_scope(db, t, user)
+    # A requester marking their own ticket Resolved may do so whatever state
+    # it is in and whoever holds it - but only that: the status and its note
+    # widen the scope, nothing else does (an in-progress ticket still refuses
+    # every other field from them).
+    self_resolve = _requester_self_resolve(db, t, user, data)
+    if self_resolve and scope is not None:
+        scope = scope | _REQUESTER_RESOLVE_FIELDS
     if scope is not None:
         blocked = sorted(set(data.keys()) - scope)
         if blocked:
@@ -877,14 +971,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # canEditStatus in TicketsView.jsx, which hides the raw dropdown for them
     # the same way - keep the two in step. Privileged/assignee callers are
     # untouched; this only narrows the pure requester.
-    email = (user.get("email") or "").lower()
-    is_requester_only = ((t.requester_email or "").lower() == email
-                         and email != (t.assignee_email or "").lower()
-                         and not _ticket_privileged(db, t, user))
-    if is_requester_only and "status" in data:
+    # The one exception (Neil, Oct 1 2026): they may mark their own still-active
+    # ticket Resolved (self_resolve, above) - "a colleague helped me".
+    is_requester_only = _is_requester_only(db, t, user)
+    if is_requester_only and "status" in data and not self_resolve:
         allowed_transitions = {("resolved", "closed"), ("resolved", "reopened"), ("closed", "reopened")}
         if (t.status, data["status"]) not in allowed_transitions:
-            raise HTTPException(403, "You can only close or reopen your ticket from here - other status changes are the desk's to make.")
+            raise HTTPException(403, "You can only resolve, close or reopen your ticket from here - other status changes are the desk's to make.")
         # Confirming a resolution rates the person who handled it, 1-5 stars
         # (Neil, Sep 30: "you need to give them stars... comments are
         # optional") - that rating is how the desk's work gets tracked.
@@ -899,6 +992,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # what the resolution of the ticket is") - it is the record of what fixed
     # it the next time the same issue comes in. Resolved -> Closed (the
     # requester confirming) is not a new resolution, so it is not asked again.
+    # A requester resolving their own ticket is not asked for a write-up (the
+    # "What fixed it?" comment is optional); the note records that it was
+    # them, and what they said when they said anything.
+    if self_resolve and not (data.get("resolution_note") or "").strip():
+        said = _comment_preview(comment_body, 1900) if comment_body else ""
+        data["resolution_note"] = (f"Resolved by the requester: {said}" if said and said != "(no text)"
+                                   else "Resolved by the requester.")
     note = data["resolution_note"] if "resolution_note" in data else t.resolution_note
     if (data.get("status") in ("resolved", "closed") and t.status not in ("resolved", "closed")
             and not (note or "").strip()):
@@ -1176,7 +1276,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         if dm_row is not None:
             background_tasks.add_task(_deliver_teams_dm, dm_row.id)
 
-    return ticket_to_dict(t)
+    # With its latest comment: this reply replaces the row in the list, and a
+    # reply sent with the save is the newest comment now.
+    return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
 @router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])

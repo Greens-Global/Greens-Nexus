@@ -50,6 +50,8 @@ import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
+import { LatestCommentPreview, latestCommentText } from './LatestComment';
+import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -74,7 +76,10 @@ const TICKET_VIEW_TABS = [
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
-  { key: 'title', label: 'Title', width: 260, sort: (t) => (t.subject || '').toLowerCase() },
+  // minWidth: a floor even under a width someone dragged - the title is what
+  // the row IS, and it must never be squeezed to nothing to make room for
+  // another column (Neil, Oct 1).
+  { key: 'title', label: 'Title', width: 260, minWidth: 200, sort: (t) => (t.subject || '').toLowerCase() },
   { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
@@ -85,6 +90,9 @@ const TICKET_COLUMNS = [
   { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
   { key: 'assignee', label: 'Assigned To', width: 150, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
+  // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
+  // enough by default for a name and a line of the preview; sorts by when.
+  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, sort: (t) => t.latestComment?.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── What do you need help with? ──────────────────────────────────────────────
@@ -206,7 +214,7 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description'];
+  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
     t.application || '', serviceAreaLabel(t.serviceArea) || '',
@@ -215,6 +223,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
     t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
+    latestCommentText(t.latestComment, nameOf),
   ]);
   const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -510,6 +519,10 @@ export default function TicketsView() {
   const [view, setView] = useState('list');   // 'list' | 'board' | 'reports'
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
+  // Which drawer tab to land on - the Latest Comment cell opens straight onto
+  // the Conversation (Neil, Oct 1).
+  const [openTab, setOpenTab] = useState(null);
+  const openTicket = (id, tab = null) => { setOpenTab(tab); setOpenId(id); };
   const [selected, setSelected] = useState(() => new Set());
 
   // A screen recording that ended while the user was on ANOTHER view navigates
@@ -736,7 +749,10 @@ export default function TicketsView() {
   // Resolving needs a written resolution now (Neil, Sep 30), so every quick
   // path into Resolved/Closed - the row's status cell, a board drag, the bulk
   // bar - opens the Resolve dialog instead of saving straight away.
-  const [resolveReq, setResolveReq] = useState(null);   // { ids, status }
+  const [resolveReq, setResolveReq] = useState(null);   // { ids, status, mode? }
+  // The row's Mark Resolved: `mode` is 'self_resolve' for the requester (an
+  // optional "What fixed it?") or 'resolve' for the desk (a written resolution).
+  const requestResolve = (tk, mode = 'resolve') => setResolveReq({ ids: [tk.id], status: 'resolved', mode });
   const guardedUpdate = (id, patch) => {
     const tk = tickets.find((x) => x.id === id);
     if (patch?.status && needsResolution(tk, patch.status)) {
@@ -883,7 +899,9 @@ export default function TicketsView() {
                 scope on the way in - otherwise a card reading 4 opens a list of
                 1 because "My Requests" was still selected, and the number looks
                 broken. */}
-            {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
+            {/* The Open status color (ticketMeta's TICKET_STATUS_META) - not
+                blue, which no status uses any more (Neil, Oct 1). */}
+            {tile('Open', TICKET_STATUS_META.open.tint, TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
             {/* Red once there's actually a backlog - purple read as "just an
@@ -900,7 +918,7 @@ export default function TicketsView() {
             {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); },
               statusFilter === 'resolved')}
-            {tile('Closed', 'rgba(100,116,139,0.16)', '#475569', closedCount, 'done and filed',
+            {tile('Closed', TICKET_STATUS_META.closed.tint, TICKET_STATUS_META.closed.color, closedCount, 'done and filed',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'closed' ? 'all' : 'closed'); },
               statusFilter === 'closed')}
           </div>
@@ -927,7 +945,8 @@ export default function TicketsView() {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -947,7 +966,8 @@ export default function TicketsView() {
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -989,7 +1009,8 @@ export default function TicketsView() {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -1011,7 +1032,8 @@ export default function TicketsView() {
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -1067,9 +1089,9 @@ export default function TicketsView() {
       )}
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
-      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
+      {openId && <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} onClose={() => { setOpenId(null); setOpenTab(null); }} />}
       {resolveReq && (
-        <TicketActionDialog mode="resolve" targetStatus={resolveReq.status}
+        <TicketActionDialog mode={resolveReq.mode || 'resolve'} targetStatus={resolveReq.status}
           ticket={resolveReq.ids.length === 1 ? tickets.find((x) => x.id === resolveReq.ids[0]) : null}
           onSubmit={async (p) => {
             // Bulk: one resolution for all of them, each still refused
@@ -1231,11 +1253,12 @@ function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryCo
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, checked, onToggle, cols, band = false }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false }) {
   const isMobile = useIsMobile();
-  // Resting background: selection wins, then the zebra band (same NX.zebra /
-  // NX.hover pair the task list rows use). Selected tint matches the task
-  // list's row-select highlight exactly, rather than a plain surface swap.
+  const [assigning, setAssigning] = useState(false);
+  // Resting background: selection wins, then the zebra band. Hover is the
+  // .nx-row-hover class (style.css) - the Accounting ledger's whole-row
+  // highlight, layered over both (Neil, Oct 1).
   const rowBg = checked ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
   // Every cell shares this base (minHeight/padding/border) - the same cellPad
   // contract the task rich-list rows use, so the two grids read identically.
@@ -1261,6 +1284,17 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   const rowRequesterLocked = rowIsRequester && !rowPrivileged && t.status !== 'open';
   const rowLocked = t.status === 'in_progress' && !!t.assigneeId;
   const canWorking = rowPrivileged || (!rowRequesterLocked && (rowLocked ? rowIsAssignee : true));
+  // Mark Resolved from the row (Neil, Oct 1): the person who raised it may
+  // resolve their own still-active ticket whatever its state ("a colleague
+  // helped me" - optional comment, no write-up); anyone who can work it gets
+  // the desk's Resolve dialog. Mirrors _requester_self_resolve server-side.
+  const rowRequesterOnly = rowIsRequester && !rowPrivileged && !rowIsAssignee;
+  const canResolveRow = !!onResolve && !CLOSED_STATES.includes(t.status) && (rowRequesterOnly || canWorking);
+  const resolveRow = (e) => { e.stopPropagation(); onResolve(t, rowRequesterOnly ? 'self_resolve' : 'resolve'); };
+  // Assigning is the desk's (the drawer hides Assign To from a requester on an
+  // Open ticket) and waits for any approval - the same gates as the drawer.
+  const canAssignRow = isMobile && !!people && canWorking && !rowRequesterOnly
+    && t.approvalStatus !== 'pending' && !CLOSED_STATES.includes(t.status);
 
   // Phones: two stacked lines instead of eight columns. Subject leads; the chips
   // and the assignee wrap underneath. Requester, the separate SLA date column and
@@ -1268,7 +1302,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   // and bulk edit is a desktop job.
   if (isMobile) {
     return (
-      <div onClick={onOpen} style={{
+      <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
         borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
@@ -1284,6 +1318,12 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
+          {canResolveRow && (
+            <button type="button" onClick={resolveRow} title="Mark Resolved" aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}
+              style={{ ...btn('outline'), flexShrink: 0, padding: '5px 8px', fontSize: 12, gap: 4, color: NX.green, minHeight: 32 }}>
+              <CheckCircle2 size={14} /> Resolve
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <TicketStatusChip status={t.status} />
@@ -1296,13 +1336,38 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
               <staleM.Icon size={11} />
             </span>
           )}
-          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-            {t.assigneeId
-              ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
-                  <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
-              : <UnassignedAvatar size={20} />}
-          </span>
+          {/* Tap to assign right from the card (Neil, Oct 1: assigning "is
+              not working for me on mobile") - a bottom sheet, saved at once
+              like the desktop list's inline Status/Priority. Only for someone
+              who could assign it in the drawer. */}
+          {canAssignRow ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); setAssigning(true); }}
+              aria-label={t.assigneeId ? `Assigned to ${nameOf(t.assigneeId) || t.assigneeId} - change` : 'Assign this ticket'}
+              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, minHeight: 32, padding: '3px 8px 3px 4px',
+                border: `1px solid ${NX.border}`, borderRadius: 999, background: NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+              {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} card={false} /> : <UnassignedAvatar size={22} />}
+              <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.blue, fontWeight: t.assigneeId ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                {t.assigneeId ? nameOf(t.assigneeId) || t.assigneeId : 'Assign'}
+              </span>
+              <ChevronDown size={13} style={{ color: NX.faint, flexShrink: 0 }} />
+            </button>
+          ) : (
+            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              {t.assigneeId
+                ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
+                    <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
+                : <UnassignedAvatar size={20} />}
+            </span>
+          )}
         </div>
+        {t.latestComment && (
+          <LatestCommentPreview compact comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+        )}
+        {assigning && (
+          <TicketAssignSheet value={t.assigneeId || ''} people={people}
+            onPick={(email) => { updateTicket(t.id, { assigneeId: email || '' }).catch((err) => alert(`Could not assign: ${err.message || err}`)); }}
+            onClose={() => setAssigning(false)} />
+        )}
       </div>
     );
   }
@@ -1399,20 +1464,33 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
     ),
+    latestComment: (
+      <div style={{ ...cell, overflow: 'hidden', padding: '0 10px' }}>
+        <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+      </div>
+    ),
+    // The resolved gutter doubles as the row's Mark Resolved action: a faint
+    // outline check on a ticket still in flight (solid green once on hover),
+    // the filled green check once it is resolved.
     resolved: (
-      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none' }}>
-        {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />}
+      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none', padding: 0 }}>
+        {t.resolvedAt
+          ? <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
+          : canResolveRow && (
+            <button type="button" className="nx-row-resolve" onClick={resolveRow} title="Mark Resolved"
+              aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}>
+              <CheckCircle2 size={16} />
+            </button>
+          )}
       </div>
     ),
   };
 
   return (
-    <div onClick={onOpen} style={{
+    <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
       display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch',
       borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
-    }}
-      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = rowBg; }}>
+    }}>
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
@@ -2102,6 +2180,10 @@ export function CreateTicketModal({ onClose }) {
 //   confirm - the requester rates how it was handled, 1-5 stars ("you need to
 //             give them stars... comments are optional"). Stars required.
 //   reopen  - the requester says why it is not fixed.
+//   self_resolve - the requester marks their own ticket Resolved while it is
+//             still Open or being worked (Neil, Oct 1: "a colleague helped
+//             me"). "What fixed it?" is optional and goes out as a public
+//             reply; the server records the resolution as theirs.
 // A dialog rather than window.prompt so the rating can be stars and the note
 // can be more than one line. `onSubmit(patch)` does the save and returns a
 // promise; the caller decides how (the TasksContext store, or Support's api).
@@ -2114,8 +2196,10 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
-  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1 : !reason.trim();
+  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1
+    : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
+    : mode === 'self_resolve' ? 'Mark Resolved'
     : mode === 'confirm' ? 'Confirm Resolution' : 'Reopen Ticket';
   const go = async () => {
     if (busy) return;
@@ -2123,6 +2207,8 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
     setBusy(true);
     const patch = mode === 'resolve'
       ? { status: targetStatus, resolution, resolutionNote: note.trim() }
+      : mode === 'self_resolve'
+        ? { status: 'resolved', ...(comment.trim() ? { comment: textToHtml(comment) } : {}) }
       : mode === 'confirm'
         ? { status: 'closed', csatRating: rating, csatComment: comment.trim() }
         : { status: 'reopened', reopen_reason: reason.trim() };
@@ -2134,7 +2220,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       <>
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy}>
-          {busy ? 'Saving…' : mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
+          {busy ? 'Saving…' : (mode === 'resolve' || mode === 'self_resolve') ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
             : mode === 'confirm' ? 'Confirm' : 'Reopen'}
         </button>
       </>
@@ -2158,6 +2244,17 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
             options={TICKET_RESOLUTION.map((r) => [r.key, r.label])} />
         </div>
       </>)}
+      {mode === 'self_resolve' && (
+        <div style={field}>
+          <label style={label}>What fixed it? (optional)</label>
+          <textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+            placeholder="e.g. A colleague showed me how to reconnect the printer."
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            Posted on the ticket's conversation so the team knows. You can still reopen it if the problem comes back.
+          </div>
+        </div>
+      )}
       {mode === 'confirm' && (<>
         <div style={field}>
           <label style={label}>How was your ticket handled? <span style={{ color: NX.red }}>*</span></label>
@@ -2196,6 +2293,12 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
     </Modal>
   );
 }
+
+// Plain text from a dialog going out as a reply - escaped, one <p> per line,
+// the same shape the rich editor writes.
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+const textToHtml = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  .map((l) => `<p>${escapeHtml(l)}</p>`).join('');
 
 // Does moving this ticket to `status` need the Resolve dialog? Any move INTO
 // Resolved/Closed from a status that is still being worked.
@@ -2247,7 +2350,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 // module for someone without the desk grant.
 // `startEditing` opens straight into the title/description editor - the
 // Support list's pencil (Neil, Sep 30) lands here.
-export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
+export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
@@ -2258,7 +2361,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
-  const [tab, setTab] = useState('overview');
+  // initialTab: the list's Latest Comment cell lands on the Conversation.
+  const [tab, setTab] = useState(initialTab || 'overview');
   // Up here with the other hooks, and NOT next to canRequestControl where it is
   // used, because `if (!t) return null` sits between the two: a hook after that
   // return runs on some renders and not others, which is the one thing React
@@ -2409,6 +2513,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // privileged) keeps normal dropdown access; this only takes it away from a
   // requester who isn't.
   const canEditStatus = canWorking && !(isRequester && !privileged && !isAssignee);
+  // Just the person who raised it - not working it, not a manager.
+  const requesterOnly = isRequester && !privileged && !isAssignee;
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
@@ -2464,7 +2570,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // own change (Confirm / Reopen) that goes out with the rest.
   const commit = async (extra = {}) => {
     const body = { ...pending, ...extra };
-    if (hasReply) { body.comment = reply.body; body.comment_internal = reply.internal; }
+    if (hasReply) {
+      // A reply being written AND a dialog's own comment (Mark Resolved's
+      // "What fixed it?") go out as one reply, the dialog's line last.
+      body.comment = extra.comment ? `${reply.body}${extra.comment}` : reply.body;
+      body.comment_internal = reply.internal;
+    }
     if (!Object.keys(body).length) return;
     await updateTicket(t.id, body);
     setPending({});
@@ -2548,8 +2659,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           // status jump" the requester is carved out of above; their only
           // status moves are Confirm Resolution / Reopen below, once there
           // actually is a resolution to confirm or reopen.
-          canEditStatus && !CLOSED_STATES.includes(v.status) && (
-            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => setDialog({ mode: 'resolve', targetStatus: 'resolved' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+          // The one exception (Neil, Oct 1): the requester may mark their own
+          // ticket Resolved - "a colleague helped me" - with an optional
+          // comment instead of the desk's written resolution.
+          (canEditStatus || requesterOnly) && !CLOSED_STATES.includes(v.status) && (
+            <button style={{ ...btn('outline'), color: NX.green }}
+              onClick={() => setDialog({ mode: canEditStatus ? 'resolve' : 'self_resolve', targetStatus: 'resolved' })}>
+              <CheckCircle2 size={14} /> Mark Resolved
+            </button>
           )
         ) : (
           <>
@@ -2699,9 +2816,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <label style={label}>Assign To</label>
             {/* Locked until the request is approved - the backend refuses it anyway,
                 so showing an open picker would only produce a 409 the user can't act on. */}
-            <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
-              disabled={!canWorking || t.approvalStatus === 'pending'}
-              placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+            {/* Phones get a bottom sheet (TicketAssignSheet) - the anchored
+                dropdown and its auto-focused search fought the keyboard. */}
+            {isMobile ? (
+              <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
+                disabled={!canWorking || t.approvalStatus === 'pending'}
+                placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
+            ) : (
+              <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
+                disabled={!canWorking || t.approvalStatus === 'pending'}
+                placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+            )}
           </div>
         )}
         {t.assignedById && (
@@ -2873,6 +2998,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         // Resolving is a status change like any other - held for Done. Confirm
         // and Reopen are the requester's own finishing moves, so they save
         // (with anything else held) right away.
+        // Self-resolve is the requester's own finishing move too.
         onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
