@@ -80,15 +80,20 @@ class DoneBatchTests(unittest.TestCase):
         # The reply rides in the one email that went out.
         self.assertIn("swapping the toner", emails[0].kwargs.get("latest_comment", ""))
 
-    def test_a_status_and_priority_change_names_both_in_one_update_email(self):
+    def test_a_status_and_priority_change_with_a_reply_sends_only_the_reply(self):
+        # Oct 1 (Neil): status moves and priority are not mailed to the
+        # requester any more - the reply that came with them is. (Was: one
+        # "updated" email naming the status and priority changes.)
         emails, dms = self._save(AGENT, priority="high", status="pending", comment="<p>Waiting on parts.</p>")
         self.assertEqual(len(emails), 1)
         self.assertEqual(emails[0].args[1], "updated")
-        kind = emails[0].kwargs["update_kind"]
-        self.assertIn("Status changed", kind)
-        self.assertIn("Priority changed", kind)
-        self.assertIn("comment", kind)
+        self.assertEqual(emails[0].kwargs["update_kind"], "New comment added")
+        self.assertIn("Waiting on parts", emails[0].kwargs["latest_comment"])
         self.assertEqual(len(dms), 1)
+
+    def test_a_status_and_priority_change_alone_sends_nothing(self):
+        emails, dms = self._save(AGENT, priority="high", status="pending")
+        self.assertEqual((emails, dms), ([], []))
 
     def test_a_reply_alone_still_sends_the_conversation_email(self):
         emails, dms = self._save(AGENT, comment="<p>Can you send a photo?</p>")
