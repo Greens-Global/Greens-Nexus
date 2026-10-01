@@ -105,6 +105,27 @@ describe('LedgerSearch grid', () => {
     expect(screen.getByText('Vendor: Home Depot')).toBeTruthy();
   });
 
+  it('scrolls with the page in a window and keeps its own scroller only in full screen (Charmi, 10/02)', async () => {
+    const { unmount } = render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(document.querySelector('.acct-lines-wrap').style.maxHeight).toBe('none');
+    unmount();
+    render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} full />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(document.querySelector('.acct-lines-wrap').style.maxHeight).toBe('');
+  });
+
+  it('a total drills with no account into every line of the period, and the Journals filter follows the lines', async () => {
+    render(<LedgerSearch term="" entities={['15000']} entityName="Greens Escondido (15000)" onClose={() => {}} onClearDrill={() => {}}
+      dims={{ journals: ['APJ', 'ARJ'] }} drill={{ account: '', accountName: 'Net Income', from: '2026-09-01', to: '2026-09-30', book: 'accrual' }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    const sent = api.searchAccountingLedger.mock.calls.at(-1)[0];
+    expect(sent).toMatchObject({ location: '15000', from: '2026-09-01', to: '2026-09-30', book: 'accrual', journals: 'APJ,ARJ' });
+    expect(sent.account).toBeUndefined();
+    expect(screen.getByRole('heading', { name: 'Net Income - every line' })).toBeTruthy();
+    expect(screen.getByText(/journals APJ,ARJ/)).toBeTruthy();
+  });
+
   it('opens the journal entry with every dimension as a column', async () => {
     render(<LedgerSearch term="amazon" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'IA-1293173' }));

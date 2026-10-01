@@ -127,15 +127,19 @@ export default function Accounting({ activeSub, onSubChange }) {
     access: 'Which entities each person on the accounting team may read',
   }[sub];
   // Reports, Packages and Access are working screens: the statement has to
-  // start high on the page (Neil, Sep 25), so their header is one line.
+  // start high on the page (Neil, Sep 25), so their header is one line. On
+  // Reports it is slimmer still (Charmi, 10/02: "adjust the top width a
+  // little bit so we can get more data") - "Accounting · Financial reports
+  // ..." on one line with almost no margin, so about six more rows fit.
   const slim = ['reports', 'packages', 'access', 'pfs', 'mri'].includes(sub);
+  const slimmer = sub === 'reports';
 
   return (
     <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: slim ? 6 : 16, alignItems: slim ? 'center' : undefined }}>
-        <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } : undefined}>
-          <h2 style={slim ? { fontSize: '1.15rem', margin: 0 } : undefined}>Accounting</h2>
-          <p style={slim ? { margin: 0, fontSize: '0.8rem' } : undefined}>{subtitle}</p>
+      <div className="view-header" style={{ marginBottom: slimmer ? 2 : slim ? 6 : 16, alignItems: slim ? 'center' : undefined, ...(slimmer ? { minHeight: 0 } : {}) }}>
+        <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: slimmer ? 6 : 10, flexWrap: 'wrap' } : undefined}>
+          <h2 style={slim ? { fontSize: slimmer ? '1.02rem' : '1.15rem', margin: 0, lineHeight: 1.3 } : undefined}>Accounting</h2>
+          <p style={slim ? { margin: 0, fontSize: slimmer ? '0.76rem' : '0.8rem', lineHeight: 1.3 } : undefined}>{slimmer ? `· ${subtitle}` : subtitle}</p>
         </div>
         {access && sub !== 'reports' && (
           <form role="search" onSubmit={(e) => { e.preventDefault(); goSearch(headerSearch); }} style={{ position: 'relative', flex: '0 1 380px', minWidth: 200 }}>
@@ -159,7 +163,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       ) : limited ? (
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
-        <div style={{ marginTop: 8 }}>
+        <div style={{ marginTop: slimmer ? 4 : 8 }}>
           {sub === 'reports' && <ReportsTab search={search} />}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
@@ -168,7 +172,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       ) : (
         <DashProvider>
           <DashNav.Provider value={(to) => onSubChange?.(to)}>
-            <div style={{ marginTop: slim ? 8 : 16 }}>
+            <div style={{ marginTop: slimmer ? 4 : slim ? 8 : 16 }}>
               {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}

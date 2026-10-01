@@ -4,7 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate } from '../../lib/datetime';
-import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
+import { EMPTY_DIMS, JOURNAL_KINDS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
@@ -22,6 +22,13 @@ import { EMPTY_DIMS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistorica
 // and run to the bottom of the screen; entities read in number order, with
 // the historical (H) ones off unless Customize shows them; one Export
 // button with a menu instead of two.
+//
+// Oct 2 (Charmi, Neil): the row reads Entities, Filters, then Accounts
+// (Charmi: "keep accounts as the last tab"); Customize gets "Show historical
+// accounts" for the Accounts and Filters lists (item 18 of 09/29); Filters
+// gets Journals (Neil: AP, AR, user defined, statistical), grouped by kind,
+// and says "Not available yet" until the accounting app lists them; the
+// Flux Analysis thresholds sit under Customize too.
 
 export const control = {
   height: 30, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem',
@@ -158,7 +165,7 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
         <OptionList options={options} value={value} onChange={onChange} allLabel={all}
           placeholder="Search entity by name or code" empty="No entities on the ledger yet." />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 10 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Historical (H) entities are hidden - Customize shows them.'}</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Customize > Show historical entities lists the (H) ones too.'}</span>
           <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
       </PopoverPanel>
@@ -171,10 +178,10 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
 // with what is picked; the right side is the searchable list of the kind
 // that is open. `onNames` hands the names of each list up as it loads, so
 // the chips under the report can say "Vendor: Amazon" instead of a code.
-export function FiltersButton({ dims, onChange, onNames, align = 'left' }) {
+export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left' }) {
   const [open, setOpen, ref] = usePopover();
   const [kind, setKind] = useState(POPOVER_DIMS[0]);
-  const [lists, setLists] = useState({});       // kind -> { values } | { error }
+  const [lists, setLists] = useState({});       // kind -> { values } | { error } | { unavailable }
   const n = countDims(dims);
   // A picked kind loads its names even while the panel is closed, for the chips.
   const wanted = POPOVER_DIMS.filter((k) => (dims[k.key] || []).length && !lists[k.kind]).map((k) => k.kind);
@@ -182,12 +189,18 @@ export function FiltersButton({ dims, onChange, onNames, align = 'left' }) {
   useEffect(() => {
     if (!need) return undefined;
     let alive = true;
-    api.getAccountingDimensionValues(need)
-      .then((d) => {
+    // Journals come from their own list (CONTRACT2 J1), grouped by kind; the
+    // accounting app may not have it yet, and then the panel says so.
+    const load = need === 'journal'
+      ? api.getAccountingJournals().then((d) => (d?.available === false
+        ? { values: [], unavailable: true }
+        : { values: (d?.journals || []).map((j) => ({ code: j.symbol, name: j.title || '', group: JOURNAL_KINDS[j.kind] || JOURNAL_KINDS.user })) }))
+      : api.getAccountingDimensionValues(need).then((d) => ({ values: d?.values || [] }));
+    load
+      .then((got) => {
         if (!alive) return;
-        const values = d?.values || [];
-        setLists((l) => ({ ...l, [need]: { values } }));
-        onNames?.(need, Object.fromEntries(values.map((v) => [v.code, v.name || ''])));
+        setLists((l) => ({ ...l, [need]: got }));
+        onNames?.(need, Object.fromEntries(got.values.map((v) => [v.code, v.name || ''])));
       })
       .catch((e) => { if (alive) setLists((l) => ({ ...l, [need]: { values: [], error: e?.message || 'Could not load the list.' } })); });
     return () => { alive = false; };
@@ -195,11 +208,15 @@ export function FiltersButton({ dims, onChange, onNames, align = 'left' }) {
   const picked = dims[kind.key] || [];
   const options = useMemo(() => {
     const keep = new Set(picked);
-    return (lists[kind.kind]?.values || [])
-      .filter((v) => !isHistorical(v.name) || keep.has(v.code))
+    const values = lists[kind.kind]?.values || [];
+    // Journals keep their order: by kind, the way the list is grouped.
+    if (kind.kind === 'journal') return values.map((v) => ({ code: v.code, name: v.name, group: v.group }));
+    return values
+      .filter((v) => showHistorical || !isHistorical(v.name) || keep.has(v.code))
       .map((v) => ({ code: v.code, name: v.name || '', depth: v.parent_code ? 1 : 0 }))
       .sort((a, b) => (keep.has(b.code) - keep.has(a.code)) || (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true }));
-  }, [lists, kind, picked]);
+  }, [lists, kind, picked, showHistorical]);
+  const unavailable = !!lists[kind.kind]?.unavailable;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(n > 0)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} aria-label="Filters">
@@ -230,11 +247,19 @@ export function FiltersButton({ dims, onChange, onNames, align = 'left' }) {
               <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
             </span>
           </div>
-          <OptionList key={kind.key} options={options} value={picked} onChange={(codes) => onChange({ ...dims, [kind.key]: codes })}
-            loading={!lists[kind.kind]} error={lists[kind.kind]?.error}
-            placeholder={`Search ${kind.label.toLowerCase()} by name or code`} empty={`No ${kind.plural} on the ledger yet.`} />
+          {unavailable ? (
+            <div role="status" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '14px 6px' }}>
+              <strong>Not available yet.</strong> Nexus Accounting does not list its journals yet; the filter switches on by itself once it does.
+            </div>
+          ) : (
+            <OptionList key={kind.key} options={options} value={picked} onChange={(codes) => onChange({ ...dims, [kind.key]: codes })}
+              loading={!lists[kind.kind]} error={lists[kind.kind]?.error}
+              placeholder={kind.kind === 'journal' ? 'Search journals by symbol or title' : `Search ${kind.label.toLowerCase()} by name or code`} empty={`No ${kind.plural} on the ledger yet.`} />
+          )}
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
-            {kind.key === 'departments' ? 'A department includes the departments under it.' : `Lines without a ${kind.label.toLowerCase()} are left out when one is picked.`} Historical (H) entries are hidden.
+            {kind.kind === 'journal' ? 'Statistical journals carry no money: their lines show in the drill-down and never add into a total.'
+              : kind.key === 'departments' ? 'A department includes the departments under it.' : `Lines without a ${(kind.one || kind.label).toLowerCase()} are left out when one is picked.`}
+            {kind.kind !== 'journal' && !showHistorical ? ' Customize > Show historical accounts lists the (H) entries too.' : ''}
           </div>
         </div>
       </PopoverPanel>
@@ -244,15 +269,18 @@ export function FiltersButton({ dims, onChange, onNames, align = 'left' }) {
 
 // Which accounts the statement shows: every account it could show, by
 // section, with a tick per account. Nothing ticked = all of them.
-export function AccountsPicker({ accounts, value, onChange, align = 'left' }) {
+export function AccountsPicker({ accounts, value, onChange, showHistorical = false, align = 'left' }) {
   const [open, setOpen, ref] = usePopover();
   const options = useMemo(() => {
     const known = new Set(accounts.map((a) => a.code));
-    const list = accounts.map((a) => ({ code: a.code, name: a.title, group: a.section }));
+    const keep = new Set(value);
+    // Historical (H) accounts are off the list until Customize shows them
+    // (Charmi, item 18 of 09/29), unless already picked.
+    const list = accounts.filter((a) => showHistorical || keep.has(a.code) || !isHistorical(a.title)).map((a) => ({ code: a.code, name: a.title, group: a.section }));
     // A picked account with nothing in this period still shows, so it can be unticked.
     value.forEach((code) => { if (!known.has(code)) list.push({ code, name: '', group: 'Not on this statement' }); });
     return list;
-  }, [accounts, value]);
+  }, [accounts, value, showHistorical]);
   const label = !value.length ? 'All accounts' : value.length === 1 ? `Account ${value[0]}` : `${value.length} accounts`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -265,7 +293,7 @@ export function AccountsPicker({ accounts, value, onChange, align = 'left' }) {
         <OptionList options={options} value={value} onChange={onChange} allLabel="All accounts"
           placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.{showHistorical ? '' : ' Customize > Show historical accounts lists the (H) ones too.'}</span>
           <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
       </PopoverPanel>
@@ -335,9 +363,9 @@ export const DENSITIES = [
 // entities are offered are the person's own (every accounting screen follows
 // them); showing the accounts with nothing in them belongs to the report and
 // is memorized with it.
-export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, align = 'right' }) {
+export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, showHistoricalAccounts, onShowHistoricalAccounts, flux = null, onFlux, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
-  const on = !!showZero || !!showHistorical;
+  const on = !!showZero || !!showHistorical || !!showHistoricalAccounts;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
@@ -370,6 +398,31 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
               <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>The (H) entities Intacct keeps for old books, in the Entities list.</span>
             </span>
           </label>
+        )}
+        {onShowHistoricalAccounts && (
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!showHistoricalAccounts} onChange={(e) => onShowHistoricalAccounts(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              Show historical accounts
+              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>The (H) accounts, departments, vendors and the rest, in the Accounts and Filters lists.</span>
+            </span>
+          </label>
+        )}
+        {flux && onFlux && (
+          <div>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Flux thresholds</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                Variance %
+                <input type="number" min={0} step={0.5} value={flux.fluxPct} aria-label="Flux variance percent threshold" onChange={(e) => onFlux({ fluxPct: Math.max(0, Number(e.target.value) || 0) })} style={{ ...control, width: 72 }} className="num" />
+              </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                Variance $
+                <input type="number" min={0} step={100} value={flux.fluxAmount} aria-label="Flux variance amount threshold" onChange={(e) => onFlux({ fluxAmount: Math.max(0, Number(e.target.value) || 0) })} style={{ ...control, width: 96 }} className="num" />
+              </label>
+            </div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>A line is flagged when its variance passes both. Memorized with the report.</div>
+          </div>
         )}
       </PopoverPanel>
     </div>

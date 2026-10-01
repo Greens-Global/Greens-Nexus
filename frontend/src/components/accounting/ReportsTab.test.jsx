@@ -37,17 +37,37 @@ vi.mock('../../api', () => ({
     getAccountingBalanceSheet: vi.fn(async () => ({ sections: [], totals: {} })),
     getAccountingCashPosition: vi.fn(async () => ({ accounts: [], total: 0 })),
     getAccountingTrialBalance: vi.fn(async () => ({ rows: [], totals: {} })),
-    getAccountingBuckets: vi.fn(async () => ({
-      org: 'Greens Global', generated_at: '2026-09-25', labels: {},
-      rows: [
-        { account_no: '41000', title: 'Rental Income', section: 'revenue', bucket: '2026-08-01', debit: 0, credit: 600 },
-        { account_no: '41000', title: 'Rental Income', section: 'revenue', bucket: '2026-09-01', debit: 0, credit: 400 },
-        { account_no: '61000', title: 'Repairs', section: 'expense', bucket: '2026-09-01', debit: 250, credit: 0 },
-      ],
-    })),
+    getAccountingBuckets: vi.fn(async ({ by }) => (by === 'employee'
+      ? {
+        org: 'Greens Global', generated_at: '2026-09-25', labels: { E1: 'Amy Bolanos', E2: 'Ashley Vizcarra', E3: 'Someone Else' },
+        rows: [
+          { account_no: '61000', title: 'Repairs', section: 'expense', bucket: 'E1', debit: 100, credit: 0 },
+          { account_no: '61000', title: 'Repairs', section: 'expense', bucket: 'E2', debit: 250, credit: 0 },
+          { account_no: '61000', title: 'Repairs', section: 'expense', bucket: 'E3', debit: 999, credit: 0 },
+        ],
+      }
+      : {
+        org: 'Greens Global', generated_at: '2026-09-25', labels: {},
+        rows: [
+          { account_no: '41000', title: 'Rental Income', section: 'revenue', bucket: '2026-08-01', debit: 0, credit: 600 },
+          { account_no: '41000', title: 'Rental Income', section: 'revenue', bucket: '2026-09-01', debit: 0, credit: 400 },
+          { account_no: '61000', title: 'Repairs', section: 'expense', bucket: '2026-09-01', debit: 250, credit: 0 },
+        ],
+      })),
     getAccountingDimensionValues: vi.fn(async (kind) => (kind === 'department'
       ? { values: [{ code: '9100', name: 'Property Management' }, { code: '9500', name: 'Old Division (H)' }] }
-      : { values: [{ code: 'C-1', name: 'Valley Center' }, { code: 'C-2', name: 'Old Program (H)' }] })),
+      : kind === 'employee'
+        ? { values: [{ code: 'E1', name: 'Amy Bolanos' }, { code: 'E2', name: 'Ashley Vizcarra' }] }
+        : { values: [{ code: 'C-1', name: 'Valley Center' }, { code: 'C-2', name: 'Old Program (H)' }] })),
+    getAccountingJournals: vi.fn(async () => ({ available: true, journals: [
+      { symbol: 'GJ', title: 'General Journal', kind: 'general' }, { symbol: 'APJ', title: 'Accounts Payable', kind: 'ap' },
+      { symbol: 'ARJ', title: 'Accounts Receivable', kind: 'ar' }, { symbol: 'STAT', title: 'Units', kind: 'statistical' },
+    ] })),
+    getAccountingFluxNotes: vi.fn(async () => ({ notes: [{ accountNo: '41100', note: 'New tenant in suite B.' }] })),
+    saveAccountingFluxNote: vi.fn(async (body) => ({ accountNo: body.accountNo, note: body.note, by: 'me', at: '2026-10-02' })),
+    egnyteFolder: vi.fn(async (path) => ({ path, folders: [{ name: '2026', path: `${path}/2026` }, { name: 'Lenders', path: `${path}/Lenders` }], files: [] })),
+    egnyteCreateFolder: vi.fn(async (path) => ({ path })),
+    egnyteUpload: vi.fn(async (folder, file) => ({ path: `${folder}/${file.name}`, webUrl: 'https://greens.egnyte.com/navigate/file/abc' })),
     searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0, facets: {} })),
     getAccountingSavedReports: vi.fn(async () => []),
     saveAccountingReport: vi.fn(async (body) => ({ id: 'r1', ...body, mine: true })),
@@ -97,8 +117,16 @@ describe('ReportsTab statement table', () => {
     expect(screen.getByText('Rental Income')).toBeTruthy();
 
     // Every account amount is a drill button.
-    fireEvent.click(screen.getByRole('button', { name: '400.00' }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: '400.00' }));
     expect(screen.getByTestId('ledger-search').textContent).toContain('drill:61000');
+  });
+
+  it('drills from every figure - a section total, Net Income - into the period with no account (Charmi, 10/02)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    // The Revenue heading's total opens every line of the period.
+    fireEvent.click(within(screen.getByRole('button', { name: 'Fold Revenue' }).closest('tr')).getByRole('button', { name: '1,500.00' }));
+    expect(screen.getByTestId('ledger-search').textContent).toMatch(/^drill::/);
   });
 
   it('opens the drill a widget on another tab asked for', async () => {
@@ -114,7 +142,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -373,6 +401,146 @@ describe('ReportsTab controls', () => {
     // A short word waits a little longer for the rest of it before the ledger is asked.
     expect(screen.queryByTestId('ledger-search')).toBeNull();
     await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:500'), { timeout: 2500 });
+  });
+
+  // ── 10/02 batch (Charmi, Neil) ─────────────────────────────────────────────
+  it('reads Entities, Filters, then Accounts last on the toolbar (R3)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    const order = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    const at = (name) => order.indexOf(name);
+    expect(at('Entities')).toBeGreaterThan(-1);
+    expect(at('Entities')).toBeLessThan(at('Filters'));
+    expect(at('Filters')).toBeLessThan(at('Accounts'));
+  });
+
+  it('turns two picked employees into one column each plus a Total, and says so on Columns (R1)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Employee/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /Amy Bolanos/ }));
+    // One pick stays combined.
+    expect(screen.getByLabelText('Columns').value).toBe('total');
+    fireEvent.click(screen.getByRole('option', { name: /Ashley Vizcarra/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    const columns = screen.getByLabelText('Columns');
+    expect(columns.value).toBe('employee');
+    expect(columns.selectedOptions[0].textContent).toBe('By Employee (2 picked)');
+    await screen.findByRole('columnheader', { name: 'Amy Bolanos' });
+    expect(api.getAccountingBuckets.mock.calls.at(-1)[0]).toMatchObject({ by: 'employee', dims: { employee: ['E1', 'E2'] } });
+    // A column per PICKED employee; a stray third bucket never adds into the Total.
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Account', 'Amy Bolanos', 'Ashley Vizcarra', 'Total']);
+    const row = screen.getByText('Repairs').closest('tr');
+    expect([...row.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['100.00', '250.00', '350.00']);
+    // "Total Only" picked on purpose still combines them.
+    fireEvent.change(columns, { target: { value: 'total' } });
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1)[3]?.employee).toEqual(['E1', 'E2']));
+    expect(screen.getByLabelText('Columns').value).toBe('total');
+  });
+
+  it('keeps historical (H) accounts off the Accounts list until Customize shows them, and never prints "hidden" (R4)', async () => {
+    api.getAccountingPnl.mockResolvedValue({ ...pnl, sections: [{ ...pnl.sections[0], accounts: [...pnl.sections[0].accounts, { account_no: '49000', title: 'Old Income (H)', amount: 5 }] }, pnl.sections[1]] });
+    render(<ReportsTab />);
+    await screen.findByText('Old Income (H)');
+    fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
+    const names = () => within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent);
+    expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Repairs61000']);
+    expect(within(screen.getByRole('listbox', { name: 'Accounts' })).queryByText(/hidden/i)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Show historical accounts/));
+    fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
+    expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Old Income (H)49000', 'Repairs61000']);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    // The Filters lists follow the same switch.
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /Project-Job/ }));
+    await screen.findByRole('option', { name: /Old Program/ });
+    expect(within(screen.getByRole('dialog', { name: 'Filters' })).queryByText(/hidden/i)).toBeNull();
+  });
+
+  it('says where the Egnyte file goes, with Browse to pick the folder (R2)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Save to Egnyte/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Save to Egnyte' });
+    const d = new Date();
+    const today = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
+    const line = within(dialog).getByLabelText('Where the file will be saved');
+    expect(line.textContent).toBe(`Will be saved as /Shared/Accounting/Reports/Income Statement - All entities - 01-01-${d.getFullYear()} to ${today}.pdf`);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Excel' }));
+    expect(line.textContent).toMatch(/\.xlsx$/);
+    // Browse lists Egnyte's folders; picking one fills the box.
+    fireEvent.click(within(dialog).getByRole('button', { name: /Browse/ }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: /Lenders/ }));
+    await waitFor(() => expect(api.egnyteFolder).toHaveBeenLastCalledWith('/Shared/Accounting/Reports/Lenders'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Use This Folder' }));
+    expect(within(dialog).getByLabelText('Egnyte Folder').value).toBe('/Shared/Accounting/Reports/Lenders');
+    expect(line.textContent).toMatch(/^Will be saved as \/Shared\/Accounting\/Reports\/Lenders\/Income Statement/);
+  });
+
+  it('offers Journals under Filters, grouped by kind, and says Not available yet when the accounting app has none (R7)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Journals/ }));
+    await screen.findByRole('option', { name: /Accounts Payable/ });
+    const list = screen.getByRole('dialog', { name: 'Filters' });
+    expect(within(list).getByText('Payables (AP)')).toBeTruthy();
+    expect(within(list).getByText('Statistical')).toBeTruthy();
+    fireEvent.click(screen.getByRole('option', { name: /Accounts Payable/ }));
+    await waitFor(() => expect(api.getAccountingPnl.mock.calls.at(-1)[3]?.journals).toEqual(['APJ']));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect((await screen.findByLabelText('Active filters')).textContent).toContain('Journal: Accounts Payable (APJ)');
+  });
+
+  it('shows Not available yet for Journals until the accounting app lists them (R7)', async () => {
+    api.getAccountingJournals.mockResolvedValue({ available: false, journals: [] });
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Journals/ }));
+    await screen.findByText('Not available yet.');
+    // Everything else still works.
+    fireEvent.click(screen.getByRole('button', { name: /^Department/ }));
+    await screen.findByRole('option', { name: /Property Management/ });
+  });
+
+  it('runs a Flux Analysis: this period against the prior one, flags over the thresholds, keeps an explanation (R8)', async () => {
+    const year = new Date().getFullYear();
+    const prior = { ...pnl, sections: [
+      { key: 'revenue', label: 'Revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking Income', amount: 500 }] },
+      { key: 'expense', label: 'Operating Expenses', accounts: [{ account_no: '61000', title: 'Repairs', amount: 6000 }] },
+    ] };
+    api.getAccountingPnl.mockImplementation(async (from) => (from < `${year}-01-01` ? prior : pnl));
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'flux' } });
+    await screen.findByRole('columnheader', { name: 'Variance $' });
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(3)).toEqual(['Variance $', 'Variance %', 'Flag', 'Explanation']);
+    const repairs = screen.getByText('Repairs').closest('tr');
+    expect(repairs.className).toContain('acct-flag');
+    expect([...repairs.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '6,000.00', '(5,600.00)', '(93.3%)']);
+    expect(within(repairs).getByText('Review')).toBeTruthy();
+    // Rental Income moved by nothing: no flag.
+    expect(screen.getByText('Rental Income').closest('tr').className).not.toContain('acct-flag');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1');
+    // The kept explanation shows; a new one is saved for this entity set and period.
+    await screen.findByText('New tenant in suite B.');
+    fireEvent.click(within(repairs).getByRole('button', { name: /Add explanation for 61000/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Explanation' });
+    fireEvent.change(within(dialog).getByLabelText('Why did this account move?'), { target: { value: 'Roof repair last year, one-time.' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Explanation' }));
+    await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalled());
+    expect(api.saveAccountingFluxNote.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', note: 'Roof repair last year, one-time.' });
+    expect(api.saveAccountingFluxNote.mock.calls[0][0].period).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/);
+    await screen.findByText('Roof repair last year, one-time.');
+    // Customize carries the thresholds; a looser one takes the flag off.
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.change(screen.getByLabelText('Flux variance amount threshold'), { target: { value: '6000' } });
+    await waitFor(() => expect(screen.getByText('Repairs').closest('tr').className).not.toContain('acct-flag'));
   });
 
   it('asks the ledger once when two controls change one after the other', async () => {

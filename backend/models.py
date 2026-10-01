@@ -4833,3 +4833,22 @@ class PayrollRateHistory(Base):
     overtime_rule  = Column(String, default="ca")                 # ca | federal | none
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class AccountingFluxNote(Base):
+    """An explanation on one line of a Flux Analysis (Neil, 10/02: "MRE ...
+    Flux Analysis"): why account X moved between this period and the last,
+    kept in Nexus per entity set, account and period so the next close finds
+    it. `entity` is the picked entity codes joined by ',' (or 'all');
+    `period` is "<from>_<to>". The person and the time are `noted_by` /
+    `noted_at` (the spec's by/at - BY is an SQL keyword). New table -
+    create_all builds it; RLS must be enabled on dev and prod at release
+    (the startup sweep and the line in main.py both do it)."""
+    __tablename__ = "accounting_flux_notes"
+    id         = Column(String, primary_key=True)                # uuid
+    entity     = Column(String, default="", index=True)          # "15000" | "15000,56000" | "all"
+    account_no = Column(String, default="", index=True)
+    period     = Column(String, default="", index=True)          # "YYYY-MM-DD_YYYY-MM-DD"
+    note       = Column(String, default="")
+    noted_by   = Column(String, default="")
+    noted_at   = Column(String, default="")
