@@ -1833,6 +1833,10 @@ def _run_migrations():
         # Accounting > Reports > Flux Analysis explanation notes (Neil, 10/02).
         # New table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_flux_notes ENABLE ROW LEVEL SECURITY",
+        # Accounting (Oct 2): vendor / customer change requests and the monthly
+        # payroll allocation runs. New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_partner_changes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_allocation_runs ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2871,3 +2875,7 @@ from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
 from routers import accounting_flux  # noqa: E402
 app.include_router(accounting_flux.router)  # Accounting > Reports > Flux Analysis explanation notes (routers/accounting_flux.py)
+from routers import accounting_budgets, accounting_partners, accounting_allocations  # noqa: E402
+app.include_router(accounting_budgets.router)      # Accounting > Budget: the budget grid through the accounting app (Oct 2)
+app.include_router(accounting_partners.router)     # Accounting > Vendors & Customers: records + change requests for approval (Oct 2)
+app.include_router(accounting_allocations.router)  # Accounting > Allocations: monthly payroll allocation entry from Time Clock hours (Oct 2)

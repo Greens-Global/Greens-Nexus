@@ -18,6 +18,10 @@ import CashTab from '../components/accounting/dashboard/CashTab';
 import PerformanceTab from '../components/accounting/dashboard/PerformanceTab';
 import CloseTab from '../components/accounting/dashboard/CloseTab';
 import DataTab from '../components/accounting/dashboard/DataTab';
+import BudgetTab from '../components/accounting/BudgetTab';
+import PartnersTab from '../components/accounting/PartnersTab';
+import AllocationsTab from '../components/accounting/AllocationsTab';
+import { Calculator, Split, Users } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -54,8 +58,14 @@ const TABS = [
   { key: 'pfs', label: 'PFS', Icon: Landmark },
   { key: 'data', label: 'Data', Icon: Database },
   { key: 'access', label: 'Access', Icon: ShieldCheck },
+  // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year, vendor
+  // and customer records with changes sent for approval, and the monthly
+  // payroll allocation entry from Time Clock hours.
+  { key: 'budget', label: 'Budget', Icon: Calculator },
+  { key: 'partners', label: 'Vendors & Customers', Icon: Users },
+  { key: 'allocations', label: 'Allocations', Icon: Split },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'mri'];
+const LIMITED_TABS = ['reports', 'packages', 'mri', 'budget', 'partners'];
 // Links made before the rename still land.
 const ALIAS = { leasing: 'mri' };
 
@@ -71,6 +81,10 @@ export default function Accounting({ activeSub, onSubChange }) {
   const canEdit = canAccessModule('accounting', 'administrator', 'editor');
   // Deciding who reads which entities takes the Full level.
   const canManage = canAccessModule('accounting', 'administrator', 'full');
+  // Vendor / customer change requests are decided by a manager who holds
+  // the Accounting grant, or anyone at the Full level on it (the backend
+  // checks the same).
+  const canApprovePartners = canAccessModule('accounting', 'manager', 'full');
   // Personal financial statements: owners and the explicit grant, nobody else
   // - an administrator does not see the tab (and the backend refuses them).
   const canPfs = canAccessModule('pfs', 'owner', 'viewer');
@@ -125,6 +139,9 @@ export default function Accounting({ activeSub, onSubChange }) {
     pfs: 'Personal financial statements of the guarantors, for any date',
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
+    budget: 'The budget per entity and year, by account and month, against the actuals',
+    partners: 'Vendor and customer records, with changes sent to a manager for approval before they are keyed into Intacct',
+    allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
   }[sub];
   // Reports, Packages and Access are working screens: the statement has to
   // start high on the page (Neil, Sep 25), so their header is one line. On
@@ -168,6 +185,8 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
+          {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
+          {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
         </div>
       ) : (
         <DashProvider>
@@ -183,6 +202,9 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
               {sub === 'data' && canEdit && <DataTab />}
               {sub === 'access' && canManage && <AccessTab />}
+              {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
+              {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+              {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
             </div>
           </DashNav.Provider>
         </DashProvider>
