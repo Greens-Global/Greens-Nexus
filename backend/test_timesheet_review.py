@@ -361,6 +361,134 @@ class SubmitBlockTests(ReviewCase):
             self._guard(kind="out", at=f"{self._day(5)}T08:00:00", local_date=self._day(5), extra=pending)
 
 
+class FixAndResubmitFlowTests(ReviewCase):
+    """Oct 1, end to end through the API as each person: the employee's fixes
+    are REQUESTS, so (a) they may submit once their pending fixes would clear
+    the errors, (b) the manager approves those fixes - even while the timesheet
+    is back with the employee, which used to 403 and deadlock both sides - and
+    (c) Agree unlocks once the real punches are clean."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == MGR).delete()
+        self.db.query(models.PunchRequest).delete()
+        self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
+        self.db.commit()
+        # Errors near the period end (requests may reach 45 days back):
+        # day A - two clock-ins before one clock-out (the first never closes);
+        # day B - a clock-out with no clock-in.
+        e = datetime.strptime(self.end, "%Y-%m-%d")
+        self.day_a = (e - timedelta(days=2)).strftime("%Y-%m-%d")
+        self.day_b = (e - timedelta(days=1)).strftime("%Y-%m-%d")
+        self._punch(self.day_a, "in", "09:00:00")
+        self._punch(self.day_a, "in", "09:23:00")
+        self._punch(self.day_a, "out", "17:00:00")
+        self._punch(self.day_b, "out", "14:00:00")
+        self.db.commit()
+        self._prev = os.environ.get("NEXUS_DEV_EMAIL")
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop("NEXUS_DEV_EMAIL", None)
+        else:
+            os.environ["NEXUS_DEV_EMAIL"] = self._prev
+        super().tearDown()
+
+    def _as(self, email):
+        os.environ["NEXUS_DEV_EMAIL"] = email
+
+    def _request_fixes(self):
+        self._as(EMP)
+        c = self.client
+        r = c.post("/timeclock/punch-requests", json={
+            "action": "remove", "target_punch_id": f"p-{self.day_a}-in-09:00:00", "reason": "double clock-in"})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = c.post("/timeclock/punch-requests", json={
+            "action": "add", "punch_kind": "in", "at": f"{self.day_b}T10:00:00", "tz_offset_min": 0,
+            "reason": "forgot in"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _approve_all(self):
+        self._as(MGR)
+        self.db.expire_all()
+        for req in self.db.query(models.PunchRequest).filter(models.PunchRequest.status == "pending").all():
+            r = self.client.patch(f"/timeclock/punch-requests/{req.id}", json={"status": "approved"})
+            self.assertEqual(r.status_code, 200, r.text)
+
+    def _submit(self, expect=200):
+        self._as(EMP)
+        r = self.client.post("/timesheet-review/submit", json={"start": ANCHOR, "note": "fixed"})
+        self.assertEqual(r.status_code, expect, r.text)
+        return r
+
+    def _agree(self, expect=200):
+        self._as(MGR)
+        r = self.client.post(f"/timesheet-review/{self._r().id}/agree", json={"note": ""})
+        self.assertEqual(r.status_code, expect, r.text)
+        return r
+
+    def test_errors_block_submit_until_the_fixes_are_requested(self):
+        r = self._submit(expect=409)
+        self.assertIn("no clock-out", r.json()["detail"])
+        self.assertIn("a clock-out with no clock-in", r.json()["detail"])
+
+    def test_first_submission_fix_approve_agree(self):
+        self._request_fixes()
+        self._submit()                                        # pending fixes clear the errors
+        self.assertEqual(self._r().status, "with_manager")
+        r = self._agree(expect=409)                          # real punches still wrong...
+        self.assertIn("waiting for your approval", r.json()["detail"]["message"])   # ...and it says why
+        self._approve_all()
+        self._agree()
+        self.assertEqual(self._r().status, "signing")
+
+    def test_back_with_the_employee_the_manager_can_still_approve_their_fix(self):
+        """The screenshot: sent back, the employee requests the clock-in, the
+        manager's Approve was refused ("back with ... for changes")."""
+        # Reach "with_employee" the way it happened: a clean submission, then
+        # the errors surface, then it is sent back.
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 1}, synchronize_session=False)
+        self.db.commit()
+        self._submit()
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 0}, synchronize_session=False)
+        self.db.commit()
+        self._as(MGR)
+        r = self.client.post(f"/timesheet-review/{self._r().id}/send-back", json={"note": "correct it"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._r().status, "with_employee")
+        self._request_fixes()
+        self._approve_all()                                   # used to be 403 here
+        self.assertEqual(self._r().status, "with_employee")   # approving does not take it back
+        self._submit()
+        self._agree()
+        self.assertEqual(self._r().status, "signing")
+
+    def test_the_employee_may_resubmit_before_the_manager_approves(self):
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 1}, synchronize_session=False)
+        self.db.commit()
+        self._submit()
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 0}, synchronize_session=False)
+        self.db.commit()
+        self._as(MGR)
+        self.client.post(f"/timesheet-review/{self._r().id}/send-back", json={"note": "correct it"})
+        self._submit(expect=409)                              # nothing requested yet
+        self._request_fixes()
+        self._submit()                                        # requested: may resubmit
+        self._approve_all()                                   # with the manager now
+        self._agree()
+
+    def test_a_signing_timesheet_still_refuses_any_change(self):
+        self._request_fixes()
+        self._submit()
+        self._approve_all()
+        self._agree()
+        self._as(EMP)
+        r = self.client.post("/timeclock/punch-requests", json={
+            "action": "add", "punch_kind": "out", "at": f"{self.day_b}T18:00:00", "tz_offset_min": 0,
+            "reason": "late"})
+        self.assertEqual(r.status_code, 403, r.text)
+
+
 class WaitingOnReviewerTests(ReviewCase):
     """Sep 29: the reviewer's list, the up-front Agree blocker, where the bell
     goes, and the Daily Briefing line."""

@@ -169,9 +169,17 @@ def review_covering(db: Session, email: str, local_date: str) -> TimesheetReview
             .first())
 
 
-def guard_edit(db: Session, email: str, local_date: str, actor_email: str) -> None:
+def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
+               employee_request: bool = False) -> None:
     """Called by every route that changes hours. One side at a time during
-    review; nobody while it is out for signature."""
+    review; nobody while it is out for signature.
+
+    `employee_request`: the approver is deciding the EMPLOYEE's own punch fix
+    (an add / remove request or a proposed time). That is the employee's
+    change, not the manager's, so it goes through whichever side holds the
+    timesheet (Oct 1: back with the employee, their "add clock-in" request
+    could not be approved - the employee could not resubmit with the error,
+    the manager could not approve the fix: neither side could move)."""
     email = (email or "").lower()
     r = review_covering(db, email, (local_date or "")[:10])
     if not r:
@@ -179,6 +187,8 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str) -> No
     if r.status == "signing":
         raise HTTPException(403, "This timesheet is out for signature in Nexus Sign. To change it, "
                                  "decline it there with a reason - it comes back for another round.")
+    if employee_request:
+        return
     is_employee = (actor_email or "").lower() == email
     if r.status == "with_manager" and is_employee:
         raise HTTPException(403, "Your timesheet is with your manager for review. They can send it "
@@ -236,9 +246,11 @@ def submit_blocker(db: Session, email: str, start: str, end: str) -> str:
     """Why the employee may not submit (or resubmit) this period yet, in plain
     words; '' when they may. A missing clock-out, a clock-out with no
     clock-in or a break that never ended is fixed by the employee BEFORE it
-    reaches the manager (Oct 1) - the same blocking exceptions agree() checks."""
+    reaches the manager (Oct 1) - the same blocking exceptions agree() checks.
+    Judged as if the employee's own pending punch fixes were approved: their
+    fixes ARE requests, and the manager approves them during review."""
     tc = _tc()
-    exc = tc._blocking_exceptions(db, email, start, end)
+    exc = tc._blocking_exceptions(db, email, start, end, with_pending=True)
     if not exc:
         return ""
     return (f"Fix {'this' if len(exc) == 1 else 'these'} on your timesheet before you submit it - "
@@ -255,6 +267,12 @@ def agree_blocker(db: Session, r: TimesheetReview) -> str:
                 "once every day is in.")
     exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
     if exc:
+        pending = tc._pending_fixes(db, r.employee_email, r.period_start, r.period_end)
+        if pending:
+            # The employee's fixes are on the timecard, waiting on the approver.
+            return (f"{display_name(db, r.employee_email)} has {pending} punch "
+                    f"fix{'' if pending == 1 else 'es'} waiting for your approval on the timesheet above - "
+                    f"approve {'it' if pending == 1 else 'them'} to clear: {tc._exception_summary(exc)}.")
         return (f"Fix {'this' if len(exc) == 1 else 'these'} on the timesheet before you can agree - "
                 f"{tc._exception_summary(exc)}. Or send it back to the employee to fix.")
     return ""
@@ -343,6 +361,11 @@ def agree(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: st
                                  "last day, so every day is in before it is signed.")
     exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
     if exc:
+        if tc._pending_fixes(db, r.employee_email, r.period_start, r.period_end):
+            # The employee's fixes are waiting on THIS approver - say so, in the
+            # words the panel shows (agree_blocker), not "send it back".
+            raise HTTPException(409, {"code": "unresolved_exceptions", "message": agree_blocker(db, r),
+                                      "exceptions": exc})
         tc._exceptions_409(exc, can_override=False)   # a review has no override - send it back instead
     hr = hr_of(db, r.employee_email)
     if not hr:
