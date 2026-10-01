@@ -198,7 +198,7 @@ export const DOCS = [
         steps: [
           'Open Workday from the left menu, then click the Clock tab.',
           'Click Punch In. The first time, read the monitoring notice and acknowledge it.',
-          'Allow location if your browser asks. On a phone this gives the most accurate work-site check.',
+          'Allow location if your browser asks. On a phone this gives the most accurate location check.',
         ],
       },
       {
@@ -231,14 +231,14 @@ export const DOCS = [
       { name: 'Clock', desc: 'Punch In, Start Break, End Break and Punch Out, with today\'s punches and location tags.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
       { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
-      { name: 'Location Tag', desc: 'Each punch shows the work site you were at when you punched, judged by where the punch was made, even if you move between several sites in a day. A punch inside any of your company work sites shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the work site of the punch from there.' },
+      { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
     ],
     manager: {
       title: 'Managers & Admins',
       points: [
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
         'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Shifts.',
-        'HR sets work sites (the geofence used for on-site checks) and holiday calendars in People.',
+        'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
       ],
     },
     tips: [
@@ -255,7 +255,7 @@ export const DOCS = [
     purpose: 'Workforce Analytics is the disclosed monitoring dashboard. It shows who is working right now, where each person last punched from, activity on enrolled company computers and screenshots taken under the company policy. Employees are told about it before they first clock in.',
     gains: [
       'Know at a glance who is working, on break or not clocked in.',
-      'Spot punches made away from the work site.',
+      'Spot punches made away from the location.',
       'Keep company computers enrolled and accounted for.',
     ],
     walkthroughs: [
@@ -1075,8 +1075,8 @@ export const DOCS = [
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
       { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it). The tiles on top open what they count: Team Hours (hours by person and day), Timesheets to Review, Punch Exceptions (the Missing Punches list) and Time Off Pending. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
-      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Work Sites (the clock geofences), Holiday Calendar and Workforce Analytics Policy. The most accurate way to place a work site is its Google Maps link: in Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and keeps the link on the site, marked Google Maps in the list. You can also search the street address instead. Either way the map jumps to the site, you can drag the pin (or click the map) onto the exact building, and a pin moved far from the link or address is flagged. Set the radius with the slider (100-300 m suits most sites; under 100 m, phone GPS drift flags people who are on-site). Before you save, Punches Here shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A site marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
-      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, optionally click their usual work sites - any number of them. A punch inside any company work site counts as at that site; their usual sites only win where two sites overlap.' },
+      { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Locations (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius with the slider (100-300 m suits most locations; under 100 m, phone GPS drift flags people who are on-site). In the Location Library, Companies sets who punches in there: All Companies, or Choose Companies and click the ones that use it. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
+      { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, optionally click their usual locations - any number of them. A punch inside any company location counts as at that site; their usual sites only win where two sites overlap.' },
     ],
     manager: {
       title: 'HR & Admins',
@@ -1084,7 +1084,7 @@ export const DOCS = [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
         'Offboarding: hand over their tasks, set mailbox handling, then mark them Left.',
         'Changing a status asks for a reason, and every change is kept in history.',
-        'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company work site the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
+        'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
       ],
     },
     tips: ['People pickers across Nexus use this directory, so keep names and emails correct here.'],
@@ -1287,7 +1287,7 @@ export const DOCS = [
         steps: [
           'Click the Company Settings tab.',
           'Click Edit on the company, or Add Company.',
-          'Use its tabs for the profile, workforce analytics policy, departments, work sites and holiday calendar.',
+          'Use its tabs for the profile, workforce analytics policy, departments, locations and holiday calendar.',
         ],
       },
       {
@@ -1309,8 +1309,8 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Work Site Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, SLA & Ticket Types, and Help Topics for each department), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
-      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the work sites it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
+      { name: 'Global Settings', desc: 'Settings that apply to every company, by category. Organization: Email Signature and the Location Library. Notifications & Communications: Ticket Manager (ticket routing and escalation, ticket email, SLA & Ticket Types, and Help Topics for each department), Task Notifications and the Daily Briefing. Access: who can open which module. Items: Item Types & Custom Fields.' },
+      { name: 'Company Settings', desc: 'One company at a time: its profile and logo, managers (Nexus People or external users) and HR contact, workforce analytics policy, departments, the locations it uses from the library, and its holiday calendar. The group manager above every company is set here too.' },
       { name: 'Company Roles', desc: 'Each company\'s job roles, grouped by its departments: the baseline set of modules, seniority tier and default approver. Roles shared across companies are listed there too, and can be moved into a company when everyone holding them works there.' },
       { name: 'Access', desc: 'In Global Settings: each person\'s effective access, Access Groups (extras on top of a job role), per-person overrides and the full access matrix.' },
       { name: 'Tools', desc: 'Actions rather than settings: Act As (search or page through the people you can act as) and the Microsoft 365 directory sync.' },

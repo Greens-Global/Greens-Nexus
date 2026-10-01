@@ -671,8 +671,8 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
       const r = await api.setGeofence(employee.id, { work_site_ids: ids });
       setData(d => ({ ...(d || {}), geofence: r }));
       const names = sites.filter(x => ids.includes(x.id)).map(x => x.name || 'Unnamed site');
-      toastOk(ids.length ? `${firstName}'s usual sites: ${names.join(', ')}. A punch at any company work site still counts as on-site.` : `${firstName} may punch from any company work site.`);
-    } catch (e) { toastErr(e?.message || 'Could not save the work sites.'); }
+      toastOk(ids.length ? `${firstName}'s usual locations: ${names.join(', ')}. A punch at any company location still counts as on-site.` : `${firstName} may punch from any company location.`);
+    } catch (e) { toastErr(e?.message || 'Could not save the locations.'); }
     finally { setBusy(false); }
   };
   const toggleSite = (sid) => saveSites(allowed.includes(sid) ? allowed.filter(x => x !== sid) : [...allowed, sid]);
@@ -683,16 +683,16 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
     try {
       const r = await api.setGeofence(employee.id, { remote: next });
       setData(d => ({ ...(d || {}), geofence: r }));
-      toastOk(next ? `${firstName} is now remote - punches from anywhere are accepted.` : `${firstName} is now on-site - punches are expected at a company work site.`);
+      toastOk(next ? `${firstName} is now remote - punches from anywhere are accepted.` : `${firstName} is now on-site - punches are expected at a company location.`);
     } catch (e) { toastErr(e?.message || 'Could not save the work mode.'); }
     finally { setBusy(false); }
   };
 
   const OPTIONS = [
     { value: false, icon: Building2, title: 'On-Site',
-      body: 'Punches are expected at any company work site. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
+      body: 'Punches are expected at any company location. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
     { value: true, icon: Globe, title: 'Remote',
-      body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a work site, the punch still counts toward that site.' },
+      body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a company location, the punch still counts toward that location.' },
   ];
 
   return (
@@ -736,23 +736,23 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
 
           {!remote && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Work Sites</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
               {sites.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
-                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} sites are`} ${firstName}'s usual site${allowed.length === 1 ? '' : 's'} and win where two sites overlap. A punch at any company work site counts as on-site; outside all of them is Out of Location.`
-                      : 'Any company work site counts as on-site. Click sites to mark the usual ones - they only matter where two sites overlap.'}
+                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is Out of Location.`
+                      : 'Any company location counts as on-site. Click locations to mark the usual ones - they only matter where two locations overlap.'}
                   </span>
                   {allowed.length > 0 && canEdit && (
                     <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
-                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Sites</button>
+                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Locations</button>
                   )}
                 </div>
               )}
               {sites.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  No work site has a location yet, so no punch can be judged on-site. Add them under Settings - Companies - Work Sites.
+                  No company location is placed on the map yet, so no punch can be judged on-site. Place them in Settings - Location Library.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -766,7 +766,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                           background: picked ? 'var(--mist)' : 'transparent', border: `1px solid ${picked ? 'var(--pine)' : 'var(--line)'}`,
                           color: on ? 'var(--ink)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         {picked && <CheckCircle size={11} style={{ color: 'var(--pine)' }} />}
-                        {st.name || 'Unnamed site'} · {st.radiusM} m
+                        {st.name || 'Unnamed location'} · {st.radiusM} m
                       </button>
                     );
                   })}
@@ -3346,7 +3346,7 @@ const COMPANY_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'monitoring', label: 'Workforce Analytics Policy' },
   { key: 'departments', label: 'Departments' },
-  { key: 'sites', label: 'Work Sites' },
+  { key: 'sites', label: 'Locations' },
   { key: 'holidays', label: 'Holiday Calendar' },
 ];
 const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
@@ -3697,17 +3697,20 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 // point came from a pasted Google Maps link (or coordinates) - the accurate
 // path for addresses the search misplaces. loc_changed = the point was set in
 // this edit, so the source/link are sent (a radius-only edit leaves them).
+// addr_manual: the address is being typed by hand (the link had none, or HR
+// chose to); link_address: the address the last pasted link gave. Library
+// forms also carry company_ids (Oct 1); a company's own tab does not.
 const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '', address_verified: false, verifiedAt: '', verifiedBy: '',
-  location_source: '', map_link: '', link_point: null, loc_changed: false, loc_mode: 'link' };
+  location_source: '', map_link: '', link_point: null, loc_changed: false, addr_manual: false, link_address: '' };
 const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '', address_verified: false,
   verifiedAt: s.addressVerifiedAt || '', verifiedBy: s.addressVerifiedBy || '',
   location_source: s.locationSource || '', map_link: s.mapLink || '', link_point: null, loc_changed: false,
-  loc_mode: s.locationSource === 'address' ? 'address' : 'link',
+  addr_manual: false, link_address: '',
   saved_point: s.latitude && s.longitude && Number.isFinite(Number(s.latitude)) ? [Number(s.latitude), Number(s.longitude)] : null });
 // What a save sends: never the form-only keys, and the location source/link
 // only when the point was set in this edit.
 const siteBody = f => {
-  const { link_point, loc_changed, loc_mode, verifiedAt, verifiedBy, saved_point, pin_adjusted, location_source, map_link, ...rest } = f;   // eslint-disable-line no-unused-vars
+  const { link_point, loc_changed, addr_manual, link_address, verifiedAt, verifiedBy, saved_point, pin_adjusted, location_source, map_link, ...rest } = f;   // eslint-disable-line no-unused-vars
   return { ...rest, radius_m: Number(f.radius_m) || 150, ...(loc_changed ? { location_source, map_link } : {}) };
 };
 // The list badge: a site whose point came from the old map pin is re-checked
@@ -3726,7 +3729,7 @@ function SiteVerifyBadge({ s }) {
   if (s.latitude && s.longitude && s.addressVerifiedAt) return null;
   const noPoint = !(s.latitude && s.longitude);
   return (
-    <span title={noPoint ? 'No location yet - edit the site and paste its Google Maps link.' : 'This site was placed with the old map pin. Edit it and paste its Google Maps link (or search its address) to confirm where it is.'}
+    <span title={noPoint ? 'Not placed yet - edit the location and paste its Google Maps link.' : 'This location was placed with the old map pin. Edit it and paste its Google Maps link to confirm where it is.'}
       style={{ display: 'inline-block', marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
         background: 'rgba(180,83,9,0.12)', color: '#b45309' }}>
       {noPoint ? 'No Location' : 'Verify Location'}
@@ -3740,54 +3743,172 @@ const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, 
 const RADIUS_PRESETS = [100, 150, 200, 300, 500];
 const ftText = m => `${Math.round(m * 3.28084).toLocaleString('en-US')} ft`;
 
-function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '' }) {
+// ── The location form (Neil, Oct 1) ─────────────────────────────────────────
+// ONE way to place a location: paste the building's Google Maps link. Its
+// address fills itself from the same link, written the US way ("25260 N
+// Centre City Pkwy, Escondido, CA 92026"), and is typed by hand only when the
+// link carries none ("there should be an option to put in a manual address").
+// The address search is gone ("keep this very, very simple"). Every input -
+// and the how-to - sits on the left, the map on the right; the pin can still
+// be nudged, measured from the link's point. The last 30 days of punches are
+// an opt-in check, off by default ("that should not be there by default").
+const PUNCHES_PREF = 'nexus:locations:showPunches';
+
+function SwitchRow({ on, onChange, label, hint }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+      <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onChange}
+        style={{ position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, marginTop: 1,
+          background: on ? 'hsl(var(--color-green))' : 'var(--line)', transition: 'background .15s' }}>
+        <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff',
+          transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+      </button>
+      <span style={{ fontSize: 12.5 }}>
+        <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
+        {hint && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+// Which companies' people punch in at this location (Neil, Oct 1: "option A
+// should be all ... or you select some", right here instead of backing into
+// each company's settings). All = every company there is today; a company
+// added later picks it from its own Locations tab.
+function LocationCompanyPicker({ entities, value, onChange }) {
+  const ids = entities.map(e => e.id);
+  const isAll = ids.length > 0 && ids.every(id => value.includes(id));
+  const [mode, setMode] = useState(isAll ? 'all' : 'some');
+  const picked = new Set(value);
+  const seg = (m, label) => (
+    <button type="button" aria-pressed={mode === m} onClick={() => { setMode(m); if (m === 'all') onChange(ids); else if (isAll) onChange([]); }}
+      style={{ flex: 1, padding: '6px 10px', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+        background: mode === m ? 'var(--card)' : 'transparent', color: mode === m ? 'var(--ink)' : 'var(--muted)', boxShadow: mode === m ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' }}>
+      {label}
+    </button>
+  );
+  return (
+    <div>
+      <label style={FL}>COMPANIES</label>
+      <div role="group" aria-label="Which companies use this location" style={{ display: 'flex', gap: 4, padding: 3, borderRadius: 9, background: 'var(--mist)' }}>
+        {seg('all', 'All Companies')}
+        {seg('some', 'Choose Companies')}
+      </div>
+      {mode === 'all' ? (
+        <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
+          People at every company can punch in here. A company added later picks it from its own Locations tab.
+        </p>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {entities.map(e => {
+              const on = picked.has(e.id);
+              return (
+                <button key={e.id} type="button" aria-pressed={on}
+                  onClick={() => onChange(on ? value.filter(x => x !== e.id) : [...value, e.id])}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 12, fontWeight: 600, border: `1px solid ${on ? 'hsl(var(--color-green))' : 'var(--line)'}`,
+                    background: on ? 'rgba(22,163,74,0.1)' : 'var(--card)', color: on ? '#15803d' : 'var(--ink)' }}>
+                  {on && <CheckCircle size={12} />} {e.name}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11.5, color: value.length ? 'var(--muted)' : '#b45309', margin: '6px 0 0' }}>
+            {value.length
+              ? `${value.length} of ${entities.length} compan${entities.length === 1 ? 'y' : 'ies'} - their people can punch in here.`
+              : 'No company yet - it stays in the library until one is picked.'}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entities = null }) {
   const [checkPoints, setCheckPoints] = useState(null);
   const [focus, setFocus] = useState(null);
-  const linkMode = f.loc_mode !== 'address';
-  const r = Number(f.radius_m) || 0;
-  const field = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
-  );
-  const modeBtn = (mode, label) => {
-    const on = (mode === 'link') === linkMode;
-    return (
-      <button type="button" aria-pressed={on} onClick={() => set('loc_mode', mode)}
-        style={{ flex: 1, padding: '6px 10px', border: 'none', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
-          background: on ? 'var(--card)' : 'transparent', color: on ? 'var(--ink)' : 'var(--muted)', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' }}>
-        {label}
-      </button>
-    );
+  // Off by default (Neil); remembered per viewer once turned on.
+  const [showPunches, setShowPunches] = useState(() => { try { return localStorage.getItem(PUNCHES_PREF) === '1'; } catch { return false; } });
+  const togglePunches = () => {
+    const next = !showPunches;
+    setShowPunches(next);
+    if (!next) setCheckPoints(null);
+    try { localStorage.setItem(PUNCHES_PREF, next ? '1' : '0'); } catch { /* storage blocked - just this visit */ }
   };
+  const r = Number(f.radius_m) || 0;
+  const hasPoint = f.latitude !== '' && f.longitude !== '' && Number.isFinite(Number(f.latitude)) && Number.isFinite(Number(f.longitude));
   const status = f.loc_changed && f.location_source === 'google_link'
-    ? (f.pin_adjusted ? 'Pin fine-tuned from the Google Maps link point. Save to keep it.' : 'Location set from the Google Maps link. Save to keep it.')
-    : f.address_verified && f.pin_adjusted ? 'Pin fine-tuned on the map from the address you picked. Save to keep it.'
-    : f.address_verified ? 'Location set from the address you picked. Drag the pin onto the exact building if needed, then save.'
-    : f.location_source === 'google_link' && f.latitude ? `Set from a Google Maps link${f.verifiedAt ? ` on ${formatDate(f.verifiedAt)}` : ''}${f.verifiedBy ? ` by ${f.verifiedBy}` : ''}.`
-    : f.verifiedAt && f.latitude ? `Location verified from its address on ${formatDate(f.verifiedAt)}.`
-    : f.latitude ? 'This location came from the old map pin. Paste its Google Maps link (or search the address) to confirm it.'
-    : 'No location yet. Paste the Google Maps link of the building to place this site.';
-  const good = f.address_verified || f.loc_changed || (f.verifiedAt && f.latitude);
+    ? (f.pin_adjusted ? 'Pin fine-tuned from the Google Maps point. Save to keep it.' : 'Placed from the Google Maps link. Save to keep it.')
+    : f.loc_changed && f.pin_adjusted ? 'Pin fine-tuned on the map. Save to keep it.'
+    : f.location_source === 'google_link' && hasPoint ? `Placed from a Google Maps link${f.verifiedAt ? ` on ${formatDate(f.verifiedAt)}` : ''}${f.verifiedBy ? ` by ${f.verifiedBy}` : ''}.`
+    : f.verifiedAt && hasPoint ? `Placed from its address on ${formatDate(f.verifiedAt)}. Paste its Google Maps link to confirm it.`
+    : hasPoint ? 'Placed with the old map pin. Paste its Google Maps link to confirm where it is.'
+    : 'Not placed yet. Paste the Google Maps link of the building.';
+  const good = f.loc_changed || (f.location_source === 'google_link' && hasPoint);
+  const linkAddress = f.link_address || '';
   return (
     <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-      <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        {hint && <p style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
-        <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-        {/* A searched address fills this and stays read-only; a site placed
-            from a Google Maps link keeps an address HR can type (it is a
-            label - the point comes from the link). */}
-        <div style={{ gridColumn: '1 / -1' }}>{linkMode
-          ? field('ADDRESS', 'address', { placeholder: 'e.g. 469 Bohemian Hwy, Sebastopol, CA 95472' })
-          : field('ADDRESS', 'address', { readOnly: true, placeholder: 'search the address on the right', style: { width: '100%', background: 'var(--mist)' } })}</div>
-        {field('LATITUDE', 'latitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
-        {field('LONGITUDE', 'longitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
-        <div style={{ gridColumn: '1 / -1', fontSize: 11.5, marginTop: -6, color: good ? 'hsl(var(--color-green))' : '#b45309' }}>
-          {status}
-          {f.location_source === 'google_link' && f.map_link && /^https?:/i.test(f.map_link) && (
-            <> <a href={f.map_link} target="_blank" rel="noreferrer" style={{ color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, whiteSpace: 'nowrap' }}>Open Link <ExternalLink size={10} /></a></>
-          )}
+      {/* Left: every input, top to bottom in the order they are filled in. */}
+      <div style={{ flex: '1 1 380px', maxWidth: 500, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {hint && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
+        <div>
+          <label style={FL}>NAME *</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.name} autoFocus placeholder="e.g. Green Storage Escondido"
+            onChange={e => set('name', e.target.value)} />
         </div>
-        <div style={{ gridColumn: '1 / -1' }}>
+
+        <div>
+          <label style={FL}>GOOGLE MAPS LINK</label>
+          <WorkSiteLinkPanel link={f.map_link} point={f.link_point} savedPoint={siteId ? f.saved_point : null}
+            onResolved={({ link, point }) => {
+              set('latitude', point.lat.toFixed(6)); set('longitude', point.lng.toFixed(6));
+              set('location_source', 'google_link'); set('map_link', link); set('link_point', point);
+              set('loc_changed', true); set('address_verified', false); set('pin_adjusted', false);
+              // The link's address replaces whatever was there - it is the
+              // source of truth. None in the link: HR types it.
+              set('link_address', point.address || '');
+              if (point.address) { set('address', point.address); set('addr_manual', false); } else set('addr_manual', true);
+              if (!f.name.trim() && point.placeName) set('name', point.placeName);
+              setFocus({ lat: point.lat, lng: point.lng, key: Date.now() });
+            }} />
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <label style={FL} htmlFor="loc-address">ADDRESS</label>
+            {(f.addr_manual || hasPoint || f.address) && (
+              <button type="button" onClick={() => {
+                  if (f.addr_manual && linkAddress) set('address', linkAddress);
+                  set('addr_manual', !f.addr_manual);
+                }}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
+                {f.addr_manual ? (linkAddress ? "Use the Link's Address" : 'Done') : 'Enter Manually'}
+              </button>
+            )}
+          </div>
+          <input id="loc-address" className="form-input" value={f.address} readOnly={!f.addr_manual}
+            onChange={e => set('address', e.target.value)}
+            placeholder={f.addr_manual ? 'e.g. 25260 N Centre City Pkwy, Escondido, CA 92026' : 'Filled in from the Google Maps link'}
+            style={{ width: '100%', ...(f.addr_manual ? null : { background: 'var(--mist)' }) }} />
+          {f.addr_manual && f.loc_changed && !linkAddress && (
+            <p style={{ fontSize: 11.5, color: '#b45309', margin: '5px 0 0' }}>The link does not include an address - type it in.</p>
+          )}
+          <div style={{ fontSize: 11.5, marginTop: 6, color: good ? 'hsl(var(--color-green))' : '#b45309', lineHeight: 1.45 }}>
+            {status}
+            {/* The link's result card shows the point while it is fresh. */}
+            {hasPoint && !f.link_point && (
+              <span style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}> {Number(f.latitude).toFixed(6)}, {Number(f.longitude).toFixed(6)}</span>
+            )}
+            {hasPoint && (
+              <> <a href={f.location_source === 'google_link' && /^https?:/i.test(f.map_link || '') ? f.map_link : googleMapsUrl(f.latitude, f.longitude)}
+                target="_blank" rel="noreferrer" style={{ color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                Open in Google Maps <ExternalLink size={10} /></a></>
+            )}
+          </div>
+        </div>
+
+        <div>
           <label style={FL}>GEOFENCE RADIUS</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input type="range" min={50} max={1000} step={10} value={Math.min(1000, Math.max(50, r || 150))} aria-label="Geofence radius slider"
@@ -3807,54 +3928,50 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '' }) {
           <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
             {r > 0 && r < 100
               ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 100 m, normal phone GPS drift will mark people who are on-site as Out of Location.</>
-              : 'Most sites work well at 100-300 m. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
+              : 'Most locations work well at 100-300 m. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
           </p>
         </div>
-        <div style={{ gridColumn: '1 / -1' }}>
+
+        {entities && (
+          <LocationCompanyPicker entities={entities} value={f.company_ids || []} onChange={ids => set('company_ids', ids)} />
+        )}
+
+        <div>
           <label style={FL}>NOTES</label>
-          <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+          <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+            value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="e.g. Punch in at the office by the front gate" />
+        </div>
+
+        {hasPoint && (
+          <div>
+            <SwitchRow on={showPunches} onChange={togglePunches} label="Show Punches Here"
+              hint="The last 30 days of punches near this location, and which fall inside the circle - dots on the map." />
+            {showPunches && (
+              <WorkSiteFenceCheck lat={f.latitude} lng={f.longitude} radiusM={f.radius_m} siteId={siteId}
+                moved={!!siteId} onPoints={setCheckPoints} />
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
+          <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
+          </button>
         </div>
       </div>
-      <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-        <div role="group" aria-label="How to place the site" style={{ display: 'flex', gap: 4, padding: 3, borderRadius: 9, background: 'var(--mist)', marginBottom: 10 }}>
-          {modeBtn('link', 'Google Maps Link')}
-          {modeBtn('address', 'Search Address')}
-        </div>
-        {linkMode && (
-          <WorkSiteLinkPanel link={f.map_link} point={f.link_point} savedPoint={siteId ? f.saved_point : null}
-            onResolved={({ link, point }) => {
-              set('latitude', point.lat.toFixed(6)); set('longitude', point.lng.toFixed(6));
-              set('location_source', 'google_link'); set('map_link', link); set('link_point', point);
-              set('loc_changed', true); set('address_verified', false); set('pin_adjusted', false);
-              if (!f.address.trim() && point.label) set('address', point.label);
-              setFocus({ lat: point.lat, lng: point.lng, key: Date.now() });
-            }} />
-        )}
-        {/* Fine-tuning the pin (Sep 30) is open once the point came from an
-            address or a Google Maps link - never on an old map-pin site. */}
+
+      {/* Right: the map, kept in view while the inputs scroll. */}
+      <div style={{ flex: '1 1 380px', minWidth: 300, position: 'sticky', top: 12, alignSelf: 'flex-start' }}>
         <WorkSiteAddressMap lat={f.latitude} lng={f.longitude} radiusM={f.radius_m}
-          showSearch={!linkMode} focus={focus} checkPoints={checkPoints}
-          anchorLabel={f.location_source === 'google_link' && linkMode ? 'the Google Maps point' : 'the address'}
-          adjustable={!!(f.address_verified || f.loc_changed || (f.verifiedAt && f.latitude))}
-          onPick={({ address, lat, lng }) => {
-            set('address', address); set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
-            set('address_verified', true); set('pin_adjusted', false);
-            set('location_source', 'address'); set('map_link', ''); set('link_point', null); set('loc_changed', true);
-          }}
+          showSearch={false} focus={focus} checkPoints={showPunches ? checkPoints : null}
+          anchorLabel={f.location_source === 'google_link' ? 'the Google Maps point' : 'the saved point'}
+          adjustable={!!(f.loc_changed || (f.verifiedAt && hasPoint))}
           onAdjust={({ lat, lng }) => {
             set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
-            if (f.location_source !== 'google_link') set('address_verified', true);
             set('pin_adjusted', true); set('loc_changed', true);
             if (!f.location_source) set('location_source', 'address');
           }} />
-        <WorkSiteFenceCheck lat={f.latitude} lng={f.longitude} radiusM={f.radius_m} siteId={siteId}
-          moved={!!siteId} onPoints={setCheckPoints} />
-      </div>
-      <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
-        <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
-        <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-          {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
-        </button>
       </div>
     </div>
   );
@@ -3881,12 +3998,12 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
       const body = siteBody(f);
       // New from here = into the library AND onto this company's list.
       if (mode === 'new') await api.createWorkSite({ ...body, company: entity.id }); else await api.updateWorkSite(mode, body);
-      await onChanged(); toastOk('Work site saved.'); setMode(null);
-    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+      await onChanged(); toastOk('Location saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save location.'); }
     setBusy(false);
   }
   async function unlink(s) {
-    if (!await dialog.confirm(`Remove "${s.name}" from ${entity.name}? ${entity.name} employees will no longer punch at it. It stays in the Work Site Library for other companies.`, { title: 'Remove work site', confirmText: 'Remove', danger: true })) return;
+    if (!await dialog.confirm(`Remove "${s.name}" from ${entity.name}? ${entity.name} employees will no longer punch at it. It stays in the Location Library for other companies.`, { title: 'Remove location', confirmText: 'Remove', danger: true })) return;
     try { await api.removeCompanyWorkSite(entity.id, s.id); await onChanged(); toastOk(`Removed from ${entity.name}.`); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
@@ -3894,7 +4011,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
     if (!list.length || busy) return; setBusy(true);
     try {
       await api.addCompanyWorkSites(entity.id, list.map(s => s.id)); await onChanged();
-      toastOk(list.length === 1 ? `Added ${list[0].name}.` : `Added ${list.length} work sites.`);
+      toastOk(list.length === 1 ? `Added ${list[0].name}.` : `Added ${list.length} locations.`);
     } catch (e) { toastErr(e?.message || 'Could not add.'); }
     setBusy(false);
   }
@@ -3902,14 +4019,14 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   if (mode) {
     const shared = mode !== 'new' && (sites.find(s => s.id === mode)?.companies || []).length > 1;
     return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save} siteId={mode === 'new' ? '' : mode}
-      hint={mode === 'new' ? `Saved to the Work Site Library and added to ${entity.name}.` : shared ? 'Other companies use this site too - changes apply to them as well.' : ''} />;
+      hint={mode === 'new' ? `Saved to the Location Library and added to ${entity.name}.` : shared ? 'Other companies use this location too - changes apply to them as well.' : ''} />;
   }
 
   return (
     <div style={{ padding: '18px 4px' }}>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 12px' }}>{entity.name} employees can only punch at these geofenced sites.</p>
       {mySites.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No work sites for {entity.name} yet - add them from the library below.</div>
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No locations for {entity.name} yet - add them from the library below.</div>
       ) : mySites.map(s => (
         <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -3921,19 +4038,19 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
         </div>
       ))}
       <div style={{ paddingTop: 14 }}>
-        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add New Work Site</button>
+        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add New Location</button>
       </div>
 
       {library.length > 0 && (
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>Add From Work Site Library</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0' }}>Sites already in Nexus that {entity.name} doesn't use yet.</p>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Add From Location Library</div>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0' }}>Locations already in Nexus that {entity.name} doesn't use yet.</p>
             </div>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
             </div>
             <button className="secondary-btn" onClick={() => add(libraryShown)} disabled={busy || !libraryShown.length} style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <Plus size={13} /> Add All ({libraryShown.length})
@@ -3941,7 +4058,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
           </div>
           <div style={{ marginTop: 8 }}>
             {libraryShown.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 10px' }}>No sites match "{q}".</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 10px' }}>No locations match "{q}".</div>
             ) : libraryShown.map(s => (
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -5125,15 +5242,15 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
     try {
       const body = siteBody(f);
       if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
-      await load(); toastOk('Work site saved.'); setMode(null);
-    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+      await load(); toastOk('Location saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save the location.'); }
     setBusy(false);
   }
   async function remove(s) {
     const used = (s.companies || []).map(entityName).filter(Boolean);
     const msg = used.length ? `Delete "${s.name}"? It is removed from ${used.join(', ')} too.` : `Delete "${s.name}"?`;
-    if (!await dialog.confirm(msg, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteWorkSite(s.id); await load(); toastOk('Work site deleted.'); }
+    if (!await dialog.confirm(msg, { title: 'Delete Location', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteWorkSite(s.id); await load(); toastOk('Location deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete.'); }
   }
 
@@ -5141,32 +5258,40 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   if (mode) {
     const used = mode === 'new' ? [] : (sites.find(s => s.id === mode)?.companies || []);
     return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save} siteId={mode === 'new' ? '' : mode}
-      hint={mode === 'new' ? 'Saved to the library - add it to companies from each company\'s Work Sites tab.' : used.length > 1 ? 'Several companies use this site - changes apply to all of them.' : ''} />;
+      entities={entities}
+      hint={used.length > 1 ? 'Several companies use this location - changes apply to all of them.' : ''} />;
   }
   const needle = q.trim().toLowerCase();
   const shown = needle ? sites.filter(s => `${s.name} ${s.address || ''}`.toLowerCase().includes(needle)) : sites;
+  // Every company there is - read as "All Companies" rather than a long list.
+  const usedText = (s) => {
+    const ids = s.companies || [];
+    if (entities.length > 1 && entities.every(en => ids.includes(en.id))) return 'Used by All Companies';
+    const used = ids.map(entityName).filter(Boolean);
+    return used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet';
+  };
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these sites its employees can punch in at, from its Work Sites tab in Company Settings.</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or from a company's Locations tab in Company Settings.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
         </div>
-        <button className="primary-btn" onClick={() => { setF(SITE_BLANK); setMode('new'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
+        <button className="primary-btn" onClick={() => { setF({ ...SITE_BLANK, company_ids: [] }); setMode('new'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Location</button>
       </div>
       {shown.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{sites.length ? `No sites match "${q}".` : 'No work sites yet.'}</div>
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{sites.length ? `No locations match "${q}".` : 'No locations yet.'}</div>
       ) : shown.map(s => {
-        const used = (s.companies || []).map(entityName).filter(Boolean);
+        const usedLine = usedText(s);
         return (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
               <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
-              <div style={{ fontSize: 11.5, color: used.length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet'}</div>
+              <div style={{ fontSize: 11.5, color: (s.companies || []).length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{usedLine}</div>
             </div>
-            <button className="secondary-btn" onClick={() => { setF(siteForm(s)); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+            <button className="secondary-btn" onClick={() => { setF({ ...siteForm(s), company_ids: [...(s.companies || [])] }); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
             <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
           </div>
         );
