@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Database, FileDown, Loader2, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
+import Amount, { AmountInput, Figure } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
@@ -45,11 +46,6 @@ const DETAILS = [
 ];
 const RE_DETAILS = [['address', 'Address'], ['property_type', 'Property Type'], ['legal_owner', 'Legal Owner'], ['ownership_type', 'Ownership Type'], ['lender', 'Lender'], ['interest_rate', 'Interest Rate'], ['monthly_payment', 'Monthly Payment']];
 
-const money = (n) => {
-  const v = Number(n) || 0;
-  const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return v < 0 ? `(${s})` : s;
-};
 const pct = (n) => `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
@@ -245,9 +241,9 @@ function Summary({ statement, past, nameOf, onReprint }) {
       <div style={label}>{title}</div>
       <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
         <tbody>
-          {rows.map((r) => <tr key={r.label}><td>{r.label}</td><td className="acct-num">{money(r.amount)}</td></tr>)}
+          {rows.map((r) => <tr key={r.label}><td>{r.label}</td><td className="acct-num"><Amount value={r.amount} /></td></tr>)}
           {!rows.length && <tr><td colSpan={2} style={{ color: 'var(--text-secondary)' }}>Nothing listed yet.</td></tr>}
-          <tr className="acct-grand"><td>{totalLabel}</td><td className="acct-num">{money(total)}</td></tr>
+          <tr className="acct-grand"><td>{totalLabel}</td><td className="acct-num"><Amount value={total} /></td></tr>
         </tbody>
       </table>
     </div>
@@ -258,7 +254,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
         {[['Total Assets', statement.totals.assets], ['Total Liabilities', statement.totals.liabilities], ['Net Worth', statement.totals.netWorth]].map(([k, v], i) => (
           <div key={k} style={{ ...card, padding: '12px 14px', borderColor: i === 2 ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' }}>
             <div style={label}>{k}</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: i === 2 && v < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{money(v)}</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: i === 2 && v < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}><Amount value={v} /></div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>As of {formatDate(statement.asOf)}</div>
           </div>
         ))}
@@ -276,7 +272,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
             <tbody>
               {past.map((s) => (
                 <tr key={s.id}>
-                  <td>{formatDate(s.asOf)}</td><td>{formatDateTime(s.generatedAt)}</td><td>{nameOf(s.generatedBy)}</td><td className="acct-num">{money(s.netWorth)}</td>
+                  <td>{formatDate(s.asOf)}</td><td>{formatDateTime(s.generatedAt)}</td><td>{nameOf(s.generatedBy)}</td><td className="acct-num"><Amount value={s.netWorth} /></td>
                   <td style={{ textAlign: 'right' }}><button type="button" className="acct-drill" onClick={() => onReprint(s)}>Open PDF</button></td>
                 </tr>
               ))}
@@ -490,9 +486,9 @@ function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, on
                           <td title={l.notes || undefined}>{l.label}{l.accountRef ? <span className="acct-code" style={{ marginLeft: 8 }}>{l.accountRef}</span> : null}</td>
                           <td>{real ? (l.details?.legal_owner || '') : l.institution}</td>
                           <td style={{ color: 'var(--text-secondary)' }} title={from}>{from}</td>
-                          <td className="acct-num">{pct(l.ownershipPct)}</td>
-                          {real ? <><td className="acct-num">{money(f?.valueAdjusted)}</td><td className="acct-num">{money(f?.loanAdjusted)}</td><td className="acct-num">{money(f?.equity)}</td></>
-                            : <><td className="acct-num">{money(f?.balance)}</td><td className="acct-num">{money(f?.adjusted)}</td></>}
+                          <td className="acct-num"><Figure text={pct(l.ownershipPct)} /></td>
+                          {real ? <><td className="acct-num"><Amount value={f?.valueAdjusted} /></td><td className="acct-num"><Amount value={f?.loanAdjusted} /></td><td className="acct-num"><Amount value={f?.equity} /></td></>
+                            : <><td className="acct-num"><Amount value={f?.balance} /></td><td className="acct-num"><Amount value={f?.adjusted} /></td></>}
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                             {canEdit && (confirm === l.id ? (
                               <>
@@ -511,7 +507,7 @@ function Lines({ section, profile, categories, figures, asOf, canEdit, onAdd, on
                     })}
                     <tr className="acct-grand">
                       <td colSpan={real ? 6 : 5}>Total {c.label}{real ? ' - Equity' : ''}</td>
-                      <td className="acct-num">{money(total)}</td><td />
+                      <td className="acct-num"><Amount value={total} /></td><td />
                     </tr>
                   </tbody>
                 </table>
@@ -565,7 +561,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
             <label style={label} htmlFor={`${idPrefix}-value`}>{manualLabel}</label>
-            <input id={`${idPrefix}-value`} type="number" step="0.01" value={value.value ?? ''} onChange={(e) => onChange({ ...value, value: e.target.value === '' ? '' : Number(e.target.value) })} style={{ ...control, width: '100%' }} />
+            <AmountInput id={`${idPrefix}-value`} value={value.value ?? ''} onChange={(v) => onChange({ ...value, value: v == null ? '' : v })} style={{ ...control, width: '100%' }} />
           </div>
           {value.asOf !== undefined && (
             <div>
@@ -588,7 +584,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel }) {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={label}>Accounts - balance as of {formatDate(asOf)}</span>
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{picked.size} picked · {money(sum)}</span>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{picked.size} picked · <Amount value={sum} /></span>
               </div>
               <div style={{ position: 'relative' }}>
                 <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
@@ -602,7 +598,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel }) {
                     <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{picked.has(a.code) ? <Check size={14} /> : null}</span>
                     <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{a.code}</span>
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{money(a.amount)}</span>
+                    <Amount value={a.amount} />
                   </button>
                 ))}
                 {accounts && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 8 }}>{accounts.length ? 'No account matches.' : 'This entity has no balance sheet accounts as of this date.'}</div>}
@@ -725,7 +721,7 @@ function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
                   <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
                   <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search account by name or code" aria-label="Search account by name or code" style={{ ...control, width: '100%', paddingLeft: 26 }} />
                 </div>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{picked.length} picked · at share {money(total)}</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{picked.length} picked · at share <Amount value={total} /></span>
                 {shown.length > 0 && (
                   <button type="button" onClick={() => toggleGroup(shown)} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.76rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
                     {shown.every((a) => state(a).on) ? 'Clear All' : 'Select All'}
@@ -746,7 +742,7 @@ function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
                           <tr className="acct-section" onClick={() => toggleGroup(list)} title="Click to pick or clear this GL group">
                             <td><input type="checkbox" aria-label={`GL group ${g}`} checked={list.every((a) => state(a).on)} onChange={() => toggleGroup(list)} onClick={(e) => e.stopPropagation()} /></td>
                             <td colSpan={3}>GL group {g}xx · {list.length} {list.length === 1 ? 'account' : 'accounts'}</td>
-                            <td className="acct-num">{money(list.reduce((s, a) => s + a.amount, 0))}</td>
+                            <td className="acct-num"><Amount value={list.reduce((s, a) => s + a.amount, 0)} /></td>
                           </tr>
                           {list.map((a) => {
                             const st = state(a);
@@ -760,7 +756,7 @@ function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
                                   </select>
                                 </td>
                                 <td className="acct-num"><input type="number" min="0" max="100" step="0.01" value={st.pct} aria-label={`Share for ${a.code}`} onChange={(e) => setRow(a.code, { pct: e.target.value, on: true })} style={{ ...control, height: 26, width: 84, fontSize: '0.76rem', textAlign: 'right' }} /></td>
-                                <td className="acct-num">{money(a.amount)}</td>
+                                <td className="acct-num"><Amount value={a.amount} /></td>
                               </tr>
                             );
                           })}
