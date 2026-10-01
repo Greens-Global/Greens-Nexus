@@ -362,7 +362,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     when = _fmt_local(row.at, row.tz_offset_min or 0)
     _hr_notify(db, emp.manager_email, "Out-of-fence punch",
                f"{who} {verb} at {when}, {dist:,}m from {site} - outside the geofence. Open the timecard to review.",
-               ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+               ref_id=row.id, action=_timecard_action(db, emp.work_email, row.local_date))
     try:
         from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
     except Exception:
@@ -944,6 +944,8 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
     _guard_review(db, user["email"], _local_date(body.at, body.tz_offset_min or 0), user["email"])
+    _guard_punch_order(db, user["email"], kind=body.kind, at=body.at,
+                       local_date=_local_date(body.at, body.tz_offset_min or 0))
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=user["email"], kind=body.kind,
                     at=body.at[:19], local_date=_local_date(body.at, body.tz_offset_min or 0),
@@ -1177,6 +1179,54 @@ def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
 def _guard_not_finalized(db: Session, email: str, d_start: str, d_end: str = ""):
     if _finalized_row(db, email, d_start, d_end):
         raise HTTPException(403, "This pay period is finalized and locked. Ask HR to unlock it before changing time records.")
+
+
+def _inverted_days(punches: list, days: set) -> set:
+    """Days (local_date) in `days` holding a clock-out that comes BEFORE a
+    clock-in of the same day with nothing open ahead of it - the out-before-in
+    a typo or a wrong edit makes. A lone clock-out with no clock-in that day is
+    a missing punch, not an inversion, so it is not counted here."""
+    out, open_in = set(), False
+    ordered = sorted(punches, key=lambda p: p.at or "")
+    for i, p in enumerate(ordered):
+        if p.kind == "in":
+            open_in = True
+        elif p.kind == "out":
+            if open_in:
+                open_in = False
+            elif p.local_date in days and any(
+                    q.kind == "in" and q.local_date == p.local_date for q in ordered[i + 1:]):
+                out.add(p.local_date)
+    return out
+
+
+def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_date: str,
+                       punch_id: str = "", extra: list = None) -> None:
+    """Refuse a change that would put a clock-out before its clock-in (Oct 1:
+    "Punch out time should not be before the punch in time"). Simulates the
+    day (and its neighbours, for overnight shifts) with the change applied and
+    compares with how it is now, so a day that is already wrong never blocks an
+    unrelated fix. `punch_id` = the punch being moved (edit), else a new punch;
+    `extra` = punches not yet real (an employee's pending add requests)."""
+    from types import SimpleNamespace
+    if kind not in ("in", "out") or not at or not local_date:
+        return
+    try:
+        d = date.fromisoformat(local_date[:10])
+    except ValueError:
+        return
+    days = {(d + timedelta(days=k)).isoformat() for k in (-1, 0, 1)}
+    cols = [c.key for c in TimePunch.__table__.columns]
+    now = [SimpleNamespace(**{c: getattr(p, c) for c in cols})
+           for p in _live_punches(db, email, min(days), max(days))]
+    now += list(extra or [])
+    after = [p for p in now if not (punch_id and p.id == punch_id)]
+    after.append(SimpleNamespace(id=punch_id or "new", kind=kind, at=at[:19], local_date=local_date[:10]))
+    new_bad = _inverted_days(after, days) - _inverted_days(now, days)
+    if new_bad:
+        when = datetime.strptime(min(new_bad), "%Y-%m-%d").strftime("%m/%d/%Y")
+        raise HTTPException(400, f"The clock-out can't be before the clock-in ({when}). "
+                                 "Check the times - a clock-out has to come after the clock-in it closes.")
 
 
 def _guard_review(db: Session, email: str, local_date: str, actor_email: str) -> None:
@@ -1627,8 +1677,24 @@ def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, ti
             actioned=False, read_by="", created_at=now, priority=1 if priority else 0))
 
 
+def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
+    """Where a timecard notice's Open goes: THAT person's timecard, on the pay
+    period holding the punch (the month for fixed salary) - the same link
+    timesheet_review._notify builds. A bare {"view": "hr", "sub": "hr-time"}
+    landed on People > Time with whoever was first in the list (Oct 1)."""
+    em = (employee_email or "").strip().lower()
+    action = {"view": "hr", "sub": "hr-time", "timecard": em}
+    try:
+        pay_type = _pay_type(db, em)
+        start = (_month_bounds(local_date) if pay_type == "fixed" else _pay_period(local_date))[0]
+    except (ValueError, TypeError):
+        return action   # no usable date: the person's card, current period
+    action.update(start=start, payType=pay_type)
+    return action
+
+
 def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
-                            body: str, ref_id: str = "") -> None:
+                            body: str, ref_id: str = "", local_date: str = "") -> None:
     """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
     without going through a request/approval must still be seen by someone
     OTHER than the person who changed it - the employee's manager and the
@@ -1636,7 +1702,7 @@ def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: st
     own report still reaches a Global Admin."""
     _notify_team_alert(db, employee_email=employee_email, actor_email=actor_email,
                        title="Timecard edited", body=body, ref_id=ref_id,
-                       action={"view": "hr", "sub": "hr-time"})
+                       action=_timecard_action(db, employee_email, local_date))
 
 
 @router.patch("/punches/{punch_id}")
@@ -1654,6 +1720,8 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
         t = _parse_iso(body.at)
         if t is None:
             raise HTTPException(400, "at must be an ISO timestamp")
+        _guard_punch_order(db, row.employee_email, kind=row.kind, at=body.at, punch_id=row.id,
+                           local_date=_local_date(body.at[:19], row.tz_offset_min or 0))
         if not row.original_at:            # freeze the original exactly once
             row.original_at = row.at
         row.at = body.at[:19]
@@ -1696,8 +1764,9 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     what = "voided" if body.void else ("restored" if body.void is not None else "edited")
     _notify_timecard_change(
         db, employee_email=row.employee_email, actor_email=user["email"],
+        local_date=row.local_date,
         body=f"{_display_name(db, user['email'])} {what} {_display_name(db, row.employee_email)}'s "
-             f"{row.kind.replace('_', ' ')} punch on {row.local_date}"
+             f"{row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)}"
              + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else "."),
         ref_id=row.id)
     db.commit()
@@ -1726,6 +1795,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                          _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, body.employee_email.strip().lower(),
                   _local_date(body.at, body.tz_offset_min or 0), user["email"])
+    _guard_punch_order(db, body.employee_email.strip().lower(), kind=body.kind, at=body.at,
+                       local_date=_local_date(body.at, body.tz_offset_min or 0))
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
                     kind=body.kind, at=body.at[:19],
@@ -1739,13 +1810,14 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     # learn who put it there.
     if row.employee_email != user["email"]:
         _hr_notify(db, row.employee_email, "Punch added to your timecard",
-                   f"A {row.kind.replace('_', ' ')} punch on {row.local_date} was added to your "
+                   f"A {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was added to your "
                    "timecard by a manager - open your timecard to review.",
                    ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
     _notify_timecard_change(
         db, employee_email=row.employee_email, actor_email=user["email"],
+        local_date=row.local_date,
         body=f"{_display_name(db, user['email'])} added a {row.kind.replace('_', ' ')} punch on "
-             f"{row.local_date} to {_display_name(db, row.employee_email)}'s timecard"
+             f"{_us_day(row.local_date)} to {_display_name(db, row.employee_email)}'s timecard"
              + (f": {(body.note or '').strip()[:200]}" if (body.note or "").strip() else "."),
         ref_id=row.id)
     db.commit()
@@ -2370,6 +2442,16 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
             raise HTTPException(404, "That punch isn't yours or no longer exists.")
         local_date = tp.local_date
     _guard_review(db, email, local_date, email)
+    if action == "add":
+        # The employee's other pending add requests count as if real: asking
+        # for an in, then for its out, is how a missing pair gets requested.
+        from types import SimpleNamespace
+        pending = [SimpleNamespace(id=r.id, kind=r.punch_kind, at=(r.at or "")[:19], local_date=r.local_date)
+                   for r in db.query(PunchRequest).filter(PunchRequest.employee_email == email,
+                                                          PunchRequest.status == "pending",
+                                                          PunchRequest.action == "add").all()]
+        _guard_punch_order(db, email, kind=body.punch_kind or "in", at=at_utc, local_date=local_date,
+                           extra=pending)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
@@ -2381,8 +2463,8 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     # so a no-manager employee's request still reaches someone.
     what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
     _notify_approvers(db, employee_email=req.employee_email, title="Timesheet fix requested",
-                      body=f"{name} asked to {what}. Reason: {reason}",
-                      ref_id=req.id, action={"view": "hr", "sub": "hr-time"})
+                      body=f"{name} asked to {what} on {_us_day(local_date)}. Reason: {reason}",
+                      ref_id=req.id, action=_timecard_action(db, req.employee_email, local_date))
     db.commit()
     return _pr_dict(req)
 
@@ -2622,6 +2704,8 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     _tz = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
     if _tz > datetime.now(timezone.utc) + timedelta(minutes=5):
         raise HTTPException(400, "You can't set a punch time in the future.")
+    _guard_punch_order(db, email, kind=row.kind, at=at, punch_id=row.id,
+                       local_date=_local_date(at[:19], row.tz_offset_min or 0))
     row.pending_at = at[:19]
     row.edit_reason = (body.reason or "").strip()[:300]
     row.edited_by, row.edited_at, row.edit_status = email, _now_iso(), "pending"
@@ -2629,9 +2713,9 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
-                      body=f"{name} proposed a new time for a {row.kind} punch on {row.local_date}."
+                      body=f"{name} proposed a new time for their {row.kind} punch on {_us_day(row.local_date)}."
                       + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
-                      ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+                      ref_id=row.id, action=_timecard_action(db, email, row.local_date))
     db.commit()
     return _serialize(row)
 
@@ -2663,6 +2747,8 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     now = _now_iso()
     note = (body.note or "").strip()
     if decision == "approved":
+        _guard_punch_order(db, row.employee_email, kind=row.kind, at=row.pending_at, punch_id=row.id,
+                           local_date=_local_date(row.pending_at[:19], row.tz_offset_min or 0))
         if not row.original_at:            # freeze the pre-edit value once
             row.original_at = row.at
         row.at = row.pending_at[:19]
@@ -6854,7 +6940,25 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "inAdjustNote": open_in_adjnote, "outAdjustNote": (p.adjust_note or "")})
                 open_in = None
                 seg_breaks = []
-            # else: orphan out with no open in - ignored (its in was outside the range)
+            elif not end or (p.local_date or "") <= end:
+                # A clock-out with no open clock-in (Oct 1). The sign-off check
+                # (_day_summaries -> out_without_in) blocks Agree on it, and it
+                # used to be dropped here - so the card showed an empty day while
+                # Agree said "a clock-out with no clock-in", with nothing on
+                # screen to fix. It now shows on its day as "Missing -> out",
+                # counted, with the same flag. The fetched day after `end` only
+                # lends its out to an overnight shift, as before.
+                segs_by_day.setdefault(p.local_date, []).append(
+                    {"in": "", "out": p.at, "inR": "", "outR": t.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "inId": "", "outId": p.id, "workedMin": 0, "flags": ["out_without_in"], "_break": 0,
+                     "breaks": [], "note": (p.note or "").strip(),
+                     "workSite": "", "workSiteId": "", "geo": "", "category": getattr(p, "category", "") or "",
+                     "geoOut": _geo_of(p)[0], "workSiteOut": _geo_of(p)[1], "workSiteOutId": _geo_of(p)[2],
+                     "distance": 0, "distanceOut": _dist_of(p.id),
+                     "inPendingAt": "", "inEditStatus": "", "inEditReason": "",
+                     "outPendingAt": (p.pending_at or ""), "outEditStatus": (p.edit_status or ""), "outEditReason": (p.edit_reason or ""),
+                     "inAdjustNote": "", "outAdjustNote": (p.adjust_note or "")})
+                missing_punches += 1
         elif p.kind == "break_start":
             if open_break is None and open_in is not None:
                 open_break, open_break_at = t, p.at

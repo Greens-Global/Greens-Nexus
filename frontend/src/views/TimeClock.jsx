@@ -2,9 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, User, Lock,
-  TreePalm, Thermometer, Wallet, CircleEllipsis, CalendarOff, ChevronDown, Check,
+  ChevronDown, Check, ClipboardCheck,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
+import TimesheetsToReview from '../components/TimesheetsToReview';
+import { openNotificationTarget } from '../lib/openTarget';
+import { reasonLook } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
@@ -192,10 +196,6 @@ const gapBreakFromSegments = (segs) => {
   return total;
 };
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
-// A type's icon on the request form (Neil, Sep 30 - Teams lists each kind of
-// time off with its icon); a company's own types get the calendar.
-const REASON_ICON = { vacation: TreePalm, sick: Thermometer, personal: User, unpaid: Wallet, other: CircleEllipsis };
-const REASON_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // 'HH:MM' (24h, from the partial-day time-off fields) -> '2:30 PM'
 const hm12 = (v) => {
   if (!v) return '';
@@ -230,7 +230,10 @@ function ReasonPicker({ value, options, onChange, style }) {
     return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
   }, [open]);
   const label = (options.find(([k]) => k === value) || [value, value])[1];
-  const icon = (k, size = 14) => { const I = REASON_ICON[k] || CalendarOff; return <I size={size} color={REASON_COLOR[k] || 'var(--wk-brand)'} style={{ flexShrink: 0 }} />; };
+  const icon = (k, size = 14) => {
+    const { Icon, color } = reasonLook(k, (options.find(([key]) => key === k) || [])[1]);
+    return <Icon size={size} color={color} style={{ flexShrink: 0 }} />;
+  };
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0, ...style }}>
       <button type="button" className="form-input" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
@@ -765,6 +768,38 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   }, [tab]);
   const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
 
+  // Timesheets to Review lives on this Time Sheet tab (Oct 1): the list of
+  // timesheets submitted to me, with Agree / Send Back on each row - where the
+  // "Timesheet to review" bell lands (timesheet_review._notify). It used to be
+  // only in People > Time, which needs the HR grant a reviewing manager may
+  // not have; Agree / Send Back themselves only need manager level. The count
+  // is read once for the whole Workday (the badge, and the tab for a
+  // time-tracking-exempt reviewer, who otherwise has no Time Sheet tab).
+  // `|| {}`: the role context is null outside RoleProvider (render tests).
+  const { can = () => false, myGrantedModules } = useRole() || {};
+  const mayOpenTime = can('administrator') || !!myGrantedModules?.has('hr');
+  const [toReview, setToReview] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.timesheetReviewWaiting()
+      .then(r => { if (live) setToReview(Array.isArray(r?.reviews) ? r.reviews.length : 0); })
+      .catch(() => {});
+    load();
+    window.addEventListener('nexus:timesheet-review-changed', load);
+    return () => { live = false; window.removeEventListener('nexus:timesheet-review-changed', load); };
+  }, []);
+  const reviewRef = useRef(null);
+  // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
+  const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
+  const showReview = tab === 'timesheet' && toReview > 0;
+  const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Review opens that employee's full timecard in People > Time - only for
+  // those who can open it (administrator, or the HR grant - App.jsx's gate).
+  const openTimecardFor = mayOpenTime ? (r) => {
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-time' } }));
+    openNotificationTarget({ timecard: r.employeeEmail, start: r.periodStart, payType: r.payType });
+  } : undefined;
+
   return (
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* Standard module header band (view-header carries the hairline divider
@@ -779,6 +814,17 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
           </div>
         </div>
+        {showReview && (
+          <button type="button" className={toReview > 0 ? 'primary-btn' : 'secondary-btn'} onClick={openReview}
+            title="Jump to the timesheets submitted to you - agree to them or send them back"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, alignSelf: 'center', whiteSpace: 'nowrap' }}>
+            <ClipboardCheck size={15} /> Timesheets to Review
+            {toReview > 0 && (
+              <span aria-label={`${toReview} waiting`} style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: '#fff', color: 'var(--wk-brand)',
+                fontSize: 11.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{toReview}</span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
@@ -791,7 +837,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(status?.timeTrackingExempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'clock', 'timeoff']
+          ? ['overview', 'clock', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
           : ['overview', 'clock', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
@@ -1027,6 +1073,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
       </div>
       </>)}
+
+      {/* Timesheets submitted to me, not decided yet - above my own timesheet,
+          for exempt reviewers too. Renders nothing when nothing is waiting. */}
+      {tab === 'timesheet' && (
+        <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
+          <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
+            onCount={onReviewCount} onOpen={openTimecardFor} />
+        </div>
+      )}
+      {tab === 'timesheet' && status?.timeTrackingExempt && toReview === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on you to review.</div>
+      )}
 
       {/* Timesheet - day list + week summary side panel */}
       {tab === 'timesheet' && !status?.timeTrackingExempt && (<>

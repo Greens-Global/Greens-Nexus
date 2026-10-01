@@ -205,13 +205,19 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
 
 
 def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> None:
-    """The employee lands on their own timecard; anyone else (the manager, HR)
-    on THAT employee's card for THAT period in People > Time > Payroll (Sep 29 -
-    it used to open the reviewer's own Workday timecard)."""
+    """The employee lands on their own timecard. The manager, while the
+    timesheet is waiting on THEM (submitted, handed back, signing cancelled),
+    lands on Workday > Time Sheet, whose Timesheets to Review list sits at the
+    top (Oct 1) - reachable without the HR grant People > Time needs, and the
+    list's Agree / Send Back only need manager level. Anyone else (HR, a
+    manager told for information) opens THAT employee's card for THAT period
+    in People > Time > Payroll (Sep 29)."""
     if not to:
         return
     if to.lower() == r.employee_email:
         action = {"view": "timeclock", "sub": "timecard", "email": r.employee_email, "start": r.period_start}
+    elif to.lower() == (r.manager_email or "").lower() and r.status == "with_manager":
+        action = {"view": "timeclock", "sub": "timesheet"}
     else:
         action = {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
                   "start": r.period_start, "payType": r.pay_type}
@@ -225,6 +231,19 @@ def _label(r: TimesheetReview) -> str:
 
 
 # ── Waiting on a reviewer ────────────────────────────────────────────────────
+
+def submit_blocker(db: Session, email: str, start: str, end: str) -> str:
+    """Why the employee may not submit (or resubmit) this period yet, in plain
+    words; '' when they may. A missing clock-out, a clock-out with no
+    clock-in or a break that never ended is fixed by the employee BEFORE it
+    reaches the manager (Oct 1) - the same blocking exceptions agree() checks."""
+    tc = _tc()
+    exc = tc._blocking_exceptions(db, email, start, end)
+    if not exc:
+        return ""
+    return (f"Fix {'this' if len(exc) == 1 else 'these'} on your timesheet before you submit it - "
+            f"{tc._exception_summary(exc)}.")
+
 
 def agree_blocker(db: Session, r: TimesheetReview) -> str:
     """Why Agree would be refused right now, in plain words; '' when it would
@@ -278,6 +297,9 @@ def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> Tim
                                  "your timesheet. Ask HR to set your manager.")
     if _tc()._finalized_row(db, email, start, end):
         raise HTTPException(409, "This pay period is already finalized.")
+    blocker = submit_blocker(db, email, start, end)
+    if blocker:
+        raise HTTPException(409, blocker)
     first = r is None
     if first:
         r = TimesheetReview(id=str(uuid.uuid4()), employee_email=email, period_start=start, period_end=end,
@@ -634,7 +656,11 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
     r = active_review(db, email, start)
     is_self = viewer == email
     if not r:
-        return {"status": "not_submitted", "canSubmit": is_self, "rounds": [], "parties": []}
+        out = {"status": "not_submitted", "canSubmit": is_self, "rounds": [], "parties": [], "submitBlocker": ""}
+        if is_self:
+            s, e, _pt = period_for(db, email, start)
+            out["submitBlocker"] = submit_blocker(db, email, s, e)
+        return out
     parties, my_party, turn = [], None, None
     if r.sign_request_id:
         req = db.query(HrSignRequest).filter(HrSignRequest.id == r.sign_request_id).first()
@@ -658,4 +684,6 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
         "canSendBack": manager_side and r.status == "with_manager",
         "canAgree": manager_side and r.status == "with_manager",
         "agreeBlocker": agree_blocker(db, r) if manager_side and r.status == "with_manager" else "",
+        "submitBlocker": (submit_blocker(db, email, r.period_start, r.period_end)
+                          if is_self and r.status == "with_employee" else ""),
     }

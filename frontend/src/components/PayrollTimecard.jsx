@@ -830,7 +830,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg && !r.seg.in
+                    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
+                    ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                    : r.seg
                     ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                     : self && !fin
                       ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
@@ -1242,7 +1247,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // The location dot links to the Locations map (only for viewers who can
               // reach it: HR/managers on someone else's card, or an admin on their own).
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
-              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
+              // A clock-out with no clock-in (Oct 1) reads "Missing" on the in
+              // side, like a missing clock-out - it blocks sign-off, and this is
+              // where it gets fixed (add the in, or void the out).
+              const inCell = (seg) => !seg.in
+                ? ((self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                    : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                : <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
               const outCell = (seg) => seg.out
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
@@ -1719,6 +1730,15 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
       toastErr?.('Set the clock-out time - it has to be after the clock-in.'); return;
     }
+    // ...and a clock-in added in front of an existing clock-out comes first (Oct 1).
+    if (needIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
+      toastErr?.('Set the clock-in time - it has to be before the clock-out.'); return;
+    }
+    // Whichever side changed, the clock-out never ends up before the clock-in
+    // (Oct 1) - the server refuses it too (_guard_punch_order).
+    if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
+      toastErr?.('The clock-out has to be after the clock-in.'); return;
+    }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
@@ -1741,18 +1761,27 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     setBusy(true);
     try {
       // Edit existing in-punch, or add one
-      if (seg?.inId) {
-        if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
-        // Reassign location (work site) on the in-punch if it changed.
-        if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
-        // Job-costing category on the in-punch.
-        if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
-      } else {
-        await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
-      }
+      const saveIn = async () => {
+        if (seg?.inId) {
+          if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
+          // Reassign location (work site) on the in-punch if it changed.
+          if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
+          // Job-costing category on the in-punch.
+          if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
+        } else {
+          await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
+        }
+      };
       // Edit existing out-punch, or add one
-      if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
-      else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      const saveOut = async () => {
+        if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
+        else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      };
+      // Moving a whole shift later (9-5 -> 6-10 PM): saving the new in first
+      // would sit it after the old out for a moment, which the server refuses
+      // as a clock-out before a clock-in. Then the out goes first.
+      const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
+      if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
       toastOk?.('Timecard updated - original times stay on record.'); onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);

@@ -258,6 +258,86 @@ class StateTests(ReviewCase):
         self.assertIsNone(mgr_view["myPartyId"])
 
 
+class SubmitBlockTests(ReviewCase):
+    """Oct 1: the employee fixes a missing clock-out, a clock-out with no
+    clock-in or an unended break BEFORE the timesheet reaches the manager - and
+    a clock-out can never be set before its clock-in."""
+
+    def _day(self, n):
+        return (datetime.strptime(self.start, "%Y-%m-%d") + timedelta(days=n)).strftime("%Y-%m-%d")
+
+    def test_submit_is_refused_while_a_clock_out_is_missing(self):
+        self._punch(self._day(1), "in", "16:00:00")
+        self.db.commit()
+        state = tsr.state_for(self.db, EMP, self.start, EMP, False)
+        self.assertIn("Fix this on your timesheet before you submit it", state["submitBlocker"])
+        self.assertIn("no clock-out", state["submitBlocker"])
+        with self.assertRaises(HTTPException) as e:
+            tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual((e.exception.status_code, e.exception.detail), (409, state["submitBlocker"]))
+        self.assertIsNone(self._r())
+
+    def test_a_clean_timesheet_submits_and_shows_no_blocker(self):
+        self.assertEqual(tsr.state_for(self.db, EMP, self.start, EMP, False)["submitBlocker"], "")
+        tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(self._r().status, "with_manager")
+
+    def test_resubmit_is_refused_until_fixed(self):
+        tsr.submit(self.db, EMP, ANCHOR)
+        tsr.send_back(self.db, self._r(), MGR, "Add Tuesday")
+        self._punch(self._day(2), "out", "18:00:00")      # a clock-out with no clock-in
+        self.db.commit()
+        state = tsr.state_for(self.db, EMP, self.start, EMP, False)
+        self.assertIn("a clock-out with no clock-in", state["submitBlocker"])
+        with self.assertRaises(HTTPException):
+            tsr.submit(self.db, EMP, ANCHOR)
+        self._punch(self._day(2), "in", "10:00:00")
+        self.db.commit()
+        tsr.submit(self.db, EMP, ANCHOR, "Added Tuesday")
+        self.assertEqual(self._r().status, "with_manager")
+
+    # ── a clock-out never before its clock-in ───────────────────────────
+    def _guard(self, **kw):
+        return timeclock._guard_punch_order(self.db, EMP, **kw)
+
+    def test_moving_the_clock_out_before_the_clock_in_is_refused(self):
+        with self.assertRaises(HTTPException) as e:
+            self._guard(kind="out", at=f"{self.start}T15:00:00", local_date=self.start,
+                        punch_id=f"p-{self.start}-out-23:00:00")
+        self.assertEqual(e.exception.status_code, 400)
+        self.assertIn("can't be before the clock-in", e.exception.detail)
+
+    def test_moving_the_clock_in_after_the_clock_out_is_refused(self):
+        with self.assertRaises(HTTPException):
+            self._guard(kind="in", at=f"{self.start}T23:30:00", local_date=self.start,
+                        punch_id=f"p-{self.start}-in-16:00:00")
+
+    def test_adding_a_clock_out_before_the_open_clock_in_is_refused(self):
+        self._punch(self._day(1), "in", "16:00:00")
+        self.db.commit()
+        with self.assertRaises(HTTPException):
+            self._guard(kind="out", at=f"{self._day(1)}T09:00:00", local_date=self._day(1))
+        self._guard(kind="out", at=f"{self._day(1)}T22:00:00", local_date=self._day(1))   # after it: fine
+
+    def test_valid_moves_and_a_lone_clock_out_pass(self):
+        self._guard(kind="out", at=f"{self.start}T23:45:00", local_date=self.start,
+                    punch_id=f"p-{self.start}-out-23:00:00")
+        self._guard(kind="out", at=f"{self._day(3)}T17:00:00", local_date=self._day(3))   # missing in, not inverted
+
+    def test_a_day_already_wrong_never_blocks_an_unrelated_fix(self):
+        self._punch(self._day(4), "out", "10:00:00")
+        self._punch(self._day(4), "in", "11:00:00")
+        self.db.commit()
+        self._guard(kind="out", at=f"{self._day(4)}T19:00:00", local_date=self._day(4))
+
+    def test_a_pending_clock_in_request_counts_for_the_requested_clock_out(self):
+        from types import SimpleNamespace
+        pending = [SimpleNamespace(id="req-in", kind="in", at=f"{self._day(5)}T09:00:00", local_date=self._day(5))]
+        self._guard(kind="out", at=f"{self._day(5)}T17:00:00", local_date=self._day(5), extra=pending)
+        with self.assertRaises(HTTPException):
+            self._guard(kind="out", at=f"{self._day(5)}T08:00:00", local_date=self._day(5), extra=pending)
+
+
 class WaitingOnReviewerTests(ReviewCase):
     """Sep 29: the reviewer's list, the up-front Agree blocker, where the bell
     goes, and the Daily Briefing line."""
@@ -326,23 +406,27 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(e.exception.detail["message"].startswith("Fix this on the timesheet before sign-off - 08/05/2026"))
         self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
 
-    def test_the_bell_takes_the_manager_to_that_timecard(self):
+    def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
+        """Oct 1: Workday > Time Sheet, where the Timesheets to Review list is -
+        People > Time needs the HR grant, which a reviewing manager may lack."""
         tsr.submit(self.db, EMP, ANCHOR)
         import json as _json
         action = _json.loads(self._bells(MGR)[-1].action)
-        self.assertEqual(action, {"view": "hr", "sub": "hr-time", "timecard": EMP,
-                                  "start": self.start, "payType": "hourly"})
+        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet"})
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
 
     def test_the_daily_briefing_asks_the_manager_to_review_it(self):
         import daily_briefing
         tsr.submit(self.db, EMP, ANCHOR)
-        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {}) if r["module"] == "timecard"]
+        # The review row only - the manager's own "Confirm your time card"
+        # reminder is a timecard row too, near a pay period's close.
+        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {})
+                if r["module"] == "timecard" and r["title"].startswith("Review ")]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's timesheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith(f"/hr/hr-time?timecard=emp.ts%40greensglobal.com&start={self.start}&type=hourly"))
+        self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
 
 
 if __name__ == "__main__":
