@@ -581,11 +581,10 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
 
 def _timesheet_review_rows(db: Session, email: str) -> list:
     """Timesheets submitted to this person for review (Sep 29) - one row each,
-    opening that employee's card for that period in People > Time. Send Back
+    opening Workday > Time Sheet's Timesheets to Review list (Oct 1). Send Back
     needs a note and Agree may be refused for a still-open period, so these are
     "Open in Nexus" rather than one-click actions."""
     import timesheet_review as tsr
-    from urllib.parse import quote
     rows = []
     for r in tsr.waiting_on(db, email):
         q = tsr.queue_row(db, r)
@@ -594,8 +593,9 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": f"Review {q['name']}'s timesheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
-            "url": (f"{app_url()}/hr/hr-time?timecard={quote(r.employee_email)}"
-                    f"&start={r.period_start}&type={r.pay_type}"),
+            # Workday > Time Sheet, where Timesheets to Review sits (Oct 1) -
+            # the same place the bell opens; no HR grant needed to reach it.
+            "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
         })
     return rows
