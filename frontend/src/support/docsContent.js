@@ -1205,7 +1205,7 @@ export const DOCS = [
   // ───────────────────────────── System ─────────────────────────────
   {
     id: 'support', name: 'Support', group: 'System', icon: 'HelpCircle', view: 'support',
-    tagline: 'Get help: raise a ticket, report a bug, and read this guide.',
+    tagline: 'Get help: raise a ticket or report a bug, and read this guide.',
     where: 'Left menu > Support',
     access: 'Everyone',
     purpose: 'Support is where anyone goes for help. Submit a ticket to IT, HR, facilities or any other team, report something broken in Nexus, find a colleague, and track everything you have raised. You do not need access to the Tickets module to use it.',
@@ -1220,17 +1220,18 @@ export const DOCS = [
         title: 'Submit a Ticket',
         steps: [
           'Open Support and click Submit a Ticket.',
-          'Give it a title and a short description.',
+          'Give it a title. Requester is you - pick a colleague instead if you are raising it on their behalf.',
+          'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it.',
           'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words.',
-          'Pick the type (each one says what it means), answer its questions, attach a photo if it helps, and click Create Ticket.',
+          'The type starts as Incident, which fits most problems. Change it if this is a request, a bug or something else, answer its questions, and click Create Ticket.',
         ],
       },
       {
         title: 'Report a Bug in Nexus',
         steps: [
-          'Click Report a Bug.',
-          'Describe what happened and what you expected, and paste a screenshot with Ctrl+V.',
-          'Submit. It goes to the Nexus team as a bug, not a request.',
+          'Click Submit a Ticket and set the type to Bug Report.',
+          'Describe what happened and what you expected, and paste a screenshot with Ctrl+V or record your screen.',
+          'Click Create Ticket. It goes in as a bug, not a request.',
         ],
       },
       {
@@ -1244,7 +1245,8 @@ export const DOCS = [
     ],
     features: [
       { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically.' },
-      { name: 'Report a Bug', desc: 'For anything broken in Nexus itself.' },
+      { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
+      { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
       { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
       { name: 'Privacy Policy & Terms', desc: 'What Nexus collects, and the terms of use.' },
       { name: 'My Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated. Sort, search and page through it.' },

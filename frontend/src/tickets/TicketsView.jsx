@@ -12,7 +12,7 @@ import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import LiveView from '../components/LiveView';
-import { filesFromPaste, richBodyHtml } from '../tasks/lib';
+import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
@@ -37,6 +37,7 @@ import {
   ticketNo, ticketNoShort, normalizeCode,
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
   OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
+  intakeFieldsFor, intakeDefaults, defaultIntakeType, richToPlain,
 } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
@@ -213,7 +214,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
-    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', t.description || '',
+    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
   ]);
   const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -1456,7 +1457,10 @@ async function uploadTicketFile(ticketId, f) {
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange }) {
+// `compact` (the Create a Ticket form, Oct 1): a slimmer pair that sits in a
+// row directly under the description editor instead of a featured red button
+// at the foot of the form - same actions, same recording flow.
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -1511,29 +1515,32 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               likely getting reflexively dismissed. That's the "come back"
               cue this button promises. */}
           <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
-            style={{
+            style={compact ? {
+              ...btn('outline'), fontSize: 12.5, fontWeight: 600, color: NX.red,
+              borderColor: 'rgba(220,38,38,0.45)', display: 'inline-flex', alignItems: 'center', gap: 6,
+            } : {
               ...btn('primary'), background: NX.red, borderColor: NX.red,
               padding: '11px 18px', fontSize: 14, fontWeight: 700, borderRadius: 10,
               boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
               display: 'inline-flex', alignItems: 'center', gap: 8,
             }}>
-            {recording ? <Spinner size="inline" /> : <CircleDot size={17} />}
-            {recording ? 'Recording…' : 'Record screen'}
+            {recording ? <Spinner size="inline" /> : <CircleDot size={compact ? 14 : 17} />}
+            {recording ? 'Recording…' : 'Record Screen'}
           </button>
           <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
             <button type="button" role="menuitem" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Video size={14} /> Screen recording
+              <Video size={14} /> Screen Recording
             </button>
             <button type="button" role="menuitem" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Mic size={14} /> Screen + narration
+              <Mic size={14} /> Screen + Narration
             </button>
           </AnchoredMenu>
         </div>
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
-        style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <UploadIcon size={13} /> Upload
+        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <UploadIcon size={13} /> {compact ? 'Upload Attachment' : 'Upload'}
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
@@ -1554,6 +1561,10 @@ function PendingFileChip({ file, onRemove }) {
   );
 }
 
+// Does a (possibly rich) description say anything? An editor that was opened
+// and left empty saves "<p></p>"; a screenshot on its own still counts.
+const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
+
 // ── Create ───────────────────────────────────────────────────────────────────
 export function CreateTicketModal({ onClose }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
@@ -1561,6 +1572,12 @@ export function CreateTicketModal({ onClose }) {
   // overrides are loaded before the type-dependent form renders there too.
   useTicketConfig();
   const { createTicket, projects = [], myEmail } = useTasks();
+  const { myEmail: roleEmail } = useRole();
+  // Who "me" is - the Requester field's default. The store's copy first, the
+  // signed-in identity as the fallback for a form mounted outside the Tasks
+  // view (Support), before the store has loaded.
+  const me = (myEmail || roleEmail || '').toLowerCase();
+  // The curated Nexus People list (/myhr/directory) - never M365/GAL.
   const people = usePeople();
   const isMobile = useIsMobile();
   const [companies, setCompanies] = useState([]);
@@ -1584,21 +1601,34 @@ export function CreateTicketModal({ onClose }) {
   const seedRef = useRef(undefined);
   if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
   const seed = seedRef.current;
+  // Opens on Incident (Neil, Oct 1 2026: "nine times out of ten it is simply
+  // an incident") - preselected, still changeable. See defaultIntakeType.
+  const initialType = useRef(defaultIntakeType()).current;
   const [form, setForm] = useState(seed?.form || {
-    // Opens on the first type offered, read from the order rather than named
-    // here, so the two can never drift into a default that isn't in the list.
-    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'open',
-    requesterId: myEmail || null, companyId: '', hrDepartmentId: '', application: '',
+    subject: '', description: '', type: initialType, priority: 'medium', status: 'open',
+    // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
+    requesterId: (myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
   });
-  const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
+  // Per-type field values (keyed by field key), pre-answered where the
+  // question has a sensible default - Who is affected? = One User, When did
+  // it start? = now.
+  const [tf, setTf] = useState(() => seed?.tf || intakeDefaults(initialType));
   const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
-  // intakeFields, not TYPE_FIELDS: retired fields stay in the definitions so
-  // tickets that already captured one still render it, but nobody is asked
-  // for them again.
-  const typeFieldDefs = useMemo(() => intakeFields(form.type), [form.type]);
+  // The admin's saved type order arrives after mount (useTicketConfig). If it
+  // took Incident out of intake, move off it - but only while the person has
+  // not picked a type themselves.
+  const typeTouched = useRef(!!seed?.form);
+  const typeOrderKey = TICKET_TYPE_ORDER.join(',');
+  useEffect(() => {
+    if (typeTouched.current || TICKET_TYPE_ORDER.includes(form.type)) return;
+    const next = defaultIntakeType();
+    setForm((f) => ({ ...f, type: next }));
+    setTf((prev) => ({ ...Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_'))), ...intakeDefaults(next) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeOrderKey]);
   // The work-site list the Which site? / Which facility? questions use.
   const sites = useTicketSites();
   // Derived, not asked. The server derives it again on save from the same
@@ -1633,6 +1663,26 @@ export function CreateTicketModal({ onClose }) {
     : allDepts;
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
+  // intakeFieldsFor, not TYPE_FIELDS: retired fields stay in the definitions
+  // so tickets that already captured one still render it, but nobody is asked
+  // for them again; radios are asked as dropdowns; and the error-message
+  // question only appears once the department is IT (Neil, Oct 1).
+  const typeFieldDefs = useMemo(() => intakeFieldsFor(form.type, deptName), [form.type, deptName]);
+  // Requester picker: me first, then everyone else on the People list.
+  const requester = form.requesterId || me;
+  const requesterOptions = useMemo(() => {
+    const nameFor = (email) => people.find((p) => p.email === email)?.name || email;
+    const others = people.filter((p) => p.email !== me && !p.external)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }))
+      .map((p) => ({ id: p.email, label: p.name, desc: p.email }));
+    const mine = me ? [{ id: me, label: `${nameFor(me)} (Me)`, desc: me }] : [];
+    // Someone picked who is not in the loaded list (a recording draft from a
+    // session where the list differed) still shows as themselves.
+    const known = new Set([me, ...others.map((o) => o.id)]);
+    const extra = requester && !known.has(requester) ? [{ id: requester, label: requester, desc: '' }] : [];
+    return [...mine, ...extra, ...others];
+  }, [people, me, requester]);
+  const onBehalf = !!requester && !!me && requester !== me;
 
   // ── Validation ──
   // One step now (Neil, Sep 30: "consolidate step one and step 2... there's
@@ -1685,6 +1735,17 @@ export function CreateTicketModal({ onClose }) {
     const list = Array.from(e.target.files || []); e.target.value = '';
     if (list.length) setAttachments((prev) => [...prev, ...list]);
   };
+  const addFile = (f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); };
+  // Ctrl+V of a screenshot anywhere in the form. Inside the description the
+  // editor has already embedded it in place (and marked the event handled);
+  // anywhere else - the title, a dropdown - it is attached instead.
+  const onFormPaste = (e) => {
+    if (e.defaultPrevented) return;
+    const files = filesFromPaste(e);
+    if (!files.length) return;
+    e.preventDefault();
+    files.forEach(addFile);
+  };
   // ABC scanner → OCR the photo server-side and append the text to the Title.
   const onScan = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -1712,11 +1773,26 @@ export function CreateTicketModal({ onClose }) {
       for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
         if (!isBlankFieldValue(tf[f.key])) typeFields[f.key] = tf[f.key];
       }
+      // Rich description (Oct 1). A picture pasted into it is held inline (a
+      // data: URL) while typing, exactly like Create a Task; before saving it
+      // goes to ticket storage and the description points at the stored copy,
+      // so the ticket, its activity snapshot and its emails never carry a
+      // megabyte of base64. Each one is also filed under Attachments once the
+      // ticket exists. A failed upload keeps the inline copy - never worse.
+      const inlineImages = [];
+      // A screenshot alone is a description too - isEmptyDoc only sees text.
+      const description = (isEmptyDoc(form.description) && !/<img\b/i.test(form.description || '')) ? ''
+        : await externalizeInlineImages(form.description, async (f) => {
+          const url = await uploadTicketEvidence(f, 'image');
+          inlineImages.push({ name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: 'image', url });
+          return { url };
+        });
       const created = await createTicket({
-        subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
-        // Requester defaults to the current user; SLA due date is derived from
-        // priority; the service area is derived server-side from the topic.
-        requesterId: form.requesterId || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
+        subject: form.subject.trim(), description, type: form.type, priority: form.priority, status: form.status,
+        // Requester = who it is for (defaults to me; the server checks anyone
+        // else against the People list and records me as the creator). SLA due
+        // date is derived from priority; the service area from the topic.
+        requesterId: requester || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
         application: form.application.trim(),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
@@ -1725,6 +1801,9 @@ export function CreateTicketModal({ onClose }) {
       // failure here must not lose the ticket that was just created - the
       // ticket still saves, and any failed file gets one combined warning
       // (not one alert per file) rather than being silently dropped.
+      if (created?.id && inlineImages.length) {
+        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(() => {})));
+      }
       if (created?.id && attachments.length) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
@@ -1832,7 +1911,7 @@ export function CreateTicketModal({ onClose }) {
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Ticket'}</button>
       </>
     ),
-    children: (<>
+    children: (<div onPaste={onFormPaste} style={{ display: 'contents' }}>
       <div style={field}>
         <label style={label}>Title {req}</label>
         <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue? e.g. Light out in the front office"
@@ -1840,17 +1919,47 @@ export function CreateTicketModal({ onClose }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
         {err('subject') && <div style={requiredHint}>Required</div>}
       </div>
+
+      {/* Requester (Neil, Oct 1 2026) - replaces the "Email & Microsoft 365"
+          section, which was really asking who this is for. You by default;
+          anyone on the People list otherwise. They get the updates, see it as
+          theirs, and confirm or reopen it; you stay on it as a watcher. */}
+      <div style={field}>
+        <label style={label}>Requester</label>
+        <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
+          options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
+          emptyText="No one matches." style={sel} />
+        {sub(onBehalf
+          ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
+          : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+      </div>
+
+      {/* Rich description (Neil, Oct 1): the Task module's own editor, with
+          Record Screen / Upload Attachment directly beneath it rather than at
+          the foot of the form. */}
       <div style={field}>
         <label style={label}>Description</label>
-        <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3}
-          placeholder="A few words on what is happening" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+        <RichDescription value={form.description} onChange={(html) => set('description', html)} minHeight={isMobile ? 90 : 110}
+          placeholder="What is happening? What were you doing, and what did you expect?" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          <RecordUploadButtons compact showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+            onFile={addFile} onRecordingChange={onRecChange} />
+          <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+        </div>
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {attachments.map((f, i) => (
+              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Self-service before a ticket (Neil, Sep 26): guide articles that
           match what is being typed. Advisory only - it never blocks Create
           Ticket, and shows nothing when nothing is a confident match.
           "This Solved My Problem" closes the form without creating one. */}
-      <TicketDeflection subject={form.subject} description={form.description} onSolved={onClose} />
+      <TicketDeflection subject={form.subject} description={richToPlain(form.description)} onSolved={onClose} />
 
       {/* Company picker (Sep 19, Pranshu) - hidden by default; appears only
           once an admin has turned it on AND picked 2+ companies to offer
@@ -1918,8 +2027,11 @@ export function CreateTicketModal({ onClose }) {
             // SERVICE_FIELDS' `types`) - one that no longer applies is simply
             // not rendered and never submitted, because both the form and the
             // save walk the current definitions.
-            setTf((prev) => Object.fromEntries(
-              Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
+            typeTouched.current = true;
+            setTf((prev) => {
+              const kept = Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_')));
+              return { ...kept, ...intakeDefaults(v, kept) };
+            });
           }} />
           {/* The definition of whichever type is picked - the same one each
               option carries in the open list. */}
@@ -1977,28 +2089,7 @@ export function CreateTicketModal({ onClose }) {
         </div>
       )}
 
-      <div style={field}>
-        <label style={label}>Attachments</label>
-        {/* Framed as a benefit to the requester (faster triage), not an
-            instruction. Only shown when recording is actually offered for this
-            ticket type (NO_RECORDING_TYPES hides the Record button itself). */}
-        {!NO_RECORDING_TYPES.includes(form.type) && (
-          <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 8, lineHeight: 1.4 }}>
-            A photo or a quick screen recording shows us exactly what's happening - usually faster than typing it out.
-          </div>
-        )}
-        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
-          onRecordingChange={onRecChange} />
-        {attachments.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {attachments.map((f, i) => (
-              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
-            ))}
-          </div>
-        )}
-      </div>
-    </>),
+    </div>),
   });
 }
 
@@ -2489,9 +2580,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <input autoFocus value={(draft ?? { subject: v.subject }).subject ?? ''} placeholder="Title"
               onChange={(e) => setDraft((d) => ({ ...(d || { description: v.description || '' }), subject: e.target.value }))}
               style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
-            <textarea value={(draft ?? { description: v.description }).description ?? ''} rows={4} placeholder="Describe the issue"
-              onChange={(e) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: e.target.value }))}
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+            {/* The same rich editor the Create a Ticket form uses (Oct 1) - a
+                plain-text description written before then opens as one paragraph. */}
+            <RichDescription value={(draft ?? { description: v.description }).description ?? ''} minHeight={90}
+              placeholder="Describe the issue"
+              onChange={(html) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: html }))} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
               <button style={btn('primary')} onClick={saveEdit} title="Saved with everything else when you click Done">Apply</button>
@@ -2505,8 +2598,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
                 style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
             )}
           </div>
-          {v.description
-            ? <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{v.description}</p>
+          {/* Rich text since Oct 1: richBodyHtml sanitizes it, and wraps an
+              older plain-text description in paragraphs so both read alike. */}
+          {hasRichText(v.description)
+            ? <div className="nx-rich-body" style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim }}
+                dangerouslySetInnerHTML={{ __html: richBodyHtml(v.description, nameOf) }} />
             : canEditText && (
               <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
                 <Plus size={13} /> Add a Description
@@ -3443,10 +3539,11 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{snapshot.subject || '-'}</div>
       </div>
-      {snapshot.description && (
+      {hasRichText(snapshot.description) && (
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Description</div>
-          <p style={{ margin: 0, fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>
+          <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim }}
+            dangerouslySetInnerHTML={{ __html: richBodyHtml(snapshot.description, nameOf) }} />
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>

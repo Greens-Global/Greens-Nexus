@@ -3207,6 +3207,12 @@ class TaskTicket(Base):
     resolution_note     = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
+    # Who actually filed it (Neil, Oct 1 2026: the intake form's Requester field
+    # raises a ticket on someone else's behalf). requester_email is who it is
+    # FOR - notified, sees it as theirs, rates and reopens it; this is who typed
+    # it in. Stamped server-side from the caller, never taken from the payload.
+    # Blank on tickets raised before this existed (creator == requester then).
+    created_by_email    = Column(String, default="", index=True)
 
 
 class TicketEmailLog(Base):

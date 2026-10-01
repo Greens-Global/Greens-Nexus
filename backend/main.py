@@ -833,6 +833,8 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN resolution_note TEXT DEFAULT ''",
             # Closed notifications (Oct 1) - see the Postgres list.
             "ALTER TABLE nexus_notifications ADD COLUMN closed_by VARCHAR DEFAULT ''",
+            # Ticket raised on behalf of someone else (Oct 1) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN created_by_email TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1805,6 +1807,9 @@ def _run_migrations():
         # Closed notifications (Neil, 10/01): clearing moves a row to the
         # person's Closed list instead of deleting it; rows live 30 days.
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
+        # Tickets (Neil, Oct 1): who filed a ticket raised on someone else's
+        # behalf - requester_email is who it is for.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS created_by_email TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -161,6 +161,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "type": t.type or "request",
             "status": t.status if (t.status and t.status != "new") else "open", "priority": t.priority or "medium",
             "requesterId": _nz(t.requester_email), "assigneeId": _nz(t.assignee_email),
+            "createdById": _nz(t.created_by_email),
             "assignedById": _nz(t.assigned_by_email),
             "departmentId": _nz(t.department_id), "companyId": _nz(t.company_id), "hrDepartmentId": _nz(t.hr_department_id),
             "linkedTaskId": _nz(t.linked_task_id),
@@ -600,7 +601,10 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         rows = [t for t in rows if (t.company_id or "") in _cscope]
     me = (user.get("email") or "").lower()
     if mine:
-        rows = [t for t in rows if (t.requester_email or "").lower() == me]
+        # Raised by me, or raised by me on someone else's behalf (Oct 1) - the
+        # person who filed it still needs to find it. Being cc'd is not enough.
+        rows = [t for t in rows if (t.requester_email or "").lower() == me
+                or (t.created_by_email or "").lower() == me]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
@@ -611,16 +615,63 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     return [ticket_to_dict(t) for t in rows]
 
 
+def _valid_requester(db: Session, user: dict, requested: str | None) -> str:
+    """Who a new ticket is for: the caller, unless they named someone else.
+
+    Someone else must be a real person on the Nexus People list - the same
+    rule /myhr/directory (the picker the form offers) applies: a work mailbox,
+    not offboarded, and inside the caller's companies once the company walls
+    are armed. Guest/external identities are offered to nobody by that picker,
+    so only the desk may still name one (an agent logging a partner's call).
+    A typo or a made-up address is refused rather than silently swapped for
+    the caller: the person filing meant somebody, and quietly filing it as
+    their own would send every update to the wrong inbox."""
+    me = (user.get("email") or "").strip().lower()
+    email = (requested or "").strip().lower()
+    if not email or email == me:
+        return me
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    ok = (emp is not None and (emp.status or "") != "offboarded"
+          and not (getattr(emp, "deleted_at", "") or ""))
+    if ok and (emp.identity_type or "") in ("guest", "external") and not _has_desk_grant(user, db):
+        ok = False
+    if ok:
+        import auth
+        scope = auth.company_scope(user, db)
+        if scope is not None and (emp.company or "") not in scope:
+            ok = False
+    if not ok:
+        raise HTTPException(400, "The requester must be someone on the Nexus People list.")
+    return email
+
+
+def _with_creator(watchers: list | None, requester: str | None, creator: str) -> list:
+    """The payload's watchers, plus whoever filed the ticket when it is for
+    somebody else - so the person who raised it on a colleague's behalf can
+    still open it, follow the thread and hear about it (a watcher is a
+    participant: _require_ticket_participant, list_tickets)."""
+    out = [w for w in (watchers or []) if w]
+    me = (creator or "").strip().lower()
+    if me and me != (requester or "").strip().lower() and me not in {(w or "").lower() for w in out}:
+        out.append(me)
+    return out
+
+
 @router.post("/task-tickets", status_code=201)
 def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
     # Anyone signed in may raise a ticket - that is the whole point of a help
-    # desk. Raising one ON SOMEONE ELSE'S BEHALF is a desk action, though, so
-    # without the grant the requester is forced to the caller rather than taken
-    # from the payload.
-    if body.requester_email and not _has_desk_grant(user, db):
-        body.requester_email = user["email"]
+    # desk - and, since Oct 1 2026, on someone else's behalf (Neil: the intake
+    # form's Requester field, "who is this for", defaults to you and can be
+    # anyone on the People list). The requester is who the ticket is FOR: they
+    # are notified, see it as theirs, rate and reopen it. The caller is stamped
+    # as created_by_email and kept on as a watcher so they can follow it too.
+    # It used to be a desk-only move (the requester was silently forced to the
+    # caller for everyone else); now it is open to all, so the address is
+    # checked against the curated People list instead - see _valid_requester.
+    body.requester_email = _valid_requester(db, user, body.requester_email)
     # Company on intake (Sep 19, Pranshu: "End user don't have the ability to
     # choose company but here it is showing the ticket is raised for GGcon
     # company"). A desk-grant caller (raising on someone else's behalf, or an
@@ -642,11 +693,13 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         description=body.description or "", type=body.type or "request",
         status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
+        created_by_email=(user["email"] or "").strip().lower(),
         assignee_email=(body.assignee_email or "").strip().lower(), department_id=body.department_id or "",
         company_id=company_id,
         hr_department_id=body.hr_department_id or "",
         linked_task_id=body.linked_task_id or "", tags=body.tags or [], images=body.images or [],
-        watcher_emails=body.watcher_emails or [], resolution=body.resolution or "",
+        watcher_emails=_with_creator(body.watcher_emails, body.requester_email, user["email"]),
+        resolution=body.resolution or "",
         custom_field_values=body.custom_field_values or {}, type_fields=body.type_fields or {}, links=[], task_ids=[],
         component=body.component or "", csat_rating=0, csat_comment="",
         application=(body.application or "").strip(),

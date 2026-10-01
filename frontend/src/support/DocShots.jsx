@@ -10,7 +10,7 @@
 // it draws changes.
 import {
   Bell, Search, LayoutDashboard, Contact, CheckSquare, BookOpen, Package,
-  HelpCircle, LogIn, Coffee, ShoppingCart, PenTool, Users, Ticket, Bug,
+  HelpCircle, LogIn, Coffee, ShoppingCart, PenTool, Users, Ticket,
   Shield, Plus, Star, Sparkles,
 } from 'lucide-react';
 
@@ -335,7 +335,7 @@ const SHOTS = {
     render: () => (
       <Frame title="Support" tabs={['Help Center', 'Documentation']} active="Help Center" activeRail={5} tabMark={3} markedTab="Documentation">
         <Row style={{ alignItems: 'stretch' }} gap={10}>
-          {[[Ticket, 'Submit a Ticket'], [Bug, 'Report a Bug'], [Users, 'Contact Directory'], [Shield, 'Privacy Policy']].map(([I, t], i) => {
+          {[[Ticket, 'Submit a Ticket'], [Users, 'Contact Directory'], [Shield, 'Privacy Policy'], [BookOpen, 'Documentation']].map(([I, t], i) => {
             const card = (
               <Card style={{ padding: 8, width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, background: 'var(--mist)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}><I size={12} style={{ color: 'var(--ink)' }} /></span>
