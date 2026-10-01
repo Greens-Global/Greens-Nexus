@@ -114,10 +114,23 @@ export default function ReportsTab({ search = null }) {
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  // A drill-down asked for from another tab (see drill.js) lands here.
+  // A drill-down asked for from another tab (see drill.js) lands here. So
+  // does a search handed over by the dashboard's Find a Transaction tile:
+  // the words go in the box and, when a row was tapped there, that entry
+  // opens on top of the lines.
+  const [initialEntry, setInitialEntry] = useState(null);   // { id, no }
   useEffect(() => {
     const take = (d) => {
-      if (!d || !d.account) return;
+      if (!d) return;
+      if (!d.account) {
+        if (!d.q) return;
+        setDrill(null);
+        setSearchText(d.q);
+        setTerm(d.q);
+        setInitialEntry(d.entryId ? { id: d.entryId, no: d.entryNo || '' } : null);
+        toTop();
+        return;
+      }
       if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account, accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual' });
       toTop();
@@ -357,7 +370,8 @@ export default function ReportsTab({ search = null }) {
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel}
-          dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} />
+          dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy}
+          initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 
       {!searching && error && <div style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{error}</div>}
