@@ -326,23 +326,27 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(e.exception.detail["message"].startswith("Fix this on the timesheet before sign-off - 08/05/2026"))
         self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
 
-    def test_the_bell_takes_the_manager_to_that_timecard(self):
+    def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
+        """Oct 1: Workday > Time Sheet, where the Timesheets to Review list is -
+        People > Time needs the HR grant, which a reviewing manager may lack."""
         tsr.submit(self.db, EMP, ANCHOR)
         import json as _json
         action = _json.loads(self._bells(MGR)[-1].action)
-        self.assertEqual(action, {"view": "hr", "sub": "hr-time", "timecard": EMP,
-                                  "start": self.start, "payType": "hourly"})
+        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet"})
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
 
     def test_the_daily_briefing_asks_the_manager_to_review_it(self):
         import daily_briefing
         tsr.submit(self.db, EMP, ANCHOR)
-        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {}) if r["module"] == "timecard"]
+        # The review row only - the manager's own "Confirm your time card"
+        # reminder is a timecard row too, near a pay period's close.
+        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {})
+                if r["module"] == "timecard" and r["title"].startswith("Review ")]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's timesheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith(f"/hr/hr-time?timecard=emp.ts%40greensglobal.com&start={self.start}&type=hourly"))
+        self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
 
 
 if __name__ == "__main__":
