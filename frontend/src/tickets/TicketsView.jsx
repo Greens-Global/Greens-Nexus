@@ -35,8 +35,8 @@ import {
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
-  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFieldApplies, withDynamicOptions,
-  topicFields, topicQuestionDefs, allTopicQuestionDefs, labelFromKey,
+  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, withDynamicOptions,
+  topicQuestionDefs, allTopicQuestionDefs, labelFromKey,
   OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
   intakeFieldsFor, intakeDefaults, defaultIntakeType, richToPlain,
 } from './ticketMeta';
@@ -1746,19 +1746,9 @@ export function CreateTicketModal({ onClose }) {
     setTf((prev) => ({ ...Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_'))), ...intakeDefaults(next) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeOrderKey]);
-  // The work-site list the Which site? / Which facility? questions use.
-  const sites = useTicketSites();
-  // Derived, not asked. The server derives it again on save from the same
-  // topic list - this copy only lets the form ask the follow-up questions that
-  // area needs, so the requester is never made to classify their own problem.
-  const serviceArea = useMemo(() => areaForTopic(form.application), [form.application]);
-  // The picked topic's own questions (admin-edited in Help Topics, Oct 1), or
-  // its area's when nobody has edited them - each asked only on the ticket
-  // types it names: "which facility?" is the right question for a camera that
-  // has stopped working and noise on a request to reword a report.
-  const svcFieldDefs = useMemo(
-    () => withDynamicOptions(topicFields(form.application, serviceArea, form.type), { sites }),
-    [form.application, serviceArea, form.type, sites]);
+  // No follow-up questions per topic (Pranshu, Oct 1: "A Few More Details" -
+  // Which facility? Unit? - was not needed). The topic and the description are
+  // the whole ask; the server still files the ticket under the topic's area.
   // Company field on intake (Sep 19, Pranshu: "End user don't have the
   // ability to choose company... admin have the control to turn on/off the
   // company field"). Off (the default): no picker, departments come
@@ -1817,11 +1807,11 @@ export function CreateTicketModal({ onClose }) {
     if (showCompanyPicker && !form.companyId) out.add('companyId');
     if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
     if (!form.application.trim()) out.add('application');
-    for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
+    for (const f of typeFieldDefs) {
       if (f.req && isBlankFieldValue(tf[f.key])) out.add(f.key);
     }
     return out;
-  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, svcFieldDefs, tf]);
+  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, tf]);
 
   // ── Mobile capture shortcuts (mirrors CreateTaskModal) ──
   // Photo / attach / scan sit in the footer so they're one tap away on a phone.
@@ -1888,7 +1878,7 @@ export function CreateTicketModal({ onClose }) {
       // type or a topic the user moved away from are never submitted, because
       // only the CURRENT definitions are walked.
       const typeFields = {};
-      for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
+      for (const f of typeFieldDefs) {
         if (!isBlankFieldValue(tf[f.key])) typeFields[f.key] = tf[f.key];
       }
       // Rich description (Oct 1). A picture pasted into it is held inline (a
@@ -2193,26 +2183,6 @@ export function CreateTicketModal({ onClose }) {
         </div>
       )}
 
-      {/* Follow-ups for what it is about (Which site? Which device?). Most
-          topics ask nothing and this block simply doesn't appear. */}
-      {svcFieldDefs.length > 0 && (
-        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginBottom: 10 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10 }}>
-            A Few More Details
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-            {svcFieldDefs.map((f) => (
-              <div key={f.key} style={{ ...field, marginBottom: 0, gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
-                <label style={label}>{f.label}{f.req && <span style={{ color: NX.red }}> *</span>}</label>
-                <TypeFieldInput field={f} value={tf[f.key]} onChange={(v) => setTfVal(f.key, v)} people={people} projects={projects}
-                  invalid={err(f.key)} />
-                {err(f.key) && <div style={requiredHint}>Required</div>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
     </div>),
   });
 }
@@ -2498,8 +2468,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const shownSvcFields = (() => {
     const area = t?.serviceArea || '';
     const answered = (f) => !isBlankFieldValue(t?.typeFields?.[f.key]);
-    const own = topicQuestionDefs(t?.application, area).filter(
-      (f) => (!f.retired && serviceFieldApplies(f, t?.type)) || answered(f));
+    // Only what was answered: new tickets are asked none of these (Oct 1),
+    // older ones keep showing what they said.
+    const own = topicQuestionDefs(t?.application, area).filter(answered);
     const ownKeys = new Set(own.map((f) => f.key));
     const orphans = [...allTopicQuestionDefs(), ...Object.values(SERVICE_FIELDS).flat()]
       .filter((f) => !ownKeys.has(f.key) && answered(f));
