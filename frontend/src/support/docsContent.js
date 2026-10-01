@@ -551,7 +551,7 @@ export const DOCS = [
         steps: [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
           'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
-          'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it.',
+          'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it. The requester is only messaged when their ticket is assigned, gets a reply (the message includes it), or is resolved or closed - other edits show in their bell only.',
           'The requester confirms it with a 1 to 5 star rating, or reopens it with a reason.',
         ],
       },

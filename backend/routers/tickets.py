@@ -526,14 +526,22 @@ def _deliver_teams_dm(row_id: str) -> None:
         db.close()
 
 
-def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str) -> "models.TicketTeamsMessage | None":
-    """Queue a Teams DM to the ticket's requester about this update - same
-    guaranteed-delivery queue TimeBod posts use (teams_post.py), posted AS the
-    agent who made the change into a 1:1 chat Graph creates on first contact.
-    Called for exactly the same set of changes that already trigger the
-    requester's update EMAIL (see update_ticket's Outlook-notifications
-    block) - one definition of "worth telling the requester about," not two.
-    Skipped when the actor IS the requester (their own edit needs no DM) or
+def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str, *,
+                              assigned: bool = False, closed: bool = False,
+                              comment: str = "") -> "models.TicketTeamsMessage | None":
+    """Queue a Teams DM to the ticket's requester - same guaranteed-delivery
+    queue TimeBod posts use (teams_post.py), posted AS the agent who made the
+    change into a 1:1 chat Graph creates on first contact.
+
+    Only three things are worth a Teams message (Neil, Oct 1 2026, after
+    Ankush's requester got one every time he touched her ticket): the ticket
+    was ASSIGNED (`assigned` - names the assignee), a public REPLY from
+    someone else (`comment` - the text itself, not "your ticket was
+    updated"), or it was RESOLVED / CLOSED (`closed` - with the resolution
+    note). Status moves, priority, field edits and opening the ticket send
+    nothing. A save carrying several of them is ONE message
+    (tmpl.requester_teams_dm_html), and nothing to say queues nothing.
+    Skipped when the actor IS the requester (their own change needs no DM) or
     there's no requester on file (never happens in practice, but a queued row
     with an empty requester_email would just fail Graph forever).
 
@@ -547,8 +555,15 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
     actor = (actor_email or "").strip().lower()
     if not requester or requester == actor:
         return None
-    link = tmpl._ticket_url(app_url(), t.id, for_requester=True)
-    html = f'{ticket_no(t.code)} has been updated. To view the ticket, please visit: <a href="{link}">{link}</a>'
+    html = tmpl.requester_teams_dm_html(
+        code=t.code, subject=t.subject, link=tmpl._ticket_url(app_url(), t.id, for_requester=True),
+        actor_name=_name_of(db, actor),
+        assigned_to=(_name_of(db, t.assignee_email)
+                     if assigned and t.assignee_email and t.assignee_email.lower() != requester else ""),
+        closed_status=t.status if (closed and t.status in ("resolved", "closed")) else "",
+        resolution_note=t.resolution_note or "", comment=comment or "")
+    if not html:
+        return None
     row = models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=actor,
                                      requester_email=requester, html=html, created_at=now_iso())
     db.add(row)
@@ -1064,47 +1079,39 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # ONE email per save, whatever it carried: the drawer batches a whole visit
     # (fields + a reply) into this one call, and the reply rides along in the
     # email picked for the fields rather than arriving as a second one.
+    # Requester emails and Teams follow one policy (Neil, Oct 1 2026): ASSIGNED,
+    # a public REPLY (with its text) and RESOLVED / CLOSED - nothing for status
+    # moves, priority or field edits ("we don't need any other Teams spam"; the
+    # bell above still carries every update). ticket_notify.notify_ticket_event
+    # also drops the requester from any event they caused themselves.
     actor = user["email"]
-    priority_changed = "priority" in data and t.priority != prev_priority
-    details_changed = ("resolution" in data or "description" in data or "type" in data or "hr_department_id" in data)
     extra = {"latest_comment": public_comment} if public_comment else {}
-    if assignee_changed and t.assignee_email:
+    assigned_now = assignee_changed and bool(t.assignee_email)
+    closing = status_changed and t.status in ("resolved", "closed") and prev_status not in ("resolved", "closed")
+    if closing:
+        # Resolved outranks an assignment made in the same save - the resolved
+        # email reaches the requester, the desk and the (new) assignee anyway.
+        background_tasks.add_task(notify_ticket_event, t.id, "resolved", actor, **extra)
+    elif assigned_now:
         # Reassignment uses the "assigned" flow exclusively - spec lists reassignment
         # under both "assigned" (§2) and generic "update" (§3) triggers, but firing
         # both would double-email the same change; §2's is the richer one.
         background_tasks.add_task(notify_ticket_event, t.id, "assigned", actor, **extra)
     elif status_changed and t.status == "reopened":
+        # The desk and assignee hear about a reopen; the requester only when it
+        # carried a reply for them (notify_ticket_event decides).
         background_tasks.add_task(notify_ticket_event, t.id, "reopened", actor, reopen_reason=reopen_reason, **extra)
-    elif status_changed and t.status in ("resolved", "closed") and prev_status not in ("resolved", "closed"):
-        background_tasks.add_task(notify_ticket_event, t.id, "resolved", actor, **extra)
-    elif status_changed or priority_changed or details_changed:
-        parts = []
-        if status_changed:
-            parts.append(f"Status changed to {tmpl.status_label(t.status)}")
-        if priority_changed:
-            # Covers the SLA due date moving too - it's never in `data` itself
-            # (see the pop() above), it only ever moves as a side effect of
-            # this same priority change.
-            parts.append(f"Priority changed to {t.priority}")
-        if details_changed and not parts:
-            parts.append("Ticket details updated")
-        if public_comment:
-            parts.append("new comment added")
-        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
-                                   prev_status=prev_status if status_changed else "",
-                                   update_kind=", ".join(parts), **extra)
     elif public_comment:
-        # A reply on its own - the conversation-thread email, same as the
-        # comments endpoint sends.
+        # A reply (alone, or alongside a status/priority/field change that is
+        # not news on its own) - the conversation-thread email.
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    update_kind="New comment added", latest_comment=public_comment)
 
-    # Teams DM - fires under exactly the same conditions as the email block
-    # above (see _queue_requester_teams_dm's docstring for why that's one
-    # definition, not two). One DM per save, never one per change.
-    if ((assignee_changed and t.assignee_email) or status_changed
-            or priority_changed or details_changed or public_comment):
-        dm_row = _queue_requester_teams_dm(db, t, actor)
+    # Teams DM - the same three events, in ONE message per save, never one per
+    # change (see _queue_requester_teams_dm).
+    if assigned_now or closing or public_comment:
+        dm_row = _queue_requester_teams_dm(db, t, actor, assigned=assigned_now, closed=closing,
+                                           comment=public_comment)
         db.commit()
         # One delivery attempt right away so the common case lands in Teams
         # without waiting for ticket_teams_post_loop's next sweep (up to ~5
@@ -1273,13 +1280,12 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
                                    # Full comment text - the email renders it in its own
                                    # quote block, so no truncation (was capped at 280).
                                    update_kind="New comment added", latest_comment=body.body or "")
-        # Teams DM too - a reply is exactly as "worth telling the requester
-        # about" as a status/field change, but update_ticket's DM block never
-        # runs for comments (they're their own endpoint). Without this, a
+        # Teams DM too, carrying the reply itself (Neil, Oct 1: "whatever
+        # comments got added, that comment should come out"). Without this, a
         # requester who only watches Teams never heard about a reply at all
         # (Pranshu, Sep 17 2026). Same inline-attempt-then-sweep-fallback
-        # shape as update_ticket's block just below it.
-        dm_row = _queue_requester_teams_dm(db, t, user["email"])
+        # shape as update_ticket's block. Their own reply sends nothing.
+        dm_row = _queue_requester_teams_dm(db, t, user["email"], comment=body.body or "")
         db.commit()
         if dm_row is not None:
             background_tasks.add_task(_deliver_teams_dm, dm_row.id)
@@ -1325,9 +1331,11 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     _tell_requester(db, t, user["email"], f'File attached: "{a.name}"')
     db.commit()
     db.refresh(a)
-    if get_notify_settings(db).get("attachmentsTrigger", True):
-        background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
-                                   update_kind=f'Attachment added: "{a.name}"')
+    # No email or Teams message: an attachment is not one of the three things
+    # a requester is messaged about (Neil, Oct 1 2026 - assigned, a reply,
+    # resolved/closed). The bell above still tells them. This used to send
+    # the requester an "updated" email, so the old attachmentsTrigger setting
+    # no longer drives anything.
     return _tattachment(a)
 
 
