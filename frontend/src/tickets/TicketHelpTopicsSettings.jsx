@@ -2,9 +2,13 @@
 // "What do you need help with?" offers for each department on Submit a
 // Ticket. It was a compiled-in default (ticket_taxonomy.DEFAULT_HELP_TOPICS);
 // this is where an admin changes it - add, rename, remove and drag to reorder
-// a department's topics, and pick the service area each one files under
-// (which decides its follow-up questions, e.g. Buildings & Maintenance asks
-// which site).
+// a department's topics.
+//
+// Each topic still carries a service area (it decides the follow-up questions -
+// Cameras asks which facility and which camera or gate - and the queue's
+// Service Area filter), but it is no longer picked here (Pranshu, Oct 1: the
+// column did not help anyone). A topic keeps the area it has; a new one files
+// under General. The defaults in ticket_taxonomy.py set the areas.
 //
 // Stored as the taxonomy config's `helpTopics` groups, matched to a ticket
 // department by NAME (departments are per-company rows, so a key would not
@@ -24,7 +28,7 @@ import { LoadingState } from '../components/AsyncState';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
-import { SERVICE_AREAS, TOPIC_MAX_LEN } from './ticketMeta';
+import { TOPIC_MAX_LEN } from './ticketMeta';
 import { refreshTicketConfig } from './ticketConfig';
 import DragList from './DragList';
 
@@ -143,9 +147,8 @@ export default function TicketHelpTopicsSettings() {
         <div style={{ fontSize: 13.5, fontWeight: 700 }}>What Do You Need Help With?</div>
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 14, maxWidth: 760, lineHeight: 1.5 }}>
-        The choices Submit a Ticket offers once a department is picked. Drag to reorder. Each topic's area decides
-        its follow-up questions (Buildings &amp; Maintenance asks which site). A department with no topics asks the
-        requester to type it in a few words. Departments are matched by name, so the same name in two companies
+        The choices Submit a Ticket offers once a department is picked. Drag to reorder. A department with no topics
+        asks the requester to type it in a few words. Departments are matched by name, so the same name in two companies
         shares one list. Other is always offered.
       </div>
 
@@ -184,11 +187,6 @@ export default function TicketHelpTopicsSettings() {
                   <input value={tp.name} maxLength={TOPIC_MAX_LEN} aria-label="Topic name"
                     onChange={(e) => setTopics(topics.map((x) => (x.id === tp.id ? { ...x, name: e.target.value } : x)))}
                     style={{ ...inputStyle, flex: 1, minWidth: 0, ...(dup(tp.name, tp.id) || !tp.name.trim() ? { borderColor: NX.red } : null) }} />
-                  <select value={tp.area} aria-label={`Area for ${tp.name}`}
-                    onChange={(e) => setTopics(topics.map((x) => (x.id === tp.id ? { ...x, area: e.target.value } : x)))}
-                    style={{ ...inputStyle, width: 190, flexShrink: 0 }}>
-                    {SERVICE_AREAS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
-                  </select>
                   <button type="button" onClick={() => { setOptFor(optFor === tp.id ? null : tp.id); setNewOption(''); }}
                     aria-pressed={optFor === tp.id} aria-label={`Sub-options for ${tp.name}`}
                     title="The optional Which One? list for this topic"

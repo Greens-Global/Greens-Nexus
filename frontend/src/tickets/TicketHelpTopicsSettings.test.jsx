@@ -50,6 +50,8 @@ describe('TicketHelpTopicsSettings', () => {
     render(<Panel />);
     await screen.findAllByRole('tab');
     expect(screen.getAllByLabelText('Topic name').map((i) => i.value)).toEqual(['Nexus', 'Printer or Scanner']);
+    // The service area is kept on each topic but no longer picked here.
+    expect(screen.queryByLabelText(/^Area for/)).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /HR/ }));
     expect(screen.queryAllByLabelText('Topic name')).toHaveLength(0);
     fireEvent.change(screen.getByPlaceholderText('Add a topic for HR…'), { target: { value: 'Payroll' } });
