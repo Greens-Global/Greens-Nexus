@@ -1734,6 +1734,11 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (needIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
       toastErr?.('Set the clock-in time - it has to be before the clock-out.'); return;
     }
+    // Whichever side changed, the clock-out never ends up before the clock-in
+    // (Oct 1) - the server refuses it too (_guard_punch_order).
+    if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
+      toastErr?.('The clock-out has to be after the clock-in.'); return;
+    }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
@@ -1756,18 +1761,27 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     setBusy(true);
     try {
       // Edit existing in-punch, or add one
-      if (seg?.inId) {
-        if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
-        // Reassign location (work site) on the in-punch if it changed.
-        if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
-        // Job-costing category on the in-punch.
-        if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
-      } else {
-        await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
-      }
+      const saveIn = async () => {
+        if (seg?.inId) {
+          if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
+          // Reassign location (work site) on the in-punch if it changed.
+          if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
+          // Job-costing category on the in-punch.
+          if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
+        } else {
+          await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
+        }
+      };
       // Edit existing out-punch, or add one
-      if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
-      else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      const saveOut = async () => {
+        if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
+        else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      };
+      // Moving a whole shift later (9-5 -> 6-10 PM): saving the new in first
+      // would sit it after the old out for a moment, which the server refuses
+      // as a clock-out before a clock-in. Then the out goes first.
+      const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
+      if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
       toastOk?.('Timecard updated - original times stay on record.'); onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);
