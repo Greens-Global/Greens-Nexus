@@ -51,7 +51,7 @@ describe('AdminConsole', () => {
     expect(screen.getByText('Applies to every company.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
     expect(screen.getByText('Email Signature')).toBeInTheDocument();
-    expect(screen.getByText('Work Site Library')).toBeInTheDocument();
+    expect(screen.getByText('Location Library')).toBeInTheDocument();
     expect(screen.queryByText('Ticket Manager')).not.toBeInTheDocument();
   });
 
@@ -135,7 +135,7 @@ describe('AdminConsole', () => {
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'geofence' } });
-    expect(screen.getByText('Work Site Library')).toBeInTheDocument();
+    expect(screen.getByText('Location Library')).toBeInTheDocument();
     expect(screen.queryByText('Email Signature')).not.toBeInTheDocument();
 
     fireEvent.change(box, { target: { value: 'visa expiry' } });

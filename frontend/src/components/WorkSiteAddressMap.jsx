@@ -160,7 +160,7 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
   return (
     <div>
       {showSearch && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-        <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} value={query} aria-label="Search the site's address"
+        <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} value={query} aria-label="Search the location's address"
           placeholder="Type the full street address, e.g. 25260 N Centre City Pkwy, Escondido, CA 92026"
           onChange={e => { setQuery(e.target.value); setMatches(null); setError(''); }}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); run(); } }} />
@@ -197,13 +197,13 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
         </div>
       )}
 
-      <div ref={mapElRef} aria-label="Map of the work site and its geofence"
+      <div ref={mapElRef} aria-label="Map of the location and its geofence"
         style={{ width: '100%', height: '100%', minHeight: 460, borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden', position: 'relative', zIndex: 0 }} />
       <p style={{ fontSize: 11, margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 5, color: far ? '#b45309' : 'var(--muted)' }}>
         {!point
-          ? <><AlertTriangle size={12} /> {showSearch ? 'Search the address to place this site.' : 'Paste the Google Maps link to place this site.'}</>
+          ? <><AlertTriangle size={12} /> {showSearch ? 'Search the address to place this location.' : 'Paste the Google Maps link to place this location.'}</>
           : !adjustable
-            ? <>{showSearch ? 'Search the address to confirm this site.' : 'Paste the Google Maps link to confirm this site.'} The blue circle is the geofence.</>
+            ? <>{showSearch ? 'Search the address to confirm this location.' : 'Paste the Google Maps link to confirm this location.'} The blue circle is the geofence.</>
             : far
               ? <><AlertTriangle size={12} /> The pin is {distText(moved)} from {anchorLabel} - make sure it is on the right building.</>
               : moved >= 5
