@@ -4800,3 +4800,26 @@ class TimecardNote(Base):
     note           = Column(String, default="")
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
+
+
+class PayrollRateHistory(Base):
+    """Pay priced per day (Charmi, Sep 30): one row per compensation change,
+    appended by Pay & Benefits on every save. `effective_date` is YYYY-MM-DD;
+    '' means "since always" - the row backfilled from the then-current
+    PayrollRate the first time a person gets a dated change, so earlier days
+    keep the rate they were really paid at. The timecard prices each day at
+    the row in effect that day (_rate_on in routers/timeclock.py);
+    PayrollRate stays the CURRENT rate. Only the back-compat PUT /payroll/rate
+    corrects the latest row in place. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "payroll_rate_history"
+    id             = Column(String, primary_key=True)             # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    effective_date = Column(String, default="", index=True)       # YYYY-MM-DD | '' = since always
+    pay_type       = Column(String, default="hourly")             # hourly | fixed
+    hourly_rate    = Column(Float, default=0)
+    monthly_salary = Column(Float, default=0)
+    currency       = Column(String, default="USD")                # USD | INR
+    overtime_rule  = Column(String, default="ca")                 # ca | federal | none
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
