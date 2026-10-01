@@ -48,7 +48,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability, TimecardNote)
+                    ShiftAvailability, TimecardNote, PayrollRateHistory)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -1521,7 +1521,6 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                         "payType": (getattr(_rr, "pay_type", None) or "hourly") if _rr else "hourly",
                         "currency": (getattr(_rr, "currency", None) or "USD") if _rr else "USD",
                         "monthlySalary": float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0,
-                        "weekendOtAmount": float(getattr(_rr, "weekend_ot_amount", 0) or 0) if _rr else 0.0,
                         "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
                         **_fixed_snap})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
@@ -6650,27 +6649,73 @@ def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) 
     return out
 
 
+def _working_days_in_year(year: int) -> int:
+    """Calendar days in `year` minus every Saturday and Sunday - 261 in 2026
+    (104 weekend days), 262 or 260 in other years. Company holidays stay IN
+    the denominator: they are paid days (Charmi, Sep 30)."""
+    d0 = date(year, 1, 1)
+    n = (date(year + 1, 1, 1) - d0).days
+    return sum(1 for i in range(n) if (d0 + timedelta(days=i)).weekday() < 5)
+
+
+# India weekend policy (Charmi, Sep 30): calculated, never typed per person.
+_WEEKEND_MULT = 1.35          # x the daily rate for a weekend day worked
+_WEEKEND_FLOOR = {"INR": 500.0}   # minimum per weekend day worked, by currency
+
+
+def _weekend_pay(daily: float, worked_min: int, full_hours: float, currency: str) -> float:
+    """Pay for ONE weekend day worked:
+        max(floor, 1.35 x daily x min(hours, full_day_hours) / full_day_hours)
+    pro-rated by the hours worked up to a full day, never below the floor
+    (Rs 500 when paid in INR, 0 otherwise)."""
+    full_hours = float(full_hours or 8) or 8.0
+    hours = min(max(0, worked_min) / 60.0, full_hours)
+    floor = _WEEKEND_FLOOR.get((currency or "").upper(), 0.0)
+    return round(max(floor, _WEEKEND_MULT * daily * hours / full_hours), 2)
+
+
+def _attendance_bands(full_hours: float) -> tuple:
+    """(FULL_MIN, HALF_MIN) in minutes: a full day is worked >= full_day_hours
+    minus 60 min (an hour short is not pinged), a half day is >= 4 h and
+    under that, absent below 4 h (Charmi, Sep 30)."""
+    full_min = max(0, int(round(float(full_hours or 8) * 60)) - 60)
+    return full_min, min(4 * 60, full_min)
+
+
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     """Monthly timecard for a FIXED-salary employee. Reuses _compute_timecard for
     the day/segment grid (so inline edit/add, signatures and worked-minutes are
-    identical), then overlays the fixed-pay math on top:
+    identical), then overlays the fixed-pay math on top. Every day is priced
+    at the salary in effect THAT day (payroll_rate_history - a raise effective
+    10/15 re-prices 10/15 onward only):
 
-        pay = monthly_salary
-              - (missed weekday-days x daily_rate, half a day for a half day)
-              + (weekend days worked x weekend_ot_amount)
+        base      = sum over the month's days of (salary_in_effect / days_in_month)
+        daily     = salary_in_effect x 12 / working days in that calendar year
+                    (days in the year minus Saturdays and Sundays; A4)
+        pay       = base
+                    - (absent weekdays x daily, half a day for a half day)
+                    + sum of weekend pay for weekend days worked, where
+                      weekend pay = max(floor, 1.35 x daily x min(h, full) / full),
+                      floor = Rs 500 in INR, 0 otherwise (A5)
 
-    daily_rate = monthly_salary / calendar-days-in-month. A weekday counts as a
-    HALF day if worked > 0 but under half a full day (full_day_hours / 2), and a
-    full absence if worked == 0. Weekends are never deducted; each weekend DAY
-    worked adds the flat weekend overtime. Future weekdays in the current month
-    don't deduct until they've elapsed. No work-week / no hourly OT here."""
+    Attendance bands (A6): a weekday is a FULL day at worked >= full_day_hours
+    minus 60 min, a HALF day from 4 h up to that, ABSENT under 4 h. Weekends
+    are never deducted. Future weekdays in the current month don't deduct
+    until they've elapsed. No work-week / no hourly OT here. A finalized
+    month is pinned to its finalize-time snapshot."""
     m_start, m_end = _month_bounds(anchor)
     card = _compute_timecard(db, em, m_start, m_end, round_min=0)   # grid + worked minutes + segments; no rounding for salary
     rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
-    salary = float(getattr(rr, "monthly_salary", 0) or 0) if rr else 0.0
-    weekend_ot = float(getattr(rr, "weekend_ot_amount", 0) or 0) if rr else 0.0
     full_hours = float(getattr(rr, "full_day_hours", 8) or 8) if rr else 8.0
     currency = (getattr(rr, "currency", None) or "USD") if rr else "USD"
+    _hist = _rate_history(db, em)
+    _sal_cache = {}
+
+    def _salary_on(ds: str) -> float:
+        if ds not in _sal_cache:
+            _sal_cache[ds] = float(_rate_on(db, em, ds, hist=_hist, rate_row=rr)["monthlySalary"])
+        return _sal_cache[ds]
+    salary = _salary_on(m_end)   # headline: the salary in effect at month end
     # A FINALIZED month is frozen at the salary it was finalized with, so a later
     # raise can't retro-price an already-paid month (mirrors the hourly freeze).
     _fin_snap = _finalized_row(db, em, m_start, m_end)
@@ -6680,9 +6725,10 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             _sn = json.loads(_fin_snap.note)
             if isinstance(_sn, dict) and "monthlySalary" in _sn:
                 salary = float(_sn.get("monthlySalary") or 0)
-                weekend_ot = float(_sn.get("weekendOtAmount") or 0)
                 full_hours = float(_sn.get("fullDayHours") or 8) or 8
                 currency = _sn.get("currency") or currency
+                _hist = []
+                _salary_on = lambda ds, _s=salary: _s   # noqa: E731 - pinned to the snapshot
                 if _sn.get("totalPay") is not None:
                     _frozen = {k: _sn.get(k) for k in ("totalPay", "deduction", "weekendBonus",
                                "missedFullDays", "missedHalfDays", "weekendDaysWorked")}
@@ -6692,13 +6738,12 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     first = datetime.strptime(m_start, "%Y-%m-%d").date()
     last = datetime.strptime(m_end, "%Y-%m-%d").date()
     days_in_month = (last - first).days + 1
-    daily = salary / days_in_month if days_in_month else 0.0
-    # Attendance bands (policy, same for everyone): a weekday is PRESENT (full credit)
-    # at 5h+, a HALF day from 4h up to 5h, and ABSENT under 4h. While still clocked in
-    # today it's WORKING (no judgment yet). full_hours stays on the record but the
-    # bands are fixed here.
-    HALF_MIN, FULL_MIN = 4 * 60, 5 * 60
-    _ = full_hours
+    working_days = _working_days_in_year(first.year)
+
+    def _daily_on(ds: str) -> float:
+        return _salary_on(ds) * 12 / working_days if working_days else 0.0
+    daily = _daily_on(m_end)
+    FULL_MIN, HALF_MIN = _attendance_bands(full_hours)
     today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
@@ -6721,7 +6766,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
 
     holidays = _company_holidays_for_employee(db, em, m_start, m_end)
     missed_full = missed_half = weekend_worked = 0
-    deduction = 0.0
+    deduction = base_pay = weekend_bonus = 0.0
     fixed_days = []
     for i in range(days_in_month):
         dd = first + timedelta(days=i)
@@ -6730,6 +6775,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         has_open = open_by_day.get(ds, False)
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
+        daily_d = _daily_on(ds)             # this day's rate (a raise mid-month lands here)
+        base_pay += _salary_on(ds) / days_in_month
         hol = holidays.get(ds)
         half_holiday = bool(hol) and hol.get("type") == "half_day" and not is_weekend
         # A HALF-DAY holiday pays for the half they weren't required to work,
@@ -6746,7 +6793,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             if wm > 0 or has_open:
                 status = "holiday_half_worked"     # worked their half - full pay
             elif ds < today:
-                status = "holiday_half"; deduct = daily / 2.0   # day's over, no work at all
+                status = "holiday_half"; deduct = daily_d / 2.0   # day's over, no work at all
             elif ds > today:
                 status = "upcoming"
             else:   # today, in progress - never deduct before the day is over
@@ -6755,13 +6802,17 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             status = "holiday"
         elif is_weekend:
             if wm > 0 or has_open:
-                status = "weekend_worked"; bonus = weekend_ot; weekend_worked += 1
+                # A5: calculated from the day's rate and the hours actually
+                # worked, never a typed amount (an open punch earns the floor
+                # until the clock-out lands).
+                status = "weekend_worked"; weekend_worked += 1
+                bonus = _weekend_pay(daily_d, wm, full_hours, currency)
             else:
                 status = "weekend"
         elif has_open and ds >= today:
             status = "working"              # clocked in, still on shift today - no deduction yet
         elif wm >= FULL_MIN:
-            status = "present"              # 5h+ = full day, never deducted
+            status = "present"              # full day (full_day_hours minus an hour), never deducted
         elif ds > today:
             status = "upcoming"             # future weekday, nothing logged yet
         elif ds == today:
@@ -6771,18 +6822,21 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             # bite once the day has fully elapsed.
             status = "working" if wm > 0 else ("late" if late_today else "upcoming")
         elif wm >= HALF_MIN:
-            status = "half"; deduct = daily / 2.0; missed_half += 1   # past day, 4h-5h
+            status = "half"; deduct = daily_d / 2.0; missed_half += 1   # past day, 4h up to a full day
         else:
-            status = "absent"; deduct = daily; missed_full += 1       # past day, under 4h
+            status = "absent"; deduct = daily_d; missed_full += 1       # past day, under 4h
         deduction += deduct
+        weekend_bonus += bonus
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2),
+                           "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
-    weekend_bonus = round(weekend_worked * weekend_ot, 2)
+    weekend_bonus = round(weekend_bonus, 2)
     deduction = round(deduction, 2)
-    total_pay = round(salary - deduction + weekend_bonus, 2)
+    base_pay = round(base_pay, 2)
+    total_pay = round(base_pay - deduction + weekend_bonus, 2)
     # A finalized month is PINNED to its finalize-time result (day statuses key off
     # "today", so without this a mid-month finalize would drift as days elapse).
     if _frozen:
@@ -6792,17 +6846,26 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         missed_full = _frozen.get("missedFullDays", missed_full)
         missed_half = _frozen.get("missedHalfDays", missed_half)
         weekend_worked = _frozen.get("weekendDaysWorked", weekend_worked)
+    # "Through 10/14 at X · From 10/15 at Y" when the salary changed mid-month.
+    _cal = [(first + timedelta(days=i)).isoformat() for i in range(days_in_month)]
+    rate_splits = _rate_splits(_cal, {ds: _salary_on(ds) for ds in _cal}, "monthlySalary") if _hist else []
 
     card["payType"] = "fixed"
     card["currency"] = currency
     card["monthlySalary"] = salary
+    card["salaryForPeriod"] = base_pay          # pro-rated across a mid-month change
+    card["rateSplits"] = rate_splits
     card["dailyRate"] = round(daily, 2)
-    card["weekendOtAmount"] = weekend_ot
+    card["workingDaysInYear"] = working_days
+    card["weekendMultiplier"] = _WEEKEND_MULT
+    card["weekendFloor"] = _WEEKEND_FLOOR.get(currency, 0.0)
     card["fullDayHours"] = full_hours
+    card["bands"] = {"fullMin": FULL_MIN, "halfMin": HALF_MIN}
     card["fixedDays"] = fixed_days
     card["totals"] = {**card.get("totals", {}),
-                      "payType": "fixed", "monthlySalary": salary,
+                      "payType": "fixed", "monthlySalary": salary, "salaryForPeriod": base_pay,
                       "daysInMonth": days_in_month, "dailyRate": round(daily, 2),
+                      "workingDaysInYear": working_days,
                       "missedFullDays": missed_full, "missedHalfDays": missed_half,
                       "weekendDaysWorked": weekend_worked,
                       "deduction": deduction, "weekendBonus": weekend_bonus,
@@ -6871,7 +6934,12 @@ def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator)
 # math - exactly SwipeClock's model, and required for the parallel-run numbers
 # to match 1:1.
 _ROUNDING_KEY = "timeclock_rounding"
-_ROUNDING_DEFAULT = {"enabled": True, "nearestMin": 5}
+# OFF by default (Charmi, Sep 30): an admin turns it on under Settings > Global
+# Settings > Time Clock when the company has a rounding policy. PROD carries an
+# explicit nexus_settings row (enabled, nearest 5), so Greens' SwipeClock
+# parity is unchanged by this default. Per-company scoping (one rule per
+# hr_entities company) is deferred - today one tenant-wide key.
+_ROUNDING_DEFAULT = {"enabled": False, "nearestMin": 5}
 
 
 def _rounding_cfg(db: Session) -> dict:
@@ -7123,9 +7191,23 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
+    # Pay priced per day (Charmi, Sep 30): each day is paid at the rate in
+    # effect THAT day (payroll_rate_history), so a raise effective mid-period
+    # applies from its date. `rate` below is the rate in effect on the period's
+    # last day - the headline figure - and `_rate_for_day` prices the days.
+    _hist = _rate_history(db, em)
+    _day_rate_cache = {}
+
+    def _rate_for_day(d: str) -> float:
+        if d not in _day_rate_cache:
+            _day_rate_cache[d] = float(_rate_on(db, em, d, hist=_hist, rate_row=rate_row)["hourlyRate"])
+        return _day_rate_cache[d]
+    if _hist:
+        rate = _rate_for_day(end or start)
     # A FINALIZED period is frozen at the rate + OT rule it was finalized with, so a
     # later raise or rule switch never retro-reprices an already-paid timecard
-    # (finalize snapshots these into the approval row's note).
+    # (finalize snapshots these into the approval row's note). The snapshot is
+    # one rate for the whole period - it stays authoritative over the history.
     _fin_snap = _finalized_row(db, em, start, end)
     if _fin_snap and _fin_snap.note:
         try:
@@ -7133,6 +7215,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if isinstance(_sn, dict) and "rate" in _sn:
                 rate = float(_sn.get("rate") or 0.0)
                 rule = _sn.get("rule") or rule
+                _hist = []
+                _rate_for_day = lambda d, _r=rate: _r   # noqa: E731 - pinned to the snapshot
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the timecard
             pass
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
@@ -7353,9 +7437,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if sd in day_total:
                 day_split[sd] = split
 
+    reg_pay = ot_pay = dt_pay = sick_pay = vac_pay = 0.0
     for d in sorted(day_total):
         reg, ot, dt = day_split.get(d, (day_total[d], 0, 0))
         segs = day_segs[d]
+        rate_d = _rate_for_day(d)   # the rate in effect on THIS day
         # Attribute the day's reg/ot/dt across its segments in worked order so the
         # per-segment amount stays sensible (overtime accrues on the later hours).
         rr, oo, dd = reg, ot, dt
@@ -7364,19 +7450,24 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if seg.get("payClass"):
                 seg["regMin"], seg["otMin"], seg["dtMin"] = 0, 0, 0
                 seg["leaveMin"] = wm
-                seg["amount"] = round(wm / 60 * rate, 2)
+                seg["amount"] = round(wm / 60 * rate_d, 2)
                 continue
             s_reg = min(wm, rr); rr -= s_reg
             s_ot = min(wm - s_reg, oo); oo -= s_ot
             s_dt = min(wm - s_reg - s_ot, dd); dd -= s_dt
             seg["regMin"], seg["otMin"], seg["dtMin"] = s_reg, s_ot, s_dt
-            seg["amount"] = round(s_reg / 60 * rate + s_ot / 60 * rate * _OT_MULT
-                                  + s_dt / 60 * rate * _DT_MULT, 2)
+            seg["amount"] = round(s_reg / 60 * rate_d + s_ot / 60 * rate_d * _OT_MULT
+                                  + s_dt / 60 * rate_d * _DT_MULT, 2)
         sick_m, vac_m = day_leave[d]["sick"], day_leave[d]["vacation"]
         total_reg += reg; total_ot += ot; total_dt += dt
         total_sick += sick_m; total_vac += vac_m
         total_break += day_break_m[d]
         total_paid_break += day_paid_break.get(d, 0)
+        reg_pay += reg / 60 * rate_d
+        ot_pay += ot / 60 * rate_d * _OT_MULT
+        dt_pay += dt / 60 * rate_d * _DT_MULT
+        sick_pay += sick_m / 60 * rate_d
+        vac_pay += vac_m / 60 * rate_d
         # workedMin stays the day's FULL paid minutes (work + leave) - it is the
         # number the employee attests and the sign-off compares, and SwipeClock's
         # day total / TOTALS line count leave hours the same way.
@@ -7384,14 +7475,21 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "workedMin": reg + ot + dt + sick_m + vac_m,
                          "regMin": reg, "otMin": ot, "dtMin": dt,
                          "sickMin": sick_m, "vacationMin": vac_m,
+                         "rate": rate_d,
                          "breakMin": day_break_m[d], "paidBreakMin": day_paid_break.get(d, 0)})
 
-    reg_pay = round(total_reg / 60 * rate, 2)
-    ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
-    dt_pay = round(total_dt / 60 * rate * _DT_MULT, 2)
-    sick_pay = round(total_sick / 60 * rate, 2)
-    vac_pay = round(total_vac / 60 * rate, 2)
+    reg_pay, ot_pay, dt_pay = round(reg_pay, 2), round(ot_pay, 2), round(dt_pay, 2)
+    sick_pay, vac_pay = round(sick_pay, 2), round(vac_pay, 2)
     worked_min = total_reg + total_ot + total_dt + total_sick + total_vac
+    # "Through 10/14 at X · From 10/15 at Y" - the rate runs across the period's
+    # calendar days (every day, not only worked ones, so the split date is the
+    # raise's real effective date).
+    _cal_days = []
+    if start and end and end >= start:
+        _d0 = datetime.strptime(start, "%Y-%m-%d").date()
+        _n = (datetime.strptime(end, "%Y-%m-%d").date() - _d0).days + 1
+        _cal_days = [(_d0 + timedelta(days=i)).isoformat() for i in range(min(_n, 62))]
+    rate_splits = _rate_splits(_cal_days, {d: _rate_for_day(d) for d in _cal_days}, "rate") if _hist else []
 
     # Paid company holidays (see _company_holidays_for_employee): an HOURLY
     # employee has no "missed day" deduction to exempt (they're only ever paid for
@@ -7420,7 +7518,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             # their actual punches - added on TOP, not swapped for, since
             # normal wages already cover the hours worked); do no work at all
             # and it's half a day, same as a full holiday scaled down.
-            credit = round(_full_day_hours * (0.5 if is_half else 1.0) * rate, 2)
+            credit = round(_full_day_hours * (0.5 if is_half else 1.0) * _rate_for_day(hd), 2)
             holiday_pay += credit
             holiday_days += 1
             if worked:
@@ -7495,6 +7593,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "createdAt": r.created_at} for r in preqs]
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
+            "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
             "dept": dept, "overtimeRule": rule, "days": days_out,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
@@ -7649,11 +7748,66 @@ def _rate_dict(row) -> dict:
         "payType": (getattr(row, "pay_type", None) or "hourly") if row else "hourly",
         "currency": (getattr(row, "currency", None) or "USD") if row else "USD",
         "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
-        "weekendOtAmount": float(getattr(row, "weekend_ot_amount", 0) or 0) if row else 0.0,
+        # weekend_ot_amount stays on the table (never drop a column) but is no
+        # longer read anywhere: weekend pay is calculated (A5, Charmi Sep 30).
         "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
         "timeTrackingExempt": bool(getattr(row, "time_tracking_exempt", 0) or 0) if row else False,
         "isSet": row is not None,
     }
+
+
+# ── Pay history priced per day (Charmi, Sep 30) ───────────────────────────────
+# PayrollRate is the CURRENT rate; payroll_rate_history holds every change with
+# the day it took effect. The timecards price each day at the row in effect
+# that day, so a raise effective 10/15 re-prices 10/15 onward and nothing
+# before it. A finalized period still wins (its snapshot is authoritative).
+def _rate_history(db: Session, email: str) -> list:
+    """Every history row for one person, oldest first ('' = since always)."""
+    rows = (db.query(PayrollRateHistory)
+            .filter(PayrollRateHistory.employee_email == (email or "").lower())
+            .all())
+    return sorted(rows, key=lambda r: ((r.effective_date or ""), (r.created_at or "")))
+
+
+def _rate_row_dict(r) -> dict:
+    return {"payType": (r.pay_type or "hourly"), "hourlyRate": float(r.hourly_rate or 0),
+            "monthlySalary": float(r.monthly_salary or 0), "currency": (r.currency or "USD"),
+            "overtimeRule": (r.overtime_rule or "ca")}
+
+
+def _rate_on(db: Session, email: str, day: str, hist: Optional[list] = None, rate_row=None) -> dict:
+    """The pay in effect on `day` (YYYY-MM-DD): the latest history row whose
+    effective date is on or before it. With no history at all the current
+    PayrollRate stands for "since always" (the lazy backfill - the first dated
+    change writes that row for real, see hr.ensure_rate_history). Pass `hist`
+    from _rate_history to price many days without re-querying."""
+    if hist is None:
+        hist = _rate_history(db, email)
+    if hist:
+        pick = None
+        for r in hist:
+            if (r.effective_date or "") <= (day or ""):
+                pick = r
+            else:
+                break
+        return _rate_row_dict(pick or hist[0])
+    if rate_row is None:
+        rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == (email or "").lower()).first()
+    d = _rate_dict(rate_row)
+    return {k: d[k] for k in ("payType", "hourlyRate", "monthlySalary", "currency", "overtimeRule")}
+
+
+def _rate_splits(days: list, rate_of: dict, key: str) -> list:
+    """Contiguous runs of one rate across `days` (sorted) - what the card
+    shows as "Through 10/14 at X · From 10/15 at Y". One run = no split."""
+    runs = []
+    for d in days:
+        v = rate_of[d]
+        if runs and runs[-1]["rate"] == v:
+            runs[-1]["through"] = d
+        else:
+            runs.append({"from": d, "through": d, "rate": v})
+    return [{"from": r["from"], "through": r["through"], key: r["rate"]} for r in runs]
 
 
 @router.get("/payroll/rate")
@@ -7699,6 +7853,15 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     row.updated_at = _now_iso()
     db.flush()                       # so the sync reads the just-updated rate
     sync_comp_from_rate(db, em)      # mirror pay amount/basis/currency into Pay & Benefits
+    # Back-compat only (no UI calls this since Sep 30 - Pay & Benefits is the
+    # one writer): a correction here has no effective date, so it corrects the
+    # LATEST history row in place rather than opening a new dated period.
+    hist = _rate_history(db, em)
+    if hist:
+        last = hist[-1]
+        last.pay_type, last.hourly_rate = row.pay_type or "hourly", float(row.hourly_rate or 0)
+        last.monthly_salary, last.currency = float(row.monthly_salary or 0), row.currency or "USD"
+        last.overtime_rule = row.overtime_rule or "ca"
     db.commit()
     return {"ok": True, **_rate_dict(row)}
 

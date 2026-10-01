@@ -13,7 +13,7 @@ from typing import Optional
 from database import get_db
 from auth import require_module_grant, hr_scope
 from routers.stepup import require_stepup
-from models import NexusEmployee, PayrollRate, HrRemovedIdentity
+from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
 from services import logo_video
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
@@ -3269,7 +3269,8 @@ def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
-    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+    return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
 # ── Pay-record link: the inline "Payroll wage" (PayrollRate, drives the timecard)
@@ -3293,8 +3294,42 @@ def sync_comp_from_rate(db: Session, email: str) -> None:
     emp.compensation = comp
 
 
+_OT_RULES = ("ca", "federal", "none")
+
+
+def default_overtime_rule(db: Session, emp: NexusEmployee) -> str:
+    """The overtime law that follows from the company's country, not typed per
+    person (Charmi, Sep 30): US -> California, IN -> none (India's weekend
+    policy is calculated separately), anywhere else -> federal."""
+    ent = (db.query(HrEntity).filter(HrEntity.id == emp.company).first()
+           if emp is not None and (emp.company or "").strip() else None)
+    country = ((ent.country if ent else "") or "US").strip().upper()
+    return {"US": "ca", "IN": "none"}.get(country, "federal")
+
+
+def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
+    """The timecard-only part of the pay record, as the Pay & Benefits screen
+    shows it: the OT rule in force, full-day hours and the exemption flag."""
+    row = (db.query(PayrollRate).filter(PayrollRate.employee_email == (emp.work_email or "").lower()).first()
+           if emp is not None and emp.work_email else None)
+    return {
+        "payType": (getattr(row, "pay_type", None) or "hourly") if row else "hourly",
+        "overtimeRule": (getattr(row, "overtime_rule", None) or default_overtime_rule(db, emp)) if row
+                        else default_overtime_rule(db, emp),
+        "defaultOvertimeRule": default_overtime_rule(db, emp),
+        "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
+        "timeTrackingExempt": bool(getattr(row, "time_tracking_exempt", 0) or 0) if row else False,
+        "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
+        "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
+        "isSet": row is not None,
+    }
+
+
 def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
-    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate."""
+    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate,
+    plus the timecard-only fields that live on the comp record since Sep 30
+    (overtimeRule, fullDayHours, timeTrackingExempt). Pay & Benefits is the
+    ONLY writer of PayrollRate from the UI."""
     if not emp or not emp.work_email:
         return
     comp = emp.compensation or {}
@@ -3302,7 +3337,8 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
     base = float(comp.get("base") or 0)
     row = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
     if not row:
-        row = PayrollRate(employee_email=emp.work_email.lower())
+        row = PayrollRate(employee_email=emp.work_email.lower(),
+                          overtime_rule=default_overtime_rule(db, emp))
         db.add(row)
     cur = comp.get("currency") or ""
     if cur in ("USD", "INR"):
@@ -3318,6 +3354,94 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
         # daily / fixed_fee have NO timecard pay model - zero the timecard pay so it
         # can't keep silently paying the previous (hourly/salary) model.
         row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", 0.0, 0.0
+    # Overtime rule: an explicit choice wins; '' / "company default" follows the
+    # company's country (never a per-person guess on the timecard).
+    rule = (comp.get("overtimeRule") or "").strip().lower()
+    row.overtime_rule = rule if rule in _OT_RULES else default_overtime_rule(db, emp)
+    if comp.get("fullDayHours") not in (None, ""):
+        try:
+            row.full_day_hours = max(1.0, float(comp.get("fullDayHours") or 8))
+        except (TypeError, ValueError):
+            pass
+    if "timeTrackingExempt" in comp:
+        row.time_tracking_exempt = 1 if comp.get("timeTrackingExempt") else 0
+
+
+def _rate_history_rows(db: Session, email: str) -> list:
+    return sorted(db.query(PayrollRateHistory).filter(PayrollRateHistory.employee_email == (email or "").lower()).all(),
+                  key=lambda r: ((r.effective_date or ""), (r.created_at or "")))
+
+
+def ensure_rate_history(db: Session, email: str, by: str = "") -> None:
+    """Lazy backfill: a person with a PayrollRate but no history yet gets one
+    row from the current rate with effective_date '' ("since always"), so the
+    days before their first dated change keep the rate they were paid at.
+    Call BEFORE overwriting PayrollRate with a new value."""
+    em = (email or "").lower()
+    if not em or _rate_history_rows(db, em):
+        return
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not rate:
+        return
+    db.add(PayrollRateHistory(id=str(uuid.uuid4()), employee_email=em, effective_date="",
+                              pay_type=rate.pay_type or "hourly", hourly_rate=float(rate.hourly_rate or 0),
+                              monthly_salary=float(rate.monthly_salary or 0), currency=rate.currency or "USD",
+                              overtime_rule=rate.overtime_rule or "ca", created_by=by,
+                              created_at=datetime.now(timezone.utc).isoformat()))
+    db.flush()
+
+
+def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by: str) -> None:
+    """One row per compensation save that changes the pay or its effective
+    date. Saving the same effective date twice corrects that row in place (a
+    typo fixed a minute later is not a second raise). Called AFTER
+    sync_rate_from_comp, so PayrollRate already holds the new values."""
+    if not emp or not emp.work_email:
+        return
+    em = emp.work_email.lower()
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not rate:
+        return
+    eff = (effective_date or "").strip()[:10]
+    vals = {"pay_type": rate.pay_type or "hourly", "hourly_rate": float(rate.hourly_rate or 0),
+            "monthly_salary": float(rate.monthly_salary or 0), "currency": rate.currency or "USD",
+            "overtime_rule": rate.overtime_rule or "ca"}
+    rows = _rate_history_rows(db, em)
+    same = next((r for r in rows if (r.effective_date or "") == eff), None)
+    if same is not None:
+        for k, v in vals.items():
+            setattr(same, k, v)
+        return
+    if rows:
+        last = rows[-1]
+        unchanged = all(getattr(last, k) == v for k, v in vals.items())
+        if unchanged:
+            return   # nothing about the pay changed - no new period
+    db.add(PayrollRateHistory(id=str(uuid.uuid4()), employee_email=em, effective_date=eff,
+                              created_by=by, created_at=datetime.now(timezone.utc).isoformat(), **vals))
+
+
+def rate_history_out(db: Session, emp: NexusEmployee) -> list:
+    """The History table on Pay & Benefits: newest first. With no rows yet,
+    the current PayrollRate is shown as the "since always" entry."""
+    if not emp or not emp.work_email:
+        return []
+    rows = _rate_history_rows(db, emp.work_email)
+    out = [{"id": r.id, "effectiveDate": r.effective_date or "", "payType": r.pay_type or "hourly",
+            "base": float(r.monthly_salary or 0) if (r.pay_type or "hourly") == "fixed" else float(r.hourly_rate or 0),
+            "payBasis": "salary" if (r.pay_type or "hourly") == "fixed" else "hourly",
+            "currency": r.currency or "USD", "overtimeRule": r.overtime_rule or "ca",
+            "changedBy": r.created_by or "", "changedAt": r.created_at or ""} for r in rows]
+    if not out:
+        rate = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
+        if rate and (float(rate.hourly_rate or 0) or float(rate.monthly_salary or 0)):
+            fixed = (rate.pay_type or "hourly") == "fixed"
+            out = [{"id": "", "effectiveDate": "", "payType": rate.pay_type or "hourly",
+                    "base": float(rate.monthly_salary or 0) if fixed else float(rate.hourly_rate or 0),
+                    "payBasis": "salary" if fixed else "hourly", "currency": rate.currency or "USD",
+                    "overtimeRule": rate.overtime_rule or "ca", "changedBy": rate.updated_by or "",
+                    "changedAt": rate.updated_at or ""}]
+    return list(reversed(out))
 
 
 @router.put("/employees/{eid}/compensation")
@@ -3327,6 +3451,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
+    effective = ""
     if body.compensation is not None:
         incoming = dict(body.compensation or {})
         current = dict(row.compensation or {})
@@ -3341,12 +3466,20 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
             })
         incoming["history"] = history
         row.compensation = incoming
+        effective = str(incoming.get("effectiveDate") or "")
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
-    sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
+    if body.compensation is not None:
+        # Pay priced per day: keep what was paid before this change (backfill),
+        # then record this change from its effective date.
+        ensure_rate_history(db, row.work_email, by=user["email"])
+        sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
+        db.flush()
+        append_rate_history(db, row, effective, by=user["email"])
     db.commit()
-    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+    return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
 # ---------------------------------------------------------------------------

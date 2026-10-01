@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
+import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -207,23 +208,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
 
-  // Compensation (gated by the comp-access grant). Keyed by work email; loads the
-  // current rate when editing, saved right after the profile on Save.
-  const [comp, setComp] = useState({ payType: 'hourly', currency: 'USD', hourlyRate: '', monthlySalary: '', weekendOtAmount: '1000', fullDayHours: '8', timeTrackingExempt: false });
-  const [compDirty, setCompDirty] = useState(false);
-  const setW = (k, v) => { setComp(prev => ({ ...prev, [k]: v })); setCompDirty(true); };
-  useEffect(() => {
-    if (!canSeeComp || !editing || !employee?.workEmail) return;
-    api.timePayrollRateGet(employee.workEmail).then(r => {
-      if (!r?.isSet) return;
-      setComp({ payType: r.payType || 'hourly', currency: r.currency || 'USD',
-                hourlyRate: r.hourlyRate ? String(r.hourlyRate) : '',
-                monthlySalary: r.monthlySalary ? String(r.monthlySalary) : '',
-                weekendOtAmount: r.weekendOtAmount != null ? String(r.weekendOtAmount) : '1000',
-                fullDayHours: r.fullDayHours ? String(r.fullDayHours) : '8',
-                timeTrackingExempt: !!r.timeTrackingExempt });
-    }).catch(() => {});
-  }, [canSeeComp, editing, employee?.workEmail]);
+  // Pay is NOT edited on the profile form any more (Charmi, Sep 30): the Pay &
+  // Benefits tab is the one writer of the wage, OT rule and exemption, so the
+  // inline "Payroll wage" block (a second write path into PayrollRate) is gone.
   useEffect(() => {
     if (!f.company) { setDeptOptions([]); return; }
     setDeptLoading(true);
@@ -249,30 +236,10 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
       const wemail = (saved?.workEmail || f.work_email || '').trim();
-      // Compensation, keyed by work email - saved after the profile. Any warning is
+      // Pay is set on the Pay & Benefits tab, not here (Sep 30). Any warning is
       // HELD and fired LAST so the single-slot toast doesn't overwrite it with the
       // profile "Saved"/M365 message.
       let wageWarn = '';
-      if (canSeeComp && compDirty && wemail) {
-        const up = await ensureStepUp();   // payroll writes need a fresh step-up when enforced
-        if (!up.ok) {
-          wageWarn = up.cancelled ? 'Profile saved - wage skipped (identity check cancelled).'
-            : 'Profile saved - wage skipped (identity check did not complete).';
-        } else {
-          try {
-            await api.timePayrollRate({
-              email: wemail, pay_type: comp.payType, currency: comp.currency,
-              hourly_rate: parseFloat(comp.hourlyRate) || 0,
-              monthly_salary: parseFloat(comp.monthlySalary) || 0,
-              weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
-              full_day_hours: parseFloat(comp.fullDayHours) || 8,
-              time_tracking_exempt: !!comp.timeTrackingExempt,
-            });
-          } catch (err) { wageWarn = `Profile saved, but the wage could not be saved: ${err?.message || 'error'} - set it on the Pay tab.`; }
-        }
-      } else if (canSeeComp && compDirty && !wemail) {
-        wageWarn = 'Profile saved - the wage needs a work email; set it once the email is provisioned.';
-      }
       // New hire + a chosen job role → set their access + tier now. Needs a work
       // email; if not provisioned yet, prompt to set it later on the Access tab.
       if (!editing && jobRoleId) {
@@ -301,7 +268,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     </div>
   );
 
-  const dirty = compDirty || JSON.stringify(f) !== JSON.stringify(initialFRef.current);
+  const dirty = JSON.stringify(f) !== JSON.stringify(initialFRef.current);
   const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
 
   return (
@@ -444,55 +411,8 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
             </div>
           )}
           {canSeeComp && !isContractor && (
-            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-blue),0.05)' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', letterSpacing: '.04em', marginBottom: 12 }}>PAYROLL WAGE</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div>
-                  <label style={FL}>PAY TYPE</label>
-                  <select className="form-input" style={{ width: '100%' }} value={comp.payType} onChange={e => setW('payType', e.target.value)}>
-                    <option value="hourly">Hourly</option>
-                    <option value="fixed">Fixed (monthly salary)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={FL}>CURRENCY</label>
-                  <select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setW('currency', e.target.value)}>
-                    <option value="USD">USD ($)</option><option value="INR">INR (₹)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={FL}>TIME TRACKING</label>
-                  <select className="form-input" style={{ width: '100%' }} value={comp.timeTrackingExempt ? 'exempt' : 'tracked'}
-                    onChange={e => setW('timeTrackingExempt', e.target.value === 'exempt')}>
-                    <option value="tracked">Tracked (punches and hours)</option>
-                    <option value="exempt">Exempt (salaried - no time tracking)</option>
-                  </select>
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Exempt hides the punch card, timer and hours widgets for this person.</div>
-                </div>
-                {comp.payType === 'hourly' ? (
-                  <div>
-                    <label style={FL}>HOURLY RATE</label>
-                    <input className="form-input" type="number" min="0" step="0.01" style={{ width: '100%' }} value={comp.hourlyRate} onChange={e => setW('hourlyRate', e.target.value)} placeholder="0.00" />
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <label style={FL}>MONTHLY SALARY</label>
-                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.monthlySalary} onChange={e => setW('monthlySalary', e.target.value)} placeholder="e.g. 30000" />
-                    </div>
-                    <div>
-                      <label style={FL}>WEEKEND OT / DAY</label>
-                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.weekendOtAmount} onChange={e => setW('weekendOtAmount', e.target.value)} placeholder="e.g. 1000" />
-                    </div>
-                  </>
-                )}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
-                {comp.payType === 'fixed'
-                  ? 'Fixed: paid the monthly salary; a missed weekday deducts salary / days-in-month. A weekday is Present at 5h+, Half day from 4h to 5h, Absent under 4h; each weekend day worked adds the weekend overtime.'
-                  : 'Hourly: paid per hour worked, with overtime per the timecard.'}
-                {!editing && !f.work_email && ' Needs a work email to save the wage.'}
-              </div>
+            <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Wallet size={13} /> Pay, overtime rule and time tracking are set on the Pay &amp; Benefits tab{editing ? '' : ' once the profile is saved'}.
             </div>
           )}
           <div style={{ gridColumn: '1 / -1' }}>
@@ -1119,10 +1039,11 @@ function PayTab({ employee, reloadToken, onEdit }) {
   const [stepLocked, setStepLocked] = useState(false);   // comp/bank need a fresh step-up
   const [suToken, setSuToken] = useState(0);
   const stubFileRef = useRef(null);
+  const nameOf = useNameResolver();   // "Changed by" shows a name, never a raw email
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [] }); } })
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [] }); } })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
@@ -1179,6 +1100,35 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {row2('base', 'Base', data.comp.base ? `${money(data.comp.base, data.comp.currency)} · ${label(PAY_BASIS, data.comp.payBasis)}` : '')}
           {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
           {row2('eff', 'Effective', formatDate(data.comp.effectiveDate))}
+          {sectionLabel('Time clock')}
+          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? '' : ' (company default)'}`)}
+          {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
+          {row2('tracking', 'Time tracking', data.payroll?.timeTrackingExempt ? 'Exempt (no time tracking)' : 'Tracked')}
+          {sectionLabel('Pay history')}
+          {(data.rateHistory || []).length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No pay recorded yet.</div>
+            : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>
+                <thead>
+                  <tr>
+                    {['Base', 'Basis', 'Currency', 'Effective', 'Changed By'].map((h, i) => (
+                      <th key={h} style={{ textAlign: i === 0 ? 'right' : 'left', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', padding: '6px 8px 6px 0', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rateHistory.map((h, i) => (
+                    <tr key={h.id || i} style={{ fontWeight: i === 0 ? 700 : 400 }}>
+                      <td style={{ textAlign: 'right', padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{money(h.base, h.currency)}{h.payBasis === 'hourly' ? '/hr' : '/mo'}</td>
+                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{label(PAY_BASIS, h.payBasis)}</td>
+                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.currency}</td>
+                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.effectiveDate ? formatDate(h.effectiveDate) : 'Since always'}</td>
+                      <td style={{ padding: '7px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>{h.changedBy ? nameOf(h.changedBy) : '-'}{h.changedAt ? ` · ${formatDate(h.changedAt.slice(0, 10))}` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           {sectionLabel('Benefits & deductions')}
           {(data.comp.benefits || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
@@ -4972,9 +4922,17 @@ const defaultPayFreq = (payBasis, currency) =>
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
 const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
 
+// The timecard-only fields live here too since Sep 30 (Charmi: "this should all
+// be linked into their individual people module") - Pay & Benefits is the one
+// writer of PayrollRate; the timecard only reads.
+const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['federal', 'Federal (weekly 40h only)'], ['none', 'None (no US overtime premium)']];
+const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
+  overtimeRule: '', fullDayHours: '8', timeTrackingExempt: false };
+
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
-  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [] });
+  const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
+  const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
@@ -4987,9 +4945,15 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     api.getCompensation(employee.id)
       .then(r => {
         if (!live) return;
-        const nextComp = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) };
+        const pr = r.payroll || {};
+        const nextComp = { ...COMP_DEFAULTS, ...(r.compensation || {}) };
+        // A record saved before Sep 30 has no rule / hours / exemption of its
+        // own - start from what the timecard is using today.
+        if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
+        if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
+        if ((r.compensation || {}).timeTrackingExempt === undefined && pr.timeTrackingExempt) nextComp.timeTrackingExempt = true;
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank);
+        setComp(nextComp); setBank(nextBank); setPayroll(pr);
         baselineRef.current = { comp: nextComp, bank: nextBank };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
@@ -5045,7 +5009,37 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}><option value="USD">USD</option><option value="INR">INR</option></select></div>
               <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => { const b = e.target.value; setComp(p => ({ ...p, payBasis: b, frequency: defaultPayFreq(b, p.currency) })); }}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-              <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} /></div>
+              <div>
+                <label style={FL}>EFFECTIVE DATE</label>
+                <input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} />
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>A changed base applies from this date; days before it keep the old rate. Leave the date as it is to correct the current record.</div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px' }}>TIME CLOCK</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <label style={FL}>OVERTIME RULE</label>
+                <select className="form-input" style={{ width: '100%' }} value={comp.overtimeRule || ''} onChange={e => setC('overtimeRule', e.target.value)}>
+                  <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
+                  {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The timecard only reads this.</div>
+              </div>
+              <div>
+                <label style={FL}>FULL DAY HOURS</label>
+                <input className="form-input" type="number" min="1" max="24" step="0.5" style={{ width: '100%' }} value={comp.fullDayHours} onChange={e => setC('fullDayHours', e.target.value)} placeholder="8" />
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Salaried: a full day is this minus an hour, a half day is 4 hours; weekend pay is pro-rated against it. Hourly: the paid holiday credit.</div>
+              </div>
+              <div>
+                <label style={FL}>TIME TRACKING</label>
+                <select className="form-input" style={{ width: '100%' }} value={comp.timeTrackingExempt ? 'exempt' : 'tracked'}
+                  onChange={e => setC('timeTrackingExempt', e.target.value === 'exempt')}>
+                  <option value="tracked">Tracked (punches and hours)</option>
+                  <option value="exempt">Exempt (salaried - no time tracking)</option>
+                </select>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Exempt hides the punch card, timer and hours widgets for this person.</div>
+              </div>
             </div>
 
             {comp.history?.length > 0 && (

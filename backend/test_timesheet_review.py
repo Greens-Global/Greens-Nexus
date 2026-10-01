@@ -171,6 +171,29 @@ class ReviewLoopTests(ReviewCase):
             tsr.agree(self.db, r, MGR)
         self.assertIn("HR contact", e.exception.detail)
 
+    def test_fixed_salary_month_goes_through_the_same_review(self):
+        # A salaried (monthly) employee reviews the calendar month, not the
+        # bi-weekly period - same submit / agree chain (Charmi, Sep 30 - A6).
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="INR",
+                                       monthly_salary=30000, full_day_hours=8, overtime_rule="none"))
+        self.db.commit()
+        start, end, pay_type = tsr.period_for(self.db, EMP, ANCHOR)
+        self.assertEqual(pay_type, "fixed")
+        self.assertEqual((start[-2:], start[:7]), ("01", ANCHOR[:7]))
+        self.assertEqual(end[:7], ANCHOR[:7])
+        self._punch(start, "in", "16:00:00")
+        self._punch(start, "out", "23:00:00")
+        self.db.commit()
+        card = tsr.card_for(self.db, EMP, start, end, pay_type)
+        self.assertEqual(card["payType"], "fixed")
+        self.assertTrue(card.get("fixedDays"))
+        self.assertEqual(tsr.day_minutes(card, pay_type)[start], 420)
+        r = tsr.submit(self.db, EMP, ANCHOR, "September")
+        self.assertEqual((r.status, r.period_start, r.period_end, r.pay_type), ("with_manager", start, end, "fixed"))
+        tsr.agree(self.db, r, MGR, "Agreed")
+        self.db.expire_all()
+        self.assertEqual(tsr.active_review(self.db, EMP, start).status, "signing")
+
     def test_the_old_one_click_sign_is_retired(self):
         with self.assertRaises(HTTPException) as e:
             timeclock.sign_my_timecard(timeclock.SignTimecardIn(start=ANCHOR), user={"email": EMP}, db=self.db)

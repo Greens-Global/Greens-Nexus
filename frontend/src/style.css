@@ -5091,3 +5091,10 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
    reads as "opens the conversation", not just "opens the ticket". */
 .nx-latest-comment:hover, .nx-latest-comment:focus-visible { background: var(--nx-hover) !important; }
 .nx-latest-comment:hover b { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Payroll timecard day rows (Charmi, Sep 30 - A8): zebra banding per date, a
+   brand-tinted hover, weekends keep their mist. The week-total band is its own
+   row (brand tint + brand text) and is not a .pr-day-row, so it stays distinct. */
+.pr-day-row.pr-band > td { background: color-mix(in srgb, var(--wk-hover) 60%, transparent); }
+.pr-day-row.pr-weekend > td { background: var(--mist); }
+@media (hover: hover) { .pr-day-row:hover > td { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); } }

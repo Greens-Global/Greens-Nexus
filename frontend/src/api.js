@@ -1777,6 +1777,12 @@ export const api = {
   //    punches against a proposed fence before it is saved ──
   resolveWorkSiteLink: (link) => req('/hr/work-sites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) }),
   workSiteFenceCheck:  ({ lat, lng, radiusM, siteId = '' }) => req(`/hr/work-sites/fence-check?lat=${lat}&lng=${lng}&radius_m=${Math.round(radiusM || 150)}&site_id=${encodeURIComponent(siteId)}`),
+
+  // ── Time Clock company settings (Charmi, Sep 30) - read by Settings > Global
+  //    Settings > Time Clock; the matching *Set calls are above ──
+  timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
+  timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
+  timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
