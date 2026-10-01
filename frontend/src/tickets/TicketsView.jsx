@@ -35,7 +35,8 @@ import {
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
-  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
+  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFieldApplies, withDynamicOptions,
+  topicFields, topicQuestionDefs, allTopicQuestionDefs, labelFromKey,
   OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
   intakeFieldsFor, intakeDefaults, defaultIntakeType, richToPlain,
 } from './ticketMeta';
@@ -1751,12 +1752,13 @@ export function CreateTicketModal({ onClose }) {
   // topic list - this copy only lets the form ask the follow-up questions that
   // area needs, so the requester is never made to classify their own problem.
   const serviceArea = useMemo(() => areaForTopic(form.application), [form.application]);
-  // Driven by BOTH the topic's service area and the ticket type: "which
-  // facility?" is the right question for a camera that has stopped working and
-  // noise on a request to reword a report. See SERVICE_FIELDS' `types`.
+  // The picked topic's own questions (admin-edited in Help Topics, Oct 1), or
+  // its area's when nobody has edited them - each asked only on the ticket
+  // types it names: "which facility?" is the right question for a camera that
+  // has stopped working and noise on a request to reword a report.
   const svcFieldDefs = useMemo(
-    () => withDynamicOptions(serviceFields(serviceArea, form.type), { sites }),
-    [serviceArea, form.type, sites]);
+    () => withDynamicOptions(topicFields(form.application, serviceArea, form.type), { sites }),
+    [form.application, serviceArea, form.type, sites]);
   // Company field on intake (Sep 19, Pranshu: "End user don't have the
   // ability to choose company... admin have the control to turn on/off the
   // company field"). Off (the default): no picker, departments come
@@ -2127,13 +2129,12 @@ export function CreateTicketModal({ onClose }) {
             subValue={tf[HELP_SUBTOPIC_KEY] || ''} onSubChange={(v) => setTfVal(HELP_SUBTOPIC_KEY, v)}
             onChange={(name) => {
               set('application', name);
-              // Only when the AREA changes: swapping one maintenance topic for
-              // another asks the same questions, and throwing away the site
-              // they already picked would be gratuitous.
-              if (areaForTopic(name) !== serviceArea) {
-                setTf((prev) => Object.fromEntries(
-                  Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
-              }
+              // Keep only the answers the new topic also asks: swapping one
+              // maintenance topic for another asks the same "Which site?", and
+              // throwing away the site already picked would be gratuitous.
+              const asks = new Set(topicQuestionDefs(name, areaForTopic(name)).map((f) => f.key));
+              setTf((prev) => Object.fromEntries(
+                Object.entries(prev).filter(([k]) => !k.startsWith('svc_') || asks.has(k))));
             }} />
           {err('application') && <div style={requiredHint}>Required</div>}
           {sub(helpGroupFor(deptName) ? 'Pick the closest match, or Other to type it.' : 'Name it in a few words.')}
@@ -2197,7 +2198,7 @@ export function CreateTicketModal({ onClose }) {
       {svcFieldDefs.length > 0 && (
         <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginBottom: 10 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10 }}>
-            {serviceAreaLabel(serviceArea)} Details
+            A Few More Details
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             {svcFieldDefs.map((f) => (
@@ -2497,13 +2498,19 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const shownSvcFields = (() => {
     const area = t?.serviceArea || '';
     const answered = (f) => !isBlankFieldValue(t?.typeFields?.[f.key]);
-    const own = (SERVICE_FIELDS[area] || []).filter(
+    const own = topicQuestionDefs(t?.application, area).filter(
       (f) => (!f.retired && serviceFieldApplies(f, t?.type)) || answered(f));
     const ownKeys = new Set(own.map((f) => f.key));
-    const orphans = Object.values(SERVICE_FIELDS).flat()
+    const orphans = [...allTopicQuestionDefs(), ...Object.values(SERVICE_FIELDS).flat()]
       .filter((f) => !ownKeys.has(f.key) && answered(f));
+    // An answer whose question an admin has since removed still shows,
+    // under a label read off its key.
+    const known = new Set([...own, ...orphans].map((f) => f.key));
+    const loose = Object.keys(t?.typeFields || {})
+      .filter((k) => k.startsWith('svc_') && k !== HELP_SUBTOPIC_KEY && !known.has(k) && !isBlankFieldValue(t.typeFields[k]))
+      .map((k) => ({ key: k, label: labelFromKey(k), type: 'text' }));
     const seen = new Set();
-    return [...own, ...orphans].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
+    return [...own, ...orphans, ...loose].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
   })();
   // Opened from an email link before the ticket list has landed: show the
   // "Opening your ticket" screen rather than nothing (Oct 1 - it read as the
@@ -3746,9 +3753,10 @@ function TicketAttachments({ ticketId, ticketType }) {
 // time), falling back to the raw key if nothing matches at all.
 function auditFieldDef(type, key) {
   return (TYPE_FIELDS[type] || []).find((f) => f.key === key)
+    || allTopicQuestionDefs().find((f) => f.key === key)
     || Object.values(SERVICE_FIELDS).flat().find((f) => f.key === key)
     || (key === HELP_SUBTOPIC_KEY ? { key, label: HELP_SUBTOPIC_LABEL, type: 'text' } : null)
-    || { key, label: key, type: 'text' };
+    || { key, label: key.startsWith('svc_') ? labelFromKey(key) : key, type: 'text' };
 }
 
 // The original submission, exactly as raised - see _ticket_snapshot on the

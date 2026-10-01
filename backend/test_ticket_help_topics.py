@@ -106,6 +106,61 @@ class HelpTopicsAndOrderTests(unittest.TestCase):
                     {"departments": ["it"], "topics": [{"name": "Microsoft", "area": "email", "options": options}]}]},
                     MANAGER["email"])
 
+    # ── a topic's extra questions (Oct 1) ───────────────────────────────────
+    def _save_questions(self, questions):
+        ticket_taxonomy.save_config(self.db, {"helpTopics": [
+            {"label": "IT", "departments": ["it"], "topics": [
+                {"name": "Cameras", "area": "security", "questions": questions},
+                {"name": "Egnyte", "area": "files"}]},
+        ]}, MANAGER["email"])
+        return self._it_topics()
+
+    def test_topic_questions_are_saved_cleaned_with_keys(self):
+        it = self._save_questions([
+            {"key": "svc_facility", "label": " Which facility? ", "type": "site", "req": True, "types": ["incident"]},
+            {"label": "Which camera?", "type": "select", "options": ["Front Gate", " front gate ", "Office"]},
+            {"label": "", "type": "text"},
+        ])
+        qs = it["Cameras"]["questions"]
+        self.assertEqual([q["label"] for q in qs], ["Which facility?", "Which camera?"])
+        self.assertEqual(qs[0], {"key": "svc_facility", "label": "Which facility?", "type": "site", "req": True, "types": ["incident"]})
+        self.assertEqual(qs[1]["key"], "svc_whichCamera")
+        self.assertEqual(qs[1]["options"], ["Front Gate", "Office"])
+        self.assertFalse(qs[1]["req"])
+        # A topic nobody edited carries no list - it keeps asking its area's.
+        self.assertNotIn("questions", it["Egnyte"])
+
+    def test_an_empty_question_list_is_kept_meaning_ask_nothing(self):
+        self.assertEqual(self._save_questions([])["Cameras"]["questions"], [])
+
+    def test_keys_never_collide_or_take_the_which_one_key(self):
+        qs = self._save_questions([
+            {"key": "svc_helpSubtopic", "label": "Door", "type": "text"},
+            {"key": "svc_x", "label": "One", "type": "text"},
+            {"key": "svc_x", "label": "Two", "type": "text"},
+            {"key": "not a key", "label": "Three", "type": "text"},
+        ])["Cameras"]["questions"]
+        keys = [q["key"] for q in qs]
+        self.assertEqual(len(set(keys)), 4)
+        self.assertNotIn("svc_helpSubtopic", keys)
+        self.assertTrue(all(k.startswith("svc_") for k in keys))
+
+    def test_bad_questions_are_refused(self):
+        for questions in (
+            "Which door?",
+            [{"label": "Which door?", "type": "person"}],
+            [{"label": "Which door?", "type": "select", "options": []}],
+            [{"label": "x" * 121, "type": "text"}],
+            [{"label": f"Q{n}", "type": "text"} for n in range(ticket_taxonomy.QUESTIONS_MAX + 1)],
+        ):
+            with self.assertRaises(ticket_taxonomy.TaxonomyError):
+                self._save_questions(questions)
+
+    def test_the_activity_feed_reads_a_question_by_its_label(self):
+        self._save_questions([{"key": "svc_whichDoor", "label": "Which door?", "type": "text"}])
+        self.assertEqual(ticket_taxonomy.question_label(self.db, "svc_whichDoor"), "Which door?")
+        self.assertEqual(ticket_taxonomy.question_label(self.db, "svc_nope"), "")
+
     def _save_v1(self, groups):
         """A config saved before sub-options existed (no helpTopicsVersion)."""
         import json
