@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Search, X, Users, Check, SlidersHorizontal, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, X, Users, Check } from 'lucide-react';
+import { Spinner } from './AsyncState';
 import { api } from '../api';
 import { Avatar } from './ShiftScheduleExtras';
 
 // Teams on the schedule grid (Neil, Sep 30 - Microsoft Teams Shifts parity):
 // the "All schedules" switcher, the View menu, a team's ... menu, Add
-// Members and Reorder Teams. "Group" reads "Team" everywhere in the UI.
+// Members and Reorder Groups. A shift group is a "Group" everywhere (Oct 2026).
 
 const POP = { position: 'absolute', zIndex: 1300, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
   boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: 'Inter,sans-serif' };
@@ -29,7 +30,7 @@ function useDismiss(open, onClose) {
   return ref;
 }
 
-// "All schedules": every team, the active ones, or the archived ones; picking
+// "All Groups": every group, the active ones, or the archived ones; picking
 // one filters the whole grid to it.
 export function TeamSwitcher({ groups, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -44,13 +45,13 @@ export function TeamSwitcher({ groups, value, onChange }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" className="secondary-btn" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
-        aria-label="Choose a team" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-        <Users size={14} /> {picked ? picked.name : 'All Schedules'}{picked?.archived ? ' (Archived)' : ''} <ChevronDown size={13} />
+        aria-label="Choose a group" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+        <Users size={14} /> {picked ? picked.name : 'All Groups'}{picked?.archived ? ' (Archived)' : ''} <ChevronDown size={13} />
       </button>
       {open && (
         <div style={{ ...POP, top: 'calc(100% + 6px)', left: 0, width: 280 }}>
           <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, padding: '8px 8px 0', borderBottom: '1px solid var(--line)' }}>
-            {[['all', 'All Teams'], ['active', 'Active Teams'], ['archived', 'Archived Teams']].map(([k, label]) => (
+            {[['all', 'All Groups'], ['active', 'Active Groups'], ['archived', 'Archived Groups']].map(([k, label]) => (
               <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
                 style={{ border: 'none', background: 'none', padding: '6px 8px', fontSize: 12, fontWeight: tab === k ? 800 : 600, cursor: 'pointer', fontFamily: 'inherit',
                   whiteSpace: 'nowrap', color: tab === k ? 'hsl(var(--color-green))' : 'var(--muted)', marginBottom: -1,
@@ -59,13 +60,13 @@ export function TeamSwitcher({ groups, value, onChange }) {
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 8px' }}>
             <Search size={12} color="var(--muted)" />
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search teams" aria-label="Search teams" autoFocus
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search groups" aria-label="Search groups" autoFocus
               style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
           </label>
-          <div role="listbox" aria-label="Teams" style={{ maxHeight: 300, overflowY: 'auto', paddingBottom: 6 }}>
+          <div role="listbox" aria-label="Groups" style={{ maxHeight: 300, overflowY: 'auto', paddingBottom: 6 }}>
             {tab !== 'archived' && !q.trim() && (
               <button type="button" role="option" aria-selected={!value} onClick={() => pick('')} style={ITEM}>
-                <span style={{ flex: 1, fontWeight: 700 }}>All Schedules</span>{!value && <Check size={13} color="hsl(var(--color-green))" />}
+                <span style={{ flex: 1, fontWeight: 700 }}>All Groups</span>{!value && <Check size={13} color="hsl(var(--color-green))" />}
               </button>
             )}
             {list.map(g => (
@@ -75,52 +76,8 @@ export function TeamSwitcher({ groups, value, onChange }) {
                 {value === g.id && <Check size={13} color="hsl(var(--color-green))" />}
               </button>
             ))}
-            {!list.length && <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--muted)' }}>{tab === 'archived' ? 'No archived teams.' : 'No teams match.'}</div>}
+            {!list.length && <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--muted)' }}>{tab === 'archived' ? 'No archived groups.' : 'No groups match.'}</div>}
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// The View menu (Teams parity): quick access, view by, and what shows.
-const SHOW_OPTIONS = [['teams', 'Teams'], ['open', 'Open Shifts'], ['conflicts', 'Shift Conflicts'],
-  ['availability', 'Availability'], ['photos', 'Profile Pictures'], ['sunday', 'Sunday']];
-
-export function ViewMenu({ prefs, onChange, canViewByShift }) {
-  const [open, setOpen] = useState(false);
-  const ref = useDismiss(open, () => setOpen(false));
-  const set = (k, v) => onChange({ ...prefs, [k]: v });
-  const radio = (on, label, fn) => (
-    <button type="button" role="menuitemradio" aria-checked={on} onClick={fn} style={ITEM}>
-      <span style={{ width: 14, display: 'inline-flex' }}>{on && <Check size={13} color="hsl(var(--color-green))" />}</span>{label}
-    </button>
-  );
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="secondary-btn" onClick={() => setOpen(o => !o)} aria-haspopup="menu" aria-expanded={open}
-        style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <SlidersHorizontal size={13} /> View <ChevronDown size={13} />
-      </button>
-      {open && (
-        <div role="menu" aria-label="View options" style={{ ...POP, top: 'calc(100% + 6px)', right: 0, width: 220, paddingBottom: 6 }}>
-          <div style={HEAD}>Quick Access</div>
-          {radio(prefs.mine, 'Your Shifts', () => set('mine', true))}
-          {radio(!prefs.mine, 'Team Shifts', () => set('mine', false))}
-          {canViewByShift && (
-            <>
-              <div style={HEAD}>View By</div>
-              {radio(prefs.rowsBy !== 'shifts', 'People', () => set('rowsBy', 'people'))}
-              {radio(prefs.rowsBy === 'shifts', 'Shift', () => set('rowsBy', 'shifts'))}
-            </>
-          )}
-          <div style={HEAD}>Show</div>
-          {SHOW_OPTIONS.map(([k, label]) => (
-            <label key={k} style={{ ...ITEM, cursor: 'pointer' }}>
-              <input type="checkbox" checked={prefs[k] !== false} onChange={e => set(k, e.target.checked)} aria-label={`Show ${label}`} />
-              {label}
-            </label>
-          ))}
         </div>
       )}
     </div>
@@ -138,11 +95,11 @@ export function TeamMenu({ team, canReorder, onAction }) {
         style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '0 4px', fontSize: 15, lineHeight: 1, fontWeight: 800 }}>⋯</button>
       {open && (
         <div role="menu" aria-label={`${team.name} options`} style={{ ...POP, top: 'calc(100% + 4px)', left: 0, width: 190, padding: '4px 0' }}>
-          <button type="button" role="menuitem" style={ITEM} onClick={() => act('rename')}>Rename Team</button>
-          {canReorder && <button type="button" role="menuitem" style={ITEM} onClick={() => act('reorder')}>Reorder Teams</button>}
-          <button type="button" role="menuitem" style={ITEM} onClick={() => act('archive')}>{team.archived ? 'Restore Team' : 'Archive Team'}</button>
-          <button type="button" role="menuitem" style={ITEM} onClick={() => act('manage')}>Manage Teams</button>
-          {canReorder && <button type="button" role="menuitem" style={{ ...ITEM, color: '#b91c1c' }} onClick={() => act('delete')}>Delete Team</button>}
+          <button type="button" role="menuitem" style={ITEM} onClick={() => act('rename')}>Rename Group</button>
+          {canReorder && <button type="button" role="menuitem" style={ITEM} onClick={() => act('reorder')}>Reorder Groups</button>}
+          <button type="button" role="menuitem" style={ITEM} onClick={() => act('archive')}>{team.archived ? 'Restore Group' : 'Archive Group'}</button>
+          <button type="button" role="menuitem" style={ITEM} onClick={() => act('manage')}>Manage Groups</button>
+          {canReorder && <button type="button" role="menuitem" style={{ ...ITEM, color: 'hsl(var(--color-red))' }} onClick={() => act('delete')}>Delete Group</button>}
         </div>
       )}
     </span>
@@ -175,7 +132,7 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-          Pick people from the Nexus People list. They show under this team on the schedule.
+          Pick people from the Nexus People list. They show under this group on the schedule.
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', marginBottom: 8 }}>
           <Search size={13} color="var(--muted)" />
@@ -183,7 +140,7 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
             style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
         </label>
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
-          {people === null && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+          {people === null && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>}
           {people !== null && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Nobody else to add.</div>}
           {list.map(p => {
             const em = emailOf(p);
@@ -193,14 +150,14 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
                 <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
                 <span style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{em}</div>
+                  
                 </span>
               </label>
             );
           })}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
-          {onManage && <button type="button" onClick={onManage} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-green))', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: 0 }}>Manage Team</button>}
+          {onManage && <button type="button" onClick={onManage} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-green))', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: 0 }}>Manage Group</button>}
           <div style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" disabled={busy || !picked.length} onClick={() => onAdd(picked)}>
@@ -212,16 +169,16 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
   );
 }
 
-// Reorder Teams: move each up or down; Save sets the order for everyone.
+// Reorder Groups: move each up or down; Save sets the order for everyone.
 export function ReorderTeamsModal({ groups, busy, onSave, onClose }) {
   const [order, setOrder] = useState(() => groups.map(g => g.id));
   const byId = Object.fromEntries(groups.map(g => [g.id, g]));
   const move = (i, d) => setOrder(o => { const n = [...o]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n; });
   return (
     <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Reorder Teams" style={{ ...MODAL_CARD, maxWidth: 400 }}>
+      <div role="dialog" aria-label="Reorder Groups" style={{ ...MODAL_CARD, maxWidth: 400 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Reorder Teams</span>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Reorder Groups</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ border: '1px solid var(--line)', borderRadius: 8 }}>

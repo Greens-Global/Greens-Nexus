@@ -1,260 +1,259 @@
-// Manager inbox for shift requests (Sep 29 2026, Teams Shifts parity):
-// open-shift requests, and swaps/offers the teammate already accepted, for
-// people this manager is responsible for (backend routers/shift_requests.py
-// scopes it) - and pending TIME-OFF requests too, decided through the same
-// endpoint the time-off screen uses (PATCH /timeclock/timeoff/{id}), so its
-// rules and notifications are unchanged. Approve or decline with an optional
-// note; the on/off switches live here too.
-import { useEffect, useState } from 'react';
-import { LoadingState } from './AsyncState';
-import { X, CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock } from 'lucide-react';
+// The manager's Requests page (Oct 2026, Teams parity): tabs Time Off |
+// Swaps | Offers | Open Shifts with counts, a Waiting On Teammate section,
+// a swap card that draws BOTH shifts, a time-off card that lists the shared
+// shifts inside the leave with Approve And Remove Shifts beside Approve,
+// Approve / Decline with a note, and the decided list with Title Case chips.
+// Decisions go through the same endpoints as before (routers/
+// shift_requests.py, PATCH /timeclock/timeoff/{id}), so their rules and
+// notifications are unchanged. The settings that used to sit under this
+// list live in Settings > Global Settings > Shifts now.
+import { useState } from 'react';
+import { CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock, Clock } from 'lucide-react';
+import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { Avatar } from './ShiftScheduleExtras';
 import { api } from '../api';
-import { formatDate, formatDateTime } from '../lib/datetime';
-import { ZONE_GROUPS, zoneOptionLabel } from '../lib/worldClockZones';
+import { dialog } from '../ui/dialog';
+import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { useNameResolver } from '../lib/useNameResolver';
+import { ShiftBlock } from './shifts/ShiftBlock';
+import { timeOffLabel } from './shiftScheduleLib';
+import { timeOffWhen, isAllDayOff } from './shifts/shiftLib';
+import { notifyInboxChanged } from './shifts/useManagerInbox';
 
-const KIND = { open: ['Open shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send] };
-const hhmm12 = (v) => { const [h, m] = (v || '0:0').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+const KIND = { open: ['Open Shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send] };
+const TABS = [['timeoff', 'Time Off', CalendarOff], ['swap', 'Swaps', ArrowLeftRight], ['offer', 'Offers', Send], ['open', 'Open Shifts', Hand]];
+const STATUS_CHIP = {
+  approved: ['Approved', 'hsl(var(--color-green))'], declined: ['Declined', 'hsl(var(--color-red))'], rejected: ['Declined', 'hsl(var(--color-red))'],
+  cancelled: ['Cancelled', 'var(--muted)'], pending_peer: ['Waiting On Teammate', 'hsl(var(--color-orange))'], pending_manager: ['Waiting On Manager', 'hsl(var(--color-orange))'],
+};
+const row = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', display: 'grid', gridTemplateColumns: '36px 1fr', columnGap: 10, background: 'var(--card)' };
+const HEAD = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 };
 
-// `inline` = on the Requests page (no overlay, no close button). Who may
-// change the settings comes from the API (`canConfigure`) unless the caller
-// already knows.
-export default function ShiftRequestsInbox({ onClose, onChanged, toastOk, toastErr, canConfigure, inline = false }) {
-  const [data, setData] = useState(null);
+export function StatusChip({ status }) {
+  const [label, color] = STATUS_CHIP[status] || [status, 'var(--muted)'];
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, color, border: `1px solid ${color}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {status === 'approved' ? <CheckCircle2 size={11} /> : status === 'declined' || status === 'rejected' ? <XCircle size={11} /> : null}{label}
+    </span>
+  );
+}
+
+// Both shifts of a request, side by side; a shift that is gone says so.
+function RequestShifts({ r, who }) {
+  const gone = <div style={{ fontSize: 12, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 6, padding: '8px 10px' }}>No longer on the schedule</div>;
+  const block = (s, owner) => (s ? (
+    <ShiftBlock shift={s} style={{ marginBottom: 0 }}>
+      <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{owner} · {formatWeekday(s.date, 'short')} {formatDate(s.date)}</div>
+    </ShiftBlock>
+  ) : gone);
+  const two = r.kind === 'swap';
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: two ? '1fr auto 1fr' : 'minmax(0, 320px)', gap: 8, alignItems: 'center', margin: '6px 0' }}>
+      {block(r.shift, who(r.requester))}
+      {two && <ArrowLeftRight size={14} color="var(--muted)" />}
+      {two && block(r.targetShift, who(r.target))}
+    </div>
+  );
+}
+
+export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onRetry, onChanged, toastOk, toastErr }) {
+  const nameOf = useNameResolver();
+  const [tab, setTab] = useState('timeoff');
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState('');
-  const [cfg, setCfg] = useState(null);
-  const [timeoff, setTimeoff] = useState(null);
-  const [tick, setTick] = useState(0);
-  const [mayConfigure, setMayConfigure] = useState(true);
-  const configure = canConfigure ?? mayConfigure;
+  const [removal, setRemoval] = useState({});   // time-off id -> conflicts returned after approval
+  const who = (p) => (p ? nameOf(p.email, p.name) : 'a teammate');
+  const photos = inbox?.photos || {};
+  const face = (email, name) => <Avatar name={nameOf(email, name)} photoUrl={photos[(email || '').toLowerCase()] || ''} size={36} />;
+  const pending = (inbox?.pending || []).filter((r) => r.kind === tab);
+  const waiting = (inbox?.waitingOnPeer || []).filter((r) => r.kind === tab);
+  const recent = (inbox?.recent || []).filter((r) => r.kind === tab);
+  const offList = timeoff || [];
+  const counts = { timeoff: offList.filter((t) => t.canDecide !== false).length, swap: 0, offer: 0, open: 0 };
+  (inbox?.pending || []).forEach((r) => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
+  const changed = () => { onChanged?.(); notifyInboxChanged(); };
 
-  useEffect(() => {
-    let live = true;
-    api.shiftRequestsInbox()
-      .then((r) => { if (live) { setData(r); setCfg(r.settings); setMayConfigure(r.canConfigure !== false); } })
-      .catch((e) => { if (live) { setData({ pending: [], recent: [] }); toastErr?.(e.message || 'Could not load requests.'); } });
-    api.timeOffList('pending')
-      .then((r) => { if (live) setTimeoff(Array.isArray(r) ? r : []); })
-      .catch(() => { if (live) setTimeoff([]); });
-    return () => { live = false; };
-  }, [tick, toastErr]);
-
-  async function decideTimeOff(t, approve) {
+  async function decideTimeOff(t, approve, removeShifts = false) {
     setBusyId(t.id);
     try {
-      await api.timeOffDecide(t.id, { status: approve ? 'approved' : 'rejected', note: notes[t.id] || '' });
-      toastOk?.(approve ? 'Time off approved. They were told.' : 'Time off declined. They were told.');
-      setTick((x) => x + 1); onChanged?.();
+      const r = await api.timeOffDecide(t.id, { status: approve ? 'approved' : 'rejected', note: notes[t.id] || '', ...(removeShifts ? { remove_shifts: true } : {}) });
+      const left = approve && !removeShifts ? (r?.conflicts || []) : [];
+      if (left.length) {
+        setRemoval((m) => ({ ...m, [t.id]: left }));
+        toastOk?.(`Time off approved. ${left.length} shared shift${left.length === 1 ? '' : 's'} inside it still stand${left.length === 1 ? 's' : ''}.`);
+      } else {
+        toastOk?.(approve ? (removeShifts ? 'Time off approved and the shifts inside it marked for removal. Share the schedule to send that.' : 'Time off approved. They were told.') : 'Time off declined. They were told.');
+      }
+      changed();
     } catch (e) { toastErr?.(e.message || 'Could not save the decision.'); }
     setBusyId('');
   }
-
-  async function decide(r, approve) {
+  async function removeAfter(t) {
+    setBusyId(t.id);
+    try {
+      await api.timeOffDecide(t.id, { status: 'approved', note: notes[t.id] || '', remove_shifts: true });
+      setRemoval((m) => { const n = { ...m }; delete n[t.id]; return n; });
+      toastOk?.('The shifts inside the leave are marked for removal. Share the schedule to send that.');
+      changed();
+    } catch (e) { toastErr?.(e.message || 'Could not remove the shifts.'); }
+    setBusyId('');
+  }
+  async function decide(r, approve, force = false) {
     setBusyId(r.id);
     try {
-      await api.shiftRequestDecide(r.id, { approve, note: notes[r.id] || '' });
+      await api.shiftRequestDecide(r.id, { approve, note: notes[r.id] || '', ...(force ? { force: true } : {}) });
       toastOk?.(approve ? 'Approved. The schedule is updated and everyone involved was told.' : 'Declined. Everyone involved was told.');
-      setTick((t) => t + 1); onChanged?.();
-    } catch (e) { toastErr?.(e.message || 'Could not save the decision.'); }
+      changed();
+    } catch (e) {
+      // 409: the new owner would have a conflict (CONTRACT.md 7) - ask, then force.
+      if (approve && e?.status === 409 && !force) {
+        setBusyId('');
+        const ok = await dialog.confirm(`${e.message} Approve anyway?`, { title: 'Approve With A Conflict', confirmText: 'Approve Anyway' });
+        if (ok) return decide(r, true, true);
+        return;
+      }
+      toastErr?.(e.message || 'Could not save the decision.');
+    }
     setBusyId('');
   }
 
-  async function saveCfg(next) {
-    setCfg(next);
-    try { setCfg(await api.shiftRequestSettingsSave(next)); toastOk?.('Request settings saved.'); }
-    catch (e) { toastErr?.(e.message || 'Could not save the settings.'); setTick((t) => t + 1); }
-  }
+  const noteBox = (id, label) => (
+    <input className="form-input" aria-label={label} placeholder="Note (optional)" value={notes[id] || ''}
+      onChange={(e) => setNotes((n) => ({ ...n, [id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
+  );
+  const empty = tab === 'timeoff' ? !offList.length : !pending.length && !waiting.length;
 
-  const row = { border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'grid', gridTemplateColumns: '36px 1fr', columnGap: 10 };
-  const photos = data?.photos || {};
-  const face = (email, name) => <Avatar name={name || email} photoUrl={photos[(email || '').toLowerCase()] || ''} size={36} />;
-  const shell = inline
-    ? { outer: { fontFamily: 'Inter,sans-serif' }, card: { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, padding: 18 } }
-    : { outer: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' },
-      card: { background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 620, padding: 20, maxHeight: '92dvh', overflowY: 'auto' } };
   return (
-    <div style={shell.outer} onClick={inline ? undefined : (e) => e.target === e.currentTarget && onClose()}>
-      <div role={inline ? 'region' : 'dialog'} aria-label="Shift Requests" style={shell.card}>
-        {!inline && (
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>Shift Requests</span>
-            <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
-          </div>
-        )}
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          Requests from your team waiting on a manager. Swaps and offers show here once the teammate has accepted.
-        </div>
+    <div style={{ fontFamily: 'Inter,sans-serif' }}>
+      <div className="scroll-tabs" role="tablist" aria-label="Request types" style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '1px solid var(--wk-line)' }}>
+        {TABS.map(([k, label, Icon]) => {
+          const on = tab === k;
+          const n = counts[k] || 0;
+          return (
+            <button key={k} type="button" role="tab" aria-selected={on} onClick={() => setTab(k)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 12px', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 13, fontWeight: on ? 700 : 600, color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
+                borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent' }}>
+              <Icon size={14} /> {label}
+              {n > 0 && <span aria-label={`${n} waiting`} style={{ fontSize: 10.5, fontWeight: 800, background: 'hsl(var(--color-red))', color: '#fff', borderRadius: 10, padding: '0 6px', minWidth: 18, textAlign: 'center' }}>{n}</span>}
+            </button>
+          );
+        })}
+      </div>
 
-        {data === null ? (
-          <LoadingState compact />
-        ) : data.pending.length === 0 && !(timeoff || []).length ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)', padding: 16, textAlign: 'center' }}>Nothing waiting on you.</div>
-        ) : (
+      <AsyncSection loading={loading} error={!!error} onRetry={onRetry} errorMessage="The requests could not be loaded right now." skeleton={<SkeletonBlocks count={3} height={72} borderRadius={12} />}
+        isEmpty={empty && !recent.length} emptyContent={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '22px 16px', textAlign: 'center', border: '1px dashed var(--wk-line2)', borderRadius: 12 }}>Nothing waiting on you.</div>}>
+        {tab === 'timeoff' ? (
           <div style={{ display: 'grid', gap: 10 }}>
-            {data.pending.map((r) => {
-              const [label, Icon] = KIND[r.kind] || [r.kind, Hand];
+            {offList.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '22px 16px', textAlign: 'center', border: '1px dashed var(--wk-line2)', borderRadius: 12 }}>No time-off requests waiting.</div>}
+            {offList.map((t) => {
+              const when = t.startDate === t.endDate ? formatDate(t.startDate) : `${formatDate(t.startDate)} - ${formatDate(t.endDate)}`;
+              const conflicts = removal[t.id] || t.conflicts || [];
+              const decided = !!removal[t.id];
               return (
-                <div key={r.id} style={row}>
-                  {face(r.requester?.email, r.requester?.name)}
+                <div key={t.id} style={row}>
+                  {face(t.email, t.name)}
                   <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                    <Icon size={12} /> {label} <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· asked {formatDateTime(r.createdAt + 'Z')}</span>
-                  </div>
-                  <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{r.summary}.</div>
-                  {r.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{r.requester.name}: “{r.note}”</div>}
-                  {r.peerNote && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{r.target?.name}: “{r.peerNote}”</div>}
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    <input className="form-input" aria-label="Note to the team" placeholder="Note (optional)" value={notes[r.id] || ''}
-                      onChange={(e) => setNotes((n) => ({ ...n, [r.id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
-                    <button type="button" className="primary-btn" disabled={busyId === r.id} onClick={() => decide(r, true)} style={{ fontSize: 12.5 }}>Approve</button>
-                    <button type="button" className="secondary-btn" disabled={busyId === r.id} onClick={() => decide(r, false)} style={{ fontSize: 12.5 }}>Decline</button>
-                  </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', flexWrap: 'wrap' }}>
+                      <CalendarOff size={12} /> Time Off · {timeOffLabel(t.type)}
+                      {t.confidential && <span title="Confidential - the reason is visible only to the employee and their approver" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, textTransform: 'none', letterSpacing: 0 }}><Lock size={11} /> Confidential</span>}
+                      {t.createdAt && <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· asked {formatDateTime(t.createdAt.endsWith('Z') ? t.createdAt : `${t.createdAt}Z`)}</span>}
+                    </div>
+                    <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{nameOf(t.email, t.name)} · {when}{isAllDayOff(t) ? '' : `, ${timeOffWhen(t)}`}</div>
+                    {!t.redacted && <div style={{ fontSize: 12, color: 'var(--muted)' }}><span style={{ fontWeight: 700 }}>Reason:</span> {t.note || 'None given'}</div>}
+                    {conflicts.length > 0 && (
+                      <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 8, background: 'hsla(var(--color-orange),0.1)', border: '1px solid hsla(var(--color-orange),0.4)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}><Clock size={12} /> {conflicts.length} shared shift{conflicts.length === 1 ? '' : 's'} inside this leave</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 6 }}>
+                          {conflicts.map((s) => <ShiftBlock key={s.id} shift={s} style={{ marginBottom: 0 }}><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{formatWeekday(s.date, 'short')} {formatDate(s.date)}</div></ShiftBlock>)}
+                        </div>
+                      </div>
+                    )}
+                    {t.canDecide === false ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                        {t.own ? `Your own request - ${t.reviewer || 'your manager'} decides it; nobody approves their own time off.` : `${t.reviewer || 'Their manager'} decides this request.`}
+                      </div>
+                    ) : decided ? (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <StatusChip status="approved" />
+                        <button type="button" className="secondary-btn" disabled={busyId === t.id} onClick={() => removeAfter(t)} style={{ fontSize: 12.5 }}>Remove Those Shifts</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                        {noteBox(t.id, 'Note to the employee')}
+                        {conflicts.length > 0 && <button type="button" className="primary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, true, true)} style={{ fontSize: 12.5 }}>Approve And Remove Shifts</button>}
+                        <button type="button" className={conflicts.length ? 'secondary-btn' : 'primary-btn'} disabled={busyId === t.id} onClick={() => decideTimeOff(t, true)} style={{ fontSize: 12.5 }}>Approve</button>
+                        <button type="button" className="secondary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, false)} style={{ fontSize: 12.5 }}>Decline</button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
-
-        {(timeoff || []).length > 0 && (
-          <div style={{ marginTop: data?.pending?.length ? 18 : 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Time Off</div>
+        ) : (
+          <>
             <div style={{ display: 'grid', gap: 10 }}>
-              {timeoff.map((t) => {
-                const when = t.startDate === t.endDate ? formatDate(t.startDate) : `${formatDate(t.startDate)} - ${formatDate(t.endDate)}`;
-                const hours = t.startTime && t.endTime ? `, ${hhmm12(t.startTime)} - ${hhmm12(t.endTime)}` : '';
+              {pending.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', padding: '22px 16px', textAlign: 'center', border: '1px dashed var(--wk-line2)', borderRadius: 12 }}>Nothing waiting on a manager.</div>}
+              {pending.map((r) => {
+                const [label, Icon] = KIND[r.kind] || [r.kind, Hand];
                 return (
-                  <div key={t.id} style={row}>
-                    {face(t.email, t.name)}
+                  <div key={r.id} style={row}>
+                    {face(r.requester?.email, r.requester?.name)}
                     <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                      <CalendarOff size={12} /> {`Time off · ${t.type}`}
-                      {t.confidential && (
-                        <span title="Confidential - the reason is visible only to the employee and their approver"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4, textTransform: 'none', letterSpacing: 0 }}>
-                          <Lock size={11} /> Confidential
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{t.name || t.email} · {when}{hours}</div>
-                    {/* Why they are off - what the approver decides on. A redacted
-                        (confidential, not yours to decide) request shows neither. */}
-                    {!t.redacted && (
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        <span style={{ fontWeight: 700 }}>Reason:</span> {t.note || 'None given'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', flexWrap: 'wrap' }}>
+                        <Icon size={12} /> {label} <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· asked {formatDateTime(`${r.createdAt}Z`)}</span>
                       </div>
-                    )}
-                    {t.canDecide === false ? (
-                      // Confidential and not yours to decide, or your own request:
-                      // the people who CAN decide it are named.
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-                        {t.own ? `Your own request - ${t.reviewer || 'your manager'} decides it; nobody approves their own time off.` : `${t.reviewer || 'Their manager'} decides this request.`}
+                      <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{r.summary}.</div>
+                      <RequestShifts r={r} who={who} />
+                      {r.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.requester)}: “{r.note}”</div>}
+                      {r.peerNote && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.target)}: “{r.peerNote}”</div>}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                        {noteBox(r.id, 'Note to the team')}
+                        <button type="button" className="primary-btn" disabled={busyId === r.id} onClick={() => decide(r, true)} style={{ fontSize: 12.5 }}>Approve</button>
+                        <button type="button" className="secondary-btn" disabled={busyId === r.id} onClick={() => decide(r, false)} style={{ fontSize: 12.5 }}>Decline</button>
                       </div>
-                    ) : (
-                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                      <input className="form-input" aria-label="Note to the employee" placeholder="Note (optional)" value={notes[t.id] || ''}
-                        onChange={(e) => setNotes((n) => ({ ...n, [t.id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
-                      <button type="button" className="primary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, true)} style={{ fontSize: 12.5 }}>Approve</button>
-                      <button type="button" className="secondary-btn" disabled={busyId === t.id} onClick={() => decideTimeOff(t, false)} style={{ fontSize: 12.5 }}>Decline</button>
-                    </div>
-                    )}
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
+            {waiting.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                <div style={HEAD}>Waiting On Teammate</div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {waiting.map((r) => (
+                    <div key={r.id} style={{ ...row, opacity: 0.85 }}>
+                      {face(r.requester?.email, r.requester?.name)}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1 }}>{r.summary}.</span>
+                          <StatusChip status="pending_peer" />
+                        </div>
+                        <RequestShifts r={r} who={who} />
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.target)} has not answered yet. It reaches you once they accept.</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {data?.recent?.length > 0 && (
+        {recent.length > 0 && (
           <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Recently Decided</div>
-            {data.recent.map((r) => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '5px 0', borderTop: '1px solid var(--line)' }}>
-                {r.status === 'approved' ? <CheckCircle2 size={13} color="#15803d" /> : <XCircle size={13} color="#b91c1c" />}
-                <span style={{ flex: 1 }}>{r.summary}</span>
-                <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDate(r.decidedAt + 'Z')}</span>
+            <div style={HEAD}>Recently Decided</div>
+            {recent.map((r) => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '6px 0', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <span style={{ flex: 1, minWidth: 200 }}>{r.summary}{r.decisionNote ? <span style={{ color: 'var(--muted)' }}> · {r.decisionNote}</span> : null}</span>
+                <StatusChip status={r.status} />
+                <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.decidedAt ? formatDate(`${r.decidedAt}Z`) : ''}</span>
               </div>
             ))}
           </div>
         )}
-
-        {cfg && configure && (
-          <div style={{ marginTop: 18, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Settings</div>
-            {[['openShifts', 'Staff can request open shifts'], ['swaps', 'Staff can swap shifts with teammates'], ['offers', 'Staff can offer their shifts to teammates'],
-              ['teamSchedules', 'Staff can see their teammates’ shifts in My Shifts'],
-              ['teamShiftDetails', 'Staff can see the notes, activities and breaks on teammates’ shifts'],
-              ['teamTimeOffReasons', 'Staff can see why a teammate is off, and their note'],
-              ['timeOffRequests', 'Staff can request time off']].map(([k, text]) => (
-              <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', padding: '3px 0' }}>
-                <input type="checkbox" checked={!!cfg[k]} onChange={(e) => saveCfg({ ...cfg, [k]: e.target.checked })} /> {text}
-              </label>
-            ))}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 0', flexWrap: 'wrap' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={cfg.reminders !== false} onChange={(e) => saveCfg({ ...cfg, reminders: e.target.checked })} />
-                Remind staff before a scheduled shift
-              </label>
-              <select className="form-input" aria-label="Reminder lead time" disabled={cfg.reminders === false}
-                value={cfg.reminderLeadMinutes || 60} onChange={(e) => saveCfg({ ...cfg, reminderLeadMinutes: Number(e.target.value) })}
-                style={{ width: 'auto', fontSize: 12.5, padding: '3px 30px 3px 8px' }}>
-                {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} ${m === 60 ? 'hour' : 'hours'}`} before</option>)}
-              </select>
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '3px 0', flexWrap: 'wrap' }}>
-              Team time zone
-              <select className="form-input" aria-label="Team time zone" value={cfg.timeZone || 'America/Los_Angeles'}
-                onChange={(e) => saveCfg({ ...cfg, timeZone: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '3px 30px 3px 8px' }}>
-                {Object.entries(ZONE_GROUPS).map(([region, zones]) => (
-                  <optgroup key={region} label={region}>
-                    {zones.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. Hiding teammates’ shifts still lets staff pick a shift to swap for. A confidential time-off reason is never shown to teammates. The team time zone is what a shift with no preset runs on, and what a new preset starts with.</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Custom time-off reasons (Sep 29, Teams parity), e.g. "Jury Duty", next to
-// the built-in Vacation / Sick / Personal / Unpaid / Other. Removing one
-// leaves existing requests of that type as they are.
-function TimeOffReasons({ toastOk, toastErr }) {
-  const [list, setList] = useState(null);
-  const [draft, setDraft] = useState('');
-  useEffect(() => {
-    let live = true;
-    api.timeOffTypes().then((r) => { if (live) setList(r.custom || []); }).catch(() => { if (live) setList([]); });
-    return () => { live = false; };
-  }, []);
-  async function save(next) {
-    try { const r = await api.timeOffTypesSave({ custom: next }); setList(r.custom); setDraft(''); toastOk?.('Time-off reasons saved.'); }
-    catch (e) { toastErr?.(e.message || 'Could not save the reasons.'); }
-  }
-  if (!list) return null;
-  const add = () => { const v = draft.trim(); if (v) save([...list, v]); };
-  return (
-    <div style={{ marginTop: 8 }}>
-      <div style={{ fontSize: 12.5, marginBottom: 5 }}>Extra time-off reasons</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {list.map((r) => (
-          <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, border: '1px solid var(--line)', borderRadius: 999, padding: '2px 4px 2px 10px' }}>
-            {r}
-            <button type="button" aria-label={`Remove ${r}`} onClick={() => save(list.filter((x) => x !== r))}
-              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2 }}><X size={12} /></button>
-          </span>
-        ))}
-        <input className="form-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. Jury Duty" aria-label="New time-off reason"
-          onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
-        <button type="button" className="secondary-btn" onClick={add} disabled={!draft.trim()} style={{ fontSize: 12 }}>Add Reason</button>
-      </div>
+      </AsyncSection>
     </div>
   );
 }

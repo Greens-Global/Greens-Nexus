@@ -1783,6 +1783,14 @@ export const api = {
   timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
   timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
   timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
+  //    the whole schedule, the saved group order, the request settings on
+  //    their own, and the manager's time-off list over a date range ──
+  timeSchedUnshared:   (start = '', end = '') => req(`/timeclock/schedule/unshared?start=${start}&end=${end}`),
+  timeShiftGroupOrder: (ids)       => req('/timeclock/shift-groups/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
+  shiftRequestSettingsGet: ()      => req('/timeclock/shift-requests/settings'),
+  timeOffListRange:    (status = '', from = '', to = '', limit = 2000) =>
+    req(`/timeclock/timeoff?status=${encodeURIComponent(status)}&from=${from}&to=${to}&limit=${limit}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

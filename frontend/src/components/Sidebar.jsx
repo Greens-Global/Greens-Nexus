@@ -56,8 +56,9 @@ export const NAV = [
     sub: [
       { subview: "mine",     label: "My Shifts",        icon: CalendarClock },
       { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },
-      { subview: "requests", label: "Requests",         icon: ClipboardList },
-      { subview: "presets",  label: "Presets & Teams", icon: ClipboardList, minRole: 'manager' },
+      // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
+      // Time Off, and shift types / groups live in Settings > Global Settings.
+      { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
     ],
   },
   { divider: true },

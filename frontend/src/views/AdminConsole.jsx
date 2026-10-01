@@ -59,6 +59,7 @@ import {
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
+  Clock, Users,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -91,6 +92,11 @@ const SecuritySettings = lazy(() => import('./SecuritySettings'));
 const BrandColorPanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.BrandColorPanel })));
 const EmailAppearancePanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.EmailAppearancePanel })));
 const SignInPolicyPanel = lazy(() => import('./BrandingPoliciesSettings').then(m => ({ default: m.SignInPolicyPanel })));
+// Shifts (Oct 2026): the settings, shift types and groups that used to be a
+// Shifts tab - one self-contained module, three sections.
+const ShiftSettingsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftSettingsPanel })));
+const ShiftTypesPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftTypesPanel })));
+const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftGroupsPanel })));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -133,6 +139,8 @@ const GLOBAL_CATEGORIES = [
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
   { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
     desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.' },
+  { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
+    desc: 'What staff may request and see on the schedule, the team time zone and week start, shift reminders and time-off reasons, the shift types managers place, and the groups people are scheduled in.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -188,6 +196,15 @@ const GLOBAL_SECTIONS = [
   { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every timecard.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california timecard payroll' },
+  { id: 'shift-settings', category: 'shifts', icon: CalendarClock, title: 'Shift Settings',
+    sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, shift reminders and the time-off reasons.',
+    keywords: 'shifts schedule requests swap offer open shift time off reasons reminders time zone week start sunday monday visibility' },
+  { id: 'shift-types', category: 'shifts', icon: Clock, title: 'Shift Types',
+    sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
+    keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },
+  { id: 'shift-groups', category: 'shifts', icon: Users, title: 'Groups',
+    sub: 'Who is scheduled together, the order they appear in, who may build each group\'s schedule, and the Teams chat its BOD / EOD messages go to.',
+    keywords: 'shifts groups teams members schedulers order teams chat bod eod' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -1009,6 +1026,9 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
         );
       // Time Clock has exactly one section - rendered whole, like Security.
       case 'timeclock-policy':     return <TimeClockPolicyPanel key={key} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }
