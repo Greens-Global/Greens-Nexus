@@ -440,8 +440,7 @@ function PortfolioRow({
   const indent = depth * 22;
   return (
     <div style={{ borderBottom: `1px solid ${NX.border2}`, opacity: pf.archived ? 0.62 : 1 }}>
-      <div onClick={onToggleOpen} style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', background: rowBg }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
+      <div onClick={onToggleOpen} className="nx-row-hover" style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', background: rowBg }}>
         {/* Keyed and rendered in the header's order - a row that renders cells
             in a fixed sequence puts every value under the wrong heading once
             columns can be dragged. */}
@@ -572,10 +571,8 @@ function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOp
         const band = (startBand + i) % 2 === 1;
         const bg = isPicked ? `${NX.primary}12` : band ? NX.zebra : 'transparent';
         return (
-          <div key={p.id} onClick={() => onOpen(p.id)}
-            style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px 9px 54px', borderTop: `1px solid ${NX.border2}`, cursor: 'pointer', background: bg }}
-            onMouseEnter={(e) => { if (!isPicked) e.currentTarget.style.background = NX.hover; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = bg; }}>
+          <div key={p.id} onClick={() => onOpen(p.id)} className="nx-row-hover" data-selected={isPicked ? 'true' : undefined}
+            style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px 9px 54px', borderTop: `1px solid ${NX.border2}`, cursor: 'pointer', background: bg }}>
             {/* Same keying as the portfolio row above, so an expanded project
                 stays aligned with it. */}
             {cols.map((c) => <Fragment key={c.key}>{({

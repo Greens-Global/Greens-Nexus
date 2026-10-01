@@ -5035,3 +5035,38 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 }
 .deflect-head:hover { background: var(--mist); }
 .deflect-head:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+
+/* ── List-row hover (Neil, Oct 1 2026) ─────────────────────────────────────────
+   Hovering a row fills the WHOLE row with the brand tint so a line can be
+   followed across a wide monitor - the same highlight the Accounting ledger
+   and reports use (.acct-lines tbody tr:hover td). One class for every list:
+   the ticket list, Support's tickets, and the Task module's lists (Task List,
+   My Tasks, Projects, Portfolios, Teams, Templates). --wk-brand-tint is
+   theme-aware already (a translucent brand wash under [data-theme="dark"]).
+   `!important` because each row carries its own inline resting background
+   (zebra band / selected tint) that would otherwise win. A selected row keeps
+   reading as selected under the pointer - a deeper blue, not the plain tint.
+   Pointer devices only: a tap on a phone must not leave a row stuck lit. */
+.nx-row-hover { transition: background-color .08s ease; }
+@media (hover: hover) {
+  .nx-row-hover:hover { background: var(--wk-brand-tint, #e8ecfd) !important; }
+  .nx-row-hover[data-selected="true"]:hover { background: rgba(37, 99, 235, 0.18) !important; }
+  [data-theme="dark"] .nx-row-hover[data-selected="true"]:hover { background: rgba(96, 140, 255, 0.26) !important; }
+}
+.nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+
+/* The ticket row's Mark Resolved check (the resolved gutter) - faint until the
+   row is hovered, green under the pointer, always reachable by keyboard. */
+.nx-row-resolve {
+  display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: none; border-radius: 50%; background: transparent; cursor: pointer;
+  color: var(--nx-faint); opacity: .45; transition: opacity .1s ease, color .1s ease, background-color .1s ease;
+}
+.nx-row-hover:hover .nx-row-resolve, .nx-row-resolve:focus-visible { opacity: 1; }
+.nx-row-resolve:hover, .nx-row-resolve:focus-visible { color: #16a34a; background: rgba(22, 163, 74, 0.14); }
+@media (hover: none) { .nx-row-resolve { opacity: 1; } }
+
+/* Latest Comment cell - a button inside a clickable row: its own hover so it
+   reads as "opens the conversation", not just "opens the ticket". */
+.nx-latest-comment:hover, .nx-latest-comment:focus-visible { background: var(--nx-hover) !important; }
+.nx-latest-comment:hover b { text-decoration: underline; text-underline-offset: 2px; }

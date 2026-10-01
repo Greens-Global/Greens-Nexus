@@ -573,7 +573,9 @@ export const DOCS = [
       { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },
-      { name: 'Export', desc: 'Export the currently filtered tickets to CSV.' },
+      { name: 'Export', desc: 'Export the currently filtered tickets to CSV, latest comment included.' },
+      { name: 'Latest Comment', desc: 'The last column shows the newest reply on each ticket: who, a line of what they said, and when. Click it to open the ticket on its conversation. Internal notes show a lock and are never shown to requesters.' },
+      { name: 'Status Colors', desc: 'Red is Open (nobody on it yet) and Reopened, amber is In Progress, purple is waiting on someone else (Waiting for User, Waiting for Vendor, On Hold), green is Resolved and gray is Closed.' },
     ],
     manager: {
       title: 'Desk Leads & Admins',
@@ -586,6 +588,7 @@ export const DOCS = [
     tips: [
       'Inside an open ticket, changes wait for Done. Close it without clicking Done and you are asked before they are thrown away.',
       'State and Priority can be changed straight from the list without opening the ticket.',
+      'The check at the end of a row resolves the ticket without opening it. Hover a row to follow it across a wide screen.',
       'Resolved and Closed tickets collapse into their own section so open work stays on top.',
     ],
   },
@@ -1236,8 +1239,9 @@ export const DOCS = [
       {
         title: 'Follow Up on Your Ticket',
         steps: [
-          'Find it in My Open Tickets (search by ticket number or title). A blue dot means something changed since you last opened it.',
+          'Find it in Open Tickets (search by ticket number or title). A blue dot means something changed since you last opened it, and Latest Comment shows the newest reply.',
           'Click the row to open the full thread and reply. While it is still Open, click the pencil to edit it.',
+          'Sorted out already, maybe with a colleague\'s help? Click Mark Resolved, optionally say what fixed it, and the team is told.',
           'When it is resolved, click Confirm and rate how it was handled, or Reopen and say why.',
         ],
       },
@@ -1247,8 +1251,8 @@ export const DOCS = [
       { name: 'Report a Bug', desc: 'For anything broken in Nexus itself.' },
       { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
       { name: 'Privacy Policy & Terms', desc: 'What Nexus collects, and the terms of use.' },
-      { name: 'My Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated. Sort, search and page through it.' },
-      { name: 'My Closed Tickets', desc: 'Your finished tickets. Reopen one if the same problem comes back.' },
+      { name: 'Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated and the latest comment. Sort, search and page through it, or mark one Resolved yourself.' },
+      { name: 'Closed Tickets', desc: 'Your finished tickets. Reopen one if the same problem comes back.' },
       { name: 'Documentation', desc: 'This guide.' },
     ],
     manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Support is the requester\'s side.'] },

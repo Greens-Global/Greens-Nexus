@@ -301,21 +301,34 @@ export const linkTypeLabel = (k) => (LINK_TYPES.find((l) => l.key === k) || {}).
 
 // ── Ticket status metadata (Title Case labels - Neil, Sep 30: "In Progress",
 // "On Hold", never "In progress"; NX colors) ────────────────────────────────
+// The colors follow ONE question - "whose move is it?" (Neil, Oct 1: "why are
+// we using blue here, what was our logic"):
+//   red    - nobody is on it yet and the desk needs to act: Open (and New, its
+//            legacy alias). Reopened is the same call to action coming back,
+//            so it sits in the same family as a deeper rose.
+//   amber  - somebody is actively working it: In Progress.
+//   purple - paused, the ball is in someone else's court (the SLA clock
+//            stops): Waiting for User, Waiting for Vendor, On Hold - three
+//            shades of one hue, so they read as one group on the board.
+//   green  - fixed, waiting for the requester to confirm: Resolved.
+//   gray   - finished and filed: Closed.
+// Blue is deliberately not a status color: it is the app's link/selection
+// color, and on a status chip it read as "nothing to see here".
 export const TICKET_STATUS_META = {
-  new:         { label: 'New',         color: NX.blue,   tint: 'rgba(37,99,235,0.15)' },
-  open:        { label: 'Open',        color: NX.purple, tint: 'rgba(124,58,237,0.15)' },
+  new:         { label: 'New',         color: NX.red,    tint: 'rgba(220,38,38,0.14)' },
+  open:        { label: 'Open',        color: NX.red,    tint: 'rgba(220,38,38,0.14)' },
   in_progress: { label: 'In Progress', color: NX.amber,  tint: 'rgba(217,119,6,0.16)' },
   // Waiting states are separate from On hold because they answer "waiting on
   // WHOM", and that is the difference between a clock that should keep running
   // and one that should not: SLA pauses while the ball is in someone else's
   // court. Rolling all three into On hold hid which tickets the team could
   // actually move.
-  waiting_user:   { label: 'Waiting for User',   color: NX.blue, tint: 'rgba(37,99,235,0.12)' },
-  waiting_vendor: { label: 'Waiting for Vendor', color: NX.dim,  tint: NX.border2 },
-  on_hold:     { label: 'On Hold',     color: NX.dim,    tint: NX.border2 },
+  waiting_user:   { label: 'Waiting for User',   color: NX.purple, tint: 'rgba(124,58,237,0.14)' },
+  waiting_vendor: { label: 'Waiting for Vendor', color: '#6d28d9', tint: 'rgba(109,40,217,0.14)' },
+  on_hold:     { label: 'On Hold',     color: '#8b5cf6',  tint: 'rgba(139,92,246,0.16)' },
   resolved:    { label: 'Resolved',    color: NX.green,  tint: 'rgba(22,163,74,0.15)' },
-  closed:      { label: 'Closed',      color: NX.faint,  tint: NX.border2 },
-  reopened:    { label: 'Reopened',    color: NX.red,    tint: 'rgba(220,38,38,0.15)' },
+  closed:      { label: 'Closed',      color: '#64748b', tint: 'rgba(100,116,139,0.16)' },
+  reopened:    { label: 'Reopened',    color: '#be123c', tint: 'rgba(190,18,60,0.14)' },
 };
 // Lifecycle order - drives the status picker and the board columns, so it reads
 // the way a ticket actually travels.

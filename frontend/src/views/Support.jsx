@@ -30,6 +30,7 @@ import GuidedTour from '../components/GuidedTour';
 import ModuleTabs from '../components/ModuleTabs';
 import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncState';
 import { buildSupportTourSteps } from './supportTourSteps';
+import { LatestCommentPreview } from '../tickets/LatestComment';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab.
@@ -97,8 +98,8 @@ const TicketDetail = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ ticketId, onClose, startEditing }) => (
-      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} /></TasksProvider>
+    default: ({ ticketId, onClose, startEditing, initialTab }) => (
+      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} initialTab={initialTab} /></TasksProvider>
     ),
   };
 });
@@ -141,6 +142,9 @@ const SUPPORT_TABLE_COLUMNS = [
   { key: 'created', label: 'Created Date', width: 150, sort: (t) => t.createdAt || '' },
   // Neil, Sep 30: "when was the last update" - any change or reply.
   { key: 'updated', label: 'Last Updated', width: 150, sort: (t) => lastUpdated(t) },
+  // The newest public reply (Neil, Oct 1) - click it to land on the
+  // conversation. The server never sends an internal note here.
+  { key: 'latestComment', label: 'Latest Comment', width: 280, sort: (t) => t.latestComment?.createdAt || '' },
 ];
 
 // The later of the ticket's own modified time and a reply by the team - so a
@@ -169,7 +173,7 @@ export default function Support({ activeSub, onSubChange }) {
   const [viewing, setViewing] = useState(null);
   const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), []);
   const [listTab, setListTab] = useState('open');   // 'open' | 'closed'
-  const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen', ticket }
+  const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen' | 'self_resolve' | 'resolve', ticket }
   const [tickets, setTickets] = useState(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -178,7 +182,7 @@ export default function Support({ activeSub, onSubChange }) {
   // one long unbroken list.
   const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
   const [page, setPage] = useState(1);
-  const { myEmail } = useRole();
+  const { myEmail, myLevel } = useRole();
   const people = usePeople();
   const nameOf = useCallback((email) => {
     const e = (email || '').toLowerCase();
@@ -274,14 +278,21 @@ export default function Support({ activeSub, onSubChange }) {
       onOpen: () => setTab('documentation'), tour: 'support-documentation' },
   ];
 
-  // Closed tickets are not what "My Open Tickets" means, but a requester whose
+  // Closed tickets are not what "Open Tickets" means, but a requester whose
   // ticket was just resolved should still see that it was - so resolved stays
   // (with Confirm / Reopen beside it) until it is closed out. Closed ones have
   // their own tab.
   const open = (tickets || []).filter((t) => t.status !== 'closed');
   const closed = (tickets || []).filter((t) => t.status === 'closed');
   const listed = listTab === 'closed' ? closed : open;
-  const hasActions = listed.some((t) => t.status === 'resolved' || t.status === 'closed');
+  // Every listed ticket has an action now: Mark Resolved while it is still in
+  // flight (Neil, Oct 1), Confirm / Reopen once it is resolved or closed.
+  const hasActions = listed.length > 0;
+  // Mark Resolved: the requester's own optional-comment version - unless they
+  // also work the ticket or are a manager, who resolve it the desk's way
+  // (with a written resolution), as the server requires of them.
+  const resolveMode = (t) => (myLevel >= 3 || (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase()
+    ? 'resolve' : 'self_resolve');
   // Ticket number OR title - the two things someone actually remembers about
   // their own ticket. Matched against both the raw and normalized code so
   // "9", "000009" and "#000009" all find the same row.
@@ -346,7 +357,9 @@ export default function Support({ activeSub, onSubChange }) {
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}
           <div className="scroll-tabs" role="tablist" style={{ display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
-            {[['open', 'My Open Tickets', open.length], ['closed', 'My Closed Tickets', closed.length]].map(([k, lab, n]) => (
+            {/* "Open Tickets" / "Closed Tickets" - no "My" (Neil, Oct 1): the
+                page is already only yours. */}
+            {[['open', 'Open Tickets', open.length], ['closed', 'Closed Tickets', closed.length]].map(([k, lab, n]) => (
               <button key={k} type="button" role="tab" aria-selected={listTab === k} onClick={() => { setListTab(k); setPage(1); }}
                 style={{
                   border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 700, padding: '6px 12px', borderRadius: 7,
@@ -440,7 +453,7 @@ export default function Support({ activeSub, onSubChange }) {
                       {/* The whole row opens the ticket's real detail drawer
                           (Ticket module). role="button" + cursor:pointer since
                           a grid row isn't natively interactive. */}
-                      <div role="button" tabIndex={0} onClick={() => setViewing({ id: t.id })}
+                      <div role="button" tabIndex={0} className="nx-row-hover" onClick={() => setViewing({ id: t.id })}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewing({ id: t.id }); } }}
                         style={{
                           display: 'grid', gridTemplateColumns: 'var(--nx-grid)', '--nx-grid': template,
@@ -466,11 +479,21 @@ export default function Support({ activeSub, onSubChange }) {
                         <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: NX.dim, borderRight: `1px solid ${NX.border2}` }}>
                           {formatDateTime(t.createdAt)}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: unread ? NX.ink : NX.dim, fontWeight: unread ? 700 : 400 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: unread ? NX.ink : NX.dim, fontWeight: unread ? 700 : 400, borderRight: `1px solid ${NX.border2}` }}>
                           {formatDateTime(lastUpdated(t))}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, minHeight: 40, padding: '0 10px', overflow: 'hidden' }}>
+                          <LatestCommentPreview comment={t.latestComment} nameOf={nameOf}
+                            onOpen={() => setViewing({ id: t.id, tab: 'conversation' })} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: hasActions ? 10 : 0 }}>
+                        {t.status !== 'resolved' && t.status !== 'closed' && (
+                          <button type="button" onClick={() => setAction({ mode: resolveMode(t), ticket: t })}
+                            style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
+                            <CheckCircle2 size={13} /> Mark Resolved
+                          </button>
+                        )}
                         {t.status === 'resolved' && (<>
                           <button type="button" onClick={() => setAction({ mode: 'confirm', ticket: t })}
                             style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
@@ -532,7 +555,7 @@ export default function Support({ activeSub, onSubChange }) {
           {/* Reload on close too - the drawer can change the ticket (within
               the requester's own edit access) and marks it seen, and the
               table above should reflect both without a manual refresh. */}
-          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} onClose={() => { setViewing(null); load(); }} />
+          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} initialTab={viewing.tab || null} onClose={() => { setViewing(null); load(); }} />
         </Suspense>
       )}
 
