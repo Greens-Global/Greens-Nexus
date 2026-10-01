@@ -1170,7 +1170,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     for key in set(prev_type_fields) | set(new_type_fields):
         ov, nv = prev_type_fields.get(key), new_type_fields.get(key)
         if ov != nv:
-            _log("field_changed", f'changed "{key}" from {_fmt_audit_value(ov)} to {_fmt_audit_value(nv)}')
+            # The help topic's "Which One?" reads by its on-screen name, not its key.
+            label = "Which One?" if key == "svc_helpSubtopic" else key
+            _log("field_changed", f'changed "{label}" from {_fmt_audit_value(ov)} to {_fmt_audit_value(nv)}')
     # The gate moving is a fact about the ticket, not a side effect to hide: log
     # it, and put a re-gated ticket back in front of the desk that has to route it.
     if (t.approval_status or "none") != prev_approval:
