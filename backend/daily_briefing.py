@@ -54,6 +54,7 @@ import briefing_card
 import briefing_mail_actions
 import task_mail_actions
 import ticket_mail_templates
+from ticket_code import display_number
 from app_url import app_url
 from routers.task_util import task_assignees
 from routers.timeclock import _shift_start_for, _shift_local_now
@@ -348,6 +349,13 @@ def _ticket_url(*, ticket_id: str, for_requester: bool) -> str:
     return ticket_mail_templates._ticket_url(app_url(), ticket_id, for_requester=for_requester)
 
 
+def _ticket_ref(code: str) -> str:
+    """A ticket's number as the email's ID column shows it: "#27", the same as
+    everywhere else (Oct 1) - never the stored, zero-padded "000027"."""
+    shown = display_number(code)
+    return f"#{shown}" if shown else ""
+
+
 def _ticket_action_rows(db: Session, email: str) -> list:
     """Read-only against models.TaskTicket, same pattern as
     _item_action_rows. Only the approval decision is a plain yes/no with no
@@ -363,7 +371,7 @@ def _ticket_action_rows(db: Session, email: str) -> list:
                       models.TaskTicket.approver_email == email).all()):
         rows.append({
             "title": f"Approve: {t.subject}",
-            "detail": f"{t.code or 'Ticket'} - waiting on your decision",
+            "detail": f"{_ticket_ref(t.code) or 'Ticket'} - waiting on your decision",
             "url": _ticket_url(ticket_id=t.id, for_requester=False),
             "module": "tickets",
             "action_kind": "ticket_approval", "action_id": t.id, "action_email": email,
@@ -372,7 +380,7 @@ def _ticket_action_rows(db: Session, email: str) -> list:
               .filter(models.TaskTicket.assignee_email == email,
                       models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
         rows.append({
-            "ref": t.code or "", "title": t.subject,
+            "ref": _ticket_ref(t.code), "title": t.subject,
             "detail": f"Assigned to you - {(t.status or 'new').replace('_', ' ').capitalize()}",
             "url": _ticket_url(ticket_id=t.id, for_requester=False),
             "module": "tickets",
@@ -388,7 +396,7 @@ def _ticket_needs_to_know_rows(db: Session, email: str, since_iso: str) -> list:
                       models.TaskTicket.last_comment_at != "",
                       models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
         rows.append({
-            "ref": t.code or "", "title": t.subject,
+            "ref": _ticket_ref(t.code), "title": t.subject,
             "detail": "New activity on your ticket",
             "url": _ticket_url(ticket_id=t.id, for_requester=True),
             "module": "tickets",
@@ -404,7 +412,7 @@ def _ticket_completed_rows(db: Session, email: str, since_iso: str) -> list:
                       models.TaskTicket.resolved_at >= since_iso,
                       models.TaskTicket.resolved_at != "").all()):
         rows.append({
-            "ref": t.code or "", "title": t.subject,
+            "ref": _ticket_ref(t.code), "title": t.subject,
             "detail": "Resolved" if t.status == "resolved" else "Closed",
             "url": _ticket_url(ticket_id=t.id, for_requester=True),
             "module": "tickets",

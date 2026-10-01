@@ -233,7 +233,9 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
         if projects.get(t.project_id or ""):
             detail += f" - {projects[t.project_id]}"
         rows.append({
-            "title": t.title, "ref": t.code or "", "detail": detail,
+            # No task ID (Oct 1): the title is what a person recognizes, and
+            # without a "ref" the table drops its ID column.
+            "title": t.title, "detail": detail,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
             # Extend Due Date (Neil) plus the usual Comment / React / Change

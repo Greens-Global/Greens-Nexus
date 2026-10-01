@@ -241,7 +241,7 @@ class ContentTests(_Case):
         self.assertEqual([r["title"] for r in rows], ["Oldest overdue", "Newer overdue"])
         self.assertEqual(rows[0]["detail"], "Due 09/01/2026 - 27 days overdue")
         self.assertEqual(rows[1]["detail"], "Due 09/25/2026 - 3 days overdue - Office Move")
-        self.assertEqual(rows[1]["ref"], "T-2")
+        self.assertNotIn("ref", rows[1])   # no task ID in the digest (Oct 1)
         self.assertTrue(rows[0]["task_extend"])
 
     def test_manager_gets_one_line_per_report(self):
@@ -270,6 +270,7 @@ class ContentTests(_Case):
         self.assertIn("Extend Due Date", html)
         self.assertIn("do=extend", html)
         self.assertIn('class="nx-acc" checked', html)   # its one section starts open
+        self.assertNotIn(">ID</th>", html)              # no task ID column (Oct 1)
         self.assertNotIn("Daily Briefing", html)
         self.assertIn("Open My Tasks", html)
         self.assertIn("/tasks/mine", html)
