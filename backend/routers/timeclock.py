@@ -362,7 +362,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     when = _fmt_local(row.at, row.tz_offset_min or 0)
     _hr_notify(db, emp.manager_email, "Out-of-fence punch",
                f"{who} {verb} at {when}, {dist:,}m from {site} - outside the geofence. Open the timecard to review.",
-               ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+               ref_id=row.id, action=_timecard_action(db, emp.work_email, row.local_date))
     try:
         from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
     except Exception:
@@ -1627,8 +1627,24 @@ def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, ti
             actioned=False, read_by="", created_at=now, priority=1 if priority else 0))
 
 
+def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
+    """Where a timecard notice's Open goes: THAT person's timecard, on the pay
+    period holding the punch (the month for fixed salary) - the same link
+    timesheet_review._notify builds. A bare {"view": "hr", "sub": "hr-time"}
+    landed on People > Time with whoever was first in the list (Oct 1)."""
+    em = (employee_email or "").strip().lower()
+    action = {"view": "hr", "sub": "hr-time", "timecard": em}
+    try:
+        pay_type = _pay_type(db, em)
+        start = (_month_bounds(local_date) if pay_type == "fixed" else _pay_period(local_date))[0]
+    except (ValueError, TypeError):
+        return action   # no usable date: the person's card, current period
+    action.update(start=start, payType=pay_type)
+    return action
+
+
 def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
-                            body: str, ref_id: str = "") -> None:
+                            body: str, ref_id: str = "", local_date: str = "") -> None:
     """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
     without going through a request/approval must still be seen by someone
     OTHER than the person who changed it - the employee's manager and the
@@ -1636,7 +1652,7 @@ def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: st
     own report still reaches a Global Admin."""
     _notify_team_alert(db, employee_email=employee_email, actor_email=actor_email,
                        title="Timecard edited", body=body, ref_id=ref_id,
-                       action={"view": "hr", "sub": "hr-time"})
+                       action=_timecard_action(db, employee_email, local_date))
 
 
 @router.patch("/punches/{punch_id}")
@@ -1696,8 +1712,9 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     what = "voided" if body.void else ("restored" if body.void is not None else "edited")
     _notify_timecard_change(
         db, employee_email=row.employee_email, actor_email=user["email"],
+        local_date=row.local_date,
         body=f"{_display_name(db, user['email'])} {what} {_display_name(db, row.employee_email)}'s "
-             f"{row.kind.replace('_', ' ')} punch on {row.local_date}"
+             f"{row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)}"
              + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else "."),
         ref_id=row.id)
     db.commit()
@@ -1744,8 +1761,9 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                    ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
     _notify_timecard_change(
         db, employee_email=row.employee_email, actor_email=user["email"],
+        local_date=row.local_date,
         body=f"{_display_name(db, user['email'])} added a {row.kind.replace('_', ' ')} punch on "
-             f"{row.local_date} to {_display_name(db, row.employee_email)}'s timecard"
+             f"{_us_day(row.local_date)} to {_display_name(db, row.employee_email)}'s timecard"
              + (f": {(body.note or '').strip()[:200]}" if (body.note or "").strip() else "."),
         ref_id=row.id)
     db.commit()
@@ -2381,8 +2399,8 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     # so a no-manager employee's request still reaches someone.
     what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
     _notify_approvers(db, employee_email=req.employee_email, title="Timesheet fix requested",
-                      body=f"{name} asked to {what}. Reason: {reason}",
-                      ref_id=req.id, action={"view": "hr", "sub": "hr-time"})
+                      body=f"{name} asked to {what} on {_us_day(local_date)}. Reason: {reason}",
+                      ref_id=req.id, action=_timecard_action(db, req.employee_email, local_date))
     db.commit()
     return _pr_dict(req)
 
@@ -2629,9 +2647,9 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
-                      body=f"{name} proposed a new time for a {row.kind} punch on {row.local_date}."
+                      body=f"{name} proposed a new time for their {row.kind} punch on {_us_day(row.local_date)}."
                       + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
-                      ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+                      ref_id=row.id, action=_timecard_action(db, email, row.local_date))
     db.commit()
     return _serialize(row)
 

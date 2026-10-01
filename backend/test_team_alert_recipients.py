@@ -55,7 +55,8 @@ class TeamAlertTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
-        for m in (models.NexusNotification, models.TimeOffRequest, models.NexusEmployee, models.NexusRole):
+        for m in (models.NexusNotification, models.TimeOffRequest, models.NexusEmployee, models.NexusRole,
+                  models.PayrollRate):
             self.db.query(m).delete()
         for email, mgr in ((PRANSHU, VISESH), (VISESH, NEIL), (SAGAR, NEIL), (ORPHAN, ""),
                            (SAGARS_REPORT, SAGAR)):
@@ -100,6 +101,30 @@ class TeamAlertTests(unittest.TestCase):
                                     body="please fix")
         self.db.commit()
         self.assertEqual(self._recipients(), [NEIL])
+
+    # ── Open goes to THAT person's timecard (Oct 1) ──────────────────────
+    def test_a_timecard_notice_opens_that_persons_card_for_that_period(self):
+        """A bare hr-time link landed on People > Time with whoever was first
+        in the list - the "Timesheet edit requested" bar's Open did nothing useful."""
+        import json
+        timeclock._notify_timecard_change(self.db, employee_email=PRANSHU, actor_email=VISESH,
+                                          body="Visesh edited Pranshu's in punch", local_date="2026-09-30")
+        self.db.commit()
+        [row] = self.db.query(models.NexusNotification).all()
+        action = json.loads(row.action)
+        start = timeclock._pay_period("2026-09-30")[0]
+        self.assertEqual(action, {"view": "hr", "sub": "hr-time", "timecard": PRANSHU,
+                                  "start": start, "payType": "hourly"})
+
+    def test_a_fixed_salary_card_opens_on_its_month(self):
+        self.db.add(models.PayrollRate(employee_email=PRANSHU, pay_type="fixed"))
+        self.db.commit()
+        action = timeclock._timecard_action(self.db, PRANSHU, "2026-09-30")
+        self.assertEqual((action["start"], action["payType"]), ("2026-09-01", "fixed"))
+
+    def test_no_date_still_names_the_person(self):
+        self.assertEqual(timeclock._timecard_action(self.db, PRANSHU, ""),
+                         {"view": "hr", "sub": "hr-time", "timecard": PRANSHU})
 
     def test_time_off_request_goes_to_manager_and_global_admins_only(self):
         timeclock.request_timeoff(
