@@ -115,4 +115,17 @@ describe('LedgerSearch grid', () => {
     const row = within(dialog).getByText('Supplies').closest('tr');
     expect([...row.cells].map((c) => c.textContent)).toEqual(['71100General', '22.46', '', 'Personal', 'Rajesh and D', 'Amazon Marketplace Pay', 'American Express', 'Valley Center', 'Supplies', '', '']);
   });
+
+  it('opens the entry the dashboard tile handed over on top of the lines, once', async () => {
+    const onEntryClosed = vi.fn();
+    render(<LedgerSearch term="amazon" entities={[]} initialEntry={{ id: 'e1', no: 'IA-1293173' }} onEntryClosed={onEntryClosed} onClose={() => {}} onClearDrill={() => {}} />);
+    const dialog = await screen.findByRole('dialog');
+    expect(api.getAccountingEntry).toHaveBeenCalledWith('e1');
+    expect(within(dialog).getByText('Supplies')).toBeTruthy();
+    // The lines are still behind it.
+    expect(await screen.findByText('Amazon Marketplace Pay - Mop stainless steel')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(onEntryClosed).toHaveBeenCalledTimes(1);
+  });
 });

@@ -123,7 +123,11 @@ function applyDims(dims, entities) {
   return { place, party, unapplied };
 }
 
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null }) {
+// `initialEntry` ({ id, no }) opens that journal entry on top of the lines
+// as soon as the grid mounts - the dashboard's Find a Transaction tile hands
+// it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
+// it, so closing the modal does not reopen it on the next render.
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null, initialEntry = null, onEntryClosed }) {
   const entitiesKey = entities.join(',');
   const applied = useMemo(() => applyDims(dims, entities), [dims, entitiesKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Narrowing picked from the chips. A drill-down arrives with its account set.
@@ -138,6 +142,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
+  useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
   const seq = useRef(0);
 
   // The person's own layout: which columns show and how wide.
@@ -417,7 +423,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
         </>
       ) : null}
-      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={() => setOpenEntry(null)} />}
+      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
     </div>
   );
 }
