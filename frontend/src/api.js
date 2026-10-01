@@ -1059,12 +1059,15 @@ export const api = {
   deletePfsLine: (id, lineId) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
   getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),
-  producePfsStatement: (id, asof) =>
-    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof }) }),
+  producePfsStatement: (id, asof, format = "pdf") =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof, format }) }),
   getPfsStatements: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/statements`),
   getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
   getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
   getPfsLedgerAccounts: (entity, asof) => req(`/pfs/ledger/accounts?entity=${encodeURIComponent(entity)}&asof=${asof}`),
+  // "Move to...": a line's section and category, nothing else (Charmi, 10/01).
+  movePfsLine: (id, lineId, section, category) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
