@@ -60,6 +60,15 @@ export const TICKET_TYPE_META = {
 // still add a type back in Settings, but these five are the default.
 export const TICKET_TYPE_ORDER = ['incident', 'bug', 'feature_request', 'access_request', 'other'];
 
+// ── The five, and only the five (Pranshu, Oct 1 2026) ────────────────────────
+// The ticket types that exist. Settings > SLA & Ticket Types lists exactly
+// these - each editable and switched on or off for intake - and nothing else;
+// TICKET_TYPE_ORDER above is the on ones, in the order requesters see them.
+// The rest of TICKET_TYPE_META stays only so tickets already raised as one
+// (Service Request, Change / Enhancement, Task, Question, Request) keep their
+// label, icon and answers. Mirrors TICKET_TYPES in backend/ticket_taxonomy.py.
+export const TICKET_TYPE_KEYS = Object.freeze(['incident', 'bug', 'feature_request', 'access_request', 'other']);
+
 // What the Create a Ticket form opens on (Neil, Oct 1 2026: "nine times out of
 // ten it is simply an incident"). Named, not read off the order: an admin can
 // reorder the types in Settings, and that reorders the dropdown without

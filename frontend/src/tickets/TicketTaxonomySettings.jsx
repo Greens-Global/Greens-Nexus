@@ -20,7 +20,7 @@ import { ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } fr
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
-import { TICKET_TYPE_META } from './ticketMeta';
+import { TICKET_TYPE_META, TICKET_TYPE_KEYS, TICKET_TYPE_ORDER } from './ticketMeta';
 import DragList from './DragList';
 import { refreshTicketConfig } from './ticketConfig';
 
@@ -150,7 +150,8 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, 
         <input value={hint} onChange={(e) => onChangeType({ hint: e.target.value })} placeholder="Hint shown under the type picker"
           style={{ ...inputStyle, flex: 1 }} />
         <label title="Shown at intake" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          <Toggle on={shown} onChange={onToggleShown} /> Intake
+          <Toggle on={shown} onChange={onToggleShown} label={`Offered on Submit a Ticket: ${meta.label}`}
+            title={shown ? 'On - offered on Submit a Ticket' : 'Off - not offered on Submit a Ticket'} /> Intake
         </label>
         <button onClick={() => setOpen((o) => !o)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 10px', whiteSpace: 'nowrap' }}>
           {fields.length} question{fields.length === 1 ? '' : 's'} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -200,10 +201,12 @@ export default function TicketTaxonomySettings() {
   }
   if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
-  const allKeys = Object.keys(TICKET_TYPE_META);
-  // null order = "use the compiled-in default order" - shown editable as that
-  // default until the admin actually reorders/toggles something.
-  const shownOrder = order ?? allKeys.filter((k) => TICKET_TYPE_META[k]);
+  // Only the five types exist (Oct 1) - each listed here, on or off. A saved
+  // order naming a retired type (Service Request, Change) just drops it.
+  const allKeys = [...TICKET_TYPE_KEYS];
+  // null order = nothing saved yet: what intake offers today (the five, in the
+  // default order) until the admin actually reorders or switches one.
+  const shownOrder = (order ?? [...TICKET_TYPE_ORDER]).filter((k, i, arr) => allKeys.includes(k) && arr.indexOf(k) === i);
   const hidden = allKeys.filter((k) => !shownOrder.includes(k));
 
   const setSla = (k, v) => setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: Math.max(1, Number(v) || 1) } }));
@@ -215,14 +218,15 @@ export default function TicketTaxonomySettings() {
       : [...cfg.companyField.companyIds, id],
   });
   const toggleShown = (key) => {
-    const cur = order ?? allKeys.filter((k) => TICKET_TYPE_META[k]);
+    const cur = shownOrder;
+    if (cur.includes(key) && cur.length === 1) return;   // intake always offers at least one type
     setOrder(cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]);
   };
 
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
     try {
-      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order, companyField: cfg.companyField });
+      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
       setCfg(next);
       setOrder(Array.isArray(next.typeOrder) ? next.typeOrder : null);
       await refreshTicketConfig();
@@ -308,12 +312,13 @@ export default function TicketTaxonomySettings() {
         <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ticket types & intake questions</div>
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
-        Label, hint, intake order/visibility, whether it requires approval, and the questions each type asks are all editable. A retired question
-        stays on tickets that already answered it - it just stops being asked. Icon and color aren't editable here.
+        The five ticket types. Each one's label, hint, whether it is offered on Submit a Ticket, the order, whether it requires approval
+        and the questions it asks are all editable. At least one stays on. A retired question stays on tickets that already answered it -
+        it just stops being asked. Icon and color aren't editable here.
       </div>
 
       {/* Drag the grip to set the order requesters see them in (Save to keep it). */}
-      <DragList items={shownOrder.filter((k) => TICKET_TYPE_META[k])} getKey={(k) => k} onReorder={setOrder}
+      <DragList items={shownOrder} getKey={(k) => k} onReorder={setOrder}
         label="ticket type" gap={10}
         renderItem={(key, handle) => (
           <TypeRow typeKey={key} meta={TICKET_TYPE_META[key]} shown handle={handle}
@@ -324,7 +329,7 @@ export default function TicketTaxonomySettings() {
       {hidden.length > 0 && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, letterSpacing: '.04em', margin: '16px 0 8px' }}>
-            NOT SHOWN AT INTAKE (still usable for existing tickets)
+            TURNED OFF (not offered on Submit a Ticket - tickets already raised keep their type)
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {hidden.map((key) => TICKET_TYPE_META[key] && (
