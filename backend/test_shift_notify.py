@@ -63,7 +63,7 @@ class _Case(unittest.TestCase):
         self.db.commit()
         for p in (mock.patch.object(shift_notify, "datetime", _FrozenDT),
                   mock.patch.object(shift_notify, "_local_now", _local),
-                  mock.patch("routers.timeclock._company_holidays_for_employee", lambda *a, **k: {})):
+                  mock.patch("routers.timeclock._company_holidays_for_many", lambda *a, **k: {})):
             p.start()
             self.addCleanup(p.stop)
 
@@ -187,10 +187,58 @@ class ReminderTests(_Case):
         self.db.query(models.TimePunch).delete()
         self.db.query(models.TimeOffRequest).delete()
         self.db.commit()
-        with mock.patch("routers.timeclock._company_holidays_for_employee",
-                        lambda db, em, s, e: {DAY: {"name": "Holiday", "type": "mandatory"}}):
+        with mock.patch("routers.timeclock._company_holidays_for_many",
+                        lambda db, people, s, e: {em: {DAY: {"name": "Holiday", "type": "mandatory"}} for em in people}):
             self.assertEqual(self._scan(), 0)
         self.assertEqual(self._scan(), 2)    # none of those left: both are reminded
+
+    # ── Oct 2 rebuild ─────────────────────────────────────────────────────
+
+    def test_a_shift_being_removed_gets_no_reminder(self):
+        self._placed("09:00")
+        self.db.query(models.ScheduledShift).update({"pending_delete": 1})
+        self.db.commit()
+        self.assertEqual(self._scan(), 0)
+
+    def test_a_moved_start_is_reminded_again(self):
+        """The dedupe key carries the start: after a publish moves the shift
+        the person hears about the new time too."""
+        self._placed("09:00")
+        self.assertEqual(self._scan(), 1)
+        self.db.query(models.ScheduledShift).update({"start_hhmm": "09:05"})
+        self.db.commit()
+        self.assertEqual(self._scan(), 1)
+        self.assertEqual([b.title for b in self._bells(AMY)],
+                         ["Your shift starts at 9:00 AM", "Your shift starts at 9:05 AM"])
+
+    def test_the_placements_own_zone_wins_over_the_presets(self):
+        self._placed("21:00", tz="America/Los_Angeles")      # the preset says Pacific: 12 hours away
+        self.db.query(models.ScheduledShift).update({"timezone": "Asia/Kolkata"})   # the placement says India
+        self.db.commit()
+        self.assertEqual(self._scan(), 1)
+
+
+class PublishDedupeTests(_Case):
+    def _row(self, email, date=DAY):
+        return models.ScheduledShift(id=gen_id(), employee_email=email, work_date=date)
+
+    def test_the_publish_bell_is_one_row_per_person_and_range(self):
+        first = [shift_notify.change("added", self._row(AMY), start="09:00", end="17:00", label="")]
+        shift_notify.notify_published(self.db, first, BOSS, DAY, "2026-10-04")
+        again = [shift_notify.change("added", self._row(AMY), start="09:00", end="17:00", label=""),
+                 shift_notify.change("removed", self._row(AMY, "2026-09-30"), start="09:00", end="17:00", label="")]
+        shift_notify.notify_published(self.db, again, BOSS, DAY, "2026-10-04")
+        amy = self._bells(AMY)
+        self.assertEqual(len(amy), 1)                              # updated in place, not a second bell
+        self.assertEqual(amy[0].body, "1 new, 1 removed (09/28/2026 - 09/30/2026).")
+        # Once she has dealt with it, the next publish is a new bell.
+        amy[0].actioned = True
+        self.db.commit()
+        shift_notify.notify_published(self.db, first, BOSS, DAY, "2026-10-04")
+        self.assertEqual(len(self._bells(AMY)), 2)
+        # A different range is its own row.
+        shift_notify.notify_published(self.db, first, BOSS, DAY, DAY)
+        self.assertEqual(len(self._bells(AMY)), 3)
 
 
 if __name__ == "__main__":

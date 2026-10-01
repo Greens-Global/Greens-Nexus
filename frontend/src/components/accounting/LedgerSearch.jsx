@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import EntryDetail from './EntryDetail';
+import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { PopoverPanel, usePopover } from './reportControls';
 import { downloadCsv } from './reportModel';
@@ -340,9 +341,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               {!journal && <FacetSelect label="Journals" total={total} items={facets.journals} onPick={(f) => setJournal(f.code)} />}
             </span>
             <span><strong>{total.toLocaleString('en-US')}</strong> lines</span>
-            <span>Debits <strong>{signed(data.debit)}</strong></span>
-            <span>Credits <strong>{signed(data.credit)}</strong></span>
-            <span>Net <strong style={{ color: data.debit - data.credit < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}>{signed(data.debit - data.credit)}</strong></span>
+            <span>Debits <strong><Amount value={data.debit} /></strong></span>
+            <span>Credits <strong><Amount value={data.credit} /></strong></span>
+            <span>Net <strong style={{ color: data.debit - data.credit < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={data.debit - data.credit} /></strong></span>
             {total > PAGE && (
               <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
                 Lines {(page * PAGE + 1).toLocaleString('en-US')}-{Math.min(total, (page + 1) * PAGE).toLocaleString('en-US')}
@@ -392,7 +393,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                       if (c.key === 'account') {
                         return <td key={c.key} title={text}><span className="acct-code">{r.gl_code}</span>{r.account_name}</td>;
                       }
-                      return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{text}</td>;
+                      return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{c.num ? <Amount value={r[c.key]} zero="blank" /> : text}</td>;
                     })}
                   </tr>
                 ))}
@@ -404,7 +405,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                 {rows.length > 0 && page + 1 >= pages && (
                   <tr className="acct-grand">
                     {labelSpan > 0 && <td colSpan={labelSpan}>Totals - {total.toLocaleString('en-US')} lines</td>}
-                    {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num">{signed(data[c.key])}</td>)}
+                    {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num"><Amount value={data[c.key]} /></td>)}
                   </tr>
                 )}
               </tbody>

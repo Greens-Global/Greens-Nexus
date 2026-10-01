@@ -131,7 +131,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   const slim = ['reports', 'packages', 'access', 'pfs', 'mri'].includes(sub);
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+    <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: slim ? 6 : 16, alignItems: slim ? 'center' : undefined }}>
         <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } : undefined}>
           <h2 style={slim ? { fontSize: '1.15rem', margin: 0 } : undefined}>Accounting</h2>

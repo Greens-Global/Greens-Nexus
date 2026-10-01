@@ -22,6 +22,7 @@ import { getPosition, punchPosition } from '../lib/geoPosition';
 import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays } from '../lib/workdayStats';
+import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -1255,6 +1256,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           );
         })()}
       </div>
+      {/* Shift Requests (Charmi, 09/30): swaps, offers and open-shift requests
+          live here with the time-off form, not in the Shifts module. */}
+      <WorkdayShiftRequests toast={toast} />
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
         {(timeoff || []).length === 0 && (

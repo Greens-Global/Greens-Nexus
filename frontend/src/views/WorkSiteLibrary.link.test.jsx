@@ -38,6 +38,7 @@ const pasteLink = async () => {
   fireEvent.paste(screen.getByLabelText('Google Maps link or coordinates'), { clipboardData: { getData: () => LINK } });
   await screen.findByTestId('link-result');
 };
+const openCompanies = () => fireEvent.click(screen.getByRole('button', { name: 'COMPANIES' }));
 const openNew = async () => {
   render(<WorkSiteLibrary toastOk={vi.fn()} toastErr={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', { name: /Add Location/ }));
@@ -53,7 +54,9 @@ describe('Location Library - placed from the Google Maps link', () => {
     expect(address).toHaveValue('25260 N Centre City Pkwy, Escondido, CA 92026');
     expect(address).toHaveAttribute('readonly');
     expect(screen.getByText(/33\.151200, -117\.118900/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'All Companies' }));
+    openCompanies();
+    fireEvent.click(screen.getByRole('option', { name: 'All' }));
+    expect(screen.getByRole('button', { name: 'COMPANIES' })).toHaveTextContent('All Companies');
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(api.createWorkSite).toHaveBeenCalled());
     const body = api.createWorkSite.mock.calls[0][0];
@@ -86,15 +89,31 @@ describe('Location Library - placed from the Google Maps link', () => {
     expect(api.createWorkSite.mock.calls[0][0].address).toBe('12 Main St, Escondido, CA 92025');
   });
 
-  it('picks some companies, or none', { timeout: 20000 }, async () => {
+  it('picks some companies from the dropdown, or none', { timeout: 20000 }, async () => {
     await openNew();
     fireEvent.change(screen.getByPlaceholderText('e.g. Green Storage Escondido'), { target: { value: 'Yard' } });
+    expect(screen.getByRole('button', { name: 'COMPANIES' })).toHaveTextContent('Select companies');
     expect(screen.getByText(/No company yet/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /GG Con/ }));
+    openCompanies();
+    const all = screen.getByRole('option', { name: 'All' });
+    expect(all).toHaveAttribute('aria-selected', 'false');
+    fireEvent.click(screen.getByRole('option', { name: 'Greens Global' }));
+    fireEvent.click(screen.getByRole('option', { name: 'GG Con' }));
+    expect(screen.getByRole('option', { name: 'All' })).toHaveAttribute('aria-selected', 'true');   // every one picked = All
+    fireEvent.click(screen.getByRole('option', { name: 'Greens Global' }));
+    expect(screen.getByRole('button', { name: 'COMPANIES' })).toHaveTextContent('GG Con');
     expect(screen.getByText(/1 of 2 companies/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(api.createWorkSite).toHaveBeenCalled());
     expect(api.createWorkSite.mock.calls[0][0].company_ids).toEqual(['c2']);
+  });
+
+  it('puts the geofence radius under the map', { timeout: 20000 }, async () => {
+    await openNew();
+    const map = document.querySelector('[aria-label="Map of the location and its geofence"]');
+    const slider = screen.getByLabelText('Geofence radius slider');
+    expect(map.compareDocumentPosition(slider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(map.parentElement.parentElement.contains(slider)).toBe(true);   // same (right) column as the map
   });
 
   it('shows recent punches only when turned on', { timeout: 20000 }, async () => {

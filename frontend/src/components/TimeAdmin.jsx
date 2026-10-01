@@ -315,7 +315,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // and unmatched punches that block sign-off until fixed. Reloads with the range
   // and whenever a punch changes anywhere.
   const [exceptions, setExceptions] = useState(null);
-  const [exceptionsErr, setExceptionsErr] = useState(false);   // e.g. a read-only viewer (the list needs team write)
+  // A read-only viewer (the list needs team write) gets an error; the header
+  // tile that showed it is gone (Sep 30), the Missing punches tab badge remains.
+  const [, setExceptionsErr] = useState(false);
   const loadExceptions = useCallback(() => {
     api.timeExceptions(start, end).then(r => { setExceptions(Array.isArray(r) ? r : []); setExceptionsErr(false); })
       .catch(() => { setExceptions([]); setExceptionsErr(true); });
@@ -327,7 +329,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     return () => window.removeEventListener('nexus:timeclock-changed', onChange);
   }, [loadExceptions]);
   const exBlocking = (exceptions || []).reduce((a, r) => a + (r.blocking || 0), 0);
-  const exTotal = (exceptions || []).reduce((a, r) => a + (r.exceptions || []).length, 0);
 
   // Billable time by location (Neil, Aug 25) - per-employee hours split by work
   // site. Loaded only when the tab is open and reloaded with the range.
@@ -426,6 +427,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // at 0/59 forever.)
   const [reviewWaiting, setReviewWaiting] = useState(null);
   const reviewRef = useRef(null);
+  // The header strip collapses to one line; the choice is remembered per browser.
+  const STRIP_KEY = 'nexus.timeadmin.strip';
+  const [stripOpen, setStripOpen] = useState(() => { try { return localStorage.getItem(STRIP_KEY) !== 'collapsed'; } catch { return true; } });
+  const toggleStrip = () => setStripOpen(o => { const next = !o; try { localStorage.setItem(STRIP_KEY, next ? 'open' : 'collapsed'); } catch { /* private window */ } return next; });
   const [timeoffPendingOnly, setTimeoffPendingOnly] = useState(false);
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
   function openReviewList() {
@@ -455,11 +460,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)' }}>
-      {/* KPI strip - Work OS kpi-cards (meaning-dot label + big tabular numeral).
-          Each tile opens the list it counts (Charmi, Sep 30: "if this is for
-          viewing we are not able to click on it"). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-        {[
+      {/* Header strip (Charmi, Sep 30): only Team Hours and Timesheets to Review.
+          The Punch Exceptions and Time Off Pending tiles went - the Missing
+          punches / Time off tabs below already carry those counts as badges,
+          and "screen real estate really matters". The strip collapses to one
+          32px line (remembered per browser) so the lists get the screen. */}
+      {(() => {
+        const tiles = [
           { key: 'hours', label: 'Team Hours', value: rows === null ? '…' : fmtMin(totalMin), sub: rangeText,
             cls: 'card-blue', active: view === 'hours',
             title: `Worked hours of everyone on your team, ${rangeText}, after breaks - click to see them by person and by day`,
@@ -469,26 +476,46 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             title: reviewWaiting ? 'Timesheets submitted to you that you have not agreed to or sent back yet - click to jump to the list'
               : 'Nothing is waiting on you - click to open the Payroll timecards',
             go: openReviewList },
-          { key: 'flags', label: 'Punch Exceptions', value: exceptionsErr ? '-' : exceptions === null ? '…' : String(exTotal),
-            sub: exceptionsErr ? 'Not available to you' : `${exBlocking} blocking sign-off`,
-            cls: exBlocking ? 'card-orange' : '', active: view === 'exceptions',
-            title: `Missing and unmatched punches, ${rangeText} - click to see and fix them`,
-            go: () => setView('exceptions') },
-          { key: 'timeoff', label: 'Time Off Pending', value: timeoffErr ? '-' : String(pendingCount), sub: 'Awaiting a decision',
-            cls: pendingCount ? 'card-orange' : '', active: view === 'timeoff' && timeoffPendingOnly,
-            title: 'Time-off requests waiting for a decision - click to see them',
-            go: () => { setTimeoffPendingOnly(true); setView('timeoff'); } },
-        ].map(t => (
-          <button key={t.key} type="button" className={`kpi-card ${t.cls}`} onClick={t.go} title={t.title}
-            aria-pressed={t.active || undefined}
-            style={{ padding: '14px 18px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', width: '100%',
-              border: t.active ? '1.5px solid var(--wk-brand)' : 'none' }}>
-            <div className="kpi-label">{t.label}</div>
-            <div className="kpi-value" style={{ fontSize: 22, margin: '4px 0 0' }}>{t.value}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
+        ];
+        const chevron = (
+          <button type="button" onClick={toggleStrip} aria-expanded={stripOpen}
+            title={stripOpen ? 'Collapse the summary strip' : 'Expand the summary strip'}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)', cursor: 'pointer', color: 'var(--muted)', flexShrink: 0 }}>
+            <ChevronDown size={15} style={{ transform: stripOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
           </button>
-        ))}
-      </div>
+        );
+        if (!stripOpen) {
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, height: 32, marginBottom: 12, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              {tiles.map(t => (
+                <button key={t.key} type="button" onClick={t.go} title={t.title}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {t.label} <strong style={{ color: t.cls === 'card-orange' ? '#b45309' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{t.value}</strong>
+                </button>
+              ))}
+              <div style={{ flex: 1 }} />
+              {chevron}
+            </div>
+          );
+        }
+        return (
+          <div style={{ display: 'flex', alignItems: 'stretch', gap: 12, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, flex: 1, maxWidth: 520 }}>
+              {tiles.map(t => (
+                <button key={t.key} type="button" className={`kpi-card ${t.cls}`} onClick={t.go} title={t.title}
+                  aria-pressed={t.active || undefined}
+                  style={{ padding: '10px 14px', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', width: '100%',
+                    border: t.active ? '1.5px solid var(--wk-brand)' : 'none' }}>
+                  <div className="kpi-label">{t.label}</div>
+                  <div className="kpi-value" style={{ fontSize: 20, margin: '2px 0 0' }}>{t.value}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.sub}</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>{chevron}</div>
+          </div>
+        );
+      })()}
 
       {/* Timesheets submitted to me and not decided yet (Sep 29). */}
       <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Pencil, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { api } from '../../api';
+import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
@@ -35,11 +36,8 @@ const STATUS = {
 };
 const LEASE_STATUS = { active: 'Active', ended: 'Ended', vacant: 'Vacant' };
 
-const money = (n) => {
-  const v = Number(n) || 0;
-  const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return v < 0 ? `(${s})` : s;
-};
+// Figures in text (titles, the reminder email) read as the screen shows them.
+const money = formatAmount;
 const whole = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
@@ -110,9 +108,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <option value="all">All, Including Ended</option>
           </select>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>
-            <span>Expected <strong>{money(sum.expectedToDate)}</strong></span>
-            <span>Received <strong>{money(sum.receivedToDate)}</strong></span>
-            <span>Owed <strong style={{ color: sum.owed ? 'var(--bad-fg, #dc2626)' : undefined }}>{money(sum.owed)}</strong></span>
+            <span>Expected <strong><Amount value={sum.expectedToDate} /></strong></span>
+            <span>Received <strong><Amount value={sum.receivedToDate} /></strong></span>
+            <span>Owed <strong style={{ color: sum.owed ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={sum.owed} /></strong></span>
             {canEdit && (
               <button type="button" className="primary-btn" onClick={() => setEditing({ lease: blank() })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
                 <Plus size={14} /> New Lease
@@ -180,7 +178,7 @@ function RentRoll({ rows, totals, year, thisMonth, onCell, onLease, any, canEdit
                       </td>
                     );
                   })}
-                  <td className="acct-num" style={{ fontWeight: 700, color: r.owed ? 'var(--bad-fg, #dc2626)' : 'var(--text-muted)' }}>{r.owed ? money(r.owed) : '-'}</td>
+                  <td className="acct-num" style={{ fontWeight: 700, color: r.owed ? 'var(--bad-fg, #dc2626)' : 'var(--text-muted)' }}>{r.owed ? <Amount value={r.owed} /> : '-'}</td>
                 </tr>
               );
             })}
@@ -231,8 +229,8 @@ function Outstanding({ rows, year }) {
                   <td style={{ fontWeight: 600 }}>{l.propertyName}</td>
                   <td>{l.tenantName}</td>
                   <td style={{ whiteSpace: 'normal' }}>{r.monthsBehind} - {months.join(', ')}</td>
-                  <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}>{money(r.owed)}</td>
-                  <td className="acct-num">{r.lateFees ? money(r.lateFees) : '-'}</td>
+                  <td className="acct-num" style={{ fontWeight: 700, color: 'var(--bad-fg, #dc2626)' }}><Amount value={r.owed} /></td>
+                  <td className="acct-num">{r.lateFees ? <Amount value={r.lateFees} /> : '-'}</td>
                   <td style={{ whiteSpace: 'normal' }}>{[l.contactName, l.phone].filter(Boolean).join(' · ') || '-'}</td>
                   <td style={{ textAlign: 'right' }}>
                     {l.email
@@ -242,7 +240,7 @@ function Outstanding({ rows, year }) {
                 </tr>
               );
             })}
-            <tr className="acct-grand"><td colSpan={3}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td><td className="acct-num">{money(sorted.reduce((s, r) => s + r.owed, 0))}</td><td className="acct-num">{money(sorted.reduce((s, r) => s + r.lateFees, 0))}</td><td colSpan={2} /></tr>
+            <tr className="acct-grand"><td colSpan={3}>Total Outstanding - {sorted.length} {sorted.length === 1 ? 'tenant' : 'tenants'}</td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.owed, 0)} /></td><td className="acct-num"><Amount value={sorted.reduce((s, r) => s + r.lateFees, 0)} /></td><td colSpan={2} /></tr>
           </tbody>
         </table>
       </div>
@@ -269,9 +267,9 @@ function Tenants({ rows, canEdit, onEdit, onReplace }) {
                   <td style={{ whiteSpace: 'normal' }}>{l.tenantName || '-'}{l.customerId ? <span className="acct-code" style={{ marginLeft: 8 }}>{l.customerId}</span> : null}</td>
                   <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>
                   <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'month to month'}</td>
-                  <td className="acct-num">{rate ? money(rate.rent) : '-'}</td>
-                  <td className="acct-num">{rate?.cam ? money(rate.cam) : '-'}</td>
-                  <td className="acct-num">{l.securityDeposit ? money(l.securityDeposit) : '-'}</td>
+                  <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>
+                  <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>
+                  <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>
                   <td>{LEASE_STATUS[l.status] || l.status}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {canEdit && (

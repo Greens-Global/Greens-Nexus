@@ -27,6 +27,11 @@ vi.mock('../tickets/TicketDeskSettings', () => ({ default: () => <div>Desk panel
 vi.mock('../tickets/TicketNotifySettings', () => ({ default: () => <div>Notify panel</div> }));
 vi.mock('../tickets/TicketTaxonomySettings', () => ({ default: () => <div>SLA panel</div> }));
 vi.mock('./RolesAccess', () => ({ default: () => <div>Access panel</div> }));
+vi.mock('../components/shifts/ShiftSettingsSections', () => ({
+  ShiftSettingsPanel: () => <div>Shift settings panel</div>,
+  ShiftTypesPanel: () => <div>Shift types panel</div>,
+  ShiftGroupsPanel: () => <div>Groups panel</div>,
+}));
 vi.mock('./SettingsTools', () => ({ default: () => <div>Tools panel</div> }));
 
 const AdminConsole = (await import('./AdminConsole')).default;
@@ -110,6 +115,18 @@ describe('AdminConsole', () => {
     expect(screen.queryByRole('button', { name: /Access/ })).not.toBeInTheDocument();
     // Falls back to the first category it can show.
     expect(screen.getByRole('heading', { name: 'Organization' })).toBeInTheDocument();
+  });
+
+  it('has a Shifts category with the settings, shift types and groups (Charmi, 09/30)', async () => {
+    render(<AdminConsole activeSub="global-shifts" onSubChange={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Shifts' })).toBeInTheDocument();
+    for (const t of ['Shift Settings', 'Shift Types', 'Groups']) expect(screen.getByText(t)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Shift Types'));
+    expect(await screen.findByText('Shift types panel')).toBeInTheDocument();
+    // The filter finds them too, from the words a manager would type.
+    fireEvent.change(screen.getByLabelText('Filter settings'), { target: { value: 'swap' } });
+    expect(screen.getByText('Shift Settings')).toBeInTheDocument();
+    expect(screen.queryByText('Groups')).not.toBeInTheDocument();
   });
 
   it('shows Company Settings as its own per-company area', async () => {

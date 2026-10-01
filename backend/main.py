@@ -837,6 +837,11 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN created_by_email TEXT DEFAULT ''",
             # Ticket departments come from the global list (Oct 1) - see the Postgres list.
             "ALTER TABLE ticket_departments ADD COLUMN enabled BOOLEAN DEFAULT 1",
+            # Shifts rebuild (Oct 2): a placed shift's team and zone - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN group_id TEXT DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN timezone TEXT DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
+            "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1816,6 +1821,15 @@ def _run_migrations():
         # (Neil, 10/01): ticket_departments is now only the Tickets module's
         # per-department settings, and `enabled` is whether intake offers it.
         "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE",
+        # Shifts rebuild (Oct 2): a placed shift belongs to a scheduling group
+        # (open shifts, day notes and publish key on it) and carries the zone
+        # its times are in (models.ScheduledShift.group_id / timezone). The
+        # grid and the reminder scan read one person's days, so the pair is
+        # indexed together.
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS group_id TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
+        "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

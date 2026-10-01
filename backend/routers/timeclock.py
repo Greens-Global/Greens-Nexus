@@ -31,7 +31,7 @@ from typing import List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -48,7 +48,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability, TimecardNote)
+                    ShiftAvailability, TimecardNote, PayrollRateHistory)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -1613,7 +1613,6 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                         "payType": (getattr(_rr, "pay_type", None) or "hourly") if _rr else "hourly",
                         "currency": (getattr(_rr, "currency", None) or "USD") if _rr else "USD",
                         "monthlySalary": float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0,
-                        "weekendOtAmount": float(getattr(_rr, "weekend_ot_amount", 0) or 0) if _rr else 0.0,
                         "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
                         **_fixed_snap})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
@@ -1671,7 +1670,8 @@ def _display_name(db: Session, email: str) -> str:
     return (email or "").split("@")[0].replace(".", " ").title()
 
 
-def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = "") -> list[str]:
+def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = "",
+                           owners_as_fallback: bool = False) -> list[str]:
     """Who hears about one person's time and leave (Pranshu, Sep 25): THEIR
     manager plus the Global Admins (role 'owner') - nobody else. These used to
     broadcast (recipient='') whenever the manager was the actor or no manager
@@ -1697,20 +1697,26 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
     hr = ((ent.hr_contact_email if ent else "") or "").strip().lower()
     if hr and hr not in out:
         out.append(hr)
-    for r in db.query(NexusRole).filter(NexusRole.role == "owner").all():
-        e = (r.email or "").strip().lower()
-        if e and e not in out:
-            out.append(e)
+    # A NEW REQUEST (time off, a shift swap / offer / open-shift ask) goes to
+    # the people who decide it - the manager, else the HR contact; the Global
+    # Admins hear only when there is neither (Oct 2, Shifts QA B4-34: every
+    # owner was bell-ed on every request). Oversight alerts (a timecard edit
+    # by the manager themself) keep reaching the owners.
+    if not owners_as_fallback or not out:
+        for r in db.query(NexusRole).filter(NexusRole.role == "owner").all():
+            e = (r.email or "").strip().lower()
+            if e and e not in out:
+                out.append(e)
     return [e for e in out if e not in (actor_email, employee_email)]
 
 
 def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, title: str,
                        body: str, ref_id: str = "", action: Optional[dict] = None,
-                       requested_by: str = "", priority: int = 0) -> None:
+                       requested_by: str = "", priority: int = 0, owners_as_fallback: bool = False) -> None:
     """One targeted bell row per recipient of _team_alert_recipients - never a
     broadcast. priority=1 = the bar across the top until acted on."""
     now = _now_iso()
-    for recipient in _team_alert_recipients(db, employee_email, actor_email):
+    for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=owners_as_fallback):
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
             title=title, body=body, ref_id=ref_id, item_name="",
@@ -4454,12 +4460,77 @@ class ShiftIn(BaseModel):
 _BREAK_MAX_MIN = 480
 
 
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_LOOSE_HHMM_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*([AaPp][Mm])?\s*$")
+HHMM_HINT = "Use HH:MM, e.g. 09:00"
+
+
+def _check_hhmm(*values) -> None:
+    """Every start / end on every write is HH:MM, zero-padded (Oct 2, Shifts
+    QA B2-6): an unpadded "9:00" sorted after "17:00", broke the overnight
+    test (end < start) and _interval."""
+    for v in values:
+        if not _HHMM_RE.match(str(v or "")):
+            raise HTTPException(400, HHMM_HINT)
+
+
+def _pad_hhmm(v) -> str:
+    """'9:00' -> '09:00', '5:30 PM' -> '17:30' (the spreadsheet import); an
+    unreadable value comes back unchanged for _check_hhmm to refuse."""
+    m = _LOOSE_HHMM_RE.match(str(v or ""))
+    if not m:
+        return str(v or "").strip()
+    h, mi, ap = int(m.group(1)), m.group(2), (m.group(3) or "").upper()
+    if ap == "PM" and h < 12:
+        h += 12
+    elif ap == "AM" and h == 12:
+        h = 0
+    return f"{h:02d}:{mi}"
+
+
+def _shift_minutes(start: str, end: str) -> int:
+    """Length of a shift in minutes; an end at or before the start runs
+    into the next day."""
+    try:
+        s = int(start[:2]) * 60 + int(start[3:5])
+        e = int(end[:2]) * 60 + int(end[3:5])
+    except (TypeError, ValueError, IndexError):
+        return 0
+    if e == s:
+        return 0
+    return e - s if e > s else e + 24 * 60 - s
+
+
 def _check_span(start: str, end: str) -> None:
     """Start and end at the same minute is not a 24-hour shift - it is a typo,
     and the grid used to count it as a full day (QA D3). An end BEFORE the
     start is still fine: that is an overnight shift."""
     if (start or "")[:5] and (start or "")[:5] == (end or "")[:5]:
         raise HTTPException(400, "Start and end can't be the same time.")
+
+
+def _is_active_emp(e) -> bool:
+    """On the schedule = status active and not in the recycle bin (Oct 2,
+    Shifts QA B2-10: 13 of 69 grid rows on PROD were inactive or deleted)."""
+    return e is not None and (e.status or "active").lower() == "active" and not (e.deleted_at or "")
+
+
+def _active_people(db: Session) -> dict:
+    """{email: NexusEmployee} for everyone who can be scheduled."""
+    return {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all()
+            if e.work_email and _is_active_emp(e)}
+
+
+def _check_people(db: Session, emails, what: str = "") -> set:
+    """400 unless every email is an ACTIVE person in People. Returns the set."""
+    out = {str(e or "").strip().lower() for e in emails if str(e or "").strip()}
+    if not out:
+        return out
+    active = _active_people(db)
+    bad = sorted(e for e in out if e not in active)
+    if bad:
+        raise HTTPException(400, f"Not in the People list{what}: {', '.join(bad)}")
+    return out
 
 
 def _clamp_break(v) -> int:
@@ -4502,6 +4573,7 @@ def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(g
 def create_shift(body: ShiftIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
+    _check_hhmm(body.start_hhmm, body.end_hhmm)
     _check_span(body.start_hhmm, body.end_hhmm)
     s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80], code=(body.code or "").strip()[:12],
               start_hhmm=body.start_hhmm[:5], end_hhmm=body.end_hhmm[:5],
@@ -4519,6 +4591,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     if not s:
         raise HTTPException(404, "Shift not found")
+    _check_hhmm(body.start_hhmm, body.end_hhmm)
     _check_span(body.start_hhmm, body.end_hhmm)
     s.name = body.name.strip()[:80]
     s.code = (body.code or "").strip()[:12]
@@ -4601,15 +4674,21 @@ class GroupIn(BaseModel):
     teams_chat_id: Optional[str] = None
     teams_chat_name: Optional[str] = None
     schedulers: Optional[List[str]] = None   # None = leave as is
+    sort_order: Optional[int] = None         # None = leave as is
 
 
 def _clean_schedulers(db: Session, emails: list) -> str:
-    known = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all() if e.work_email}
     out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
-    bad = [e for e in out if e not in known]
-    if bad:
-        raise HTTPException(400, f"Not in the People list: {', '.join(bad)}")
+    _check_people(db, out)
     return json.dumps(out)
+
+
+def _clean_members(db: Session, emails: list) -> list:
+    """Group membership is for ACTIVE people in People (Oct 2) - an inactive
+    or deleted person on a team put an empty row on every grid."""
+    out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
+    _check_people(db, out)
+    return out
 
 
 @router.post("/shift-groups")
@@ -4617,18 +4696,20 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
     _require_unscoped_team(user, db)
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
+    members = _clean_members(db, body.members)
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
                    teams_chat_id=(body.teams_chat_id or "")[:200],
                    teams_chat_name=(body.teams_chat_name or "")[:200],
                    created_by=user["email"], created_at=_now_iso())
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
-    g.sort_order = max([int(getattr(x, "sort_order", 0) or 0) for x in db.query(ShiftGroup).all()] or [0]) + 1
+    g.sort_order = (int(body.sort_order) if body.sort_order is not None
+                    else max([int(getattr(x, "sort_order", 0) or 0) for x in db.query(ShiftGroup).all()] or [0]) + 1)
     db.add(g)
-    for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
+    for em in members:
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=g.id, employee_email=em))
     db.commit()
-    return {"id": g.id, "name": g.name, "members": list(dict.fromkeys(e.strip().lower() for e in body.members if e.strip()))}
+    return {"id": g.id, "name": g.name, "members": members, "sortOrder": int(g.sort_order or 0)}
 
 
 @router.patch("/shift-groups/{group_id}")
@@ -4637,6 +4718,7 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
+    members = _clean_members(db, body.members)
     if body.name.strip():
         g.name = body.name.strip()[:80]
     if body.teams_chat_id is not None:
@@ -4644,8 +4726,10 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
         g.teams_chat_name = (body.teams_chat_name or "")[:200]
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
+    if body.sort_order is not None:
+        g.sort_order = int(body.sort_order)
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
-    for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
+    for em in members:
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
     db.commit()
     return {"ok": True}
@@ -4667,11 +4751,7 @@ def change_group_members(group_id: str, body: GroupMembersIn, user: dict = Depen
         raise HTTPException(404, "Team not found")
     if not _group_editable(db, user, g):
         raise HTTPException(403, "Only this team's manager or an administrator can change who is on it.")
-    known = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all() if e.work_email}
-    add = list(dict.fromkeys(e.strip().lower() for e in body.add if e and e.strip()))
-    bad = [e for e in add if e not in known]
-    if bad:
-        raise HTTPException(400, f"Not in the People list: {', '.join(bad)}")
+    add = _clean_members(db, body.add)
     have = {(m.employee_email or "").lower() for m in
             db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).all()}
     for em in add:
@@ -4718,8 +4798,10 @@ class GroupOrderIn(BaseModel):
 
 
 @router.post("/shift-groups/reorder")
+@router.put("/shift-groups/order")
 def reorder_groups(body: GroupOrderIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    """Reorder Teams: the order the grid and the switcher list them in."""
+    """Reorder Teams: the order the grid and the switcher list them in -
+    sort_order 0..n in the order given; groups left out follow."""
     _require_unscoped_team(user, db)
     rank = {gid: i for i, gid in enumerate(body.ids)}
     for g in db.query(ShiftGroup).all():
@@ -4754,9 +4836,16 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 
 @router.delete("/shift-groups/{group_id}")
 def delete_shift_group(group_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+    """Deleting a team drops its members and day notes; its shifts stay with
+    the people they are on, just no longer under a team (Oct 2)."""
     _require_unscoped_team(user, db)
+    if not group_id.strip():
+        raise HTTPException(404, "Team not found")
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
+    db.query(ScheduleDayNote).filter(ScheduleDayNote.group_id == group_id).delete(synchronize_session=False)
+    (db.query(ScheduledShift).filter(ScheduledShift.group_id == group_id)
+       .update({"group_id": ""}, synchronize_session=False))
     db.commit()
     return {"ok": True}
 
@@ -4806,7 +4895,6 @@ def _pending(row: ScheduledShift) -> dict:
     return v if isinstance(v, dict) else {}
 
 
-_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _MAX_ACTIVITIES = 12
 
 
@@ -4830,8 +4918,10 @@ def _acts(row: ScheduledShift) -> list:
 
 
 def _clean_activities(items) -> list:
-    """[{start, end, label}] from the client -> a checked, sorted list. A bad
-    time is a 400 (the dialog only offers valid ones); blank rows drop out."""
+    """[{start, end, label, paid}] from the client -> a checked, sorted list.
+    A bad time is a 400 (the dialog only offers valid ones); blank rows drop
+    out. `paid` defaults to true; an unpaid activity (lunch) is what drives
+    the shift's unpaid break (_unpaid_minutes, Oct 2)."""
     out = []
     for a in (items or [])[:_MAX_ACTIVITIES]:
         if not isinstance(a, dict):
@@ -4842,31 +4932,119 @@ def _clean_activities(items) -> list:
             continue
         if not (_HHMM_RE.match(start) and _HHMM_RE.match(end)):
             raise HTTPException(400, "Each activity needs a start and end time.")
-        out.append({"start": start, "end": end, "label": label or "Activity"})
+        paid = a.get("paid")
+        out.append({"start": start, "end": end, "label": label or "Activity",
+                    "paid": True if paid is None else bool(paid)})
     return sorted(out, key=lambda a: a["start"])
 
 
-def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False) -> dict:
+def _unpaid_minutes(acts: list):
+    """Sum of the unpaid activities' minutes, or None when every activity is
+    paid (then the shift's own break_min stands, as before)."""
+    unpaid = [a for a in (acts or []) if isinstance(a, dict) and a.get("paid") is False]
+    if not unpaid:
+        return None
+    return _clamp_break(sum(_shift_minutes(a.get("start") or "", a.get("end") or "") for a in unpaid))
+
+
+def _break_for(acts: list, break_min: int) -> int:
+    """The unpaid minutes of a shift: its unpaid activities when it has any,
+    else the break the client gave."""
+    derived = _unpaid_minutes(acts)
+    return break_min if derived is None else derived
+
+
+_DEFAULT_TEAM_TZ = "America/Los_Angeles"
+
+
+def _team_tz(db: Session) -> str:
+    """The team time zone (shift settings) - what a shift with no zone of its
+    own and no preset runs on."""
+    from routers.shift_requests import get_settings as _sr_settings
+    return _sr_settings(db).get("timeZone") or _DEFAULT_TEAM_TZ
+
+
+def _shift_tz(row, preset, team_tz: str) -> str:
+    """placement -> preset -> team setting (the contract's read-time rule)."""
+    return ((getattr(row, "timezone", "") or "").strip()
+            or ((preset.timezone or "") if preset is not None else "")
+            or team_tz or _DEFAULT_TEAM_TZ)
+
+
+def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, team_tz: str = "") -> dict:
     """One placed shift. Staff get the PUBLISHED values. `effective=True` is the
     scheduler's view: unshared changes applied, marked `hasChanges`, and a
-    pending removal marked `pendingDelete` - both count as unpublished."""
+    pending removal marked `pendingDelete` - both count as unpublished.
+    `team_tz` resolves `timeZone` for a shift with no zone and no preset."""
     pend = _pending(row) if effective else {}
     removing = bool(effective and getattr(row, "pending_delete", 0))
     shift_id = pend.get("shiftId", row.shift_id)
     p = presets.get(shift_id)
+    start, end = pend.get("start", row.start_hhmm), pend.get("end", row.end_hhmm)
+    acts = pend.get("activities", _acts(row))
+    acts = [{"paid": True, **a} for a in acts if isinstance(a, dict)]
+    break_min = _break_for(acts, int(pend.get("breakMin", getattr(row, "break_min", 0)) or 0))
     return {"id": row.id, "email": row.employee_email, "date": row.work_date,
-            "shiftId": shift_id, "start": pend.get("start", row.start_hhmm), "end": pend.get("end", row.end_hhmm),
+            "shiftId": shift_id, "start": start, "end": end,
             "label": pend.get("label", row.label), "note": pend.get("note", row.note),
             "published": bool(row.published) and not pend and not removing,
             "hasChanges": bool(pend), "pendingDelete": removing,
             "openSlots": int(pend.get("openSlots", getattr(row, "open_slots", 0)) or 0),
-            "breakMin": int(pend.get("breakMin", getattr(row, "break_min", 0)) or 0),
-            "activities": pend.get("activities", _acts(row)),
+            "breakMin": break_min, "paidMin": max(0, _shift_minutes(start, end) - break_min),
+            "activities": acts,
+            "groupId": getattr(row, "group_id", "") or "",
+            "timeZone": _shift_tz(row, p, team_tz),
             "ownColor": pend.get("color", getattr(row, "color", "") or "") or "",
             # '' = no preset: the team's zone (shift settings) applies.
             "timezone": (p.timezone or "") if p else "",
             "code": (p.code or p.name) if p else "",
             "color": pend.get("color", getattr(row, "color", "") or "") or (p.color if p else "#64748b")}
+
+
+def _first_group_of(db: Session, email: str) -> str:
+    """The first team (by the managers' order, then name) a person is on -
+    the default team of a new assigned shift."""
+    email = (email or "").lower()
+    if not email:
+        return ""
+    gids = {m.group_id for m in db.query(ShiftGroupMember)
+            .filter(func.lower(ShiftGroupMember.employee_email) == email).all()}
+    for g in _ordered_groups(db):
+        if g.id in gids:
+            return g.id
+    return ""
+
+
+def _resolve_group(db: Session, group_id, email: str, open_shift: bool) -> str:
+    """The team a new placement goes under: the one given (it must exist),
+    else the person's first team; an OPEN shift must name one (Oct 2)."""
+    gid = (group_id or "").strip()
+    if gid:
+        if not db.query(ShiftGroup.id).filter(ShiftGroup.id == gid).first():
+            raise HTTPException(400, "Team not found.")
+        return gid
+    if open_shift:
+        raise HTTPException(400, "Pick a team for the open shift.")
+    return _first_group_of(db, email)
+
+
+def _dup_check(db: Session, email: str, day: str, start: str, end: str, exclude_id: str = "",
+               group_id: str = "") -> None:
+    """409 when the same person already has that day + start + end on the
+    schedule (Oct 2, Shifts QA B2-7: PROD held exact duplicates). An open
+    shift is the same slot only within its team. Rows on their way out do
+    not count. Uncommitted rows are not seen (autoflush off) - bulk and
+    import keep their own set."""
+    q = (db.query(ScheduledShift.id)
+         .filter(func.lower(ScheduledShift.employee_email) == (email or "").lower(),
+                 ScheduledShift.work_date == day, ScheduledShift.start_hhmm == start,
+                 ScheduledShift.end_hhmm == end, ScheduledShift.pending_delete == 0))
+    if not email:
+        q = q.filter(ScheduledShift.group_id == (group_id or ""))
+    if exclude_id:
+        q = q.filter(ScheduledShift.id != exclude_id)
+    if q.first():
+        raise HTTPException(409, "Already on the schedule for that day")
 
 
 # ── Schedule conflicts (Sep 28, Teams parity) ─────────────────────────────
@@ -4969,9 +5147,10 @@ def _timeoff_dict(t, priv: "_TimeoffPrivacy" = None) -> dict:
     """Time off as the schedule grid carries it. A confidential request shows
     only to its viewers (_TimeoffPrivacy); everyone else gets "time off" with
     no note - and the conflict warnings built from it say only that too."""
-    out = {"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
+    st, et = getattr(t, "start_time", "") or "", getattr(t, "end_time", "") or ""
+    out = {"id": t.id, "email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
            "type": t.type, "status": t.status, "note": t.note or "",
-           "startTime": getattr(t, "start_time", "") or "", "endTime": getattr(t, "end_time", "") or "",
+           "startTime": st, "endTime": et, "allDay": not (st and et),
            "confidential": _is_confidential(t), "redacted": False}
     if priv is not None and not priv.can_see(t):
         out.update(note="", redacted=True)
@@ -5021,32 +5200,39 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     everyone = can_manage_shifts(user) and not user.get("_group_scheduler")
     scope = None if everyone else write_scope
     can_write = _can_write_schedule(user, db)
-    names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
-             for e in db.query(NexusEmployee).all() if e.work_email}
+    # One read of People: rows are ACTIVE, not-deleted employees only (Oct 2,
+    # Shifts QA B2-10); names still resolve for anyone a shift points at.
+    all_people = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    names = {em: ((e.display_name or "").strip() or f"{e.first_name} {e.last_name}".strip())
+             for em, e in all_people.items()}
+    people = {em: e for em, e in all_people.items() if _is_active_emp(e)}
     if scope is None:
-        emails = list(names.keys())
+        emails = sorted(people.keys(), key=lambda em: names.get(em, em).lower())
     else:
-        emails = sorted(scope)
+        emails = sorted(em for em in scope if em in people)
     # Photos, Teams display names and location for the grid's rows (Neil,
     # Sep 29: "get everyone's profile picture in", "see by locations also").
-    people = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
-    names.update({em: (e.display_name or "").strip() for em, e in people.items() if (e.display_name or "").strip()})
     employees = [{"email": em, "name": names.get(em, em),
                   "photoUrl": getattr(people.get(em), "photo_url", "") or "",
                   "location": (getattr(people.get(em), "location", "") or "").strip(),
                   "canEdit": can_write and (write_scope is None or em in write_scope)} for em in emails]
 
     presets = {s.id: s for s in db.query(Shift).all()}
+    from routers.shift_requests import get_settings as _sr_settings
+    cfg = _sr_settings(db)
+    team_tz = cfg.get("timeZone") or _DEFAULT_TEAM_TZ
     members = {}
     for m in db.query(ShiftGroupMember).all():
-        if scope is None or (m.employee_email or "").lower() in scope:
-            members.setdefault(m.group_id, []).append(m.employee_email)
+        em = (m.employee_email or "").lower()
+        if em in people and (scope is None or em in scope):
+            members.setdefault(m.group_id, []).append(em)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                "archived": bool(getattr(g, "archived", 0)), "sortOrder": int(getattr(g, "sort_order", 0) or 0),
                "canEdit": _group_editable(db, user, g)}
               for g in _ordered_groups(db)]
     if user.get("_group_scheduler"):
         groups = [g for g in groups if g["members"]]   # only the groups they schedule
+    group_ids = [g["id"] for g in groups]
 
     q = (db.query(ScheduledShift)
          .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))
@@ -5057,12 +5243,13 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                      (ScheduledShift.employee_email == ""))
     if not can_write:
         q = q.filter(ScheduledShift.published == 1)   # staff see only SHARED shifts
-    rows = q.all()
-    scheduled = [_sched_dict(r, presets, effective=can_write) for r in rows]
+    rows = [r for r in q.all() if not r.employee_email or (r.employee_email or "").lower() in people]
+    scheduled = [_sched_dict(r, presets, effective=can_write, team_tz=team_tz) for r in rows]
     for r, sd in zip(rows, scheduled):
         # Another manager's open slot, or another team's shift, shows but is
         # read-only (Sep 29 / Sep 30).
         sd["canEdit"] = can_write and _row_in_scope(r, write_scope, user)
+    open_shifts = [s for s in scheduled if not s["email"]]
 
     tq = (db.query(TimeOffRequest)
           .filter(TimeOffRequest.status.in_(["approved", "pending"]),
@@ -5070,7 +5257,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
     if scope is not None:
         tq = tq.filter(TimeOffRequest.employee_email.in_(list(scope)))
     _priv = _TimeoffPrivacy(db, user.get("email"))
-    timeoff = [_timeoff_dict(t, _priv) for t in tq.all()]
+    timeoff = [_timeoff_dict(t, _priv) for t in tq.all() if (t.employee_email or "").lower() in people]
 
     # Company holidays, per visible employee (Pranshu, Sep 22: "fetch the
     # holiday in shifts so that HR is aware of the holiday through shifts
@@ -5098,6 +5285,19 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
         for s in scheduled:
             if s["email"]:
                 by_person.setdefault(s["email"], []).append(s)
+        # The day BEFORE the range too (Oct 2, B2-18): an overnight shift on
+        # Sunday runs into Monday, and the dialog (check_scheduled) already
+        # saw it while the grid did not.
+        try:
+            eve = (datetime.strptime(start[:10], "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
+        except ValueError:
+            eve = ""
+        if eve and emails:
+            for r in (db.query(ScheduledShift)
+                      .filter(ScheduledShift.work_date == eve, ScheduledShift.employee_email.in_(emails)).all()):
+                em = (r.employee_email or "").lower()
+                if em in by_person:
+                    by_person[em].append(_sched_dict(r, presets, effective=True, team_tz=team_tz))
         for t in timeoff:
             off_by.setdefault((t["email"] or "").lower(), []).append(t)
         for s in scheduled:
@@ -5105,20 +5305,87 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                 s["conflicts"] = _shift_conflicts(s, by_person[s["email"]], off_by.get(s["email"], []),
                                                   holidays.get(s["email"], {}), avail.get(s["email"]))
 
+    # Day notes: company-wide ones and the teams on screen (Oct 2, B2-15).
     day_notes = [{"date": n.work_date, "groupId": n.group_id or "", "note": n.note}
                  for n in db.query(ScheduleDayNote).filter(ScheduleDayNote.work_date >= start,
-                                                           ScheduleDayNote.work_date <= end).all()
+                                                           ScheduleDayNote.work_date <= end,
+                                                           ScheduleDayNote.group_id.in_([""] + group_ids)).all()
                  if n.note]
 
+    last = _last_publish(db) if can_write else {}
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
-            "groups": groups, "scheduled": scheduled, "timeoff": timeoff, "holidays": holidays,
+            "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
+            "timeoff": timeoff, "holidays": holidays,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
             "me": (user.get("email") or "").lower(),
+            "weekStart": cfg.get("weekStart") or "monday", "timeZone": team_tz,
+            # Teams "last shared" + the unshared count across the WHOLE
+            # schedule, not just these dates (Oct 2, B4-31).
+            "lastPublishedAt": (last.get("at") or "") if can_write else "",
+            "unsharedCount": _unshared_query(db, user).count() if can_write else 0,
             # Shift settings and groups are company-wide switches
             # (_require_unscoped_team): offered only to those who can save them.
             # write_scope, not scope - every manager now READS everyone.
             "canConfigure": can_write and write_scope is None}
+
+
+_LAST_PUBLISH_KEY = "shift_last_publish"
+
+
+def _last_publish(db: Session) -> dict:
+    """{at, start, end, by} of the last Publish, from nexus_settings."""
+    row = db.query(NexusSetting).filter(NexusSetting.key == _LAST_PUBLISH_KEY).first()
+    try:
+        v = json.loads(row.value) if row and row.value else {}
+    except (TypeError, ValueError):
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+def _unshared_query(db: Session, user: dict, d0: str = "", d1: str = "", group_id: str = "", emails=None):
+    """The rows a publish by this caller would share: drafts, pending edits
+    and pending removals - in their write scope, plus the open slots they
+    posted - optionally inside [d0, d1] and narrowed to a team / people.
+    Shared by publish, the unshared count and the grid (Oct 2)."""
+    scope = _visible_emails(db, user)
+    q = (db.query(ScheduledShift)
+         .filter((ScheduledShift.published == 0) | (ScheduledShift.pending_delete == 1) |
+                 ((ScheduledShift.pending_json.isnot(None)) & (ScheduledShift.pending_json != ""))))
+    if d0:
+        q = q.filter(ScheduledShift.work_date >= d0)
+    if d1:
+        q = q.filter(ScheduledShift.work_date <= d1)
+    if scope is not None:
+        # Their team's shifts, plus the open slots THEY posted (Sep 29).
+        q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
+                     ((ScheduledShift.employee_email == "") &
+                      (func.lower(ScheduledShift.created_by) == (user.get("email") or "").lower())))
+    narrow = {e.strip().lower() for e in (emails or []) if e and e.strip()}
+    gid = (group_id or "").strip()
+    if gid:
+        narrow |= {(m.employee_email or "").lower() for m in
+                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == gid).all()
+                   if m.employee_email}
+        # A team's publish shares its people's shifts AND its own open slots.
+        q = q.filter((ScheduledShift.employee_email.in_(list(narrow))) |
+                     ((ScheduledShift.employee_email == "") & (ScheduledShift.group_id == gid)))
+    elif narrow:
+        # Narrowed publish targets named people only (drops team-wide open slots).
+        q = q.filter(ScheduledShift.employee_email.in_(list(narrow)))
+    return q
+
+
+@router.get("/schedule/unshared")
+def unshared_changes(start: str = "", end: str = "", user: dict = Depends(require_schedule_write),
+                     db: Session = Depends(get_db)):
+    """How many changes are waiting to be shared - everything, or inside a
+    range - and the dates they span (the Share dialog, Oct 2)."""
+    d0 = _parse_day(start, "start date").isoformat() if start else ""
+    d1 = _parse_day(end, "end date").isoformat() if end else ""
+    rows = _unshared_query(db, user, d0, d1).with_entities(ScheduledShift.work_date).all()
+    dates = sorted(d for (d,) in rows)
+    return {"count": len(dates), "firstDate": dates[0] if dates else "", "lastDate": dates[-1] if dates else ""}
 
 
 @router.get("/schedule/check")
@@ -5169,8 +5436,10 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
           .filter(TimeOffRequest.employee_email == email,
                   TimeOffRequest.status.in_(["approved", "pending"]),
                   TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
-    timeoff = [{"startDate": t.start_date, "endDate": t.end_date, "type": t.type, "status": t.status,
-                "note": t.note or ""}
+    timeoff = [{"id": t.id, "startDate": t.start_date, "endDate": t.end_date, "type": t.type, "status": t.status,
+                "note": t.note or "", "startTime": getattr(t, "start_time", "") or "",
+                "endTime": getattr(t, "end_time", "") or "",
+                "allDay": not ((getattr(t, "start_time", "") or "") and (getattr(t, "end_time", "") or ""))}
                for t in tq.all()]
 
     # The person's team(s) (Neil, Sep 23: "Shifts should show all team shifts
@@ -5187,8 +5456,9 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # Admins can hide teammates' shifts from staff (Sep 29, Teams "see
     # coworkers' schedules"); swaps still work - routers/shift_requests.py
     # hands the swap dialog only the shifts it can target.
-    from routers.shift_requests import get_settings as _sr_settings
+    from routers.shift_requests import get_settings as _sr_settings, _upcoming
     cfg = _sr_settings(db)
+    team_tz = cfg.get("timeZone") or _DEFAULT_TEAM_TZ
     group_ids = list(member_of) if cfg.get("teamSchedules", True) else []
     # What staff see of a TEAMMATE (Teams "Visibility"): why they are off, and
     # a shift's note, activities and break. A manager always sees both - it is
@@ -5199,9 +5469,10 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # they are named scheduler of, and groups holding anyone in their scope
     # (direct reports; everyone for an unscoped admin). Always shown to
     # them, whatever the staff setting - it is their schedule to run.
+    scheduler_of = _scheduled_groups(db, email) if manage else []
     if manage:
         scope = _visible_emails(db, user)
-        run = {g.id for g in _scheduled_groups(db, email)}
+        run = {g.id for g in scheduler_of}
         for m in db.query(ShiftGroupMember).all():
             em = (m.employee_email or "").lower()
             if em and (scope is None or em in scope) and em != email:
@@ -5229,7 +5500,7 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                           ScheduledShift.published == 1)
                   .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all()):
             em = (r.employee_email or "").lower()
-            sd = _sched_dict(r, presets)
+            sd = _sched_dict(r, presets, team_tz=team_tz)
             if not show_details and em != email:
                 sd.update(note="", activities=[], breakMin=0)
             placed.setdefault(em, []).append(sd)
@@ -5239,7 +5510,11 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                           TimeOffRequest.status == "approved",
                           TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start).all()):
             em = (t.employee_email or "").lower()
-            item = {"startDate": t.start_date, "endDate": t.end_date}
+            st, et = getattr(t, "start_time", "") or "", getattr(t, "end_time", "") or ""
+            # Part of a day stays part of a day (Oct 2, B3-19): a 2-4 PM
+            # appointment used to wipe the teammate's whole day off the grid.
+            item = {"startDate": t.start_date, "endDate": t.end_date,
+                    "startTime": st, "endTime": et, "allDay": not (st and et)}
             if (show_reasons or em == email) and not _is_confidential(t):
                 item.update(type=t.type, note=t.note or "")
             away.setdefault(em, []).append(item)
@@ -5254,19 +5529,34 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                                        "shift": defaults.get(em), "scheduled": placed.get(em, []),
                                        "timeoff": away.get(em, [])} for em in ems]})
 
-    day_notes = [{"date": n.work_date, "note": n.note} for n in db.query(ScheduleDayNote)
+    day_notes = [{"date": n.work_date, "groupId": n.group_id or "", "note": n.note} for n in db.query(ScheduleDayNote)
                  .filter(ScheduleDayNote.work_date >= start, ScheduleDayNote.work_date <= end,
                          ScheduleDayNote.group_id.in_([""] + list(set(member_of) | set(group_ids)))).order_by(ScheduleDayNote.work_date).all()
                  if n.note]
-    return {"shift": default_shift, "scheduled": [_sched_dict(r, presets) for r in rows],
+    # Published OPEN shifts of the teams I am ON, today or later in each
+    # shift's own zone (Oct 2, B1-1: any employee could see and ask for any
+    # open shift company-wide). Legacy slots with no team show to everyone.
+    open_shifts = []
+    if cfg.get("openShifts", True):
+        lo = max(start[:10], (datetime.now(timezone.utc) - timedelta(hours=12)).date().isoformat())
+        for r in (db.query(ScheduledShift)
+                  .filter(ScheduledShift.employee_email == "", ScheduledShift.published == 1,
+                          ScheduledShift.pending_delete == 0, ScheduledShift.open_slots >= 1,
+                          ScheduledShift.group_id.in_([""] + list(member_of)),
+                          ScheduledShift.work_date >= lo, ScheduledShift.work_date <= end[:10])
+                  .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all()):
+            if _upcoming(r, presets, cfg):
+                open_shifts.append(_sched_dict(r, presets, team_tz=team_tz))
+    return {"shift": default_shift, "scheduled": [_sched_dict(r, presets, team_tz=team_tz) for r in rows],
             # A LIST of {date, name, type} - the helper returns {date: {...}},
             # which crashed My Shifts ("object is not iterable") on any week
             # with a company holiday in it (Sep 30).
             "timeoff": timeoff, "holidays": [{"date": d, **h} for d, h in sorted(
                 _company_holidays_for_employee(db, email, start, end).items())],
-            "teams": teams, "dayNotes": day_notes, "canManage": manage,
-            "timeZone": cfg.get("timeZone") or "America/Los_Angeles",
-            "schedulerOf": [{"id": g.id, "name": g.name} for g in _scheduled_groups(db, email)] if manage else []}
+            "teams": teams, "dayNotes": day_notes, "openShifts": open_shifts, "canManage": manage,
+            "timeZone": team_tz, "weekStart": cfg.get("weekStart") or "monday",
+            "groups": [gid for gid in member_of],
+            "schedulerOf": [{"id": g.id, "name": g.name} for g in scheduler_of]}
 
 
 class ScheduledShiftIn(BaseModel):
@@ -5275,47 +5565,80 @@ class ScheduledShiftIn(BaseModel):
     shift_id: Optional[str] = ""
     start_hhmm: Optional[str] = ""
     end_hhmm: Optional[str] = ""
-    label: Optional[str] = ""
-    note: Optional[str] = ""
+    label: Optional[str] = None        # None = leave as is on an edit ('' on create)
+    note: Optional[str] = None
     open_slots: Optional[int] = None   # >=1 with an empty email = an OPEN shift
     break_min: Optional[int] = None    # unpaid break; None = the preset's
-    activities: Optional[list] = None  # [{start, end, label}]; None = leave as is
+    activities: Optional[list] = None  # [{start, end, label, paid}]; None = leave as is
     color: Optional[str] = None        # '#rrggbb', '' = the preset's; None = leave as is
+    group_id: Optional[str] = None     # the team; None = the person's first team (an open shift needs one)
+    timezone: Optional[str] = None     # IANA zone of the times; None = the preset's / the team's
+
+
+def _check_person_in_scope(db: Session, user: dict, em: str) -> None:
+    """A real email must be an ACTIVE person in People and inside the
+    caller's team; '' (an open shift) passes."""
+    if not em:
+        return
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    if not emp:
+        raise HTTPException(400, "That person is not in the People list.")
+    if not _is_active_emp(emp):
+        raise HTTPException(400, "That person is not active in People.")
+
+
+def _placement_tz(body_tz, preset, team_tz: str) -> str:
+    """The zone stamped on a new placement: the one given (checked), else
+    the preset's, else the team's."""
+    tz = (body_tz or "").strip()
+    if tz:
+        try:
+            ZoneInfo(tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(400, "Pick a time zone from the list.")
+        return tz
+    return ((preset.timezone or "") if preset is not None else "") or team_tz
 
 
 @router.post("/schedule")
 def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedule_write),
                      db: Session = Depends(get_db)):
     em = body.employee_email.strip().lower()
-    scope = _visible_emails(db, user)
     # An empty email is an OPEN shift (an unassigned team slot); a real email must
     # be someone the caller can see.
-    if em and scope is not None and em not in scope:
-        raise HTTPException(403, "Outside your team")
-    if em and not db.query(NexusEmployee.id).filter(func.lower(NexusEmployee.work_email) == em).first():
-        raise HTTPException(400, "That person is not in the People list.")
+    _check_person_in_scope(db, user, em)
     day = _parse_day(body.work_date, "date").isoformat()
     slots = int(body.open_slots or 0)
     if not em:
         slots = max(1, slots)   # an open shift needs at least one slot
+    gid = _resolve_group(db, body.group_id, em, open_shift=not em)
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
-    _check_span(body.start_hhmm or (preset.start_hhmm if preset else "09:00"),
-                body.end_hhmm or (preset.end_hhmm if preset else "17:00"))
+    start = (body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5]
+    end = (body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5]
+    _check_hhmm(start, end)
+    _check_span(start, end)
+    acts = _clean_activities(body.activities) if body.activities else []
+    color = _clean_color(body.color)
+    team_tz = _team_tz(db)
+    tz = _placement_tz(body.timezone, preset, team_tz)
+    _dup_check(db, em, day, start, end, group_id=gid)   # after every 400: a bad field is reported first
+    brk = (_clamp_break(body.break_min) if body.break_min is not None
+           else int(getattr(preset, "break_min", 0) or 0) if preset else 0)
     row = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=em, work_date=day,
-        shift_id=body.shift_id or "",
-        start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
-        end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
+        shift_id=body.shift_id or "", start_hhmm=start, end_hhmm=end,
         label=(body.label or "")[:80], note=(body.note or "")[:200], open_slots=slots,
-        break_min=(_clamp_break(body.break_min) if body.break_min is not None
-                   else int(getattr(preset, "break_min", 0) or 0) if preset else 0),
-        activities_json=json.dumps(_clean_activities(body.activities)) if body.activities else "",
-        color=_clean_color(body.color),
+        break_min=_break_for(acts, brk),
+        activities_json=json.dumps(acts) if acts else "",
+        color=color, group_id=gid, timezone=tz,
         published=0,   # new shifts start as a DRAFT until the manager publishes
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
     db.commit()
-    return _sched_dict(row, {preset.id: preset} if preset else {})
+    return _sched_dict(row, {preset.id: preset} if preset else {}, team_tz=team_tz)
 
 
 class AssignOpenIn(BaseModel):
@@ -5328,7 +5651,10 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
     """Assign an OPEN shift to a person (Teams "Assign open shifts"). Spawns their
     own assigned shift from the open slot and decrements the open count, removing
     the open row once every slot is filled."""
-    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    # Row lock (Oct 2, B2-4): two managers assigning the last slot at once
+    # both passed the count check. SQLite ignores FOR UPDATE; Postgres
+    # serializes them so the second sees 0 slots.
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Shift not found")
     if (row.employee_email or "").strip():
@@ -5336,16 +5662,18 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
     em = body.employee_email.strip().lower()
     if not em:
         raise HTTPException(400, "Pick a person to assign this shift to.")
-    scope = _visible_emails(db, user)
-    if scope is not None and em not in scope:
-        raise HTTPException(403, "Outside your team")
-    if not _open_row_mine(row, scope, user):
+    _check_person_in_scope(db, user, em)
+    if not _open_row_mine(row, _visible_emails(db, user), user):
         raise HTTPException(403, "This open shift was posted by another manager.")
+    if int(row.open_slots or 0) < 1:
+        raise HTTPException(409, "That open shift has already been filled.")
+    _dup_check(db, em, row.work_date, row.start_hhmm, row.end_hhmm)
     assigned = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=em, work_date=row.work_date,
         shift_id=row.shift_id, start_hhmm=row.start_hhmm, end_hhmm=row.end_hhmm,
         label=row.label, note=row.note, open_slots=0, break_min=int(row.break_min or 0),
         activities_json=row.activities_json or "", color=row.color or "",
+        group_id=getattr(row, "group_id", "") or "", timezone=getattr(row, "timezone", "") or "",
         published=0,   # a newly assigned shift is a draft until published
         created_by=user["email"], created_at=_now_iso())
     db.add(assigned)
@@ -5354,7 +5682,7 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
         db.delete(row)
     db.commit()
     preset = db.query(Shift).filter(Shift.id == assigned.shift_id).first() if assigned.shift_id else None
-    return _sched_dict(assigned, {preset.id: preset} if preset else {})
+    return _sched_dict(assigned, {preset.id: preset} if preset else {}, team_tz=_team_tz(db))
 
 
 class BulkScheduleIn(BaseModel):
@@ -5383,13 +5711,18 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     person has time off (unless turned off) and existing shifts (unless
     overwrite). Team-scoped: only people the caller can already see are touched."""
     scope = _visible_emails(db, user)
-    emails = {e.strip().lower() for e in body.emails if e and e.strip()}
-    if (body.group_id or "").strip():
+    named = _check_people(db, body.emails)   # a named person must be ACTIVE in People (Oct 2)
+    emails = set(named)
+    gid = (body.group_id or "").strip()
+    if gid:
+        if not db.query(ShiftGroup.id).filter(ShiftGroup.id == gid).first():
+            raise HTTPException(400, "Team not found.")
         emails |= {(m.employee_email or "").lower() for m in
-                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
+                   db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == gid).all()
                    if m.employee_email}
     if scope is not None:
         emails &= set(scope)          # never schedule outside the caller's team
+    emails &= set(_active_people(db))   # a team's inactive members are skipped
     emails = {e for e in emails if e}
     if not emails:
         raise HTTPException(400, "No people selected (or none in your team).")
@@ -5419,9 +5752,12 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
     label = (body.label or (preset.name if preset else ""))[:80]
     note = (body.note or "")[:200]
     shift_id = body.shift_id or ""
+    _check_hhmm(shhmm, ehhmm)
     _check_span(shhmm, ehhmm)
     brk = (_clamp_break(body.break_min) if body.break_min is not None
            else int(getattr(preset, "break_min", 0) or 0) if preset else 0)
+    tz = _placement_tz(None, preset, _team_tz(db))
+    first_group = {} if gid else {em: _first_group_of(db, em) for em in emails}
 
     # Existing shifts in range (for overwrite / skip) and time off, in one query each.
     existing = {}
@@ -5464,6 +5800,7 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
             db.add(ScheduledShift(id=str(uuid.uuid4()), employee_email=em, work_date=ds,
                                   shift_id=shift_id, start_hhmm=shhmm, end_hhmm=ehhmm,
                                   label=label, note=note, break_min=brk, published=0,
+                                  group_id=gid or first_group.get(em, ""), timezone=tz,
                                   created_by=user["email"], created_at=now))
             created += 1
     db.commit()
@@ -5527,6 +5864,11 @@ class CopyScheduleIn(BaseModel):
     include_timeoff: bool = False           # also copy APPROVED time off - as new PENDING requests
 
 
+# Time-off "types" that are a day off rather than leave to approve: never
+# copied forward with a schedule (lowercased).
+_DAY_OFF_TYPES = {"off", "holiday", "closed", "requested off", "work from home"}
+
+
 def _copy_timeoff(db: Session, user: dict, body, s0: date, s1: date, span: int, repeats: int) -> int:
     """Copy approved time off in the source range forward with the shifts
     (Sep 29, Teams "copy time off"). Leave is pay and approval, so a copy is
@@ -5543,7 +5885,10 @@ def _copy_timeoff(db: Session, user: dict, body, s0: date, s1: date, span: int, 
            .filter(TimeOffRequest.status == "approved", TimeOffRequest.start_date >= s0.isoformat(),
                    TimeOffRequest.start_date <= s1.isoformat()).all()
            if (scope is None or (t.employee_email or "").lower() in scope)
-           and (not narrow or (t.employee_email or "").lower() in narrow)]
+           and (not narrow or (t.employee_email or "").lower() in narrow)
+           # Ordinary days off loaded from Teams ("Off", "Holiday"...) are not
+           # leave to re-request (Oct 2, B4-36: 554 of 776 rows were those).
+           and (t.type or "").strip().lower() not in _DAY_OFF_TYPES]
     if not src:
         return 0
     held = {}
@@ -5603,6 +5948,8 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
         raise HTTPException(400, "That's too many at once - copy fewer weeks or a smaller group.")
     presets = {p.id: p for p in db.query(Shift).all()}
     sources = [(_sched_dict(r, presets, effective=True), r) for r in rows]   # what the scheduler sees
+    active = _active_people(db)
+    sources = [(src, r) for src, r in sources if not src["email"] or src["email"] in active]
     people = {src["email"] for src, _ in sources if src["email"]}
 
     lo, hi = t0.isoformat(), t_last.isoformat()
@@ -5654,6 +6001,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                 activities_json=(json.dumps(src["activities"])
                                  if src.get("activities") and body.include_activities else ""),
                 color=src.get("ownColor") or "",
+                group_id=src.get("groupId") or "", timezone=getattr(row, "timezone", "") or "",
                 published=0, created_by=user["email"], created_at=now))
             created += 1
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
@@ -5711,6 +6059,11 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
     row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
     if not row:
         raise HTTPException(404, "Shift not found")
+    scope = _visible_emails(db, user)
+    if not _row_in_scope(row, scope, user):
+        # The same ownership rule as edit / delete / discard (Oct 2, B2-11):
+        # another manager's open slot is not yours to move.
+        raise HTTPException(403, "Outside your team")
     if row.pending_delete:
         raise HTTPException(400, "This shift is being removed - discard that change first.")
     src_em = (row.employee_email or "").lower()
@@ -5719,22 +6072,29 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         # A person's shift CAN become open (Teams "Move to open shifts");
         # an open one goes to a person through Assign, which keeps its slots.
         raise HTTPException(400, "Open shifts move between days in the Open shifts row; assign one to give it to a person.")
-    scope = _visible_emails(db, user)
-    for em in {src_em, target} - {""}:
-        if scope is not None and em not in scope:
-            raise HTTPException(403, "Outside your team")
+    if target != src_em:
+        _check_person_in_scope(db, user, target)
     day = _parse_day(body.work_date, "date").isoformat()
+    team_tz = _team_tz(db)
     if not body.duplicate and target == src_em and day == row.work_date:
         presets = {row.shift_id: db.query(Shift).filter(Shift.id == row.shift_id).first()} if row.shift_id else {}
-        return {"shift": _sched_dict(row, {k: v for k, v in presets.items() if v}, effective=True), "moved": False}
+        return {"shift": _sched_dict(row, {k: v for k, v in presets.items() if v}, effective=True, team_tz=team_tz),
+                "moved": False}
     presets = {p.id: p for p in db.query(Shift).all()}
     eff = _sched_dict(row, presets, effective=True)
+    gid = eff.get("groupId") or ""
+    if not target and not gid:
+        gid = _first_group_of(db, src_em)   # a shift moved to Open needs a team
+        if not gid:
+            raise HTTPException(400, "Pick a team for the open shift.")
+    _dup_check(db, target, day, eff["start"], eff["end"], exclude_id=row.id if not body.duplicate else "",
+               group_id=gid)
     new = ScheduledShift(
         id=str(uuid.uuid4()), employee_email=target, work_date=day, shift_id=eff["shiftId"],
         start_hhmm=eff["start"], end_hhmm=eff["end"], label=eff["label"], note=eff["note"],
         open_slots=max(1, int(eff["openSlots"] or 0)) if not target else 0, break_min=int(eff["breakMin"] or 0),
         activities_json=json.dumps(eff["activities"]) if eff["activities"] else "",
-        color=eff.get("ownColor") or "",
+        color=eff.get("ownColor") or "", group_id=gid, timezone=getattr(row, "timezone", "") or "",
         published=0, created_by=user["email"], created_at=_now_iso())
     db.add(new)
     pending_removal = False
@@ -5744,7 +6104,7 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         else:
             db.delete(row)
     db.commit()
-    return {"shift": _sched_dict(new, presets, effective=True), "moved": not body.duplicate,
+    return {"shift": _sched_dict(new, presets, effective=True, team_tz=team_tz), "moved": not body.duplicate,
             "sourcePending": pending_removal}
 
 
@@ -5825,11 +6185,9 @@ def save_my_availability(body: AvailIn, user: dict = Depends(get_current_user), 
         st = et = ""
         if d.kind == "available":
             st, et = (d.start or "")[:5], (d.end or "")[:5]
-            for v in (st, et):
-                try:
-                    datetime.strptime(v, "%H:%M")
-                except ValueError:
-                    raise HTTPException(400, f"Set the times you are available on {_WEEKDAYS[d.weekday]}.")
+            if not (st and et):
+                raise HTTPException(400, f"Set the times you are available on {_WEEKDAYS[d.weekday]}.")
+            _check_hhmm(st, et)
             _check_span(st, et)
         clean[d.weekday] = (d.kind, st, et, (d.note or "").strip()[:120])
     db.query(ShiftAvailability).filter(ShiftAvailability.employee_email == em).delete()
@@ -5854,6 +6212,7 @@ class ImportRowIn(BaseModel):
     note: Optional[str] = ""
     break_min: Optional[int] = None
     open_slots: Optional[int] = None
+    group: Optional[str] = ""        # a team's name or id (the "Group" column); an open shift needs one
 
 
 class ImportIn(BaseModel):
@@ -5875,13 +6234,19 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
     if len(body.rows) > _IMPORT_MAX:
         raise HTTPException(400, f"Import at most {_IMPORT_MAX} shifts at a time.")
     scope = _visible_emails(db, user)
-    known = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all() if e.work_email}
+    active = _active_people(db)
     presets, by_key = {}, {}
     for p in db.query(Shift).all():
         presets[p.id] = p
         for k in (p.code, p.name):
             if (k or "").strip():
                 by_key.setdefault(k.strip().lower(), p)
+    groups_by_key = {}
+    for g in db.query(ShiftGroup).all():
+        groups_by_key[g.id] = g.id
+        if (g.name or "").strip():
+            groups_by_key.setdefault(g.name.strip().lower(), g.id)
+    team_tz = _team_tz(db)
     days = sorted({(r.date or "")[:10] for r in body.rows if r.date})
     have = set()
     if days:
@@ -5889,12 +6254,13 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
                   .filter(ScheduledShift.work_date >= days[0], ScheduledShift.work_date <= days[-1]).all()):
             if not r.pending_delete:
                 have.add(((r.employee_email or "").lower(), r.work_date, r.start_hhmm, r.end_hhmm))
+    first_group = {}
     created, errors, now = 0, [], _now_iso()
     for r in body.rows:
         where = f"Row {r.row}" if r.row else "A row"
         try:
             em = (r.email or "").strip().lower()
-            if em and em not in known:
+            if em and em not in active:
                 raise ValueError(f"{em} is not in the People list.")
             if em and scope is not None and em not in scope:
                 raise ValueError(f"{em} is outside your team.")
@@ -5907,17 +6273,25 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
                 preset = by_key.get(r.shift.strip().lower())
                 if not preset:
                     raise ValueError(f'there is no shift type called "{r.shift.strip()}".')
-            st = ((r.start or "").strip() or (preset.start_hhmm if preset else ""))[:5]
-            et = ((r.end or "").strip() or (preset.end_hhmm if preset else ""))[:5]
+            st = _pad_hhmm((r.start or "").strip() or (preset.start_hhmm if preset else ""))
+            et = _pad_hhmm((r.end or "").strip() or (preset.end_hhmm if preset else ""))
             if not st or not et:
                 raise ValueError("the start or end time is missing.")
-            for v in (st, et):
-                try:
-                    datetime.strptime(v, "%H:%M")
-                except ValueError:
-                    raise ValueError("times must look like 9:00 AM.")
+            if not (_HHMM_RE.match(st) and _HHMM_RE.match(et)):
+                raise ValueError("times must look like 9:00 AM.")
             if st == et:
                 raise ValueError("start and end can't be the same time.")
+            gid = ""
+            if (r.group or "").strip():
+                gid = groups_by_key.get(r.group.strip()) or groups_by_key.get(r.group.strip().lower()) or ""
+                if not gid:
+                    raise ValueError(f'there is no team called "{r.group.strip()}".')
+            elif em:
+                if em not in first_group:
+                    first_group[em] = _first_group_of(db, em)
+                gid = first_group[em]
+            else:
+                raise ValueError("an open shift needs a team (the Group column).")
             if (em, day, st, et) in have:
                 raise ValueError("that shift is already on the schedule.")
         except ValueError as e:
@@ -5930,6 +6304,7 @@ def import_schedule(body: ImportIn, user: dict = Depends(require_schedule_write)
             open_slots=0 if em else max(1, int(r.open_slots or 1)),
             break_min=(_clamp_break(r.break_min) if r.break_min is not None
                        else int(getattr(preset, "break_min", 0) or 0) if preset else 0),
+            group_id=gid, timezone=_placement_tz(None, preset, team_tz),
             published=0, created_by=user["email"], created_at=now))
         created += 1
     db.commit()
@@ -5948,10 +6323,8 @@ def save_day_note(body: DayNoteIn, user: dict = Depends(require_schedule_write),
     Saving an empty note removes it."""
     day = _parse_day(body.work_date, "date").isoformat()
     gid = (body.group_id or "").strip()
-    if user.get("_group_scheduler"):
-        # A group's scheduler writes notes for their group, never company-wide.
-        mine = [g.id for g in _scheduled_groups(db, user["email"])]
-        gid = gid if gid in mine else mine[0]
+    if gid and not db.query(ShiftGroup.id).filter(ShiftGroup.id == gid).first():
+        raise HTTPException(400, "Team not found.")
     text = (body.note or "").strip()[:200]
     row = (db.query(ScheduleDayNote)
            .filter(ScheduleDayNote.work_date == day, ScheduleDayNote.group_id == gid).first())
@@ -5982,20 +6355,32 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
            "label": row.label, "note": row.note, "openSlots": int(row.open_slots or 0),
            "breakMin": int(row.break_min or 0), "activities": _acts(row), "color": row.color or ""}
     base = {**cur, **_pending(row)}   # edit on top of any change already waiting
+    acts = (_clean_activities(body.activities) if body.activities is not None
+            else [a for a in base.get("activities") or [] if isinstance(a, dict)])
     new = {
         "shiftId": body.shift_id or "",
         "start": (body.start_hhmm or (preset.start_hhmm if preset else base["start"]))[:5],
         "end": (body.end_hhmm or (preset.end_hhmm if preset else base["end"]))[:5],
-        "label": (body.label or "")[:80], "note": (body.note or "")[:200],
+        # None = leave as is (Oct 2, B2-17: an omitted label or note was wiped)
+        "label": (body.label if body.label is not None else base["label"] or "")[:80],
+        "note": (body.note if body.note is not None else base["note"] or "")[:200],
         # editing an open shift's count; an assigned shift keeps 0
         "openSlots": (max(1, int(body.open_slots)) if body.open_slots is not None and not row.employee_email
                       else base["openSlots"]),
-        "breakMin": _clamp_break(body.break_min) if body.break_min is not None else int(base.get("breakMin") or 0),
-        "activities": (_clean_activities(body.activities) if body.activities is not None
-                       else base.get("activities") or []),
+        "breakMin": _break_for(acts, _clamp_break(body.break_min) if body.break_min is not None
+                               else int(base.get("breakMin") or 0)),
+        "activities": acts,
         "color": _clean_color(body.color) if body.color is not None else base.get("color") or "",
     }
+    _check_hhmm(new["start"], new["end"])
     _check_span(new["start"], new["end"])
+    _dup_check(db, row.employee_email, row.work_date, new["start"], new["end"], exclude_id=row.id,
+               group_id=getattr(row, "group_id", "") or "")
+    # The team and the zone are not what staff see - they change in place.
+    if body.group_id is not None:
+        row.group_id = _resolve_group(db, body.group_id, row.employee_email, open_shift=not row.employee_email)
+    if body.timezone is not None and (body.timezone or "").strip():
+        row.timezone = _placement_tz(body.timezone, None, "")
     if row.published:
         # Staff can already see this shift: keep the published version live
         # and hold the edit until Publish (Teams "unshared changes") instead of
@@ -6011,7 +6396,7 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.color = new["color"]
     db.commit()
     presets = {s.id: s for s in db.query(Shift).filter(Shift.id.in_({row.shift_id, new["shiftId"]} - {""})).all()}
-    return _sched_dict(row, presets, effective=True)
+    return _sched_dict(row, presets, effective=True, team_tz=_team_tz(db))
 
 
 @router.delete("/schedule/{sched_id}")
@@ -6052,7 +6437,7 @@ def discard_scheduled_changes(sched_id: str, user: dict = Depends(require_schedu
     row.pending_json, row.pending_delete = "", 0
     db.commit()
     preset = db.query(Shift).filter(Shift.id == row.shift_id).first() if row.shift_id else None
-    return _sched_dict(row, {preset.id: preset} if preset else {}, effective=True)
+    return _sched_dict(row, {preset.id: preset} if preset else {}, effective=True, team_tz=_team_tz(db))
 
 
 class PublishScheduleIn(BaseModel):
@@ -6073,35 +6458,31 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
     with nothing left to publish just returns 0."""
     d0, d1 = body.start_date[:10], body.end_date[:10]
     try:
-        datetime.strptime(d0, "%Y-%m-%d"); datetime.strptime(d1, "%Y-%m-%d")
+        p0, p1 = datetime.strptime(d0, "%Y-%m-%d").date(), datetime.strptime(d1, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(400, "Invalid date range.")
     if d1 < d0:
         raise HTTPException(400, "End date is before the start date.")
+    if (p1 - p0).days + 1 > _PUBLISH_MAX_DAYS:
+        raise HTTPException(400, f"Share at most {_PUBLISH_MAX_DAYS} days at a time.")
     scope = _visible_emails(db, user)
-    q = (db.query(ScheduledShift)
-         .filter(ScheduledShift.work_date >= d0, ScheduledShift.work_date <= d1,
-                 (ScheduledShift.published == 0) | (ScheduledShift.pending_delete == 1) |
-                 ((ScheduledShift.pending_json.isnot(None)) & (ScheduledShift.pending_json != ""))))
-    if scope is not None:
-        # Their team's shifts, plus the open slots THEY posted (Sep 29).
-        q = q.filter((ScheduledShift.employee_email.in_(list(scope))) |
-                     ((ScheduledShift.employee_email == "") &
-                      (func.lower(ScheduledShift.created_by) == (user.get("email") or "").lower())))
     narrow = {e.strip().lower() for e in body.emails if e and e.strip()}
     if (body.group_id or "").strip():
         narrow |= {(m.employee_email or "").lower() for m in
                    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
                    if m.employee_email}
-    if narrow:
-        # Narrowed publish targets named people only (drops team-wide open slots).
-        q = q.filter(ScheduledShift.employee_email.in_(list(narrow)))
+    # Row locks (Oct 2, B2-4): two publishes of the same week used to both
+    # count and bell every change. SQLite ignores FOR UPDATE.
+    q = _unshared_query(db, user, d0, d1, body.group_id, body.emails).with_for_update()
     import shift_notify
+    from routers.shift_requests import cancel_requests_for_shifts
     added = updated = removed = 0
     changes = []   # what this publish does to each person's schedule, for shift_notify
+    touched = []   # shifts edited or removed: pending requests on them are moot
     for r in q.all():
         if r.pending_delete:
             changes.append(shift_notify.change("removed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
+            touched.append(r.id)
             db.delete(r)
             removed += 1
             continue
@@ -6115,11 +6496,17 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             r.activities_json = json.dumps(acts) if acts else ""
             r.color = pend.get("color", r.color or "") or ""
             changes.append(shift_notify.change("changed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label, was=was))
+            touched.append(r.id)
             updated += 1
         else:
             changes.append(shift_notify.change("added", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             added += 1
         r.published, r.pending_json = 1, ""
+    # A swap / offer / open-shift request about a shift that just changed or
+    # went away no longer describes the schedule (Oct 2, B2-5).
+    cancelled = cancel_requests_for_shifts(db, touched, user["email"]) if touched else 0
+    if added + updated + removed:
+        _remember_publish(db, user["email"], d0, d1)
     db.commit()
     # Tell the people affected - one bell + one email each (Sep 28, QA item 2).
     notified = shift_notify.notify_published(db, changes, user["email"], d0, d1, bt)
@@ -6137,8 +6524,23 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             team &= narrow
         notified += shift_notify.notify_team(db, team - changed, user["email"], d0, d1)
     # `published` stays the total so existing callers' "Shared N shifts" holds.
-    return {"published": added + updated + removed, "added": added, "updated": updated, "removed": removed,
-            "notified": notified}
+    return {"published": added + updated + removed, "added": added, "updated": updated, "edited": updated,
+            "removed": removed, "notified": notified, "requestsCancelled": cancelled,
+            "lastPublishedAt": _last_publish(db).get("at") or ""}
+
+
+_PUBLISH_MAX_DAYS = 92
+
+
+def _remember_publish(db: Session, by: str, d0: str, d1: str) -> None:
+    """Teams "last shared": {at, start, end, by} in nexus_settings."""
+    row = db.query(NexusSetting).filter(NexusSetting.key == _LAST_PUBLISH_KEY).first()
+    if not row:
+        row = NexusSetting(key=_LAST_PUBLISH_KEY)
+        db.add(row)
+    now = datetime.now(timezone.utc).isoformat()
+    row.value = json.dumps({"at": now, "start": d0, "end": d1, "by": (by or "").lower()})
+    row.updated_by, row.updated_at = by or "", now
 
 
 # ── Payroll timecard (manager-editable, per pay period) ───────────────────────
@@ -6357,27 +6759,73 @@ def _company_holidays_for_many(db: Session, people: dict, start: str, end: str) 
     return out
 
 
+def _working_days_in_year(year: int) -> int:
+    """Calendar days in `year` minus every Saturday and Sunday - 261 in 2026
+    (104 weekend days), 262 or 260 in other years. Company holidays stay IN
+    the denominator: they are paid days (Charmi, Sep 30)."""
+    d0 = date(year, 1, 1)
+    n = (date(year + 1, 1, 1) - d0).days
+    return sum(1 for i in range(n) if (d0 + timedelta(days=i)).weekday() < 5)
+
+
+# India weekend policy (Charmi, Sep 30): calculated, never typed per person.
+_WEEKEND_MULT = 1.35          # x the daily rate for a weekend day worked
+_WEEKEND_FLOOR = {"INR": 500.0}   # minimum per weekend day worked, by currency
+
+
+def _weekend_pay(daily: float, worked_min: int, full_hours: float, currency: str) -> float:
+    """Pay for ONE weekend day worked:
+        max(floor, 1.35 x daily x min(hours, full_day_hours) / full_day_hours)
+    pro-rated by the hours worked up to a full day, never below the floor
+    (Rs 500 when paid in INR, 0 otherwise)."""
+    full_hours = float(full_hours or 8) or 8.0
+    hours = min(max(0, worked_min) / 60.0, full_hours)
+    floor = _WEEKEND_FLOOR.get((currency or "").upper(), 0.0)
+    return round(max(floor, _WEEKEND_MULT * daily * hours / full_hours), 2)
+
+
+def _attendance_bands(full_hours: float) -> tuple:
+    """(FULL_MIN, HALF_MIN) in minutes: a full day is worked >= full_day_hours
+    minus 60 min (an hour short is not pinged), a half day is >= 4 h and
+    under that, absent below 4 h (Charmi, Sep 30)."""
+    full_min = max(0, int(round(float(full_hours or 8) * 60)) - 60)
+    return full_min, min(4 * 60, full_min)
+
+
 def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     """Monthly timecard for a FIXED-salary employee. Reuses _compute_timecard for
     the day/segment grid (so inline edit/add, signatures and worked-minutes are
-    identical), then overlays the fixed-pay math on top:
+    identical), then overlays the fixed-pay math on top. Every day is priced
+    at the salary in effect THAT day (payroll_rate_history - a raise effective
+    10/15 re-prices 10/15 onward only):
 
-        pay = monthly_salary
-              - (missed weekday-days x daily_rate, half a day for a half day)
-              + (weekend days worked x weekend_ot_amount)
+        base      = sum over the month's days of (salary_in_effect / days_in_month)
+        daily     = salary_in_effect x 12 / working days in that calendar year
+                    (days in the year minus Saturdays and Sundays; A4)
+        pay       = base
+                    - (absent weekdays x daily, half a day for a half day)
+                    + sum of weekend pay for weekend days worked, where
+                      weekend pay = max(floor, 1.35 x daily x min(h, full) / full),
+                      floor = Rs 500 in INR, 0 otherwise (A5)
 
-    daily_rate = monthly_salary / calendar-days-in-month. A weekday counts as a
-    HALF day if worked > 0 but under half a full day (full_day_hours / 2), and a
-    full absence if worked == 0. Weekends are never deducted; each weekend DAY
-    worked adds the flat weekend overtime. Future weekdays in the current month
-    don't deduct until they've elapsed. No work-week / no hourly OT here."""
+    Attendance bands (A6): a weekday is a FULL day at worked >= full_day_hours
+    minus 60 min, a HALF day from 4 h up to that, ABSENT under 4 h. Weekends
+    are never deducted. Future weekdays in the current month don't deduct
+    until they've elapsed. No work-week / no hourly OT here. A finalized
+    month is pinned to its finalize-time snapshot."""
     m_start, m_end = _month_bounds(anchor)
     card = _compute_timecard(db, em, m_start, m_end, round_min=0)   # grid + worked minutes + segments; no rounding for salary
     rr = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
-    salary = float(getattr(rr, "monthly_salary", 0) or 0) if rr else 0.0
-    weekend_ot = float(getattr(rr, "weekend_ot_amount", 0) or 0) if rr else 0.0
     full_hours = float(getattr(rr, "full_day_hours", 8) or 8) if rr else 8.0
     currency = (getattr(rr, "currency", None) or "USD") if rr else "USD"
+    _hist = _rate_history(db, em)
+    _sal_cache = {}
+
+    def _salary_on(ds: str) -> float:
+        if ds not in _sal_cache:
+            _sal_cache[ds] = float(_rate_on(db, em, ds, hist=_hist, rate_row=rr)["monthlySalary"])
+        return _sal_cache[ds]
+    salary = _salary_on(m_end)   # headline: the salary in effect at month end
     # A FINALIZED month is frozen at the salary it was finalized with, so a later
     # raise can't retro-price an already-paid month (mirrors the hourly freeze).
     _fin_snap = _finalized_row(db, em, m_start, m_end)
@@ -6387,9 +6835,10 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             _sn = json.loads(_fin_snap.note)
             if isinstance(_sn, dict) and "monthlySalary" in _sn:
                 salary = float(_sn.get("monthlySalary") or 0)
-                weekend_ot = float(_sn.get("weekendOtAmount") or 0)
                 full_hours = float(_sn.get("fullDayHours") or 8) or 8
                 currency = _sn.get("currency") or currency
+                _hist = []
+                _salary_on = lambda ds, _s=salary: _s   # noqa: E731 - pinned to the snapshot
                 if _sn.get("totalPay") is not None:
                     _frozen = {k: _sn.get(k) for k in ("totalPay", "deduction", "weekendBonus",
                                "missedFullDays", "missedHalfDays", "weekendDaysWorked")}
@@ -6399,13 +6848,12 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     first = datetime.strptime(m_start, "%Y-%m-%d").date()
     last = datetime.strptime(m_end, "%Y-%m-%d").date()
     days_in_month = (last - first).days + 1
-    daily = salary / days_in_month if days_in_month else 0.0
-    # Attendance bands (policy, same for everyone): a weekday is PRESENT (full credit)
-    # at 5h+, a HALF day from 4h up to 5h, and ABSENT under 4h. While still clocked in
-    # today it's WORKING (no judgment yet). full_hours stays on the record but the
-    # bands are fixed here.
-    HALF_MIN, FULL_MIN = 4 * 60, 5 * 60
-    _ = full_hours
+    working_days = _working_days_in_year(first.year)
+
+    def _daily_on(ds: str) -> float:
+        return _salary_on(ds) * 12 / working_days if working_days else 0.0
+    daily = _daily_on(m_end)
+    FULL_MIN, HALF_MIN = _attendance_bands(full_hours)
     today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
@@ -6428,7 +6876,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
 
     holidays = _company_holidays_for_employee(db, em, m_start, m_end)
     missed_full = missed_half = weekend_worked = 0
-    deduction = 0.0
+    deduction = base_pay = weekend_bonus = 0.0
     fixed_days = []
     for i in range(days_in_month):
         dd = first + timedelta(days=i)
@@ -6437,6 +6885,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         has_open = open_by_day.get(ds, False)
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
+        daily_d = _daily_on(ds)             # this day's rate (a raise mid-month lands here)
+        base_pay += _salary_on(ds) / days_in_month
         hol = holidays.get(ds)
         half_holiday = bool(hol) and hol.get("type") == "half_day" and not is_weekend
         # A HALF-DAY holiday pays for the half they weren't required to work,
@@ -6453,7 +6903,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             if wm > 0 or has_open:
                 status = "holiday_half_worked"     # worked their half - full pay
             elif ds < today:
-                status = "holiday_half"; deduct = daily / 2.0   # day's over, no work at all
+                status = "holiday_half"; deduct = daily_d / 2.0   # day's over, no work at all
             elif ds > today:
                 status = "upcoming"
             else:   # today, in progress - never deduct before the day is over
@@ -6462,13 +6912,17 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             status = "holiday"
         elif is_weekend:
             if wm > 0 or has_open:
-                status = "weekend_worked"; bonus = weekend_ot; weekend_worked += 1
+                # A5: calculated from the day's rate and the hours actually
+                # worked, never a typed amount (an open punch earns the floor
+                # until the clock-out lands).
+                status = "weekend_worked"; weekend_worked += 1
+                bonus = _weekend_pay(daily_d, wm, full_hours, currency)
             else:
                 status = "weekend"
         elif has_open and ds >= today:
             status = "working"              # clocked in, still on shift today - no deduction yet
         elif wm >= FULL_MIN:
-            status = "present"              # 5h+ = full day, never deducted
+            status = "present"              # full day (full_day_hours minus an hour), never deducted
         elif ds > today:
             status = "upcoming"             # future weekday, nothing logged yet
         elif ds == today:
@@ -6478,18 +6932,21 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             # bite once the day has fully elapsed.
             status = "working" if wm > 0 else ("late" if late_today else "upcoming")
         elif wm >= HALF_MIN:
-            status = "half"; deduct = daily / 2.0; missed_half += 1   # past day, 4h-5h
+            status = "half"; deduct = daily_d / 2.0; missed_half += 1   # past day, 4h up to a full day
         else:
-            status = "absent"; deduct = daily; missed_full += 1       # past day, under 4h
+            status = "absent"; deduct = daily_d; missed_full += 1       # past day, under 4h
         deduction += deduct
+        weekend_bonus += bonus
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2),
+                           "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
-    weekend_bonus = round(weekend_worked * weekend_ot, 2)
+    weekend_bonus = round(weekend_bonus, 2)
     deduction = round(deduction, 2)
-    total_pay = round(salary - deduction + weekend_bonus, 2)
+    base_pay = round(base_pay, 2)
+    total_pay = round(base_pay - deduction + weekend_bonus, 2)
     # A finalized month is PINNED to its finalize-time result (day statuses key off
     # "today", so without this a mid-month finalize would drift as days elapse).
     if _frozen:
@@ -6499,17 +6956,26 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         missed_full = _frozen.get("missedFullDays", missed_full)
         missed_half = _frozen.get("missedHalfDays", missed_half)
         weekend_worked = _frozen.get("weekendDaysWorked", weekend_worked)
+    # "Through 10/14 at X · From 10/15 at Y" when the salary changed mid-month.
+    _cal = [(first + timedelta(days=i)).isoformat() for i in range(days_in_month)]
+    rate_splits = _rate_splits(_cal, {ds: _salary_on(ds) for ds in _cal}, "monthlySalary") if _hist else []
 
     card["payType"] = "fixed"
     card["currency"] = currency
     card["monthlySalary"] = salary
+    card["salaryForPeriod"] = base_pay          # pro-rated across a mid-month change
+    card["rateSplits"] = rate_splits
     card["dailyRate"] = round(daily, 2)
-    card["weekendOtAmount"] = weekend_ot
+    card["workingDaysInYear"] = working_days
+    card["weekendMultiplier"] = _WEEKEND_MULT
+    card["weekendFloor"] = _WEEKEND_FLOOR.get(currency, 0.0)
     card["fullDayHours"] = full_hours
+    card["bands"] = {"fullMin": FULL_MIN, "halfMin": HALF_MIN}
     card["fixedDays"] = fixed_days
     card["totals"] = {**card.get("totals", {}),
-                      "payType": "fixed", "monthlySalary": salary,
+                      "payType": "fixed", "monthlySalary": salary, "salaryForPeriod": base_pay,
                       "daysInMonth": days_in_month, "dailyRate": round(daily, 2),
+                      "workingDaysInYear": working_days,
                       "missedFullDays": missed_full, "missedHalfDays": missed_half,
                       "weekendDaysWorked": weekend_worked,
                       "deduction": deduction, "weekendBonus": weekend_bonus,
@@ -6578,7 +7044,12 @@ def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator)
 # math - exactly SwipeClock's model, and required for the parallel-run numbers
 # to match 1:1.
 _ROUNDING_KEY = "timeclock_rounding"
-_ROUNDING_DEFAULT = {"enabled": True, "nearestMin": 5}
+# OFF by default (Charmi, Sep 30): an admin turns it on under Settings > Global
+# Settings > Time Clock when the company has a rounding policy. PROD carries an
+# explicit nexus_settings row (enabled, nearest 5), so Greens' SwipeClock
+# parity is unchanged by this default. Per-company scoping (one rule per
+# hr_entities company) is deferred - today one tenant-wide key.
+_ROUNDING_DEFAULT = {"enabled": False, "nearestMin": 5}
 
 
 def _rounding_cfg(db: Session) -> dict:
@@ -6830,9 +7301,23 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
+    # Pay priced per day (Charmi, Sep 30): each day is paid at the rate in
+    # effect THAT day (payroll_rate_history), so a raise effective mid-period
+    # applies from its date. `rate` below is the rate in effect on the period's
+    # last day - the headline figure - and `_rate_for_day` prices the days.
+    _hist = _rate_history(db, em)
+    _day_rate_cache = {}
+
+    def _rate_for_day(d: str) -> float:
+        if d not in _day_rate_cache:
+            _day_rate_cache[d] = float(_rate_on(db, em, d, hist=_hist, rate_row=rate_row)["hourlyRate"])
+        return _day_rate_cache[d]
+    if _hist:
+        rate = _rate_for_day(end or start)
     # A FINALIZED period is frozen at the rate + OT rule it was finalized with, so a
     # later raise or rule switch never retro-reprices an already-paid timecard
-    # (finalize snapshots these into the approval row's note).
+    # (finalize snapshots these into the approval row's note). The snapshot is
+    # one rate for the whole period - it stays authoritative over the history.
     _fin_snap = _finalized_row(db, em, start, end)
     if _fin_snap and _fin_snap.note:
         try:
@@ -6840,6 +7325,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if isinstance(_sn, dict) and "rate" in _sn:
                 rate = float(_sn.get("rate") or 0.0)
                 rule = _sn.get("rule") or rule
+                _hist = []
+                _rate_for_day = lambda d, _r=rate: _r   # noqa: E731 - pinned to the snapshot
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the timecard
             pass
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
@@ -7078,9 +7565,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if sd in day_total:
                 day_split[sd] = split
 
+    reg_pay = ot_pay = dt_pay = sick_pay = vac_pay = 0.0
     for d in sorted(day_total):
         reg, ot, dt = day_split.get(d, (day_total[d], 0, 0))
         segs = day_segs[d]
+        rate_d = _rate_for_day(d)   # the rate in effect on THIS day
         # Attribute the day's reg/ot/dt across its segments in worked order so the
         # per-segment amount stays sensible (overtime accrues on the later hours).
         rr, oo, dd = reg, ot, dt
@@ -7089,19 +7578,24 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if seg.get("payClass"):
                 seg["regMin"], seg["otMin"], seg["dtMin"] = 0, 0, 0
                 seg["leaveMin"] = wm
-                seg["amount"] = round(wm / 60 * rate, 2)
+                seg["amount"] = round(wm / 60 * rate_d, 2)
                 continue
             s_reg = min(wm, rr); rr -= s_reg
             s_ot = min(wm - s_reg, oo); oo -= s_ot
             s_dt = min(wm - s_reg - s_ot, dd); dd -= s_dt
             seg["regMin"], seg["otMin"], seg["dtMin"] = s_reg, s_ot, s_dt
-            seg["amount"] = round(s_reg / 60 * rate + s_ot / 60 * rate * _OT_MULT
-                                  + s_dt / 60 * rate * _DT_MULT, 2)
+            seg["amount"] = round(s_reg / 60 * rate_d + s_ot / 60 * rate_d * _OT_MULT
+                                  + s_dt / 60 * rate_d * _DT_MULT, 2)
         sick_m, vac_m = day_leave[d]["sick"], day_leave[d]["vacation"]
         total_reg += reg; total_ot += ot; total_dt += dt
         total_sick += sick_m; total_vac += vac_m
         total_break += day_break_m[d]
         total_paid_break += day_paid_break.get(d, 0)
+        reg_pay += reg / 60 * rate_d
+        ot_pay += ot / 60 * rate_d * _OT_MULT
+        dt_pay += dt / 60 * rate_d * _DT_MULT
+        sick_pay += sick_m / 60 * rate_d
+        vac_pay += vac_m / 60 * rate_d
         # workedMin stays the day's FULL paid minutes (work + leave) - it is the
         # number the employee attests and the sign-off compares, and SwipeClock's
         # day total / TOTALS line count leave hours the same way.
@@ -7109,14 +7603,21 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "workedMin": reg + ot + dt + sick_m + vac_m,
                          "regMin": reg, "otMin": ot, "dtMin": dt,
                          "sickMin": sick_m, "vacationMin": vac_m,
+                         "rate": rate_d,
                          "breakMin": day_break_m[d], "paidBreakMin": day_paid_break.get(d, 0)})
 
-    reg_pay = round(total_reg / 60 * rate, 2)
-    ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
-    dt_pay = round(total_dt / 60 * rate * _DT_MULT, 2)
-    sick_pay = round(total_sick / 60 * rate, 2)
-    vac_pay = round(total_vac / 60 * rate, 2)
+    reg_pay, ot_pay, dt_pay = round(reg_pay, 2), round(ot_pay, 2), round(dt_pay, 2)
+    sick_pay, vac_pay = round(sick_pay, 2), round(vac_pay, 2)
     worked_min = total_reg + total_ot + total_dt + total_sick + total_vac
+    # "Through 10/14 at X · From 10/15 at Y" - the rate runs across the period's
+    # calendar days (every day, not only worked ones, so the split date is the
+    # raise's real effective date).
+    _cal_days = []
+    if start and end and end >= start:
+        _d0 = datetime.strptime(start, "%Y-%m-%d").date()
+        _n = (datetime.strptime(end, "%Y-%m-%d").date() - _d0).days + 1
+        _cal_days = [(_d0 + timedelta(days=i)).isoformat() for i in range(min(_n, 62))]
+    rate_splits = _rate_splits(_cal_days, {d: _rate_for_day(d) for d in _cal_days}, "rate") if _hist else []
 
     # Paid company holidays (see _company_holidays_for_employee): an HOURLY
     # employee has no "missed day" deduction to exempt (they're only ever paid for
@@ -7145,7 +7646,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             # their actual punches - added on TOP, not swapped for, since
             # normal wages already cover the hours worked); do no work at all
             # and it's half a day, same as a full holiday scaled down.
-            credit = round(_full_day_hours * (0.5 if is_half else 1.0) * rate, 2)
+            credit = round(_full_day_hours * (0.5 if is_half else 1.0) * _rate_for_day(hd), 2)
             holiday_pay += credit
             holiday_days += 1
             if worked:
@@ -7220,6 +7721,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "createdAt": r.created_at} for r in preqs]
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
+            "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
             "dept": dept, "overtimeRule": rule, "days": days_out,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
@@ -7374,11 +7876,66 @@ def _rate_dict(row) -> dict:
         "payType": (getattr(row, "pay_type", None) or "hourly") if row else "hourly",
         "currency": (getattr(row, "currency", None) or "USD") if row else "USD",
         "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
-        "weekendOtAmount": float(getattr(row, "weekend_ot_amount", 0) or 0) if row else 0.0,
+        # weekend_ot_amount stays on the table (never drop a column) but is no
+        # longer read anywhere: weekend pay is calculated (A5, Charmi Sep 30).
         "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
         "timeTrackingExempt": bool(getattr(row, "time_tracking_exempt", 0) or 0) if row else False,
         "isSet": row is not None,
     }
+
+
+# ── Pay history priced per day (Charmi, Sep 30) ───────────────────────────────
+# PayrollRate is the CURRENT rate; payroll_rate_history holds every change with
+# the day it took effect. The timecards price each day at the row in effect
+# that day, so a raise effective 10/15 re-prices 10/15 onward and nothing
+# before it. A finalized period still wins (its snapshot is authoritative).
+def _rate_history(db: Session, email: str) -> list:
+    """Every history row for one person, oldest first ('' = since always)."""
+    rows = (db.query(PayrollRateHistory)
+            .filter(PayrollRateHistory.employee_email == (email or "").lower())
+            .all())
+    return sorted(rows, key=lambda r: ((r.effective_date or ""), (r.created_at or "")))
+
+
+def _rate_row_dict(r) -> dict:
+    return {"payType": (r.pay_type or "hourly"), "hourlyRate": float(r.hourly_rate or 0),
+            "monthlySalary": float(r.monthly_salary or 0), "currency": (r.currency or "USD"),
+            "overtimeRule": (r.overtime_rule or "ca")}
+
+
+def _rate_on(db: Session, email: str, day: str, hist: Optional[list] = None, rate_row=None) -> dict:
+    """The pay in effect on `day` (YYYY-MM-DD): the latest history row whose
+    effective date is on or before it. With no history at all the current
+    PayrollRate stands for "since always" (the lazy backfill - the first dated
+    change writes that row for real, see hr.ensure_rate_history). Pass `hist`
+    from _rate_history to price many days without re-querying."""
+    if hist is None:
+        hist = _rate_history(db, email)
+    if hist:
+        pick = None
+        for r in hist:
+            if (r.effective_date or "") <= (day or ""):
+                pick = r
+            else:
+                break
+        return _rate_row_dict(pick or hist[0])
+    if rate_row is None:
+        rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == (email or "").lower()).first()
+    d = _rate_dict(rate_row)
+    return {k: d[k] for k in ("payType", "hourlyRate", "monthlySalary", "currency", "overtimeRule")}
+
+
+def _rate_splits(days: list, rate_of: dict, key: str) -> list:
+    """Contiguous runs of one rate across `days` (sorted) - what the card
+    shows as "Through 10/14 at X · From 10/15 at Y". One run = no split."""
+    runs = []
+    for d in days:
+        v = rate_of[d]
+        if runs and runs[-1]["rate"] == v:
+            runs[-1]["through"] = d
+        else:
+            runs.append({"from": d, "through": d, "rate": v})
+    return [{"from": r["from"], "through": r["through"], key: r["rate"]} for r in runs]
 
 
 @router.get("/payroll/rate")
@@ -7424,6 +7981,15 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     row.updated_at = _now_iso()
     db.flush()                       # so the sync reads the just-updated rate
     sync_comp_from_rate(db, em)      # mirror pay amount/basis/currency into Pay & Benefits
+    # Back-compat only (no UI calls this since Sep 30 - Pay & Benefits is the
+    # one writer): a correction here has no effective date, so it corrects the
+    # LATEST history row in place rather than opening a new dated period.
+    hist = _rate_history(db, em)
+    if hist:
+        last = hist[-1]
+        last.pay_type, last.hourly_rate = row.pay_type or "hourly", float(row.hourly_rate or 0)
+        last.monthly_salary, last.currency = float(row.monthly_salary or 0), row.currency or "USD"
+        last.overtime_rule = row.overtime_rule or "ca"
     db.commit()
     return {"ok": True, **_rate_dict(row)}
 
@@ -7799,7 +8365,9 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
 
 # ── Time off (leave requests inside the Time module) ─────────────────────────
 
-TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other")
+# "1/2 Day" is built in (Oct 2): 34 PROD rows carried it from Teams and no
+# list offered it. Type names compare case-insensitively (_check_timeoff_type).
+TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other", "1/2 Day")
 _TIMEOFF_REASONS_KEY = "timeoff_custom_reasons"
 _TIMEOFF_REASONS_MAX = 20
 
@@ -7828,8 +8396,34 @@ def _custom_timeoff_types(db: Session) -> list:
 
 
 def _check_timeoff_type(db: Session, t: str) -> None:
-    if t not in TIMEOFF_TYPES and t not in _custom_timeoff_types(db):
-        raise HTTPException(400, f"type must be one of {TIMEOFF_TYPES + tuple(_custom_timeoff_types(db))}")
+    allowed = TIMEOFF_TYPES + tuple(_custom_timeoff_types(db))
+    if (t or "").strip().lower() not in {x.lower() for x in allowed}:
+        raise HTTPException(400, f"type must be one of {allowed}")
+
+
+def _timeoff_overlaps(db: Session, email: str, start_date: str, end_date: str, st: str = "", et: str = "",
+                      exclude_id: str = "") -> bool:
+    """Is there a pending / approved request of this person's on these dates
+    already (Oct 2, B2-14)? Two part-day requests on one day collide only
+    when their hours do."""
+    q = (db.query(TimeOffRequest)
+         .filter(TimeOffRequest.employee_email == email, TimeOffRequest.status.in_(["pending", "approved"]),
+                 TimeOffRequest.start_date <= end_date, TimeOffRequest.end_date >= start_date))
+    if exclude_id:
+        q = q.filter(TimeOffRequest.id != exclude_id)
+    for r in q.all():
+        rs, re_ = getattr(r, "start_time", "") or "", getattr(r, "end_time", "") or ""
+        if st and et and rs and re_ and r.start_date == r.end_date == start_date == end_date:
+            if rs < et and st < re_:
+                return True
+            continue
+        return True
+    return False
+
+
+def _check_timeoff_overlap(db: Session, email: str, start_date: str, end_date: str, st: str, et: str) -> None:
+    if _timeoff_overlaps(db, email, start_date, end_date, st, et):
+        raise HTTPException(409, "A request for those days is already pending/approved")
 
 
 def _timeoff_requests_on(db: Session) -> bool:
@@ -8014,11 +8608,7 @@ def _timeoff_times(body) -> tuple:
         return "", ""
     if not (st and et):
         raise HTTPException(400, "Set both the start and end times, or leave both empty for a full day.")
-    for v in (st, et):
-        try:
-            datetime.strptime(v, "%H:%M")
-        except ValueError:
-            raise HTTPException(400, "Times must be HH:MM.")
+    _check_hhmm(st, et)
     if body.start_date != body.end_date:
         raise HTTPException(400, "Partial-day time off must start and end on the same day.")
     if et <= st:
@@ -8073,6 +8663,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     if e < s:
         raise HTTPException(400, "End date is before the start date")
     st, et = _timeoff_times(body)
+    _check_timeoff_overlap(db, user["email"], body.start_date, body.end_date, st, et)
     now = _now_iso()
     row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=user["email"], type=body.type,
                          start_date=body.start_date, end_date=body.end_date,
@@ -8087,7 +8678,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                        title="Time-off request",
                        body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
-                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True)
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
@@ -8122,6 +8713,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
     if scope is not None and target not in scope:
         raise HTTPException(403, "You can only file requests for your own team.")
     st, et = _timeoff_times(body)
+    _check_timeoff_overlap(db, target, body.start_date, body.end_date, st, et)
     now = _now_iso()
     row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=target, type=body.type,
                          start_date=body.start_date, end_date=body.end_date,
@@ -8140,7 +8732,7 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                        title="Time-off request",
                        body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
-                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True)
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
@@ -8153,16 +8745,31 @@ def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get
     return [_ser_timeoff(r, priv=priv) for r in rows]
 
 
+_TIMEOFF_LIST_LIMIT = 2000
+
+
 @router.get("/timeoff")
-def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
+def list_timeoff(status: str = "", from_: str = Query("", alias="from"), to: str = "",
+                 limit: int = _TIMEOFF_LIST_LIMIT, user: dict = Depends(require_team_read),
                  db: Session = Depends(get_db)):
+    """Time off the caller may see, newest first. Paged by DATE (Oct 2,
+    B2-12: a flat 300-row cap hid everything before 07/2025 on PROD):
+    requests touching [from, to], `from` defaulting to 18 months ago."""
     q = db.query(TimeOffRequest)
     scope = _visible_emails(db, user)
     if scope is not None:
         q = q.filter(TimeOffRequest.employee_email.in_(scope))
     if status:
         q = q.filter(TimeOffRequest.status == status)
-    rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
+    lo = _parse_day(from_, "from date").isoformat() if from_ else (date.today() - timedelta(days=548)).isoformat()
+    q = q.filter(TimeOffRequest.end_date >= lo)
+    if to:
+        q = q.filter(TimeOffRequest.start_date <= _parse_day(to, "to date").isoformat())
+    try:
+        cap = max(1, min(int(limit or _TIMEOFF_LIST_LIMIT), 10000))
+    except (TypeError, ValueError):
+        cap = _TIMEOFF_LIST_LIMIT
+    rows = q.order_by(TimeOffRequest.start_date.desc(), TimeOffRequest.created_at.desc()).limit(cap).all()
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     priv = _TimeoffPrivacy(db, user["email"])
@@ -8172,6 +8779,31 @@ def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
 class TimeOffDecision(BaseModel):
     status: str                      # approved | rejected
     note: Optional[str] = ""
+    remove_shifts: bool = False      # approving: mark the published shifts inside the leave for removal
+
+
+def _timeoff_shift_conflicts(db: Session, row: TimeOffRequest) -> list:
+    """The person's PUBLISHED shifts inside the leave - the whole days, or,
+    for part of a day, only the shifts those hours overlap (Oct 2, B2-8).
+    Rows already on their way out are left alone."""
+    em = (row.employee_email or "").lower()
+    rows = [r for r in (db.query(ScheduledShift)
+                        .filter(func.lower(ScheduledShift.employee_email) == em, ScheduledShift.published == 1,
+                                ScheduledShift.pending_delete == 0,
+                                ScheduledShift.work_date >= row.start_date, ScheduledShift.work_date <= row.end_date)
+                        .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all())]
+    st, et = getattr(row, "start_time", "") or "", getattr(row, "end_time", "") or ""
+    if st and et:
+        off = _interval(row.start_date, st, et)
+        if not off:
+            return []
+        kept = []
+        for r in rows:
+            iv = _interval(r.work_date, r.start_hhmm, r.end_hhmm)
+            if iv and iv[0] < off[1] and off[0] < iv[1]:
+                kept.append(r)
+        rows = kept
+    return rows
 
 
 @router.patch("/timeoff/{req_id}")
@@ -8179,7 +8811,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                    user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
     if body.status not in ("approved", "rejected"):
         raise HTTPException(400, "status must be approved or rejected")
-    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).first()
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Request not found")
     scope = _visible_emails(db, user)
@@ -8193,18 +8825,44 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     if not priv.can_decide(row):
         raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")
     if row.status != "pending":
+        # A follow-up on an APPROVED request: the approver saw the conflicts
+        # the approval returned and now asks to remove the shifts inside it.
+        # Marks them only - the decision, approver and the person's bell stay.
+        if row.status == "approved" and body.status == "approved" and body.remove_shifts:
+            conflicts = _timeoff_shift_conflicts(db, row)
+            for r in conflicts:
+                r.pending_delete = 1
+            db.commit()
+            presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+            team_tz = _team_tz(db) if conflicts else ""
+            out = _ser_timeoff(row, priv=priv)
+            out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+            out["shiftsRemoved"] = len(conflicts)
+            return out
         raise HTTPException(409, f"Already {row.status}")
     row.status = body.status
     row.approver = user["email"]
     row.decided_at = _now_iso()
     row.decide_note = (body.note or "").strip()[:400]
+    # The shifts this leave lands on, so the approver sees them - and, when
+    # asked, marks them for removal in the same transaction (published, so
+    # staff keep them until the next publish, like any removal).
+    conflicts = _timeoff_shift_conflicts(db, row)
+    if body.status == "approved" and body.remove_shifts:
+        for r in conflicts:
+            r.pending_delete = 1
+    presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+    team_tz = _team_tz(db) if conflicts else ""
     _hr_notify(db, row.employee_email, f"Time off {body.status}",
                f"Your {row.type} request {_us_span(row.start_date, row.end_date)}"
                f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')} was {body.status}."
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     db.commit()
-    return _ser_timeoff(row, priv=priv)
+    out = _ser_timeoff(row, priv=priv)
+    out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+    out["shiftsRemoved"] = len(conflicts) if body.status == "approved" and body.remove_shifts else 0
+    return out
 
 
 @router.post("/timeoff/{req_id}/cancel")

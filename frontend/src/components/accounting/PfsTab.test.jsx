@@ -106,7 +106,8 @@ describe('PfsTab', () => {
     expect(within(dialog).getByRole('button', { name: 'Save' }).disabled).toBe(true);   // nothing to read yet
     fireEvent.change(await within(dialog).findByLabelText('Entity'), { target: { value: '60100' } });
     fireEvent.click(await within(dialog).findByRole('option', { name: /25000/ }));
-    expect(within(dialog).getByText(/1 picked · 400,000.00/)).toBeTruthy();
+    // The figure sits in its own <Amount /> span (tabular, reserved ) slot), so read the whole line.
+    expect(within(dialog).getByText(/1 picked ·/).textContent).toBe('1 picked · 400,000.00');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.addPfsLine).toHaveBeenCalled());
     expect(api.addPfsLine.mock.calls[0][1]).toMatchObject({ section: 'liability', category: 'business_loan', label: 'F&M Bank Loan', ownershipPct: 7.5, source: 'ledger', ledgerEntity: '60100', ledgerAccounts: ['25000'] });

@@ -9,6 +9,7 @@ import SavedReportsManager from './SavedReportsManager';
 import SendReportDialog from './SendReportDialog';
 import { takePendingDrill } from './drill';
 import { useAccountingPrefs } from './prefs';
+import Amount, { Figure } from './Amount';
 import {
   AccountsPicker, ClearButton, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, PeriodStepper,
   SavedReportsMenu, control,
@@ -50,6 +51,11 @@ import {
 // (departments inside); the Columns dropdown is labeled; the filters in
 // force sit under the title as chips that come off in one click; zero
 // balances are hidden unless Customize shows them; one Export menu.
+//
+// Figures (Charmi, 09/30): every number goes through <Amount /> - tabular
+// Inter, two decimals, a negative in parentheses that stand outside the
+// digit column (the reserved ) slot), a zero as a dash on the statement -
+// and copying cells puts raw numbers on the clipboard.
 
 // What a memorized report keeps: the controls, never the figures. A named
 // period is kept by name so it moves with the calendar.
@@ -405,13 +411,13 @@ export default function ReportsTab({ search = null }) {
             <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
               {shown.summary.map((f) => (
                 <span key={f.label} style={{ color: 'var(--text-secondary)' }}>
-                  {f.label} <strong style={{ color: f.tone === 'good' ? 'var(--ok-fg, #15803d)' : f.tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{f.value}</strong>
+                  {f.label} <strong style={{ color: f.tone === 'good' ? 'var(--ok-fg, #15803d)' : f.tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{f.amount != null ? <Amount value={f.amount} /> : <Figure text={f.value} />}</strong>
                 </span>
               ))}
             </div>
           )}
 
-          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }}>
+          <div className="acct-report-wrap" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
             <table className="acct-report" style={{ '--acct-row-py': DENSITIES.find((d) => d.key === density)?.py || '5px' }}>
               <colgroup><col style={colW ? { width: colW, minWidth: colW } : undefined} /></colgroup>
               <thead>
@@ -440,6 +446,19 @@ export default function ReportsTab({ search = null }) {
   );
 }
 
+// Copying cells puts raw numbers on the clipboard: "(3,418.07)" pastes into
+// Excel as -3418.07, a dash as 0 and "1,500.00" as 1500.00, so formulas work.
+function copyRaw(e) {
+  const text = String(window.getSelection?.() || '');
+  if (!text.trim()) return;
+  const raw = text
+    .replace(/\((\d[\d,]*\.?\d*%?)\)/g, '-$1')
+    .replace(/(^|\s)-(?=\s|$)/gm, (_m, lead) => `${lead}0`)
+    .replace(/(\d),(?=\d{3})/g, '$1');
+  e.clipboardData.setData('text/plain', raw);
+  e.preventDefault();
+}
+
 // The Total column beside a run of period or entity columns.
 const EMPHASIS = { fontWeight: 700, borderLeft: '2px solid var(--border-color)' };
 // A filter in force, under the report title; its X takes it off.
@@ -456,17 +475,18 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
     const v = row.values[i];
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)' }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
     if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: c.key === 'description' ? 460 : 220, overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : 'var(--text-secondary)' }}>{v || ''}</td>;
-    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}>{v || '-'}</td>;
-    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}>{cellText(row, c, v) || '-'}</td>;
-    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}>{cellText(row, c, v)}</td>;
-    const money = (x) => cellText(row, c, x);
+    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}><Figure text={v || '-'} /></td>;
+    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}><Figure text={cellText(row, c, v) || '-'} /></td>;
+    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}><Amount value={v} zero="dash" /></td>;
+    // A zero is a dash on the statement; a ledger line leaves its empty side blank.
+    const figure = <Amount value={v} zero={row.kind === 'line' ? 'blank' : 'dash'} />;
     const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
     const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
     return (
       <td key={c.key} className="acct-num" style={style}>
         {row.kind === 'account' && row.code && c.drill
-          ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => onDrill(row, c)}>{money(v)}</button>
-          : money(v)}
+          ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => onDrill(row, c)}>{figure}</button>
+          : figure}
       </td>
     );
   });

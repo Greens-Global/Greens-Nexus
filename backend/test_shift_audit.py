@@ -58,6 +58,10 @@ DAY = (datetime.now(timezone.utc).date() + timedelta(days=10)).isoformat()
 DAY2 = (datetime.now(timezone.utc).date() + timedelta(days=17)).isoformat()
 
 
+# A teammate's whole-day time off as my-schedule carries it (Oct 2: part-day times travel too).
+ALL_DAY = {"startDate": DAY2, "endDate": DAY2, "startTime": "", "endTime": "", "allDay": True}
+
+
 class ShiftAuditTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(main.app)
@@ -177,7 +181,7 @@ class ShiftAuditTests(unittest.TestCase):
         self.assertEqual(stranger.json()["detail"], "That person is not in the People list.")
         # An open shift has no person, and a mixed-case address is the same person.
         self.assertEqual(self.client.post("/timeclock/schedule", json={"employee_email": "", "work_date": DAY,
-                                                                       "shift_id": PRESET, "open_slots": 2}).status_code, 200)
+                                                                       "shift_id": PRESET, "open_slots": 2, "group_id": GROUP}).status_code, 200)
         self.assertEqual(self.client.post("/timeclock/schedule", json={"employee_email": A.upper(), "work_date": DAY,
                                                                        "shift_id": PRESET}).status_code, 200)
 
@@ -246,17 +250,17 @@ class ShiftAuditTests(unittest.TestCase):
 
     def test_why_a_teammate_is_off_follows_the_setting(self):
         self._timeoff(B)
-        self.assertEqual(self._teammate(A, B)["timeoff"], [{"startDate": DAY2, "endDate": DAY2}])    # off by default
+        self.assertEqual(self._teammate(A, B)["timeoff"], [ALL_DAY])    # off by default
         self._as(BOSS)
         self._settings(teamTimeOffReasons=True)
         self.assertEqual(self._teammate(A, B)["timeoff"],
-                         [{"startDate": DAY2, "endDate": DAY2, "type": "vacation", "note": "Family trip"}])
+                         [{**ALL_DAY, "type": "vacation", "note": "Family trip"}])
 
     def test_a_confidential_reason_reaches_no_teammate(self):
         self._timeoff(B, confidential=1, note="Private")
         self._settings(teamTimeOffReasons=True)
         for viewer in (A, M1, BOSS):
-            self.assertEqual(self._teammate(viewer, B)["timeoff"], [{"startDate": DAY2, "endDate": DAY2}], viewer)
+            self.assertEqual(self._teammate(viewer, B)["timeoff"], [ALL_DAY], viewer)
 
     def test_shift_details_follow_the_setting(self):
         sid = self._place(B, note="Bring keys", break_min=30,
