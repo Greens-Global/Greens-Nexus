@@ -36,14 +36,14 @@ beforeEach(() => { for (const k of Object.keys(calls)) delete calls[k]; globalTh
 
 describe('manager inbox', () => {
   it('shows a confidential request with its type, no note, and who decides it', async () => {
-    globalThis.__apiAnswers = { timeOffList: [REDACTED, PLAIN] };
+    // The inbox takes its data from the module (Shifts.jsx, useManagerInbox) since Oct 2026.
     const Inbox = (await import('./ShiftRequestsInbox')).default;
-    render(<Inbox onClose={() => {}} />);
+    render(<Inbox inbox={{ pending: [], recent: [], waitingOnPeer: [] }} timeoff={[REDACTED, PLAIN]} loading={false} error={null} onRetry={() => {}} />);
     expect(await screen.findByText('Valinda Test decides this request.')).toBeTruthy();
     expect(screen.getAllByText('Confidential').length).toBe(1);
-    expect(screen.getByText('Time off · sick')).toBeTruthy();
+    expect(screen.getByText(/Time Off · Sick/)).toBeTruthy();
     // The plain request keeps its type, note and buttons.
-    expect(screen.getByText('Time off · vacation')).toBeTruthy();
+    expect(screen.getByText(/Time Off · Vacation/)).toBeTruthy();
     expect(screen.getByText('Beach week')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Approve' }).length).toBe(1);
   });

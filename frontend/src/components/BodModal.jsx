@@ -15,7 +15,7 @@ import { Spinner } from './AsyncState';
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
 // posts to a Teams GROUP CHAT from the employee's OWN ACCOUNT and is recorded in
 // Nexus. Each person posts to exactly ONE chat - the one an admin bound to their
-// group (managed under Shifts → Presets & groups). Employees never pick from a
+// group (Settings > Global Settings > Shifts > Groups). Employees never pick from a
 // list; if their group has no bound chat, the message is recorded in Nexus only.
 // Prompts skip only via the "already sent" tick, so nobody silently skips and
 // nobody is nagged twice.
@@ -405,7 +405,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 No team chat set up for you yet - your message is recorded in Nexus.
-                An admin can link one under Shifts → Presets &amp; groups.
+                An admin can link one under Settings &gt; Global Settings &gt; Shifts &gt; Groups.
               </div>
             )}
           </div>
