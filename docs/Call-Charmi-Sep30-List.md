@@ -8,6 +8,15 @@ to PROD data read through SQL (read-only).
 
 Status key: ☐ not started · ◐ partly done · ✅ done
 
+**Status 10/02/2026 (branch feat/charmi-sep30-shifts):** BUILT - Part A: A1-A9 and
+A10 in full, with the open decisions taken as recommended (A4 holidays stay in the
+denominator; A5 = max(₹500, 1.35 × daily × hours / full day); A6 full = full-day
+hours minus 1 h, half = 4 h; A7 numbers only, no serif). Part B: B1 1-3, B2 4-18,
+B3 19-30, B4 31-36, B5 37-46, B6 47-53, B8 59-60 built. NOT built: B7 PROD data
+cleanup (54-58, needs a go-ahead) and the request switches state (A10 last
+bullet, a setting). Release step: `ALTER TABLE payroll_rate_history ENABLE ROW
+LEVEL SECURITY` on dev and prod after the API restarts.
+
 ---
 
 ## Part A - What Charmi asked on the call
