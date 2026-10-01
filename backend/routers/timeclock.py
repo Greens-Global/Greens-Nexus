@@ -357,7 +357,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     on it or fail because of it)."""
     who = f"{emp.first_name} {emp.last_name}".strip() or emp.work_email
     verb = "punched in" if row.kind == "in" else "punched out"
-    site = geo.get("work_site_name") or "the nearest work site"
+    site = geo.get("work_site_name") or "the nearest location"
     dist = int(geo.get("distance_m") or 0)
     when = _fmt_local(row.at, row.tz_offset_min or 0)
     _hr_notify(db, emp.manager_email, "Out-of-fence punch",
@@ -372,7 +372,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
     maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
     html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
-            f"<p>Nearest work site: <b>{site}</b> - {dist:,} m away"
+            f"<p>Nearest location: <b>{site}</b> - {dist:,} m away"
             f"{' (GPS accuracy ±' + str(int(row.accuracy_m or 0)) + ' m)' if row.accuracy_m else ''}.</p>"
             + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
             + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
@@ -1736,7 +1736,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
         else:
             site = db.query(HrWorkSite).filter(HrWorkSite.id == wsid).first()
             if not site:
-                raise HTTPException(404, "Work site not found")
+                raise HTTPException(404, "Location not found")
             # A manager asserting the site counts as on-site (in_fence), distance 0.
             row.work_site_id, row.work_site_name = site.id, site.name or ""
             row.geo_status, row.distance_m = "in_fence", 0

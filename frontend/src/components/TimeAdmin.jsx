@@ -552,12 +552,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : billable.length === 0 ? (
           <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
-            No billable time in this range. Register each property as a Work site (People &gt; Work sites) with its address and radius, so clock-ins geofence to it and hours attribute per property.
+            No billable time in this range. Register each property as a Location (People &gt; Locations) with its address and radius, so clock-ins geofence to it and hours attribute per property.
           </div>
         ) : (
           <div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              Worked hours split by the work site each shift was clocked from. A worker who clocks out at one property and in at another splits automatically; the GPS-verified line shows time on each site from the mobile trail when a worker moves between properties within one clock-in.
+              Worked hours split by the location each shift was clocked from. A worker who clocks out at one property and in at another splits automatically; the GPS-verified line shows time on each site from the mobile trail when a worker moves between properties within one clock-in.
             </div>
             {billable.map(r => {
               const segTotal = r.byLocation.reduce((a, x) => a + (x.workedMin || 0), 0);

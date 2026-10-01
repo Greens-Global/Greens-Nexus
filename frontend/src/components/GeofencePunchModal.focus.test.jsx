@@ -30,7 +30,7 @@ describe('GeofencePunchModal focused on a shift', () => {
     const boxes = [...container.querySelectorAll('tbody input[type="checkbox"]')];
     expect(boxes.map((b) => b.checked)).toEqual([true, true, false]);
     expect(container.querySelectorAll('tr[data-focus]').length).toBe(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Change Work Site' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change Location' }));
     expect(onEditSite).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Show All Punches' }));
     expect([...container.querySelectorAll('tbody input[type="checkbox"]')].every((b) => b.checked)).toBe(true);
@@ -39,7 +39,7 @@ describe('GeofencePunchModal focused on a shift', () => {
   it('opened without a focus shows every punch and no site editor', async () => {
     const { container } = render(<GeofencePunchModal email="a@x.com" name="Ashley" start="2026-09-21" end="2026-10-04" onClose={() => {}} />);
     await waitFor(() => expect(container.querySelectorAll('tbody input[type="checkbox"]').length).toBe(3));
-    expect(screen.queryByRole('button', { name: 'Change Work Site' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Change Location' })).toBeNull();
     expect(screen.queryByText(/Showing/)).toBeNull();
   });
 });

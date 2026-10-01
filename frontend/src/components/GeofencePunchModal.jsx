@@ -178,8 +178,8 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" style={btn(!onlyOut)} onClick={() => setOnlyOut(false)}>All Punches</button>
             <button type="button" style={btn(onlyOut)} onClick={() => setOnlyOut(true)}>Out of Fence{outCount ? ` (${outCount})` : ''}</button>
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Work site" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
-              <option value="">All work sites</option>
+            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Location" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
+              <option value="">All locations</option>
               {sites.map((s) => <option key={s.id} value={s.id}>{s.name}{s.assigned ? ' (assigned)' : ''}</option>)}
             </select>
             <button type="button" onClick={() => window.print()} aria-label="Print" title="Print" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><Printer size={16} /></button>
@@ -197,7 +197,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                 {focusNoGps && <span style={{ color: '#b91c1c', fontWeight: 600 }}> No GPS was captured for this punch, so there is no pin to show.</span>}
               </span>
               {focused && <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={showAll}>Show All Punches</button>}
-              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onEditSite}>Change Work Site</button>}
+              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onEditSite}>Change Location</button>}
             </div>
           )}
           {data && (
@@ -222,8 +222,8 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                       const out = p.geoStatus === 'out_of_fence';
                       const rowBg = out ? 'rgba(220,38,38,0.08)' : p.geoStatus === 'in_fence' ? 'rgba(21,128,61,0.08)' : undefined;
                       const isFocus = focused && selected.has(p.id);
-                      const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Work site')
-                        : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${distText(p.distanceM)} from ${p.workSiteName || 'the nearest site'}` : 'Looking up address...'))
+                      const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Location')
+                        : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${distText(p.distanceM)} from ${p.workSiteName || 'the nearest location'}` : 'Looking up address...'))
                         : p.geoStatus === 'remote' ? 'Remote' : p.geoStatus === 'no_location' ? 'No GPS captured' : (p.workSiteName ? `Near ${p.workSiteName}` : 'GPS only');
                       return (
                         <tr key={p.id} data-focus={isFocus || undefined} style={{ background: rowBg, boxShadow: isFocus ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : undefined, fontWeight: isFocus ? 600 : undefined }}>
