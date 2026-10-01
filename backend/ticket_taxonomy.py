@@ -68,20 +68,48 @@ _TYPE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 # "Other" is not listed: the form always offers it, with a required short
 # answer (max TOPIC_MAX_LEN characters).
 TOPIC_MAX_LEN = 50
+
+# Sub-options (Neil, Oct 1 2026): a topic may carry an optional second level,
+# asked as "Which one?" once the topic is picked - IT -> Microsoft -> Outlook.
+# "We don't want hundreds of options. It should be IT, then what the issue is -
+# it should help filter to the exact issue quickly." So a short list, named the
+# way END USERS see the thing ("Microsoft 365 means something to us, nothing to
+# the end user - they see it as Outlook, Teams, OneDrive"). Optional for the
+# requester, and stored on the ticket as typeFields.svc_helpSubtopic.
+OPTIONS_MAX = 30
+
+# The Nexus modules, as the left navigation names them (Sidebar.jsx NAV) - the
+# Support page's Report a Bug flow is gone, so "Nexus -> which module" is how
+# a bug report says where it happened.
+NEXUS_MODULES = [
+    "Dashboard", "Workday (Time Clock, Time Sheet, Time Off)", "Shifts", "Tasks",
+    "Tickets or Support", "Files", "Knowledge Base", "Documents or Nexus Sign",
+    "Item Management", "Asset Management", "Accounting", "Investor Relations",
+    "People", "Construction", "Operations", "Marketing", "Business Intelligence",
+    "Credential Vault", "Workforce Analytics", "Notifications or Emails", "Settings",
+]
+
 DEFAULT_HELP_TOPICS = [
     {"label": "IT Support", "departments": ["it", "it support", "information technology", "technology"],
      "topics": [
-         {"name": "Nexus", "area": "tasks"},
-         {"name": "Microsoft 365 (Outlook, Teams, OneDrive)", "area": "email"},
-         {"name": "Sage Intacct", "area": "finance"},
+         {"name": "Nexus", "area": "tasks", "options": list(NEXUS_MODULES)},
+         {"name": "Microsoft (Outlook, Teams, OneDrive)", "area": "email",
+          "options": ["Outlook", "Teams", "OneDrive", "SharePoint", "Word", "Excel", "PowerPoint"]},
+         {"name": "Sage Intacct", "area": "finance",
+          "options": ["General Ledger", "Accounts Payable", "Accounts Receivable", "Cash Management",
+                      "Purchasing", "Order Entry", "Projects", "Fixed Assets", "Reporting"]},
          {"name": "Egnyte", "area": "files"},
          {"name": "Cubby", "area": "storageops"},
-         {"name": "Login or Password", "area": "email"},
+         {"name": "Login or Password", "area": "email",
+          "options": ["Computer", "Microsoft (Outlook, Teams)", "Nexus", "Sage Intacct", "Egnyte", "Cubby"]},
+         {"name": "Access to a Nexus Module", "area": "tasks", "options": list(NEXUS_MODULES)},
          {"name": "Computer or Laptop", "area": "hardware"},
          {"name": "Printer or Scanner", "area": "hardware"},
          {"name": "Phone", "area": "collab"},
          {"name": "Internet or Wi-Fi", "area": "network"},
-         {"name": "Cameras or Gate Access", "area": "security"},
+         # Two different things (Neil, Oct 1) - used to be one topic.
+         {"name": "Cameras", "area": "security"},
+         {"name": "Gate Access", "area": "security"},
      ]},
     {"label": "Construction & Maintenance",
      "departments": ["construction", "maintenance", "construction & maintenance",
@@ -106,6 +134,56 @@ DEFAULT_HELP_TOPICS = [
          {"name": "Site Supplies", "area": "general"},
      ]},
 ]
+
+# helpTopics saved before sub-options existed (version 1) are upgraded on read,
+# once, without clobbering what an admin chose: only the two default topics
+# Neil renamed/split change name, topics that never had a sub-option list get
+# the default one (matched by name), and a group that is a default group's
+# (shares a department name) gains the topics added in version 2 if missing.
+# Everything else - order, removals, custom topics, areas - is kept as saved.
+HELP_TOPICS_VERSION = 2
+_LEGACY_TOPIC_NAMES = {
+    "microsoft 365 (outlook, teams, onedrive)": ["Microsoft (Outlook, Teams, OneDrive)"],
+    "cameras or gate access": ["Cameras", "Gate Access"],
+}
+_ADDED_IN_V2 = {"access to a nexus module"}
+
+
+def _default_topic(name: str) -> dict | None:
+    key = (name or "").strip().lower()
+    for g in DEFAULT_HELP_TOPICS:
+        for tp in g["topics"]:
+            if tp["name"].lower() == key:
+                return tp
+    return None
+
+
+def _upgrade_help_topics(groups: list) -> list:
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        topics = []
+        for tp in g.get("topics") or []:
+            if not isinstance(tp, dict):
+                continue
+            renamed = _LEGACY_TOPIC_NAMES.get(str(tp.get("name") or "").strip().lower())
+            for name in renamed or [tp.get("name")]:
+                nt = {**tp, "name": name}
+                if "options" not in nt:
+                    d = _default_topic(name)
+                    if d and d.get("options"):
+                        nt["options"] = list(d["options"])
+                topics.append(nt)
+        depts = {str(d).strip().lower() for d in (g.get("departments") or [])}
+        have = {str(tp.get("name") or "").strip().lower() for tp in topics}
+        for dg in DEFAULT_HELP_TOPICS:
+            if depts & set(dg["departments"]):
+                for d in dg["topics"]:
+                    if d["name"].lower() in _ADDED_IN_V2 and d["name"].lower() not in have:
+                        topics.append(json.loads(json.dumps(d)))
+        out.append({**g, "topics": topics})
+    return out
 
 
 class TaxonomyError(ValueError):
@@ -136,6 +214,7 @@ _DEFAULTS = {
     "companyField": {"enabled": False, "companyIds": []},
     # See DEFAULT_HELP_TOPICS. Replaced wholesale by a saved list.
     "helpTopics": DEFAULT_HELP_TOPICS,
+    "helpTopicsVersion": HELP_TOPICS_VERSION,
 }
 
 
@@ -162,6 +241,26 @@ def _validate_types_patch(types: Any) -> None:
             raise TaxonomyError(f"requiresApproval for ticket type {key!r} must be true or false.")
 
 
+def _clean_options(topic: str, options: Any) -> list:
+    """A topic's "Which one?" list: trimmed, blanks and repeats dropped."""
+    if options is None:
+        return []
+    if not isinstance(options, list):
+        raise TaxonomyError(f"The sub-options of {topic!r} must be a list.")
+    out, seen = [], set()
+    for o in options:
+        name = str(o or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        if len(name) > TOPIC_MAX_LEN:
+            raise TaxonomyError(f"Sub-option {name!r} is too long ({TOPIC_MAX_LEN} characters max).")
+        seen.add(name.lower())
+        out.append(name)
+    if len(out) > OPTIONS_MAX:
+        raise TaxonomyError(f"{topic!r} has too many sub-options ({OPTIONS_MAX} max) - keep the list short.")
+    return out
+
+
 def _clean_help_topics(groups: Any) -> list:
     if not isinstance(groups, list):
         raise TaxonomyError("helpTopics must be a list.")
@@ -177,7 +276,11 @@ def _clean_help_topics(groups: Any) -> list:
                 continue
             if len(name) > TOPIC_MAX_LEN:
                 raise TaxonomyError(f"Help topic {name!r} is too long ({TOPIC_MAX_LEN} characters max).")
-            topics.append({"name": name, "area": str(tp.get("area") or "general").strip().lower()})
+            topic = {"name": name, "area": str(tp.get("area") or "general").strip().lower()}
+            options = _clean_options(name, tp.get("options"))
+            if options:
+                topic["options"] = options
+            topics.append(topic)
         out.append({"label": str(g.get("label") or "").strip(), "departments": depts, "topics": topics})
     return out
 
@@ -192,6 +295,12 @@ def topic_area(db: Session, name: str) -> str:
         for tp in g.get("topics") or []:
             if (tp.get("name") or "").strip().lower() == key:
                 return tp.get("area") or "general"
+    # A ticket filed under a topic name from before the Oct 1 rename/split
+    # still files under the area that topic had.
+    for legacy in _LEGACY_TOPIC_NAMES.get(key, []):
+        area = topic_area(db, legacy)
+        if area:
+            return area
     return ""
 
 
@@ -213,6 +322,8 @@ def get_config(db: Session) -> dict:
         merged["typeOrder"] = cfg["typeOrder"]
     if isinstance(cfg.get("helpTopics"), list):
         merged["helpTopics"] = cfg["helpTopics"]
+        if not isinstance(cfg.get("helpTopicsVersion"), int) or cfg["helpTopicsVersion"] < HELP_TOPICS_VERSION:
+            merged["helpTopics"] = _upgrade_help_topics(cfg["helpTopics"])
     cf = cfg.get("companyField") or {}
     merged["companyField"] = {
         "enabled": bool(cf.get("enabled")),

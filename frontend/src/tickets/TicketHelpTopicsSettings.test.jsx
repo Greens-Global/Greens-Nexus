@@ -10,6 +10,7 @@ const CONFIG = {
     { label: 'IT Support', departments: ['it', 'it support', 'information technology'],
       topics: [{ name: 'Nexus', area: 'tasks' }, { name: 'Printer or Scanner', area: 'hardware' }] },
     { label: 'Construction', departments: ['construction'], topics: [{ name: 'Plumbing or Water Leak', area: 'facilities' }] },
+    { label: 'Admin', departments: ['admin'], topics: [{ name: 'Microsoft', area: 'email', options: ['Outlook', 'Teams'] }] },
   ],
 };
 const DEPTS = [
@@ -17,6 +18,9 @@ const DEPTS = [
   { id: 'd2', name: 'Construction', companyId: 'c1' },
   { id: 'd3', name: 'HR', companyId: 'c1' },
   { id: 'd4', name: 'IT', companyId: 'c2' },
+  { id: 'd5', name: 'Admin', companyId: 'c1' },
+  // Deleted from the global list - no tab for it.
+  { id: 'd6', name: 'Ghost', companyId: 'c1', removed: true },
 ];
 
 vi.mock('../api', () => ({
@@ -39,7 +43,7 @@ describe('TicketHelpTopicsSettings', () => {
   it('lists each department name once, with its topic count', async () => {
     render(<Panel />);
     const tabs = await screen.findAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['IT2', 'Construction1', 'HRTyped']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['IT2', 'Construction1', 'HRTyped', 'Admin1']);
   });
 
   it('shows the picked department\'s topics and edits them', async () => {
@@ -73,10 +77,44 @@ describe('TicketHelpTopicsSettings', () => {
       { label: 'IT', departments: ['it'], topics: [{ name: 'Nexus', area: 'tasks' }, { name: 'Printer or Scanner', area: 'hardware' }] },
       { label: 'Construction', departments: ['construction'], topics: [{ name: 'Plumbing or Water Leak', area: 'facilities' }] },
       { label: 'HR', departments: ['hr'], topics: [{ name: 'Payroll', area: 'general' }] },
+      { label: 'Admin', departments: ['admin'], topics: [{ name: 'Microsoft', area: 'email', options: ['Outlook', 'Teams'] }] },
       // "IT Support" / "Information Technology" match no department today -
       // kept, so renaming IT back to one of them does not lose its list.
       { label: 'IT Support', departments: ['it support', 'information technology'],
         topics: [{ name: 'Nexus', area: 'tasks' }, { name: 'Printer or Scanner', area: 'hardware' }] },
     ]);
+  });
+
+  // Oct 1 2026 (Neil): Microsoft -> Outlook, Teams... an optional second level.
+  it("edits a topic's Which One? options and saves them with the topic", async () => {
+    render(<Panel />);
+    await screen.findAllByRole('tab');
+    fireEvent.click(screen.getByRole('tab', { name: /Admin/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sub-options for Microsoft' }));
+    const region = screen.getByRole('region', { name: 'Which One? options for Microsoft' });
+    expect(screen.getAllByLabelText('Option name').map((i) => i.value)).toEqual(['Outlook', 'Teams']);
+    expect(region).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Add an option for Microsoft…'), { target: { value: 'OneDrive' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Option/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove option Teams' }));
+    fireEvent.change(screen.getByPlaceholderText('Add an option for Microsoft…'), { target: { value: 'outlook' } });
+    expect(screen.getByText('That option is already listed.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
+    const admin = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics.find((g) => g.label === 'Admin');
+    expect(admin.topics).toEqual([{ name: 'Microsoft', area: 'email', options: ['Outlook', 'OneDrive'] }]);
+  });
+
+  it('a topic with no options saves without an options list', async () => {
+    render(<Panel />);
+    await screen.findAllByRole('tab');
+    fireEvent.click(screen.getByRole('button', { name: 'Sub-options for Nexus' }));
+    fireEvent.change(screen.getByPlaceholderText('Add an option for Nexus…'), { target: { value: 'Tasks' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Option/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalled());
+    const it_ = api.updateTicketTaxonomySettings.mock.calls[0][0].helpTopics[0];
+    expect(it_.topics).toEqual([{ name: 'Nexus', area: 'tasks', options: ['Tasks'] }, { name: 'Printer or Scanner', area: 'hardware' }]);
   });
 });

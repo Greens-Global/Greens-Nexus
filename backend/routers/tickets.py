@@ -1142,8 +1142,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if (t.description or "") != prev_description:
         _log("description_changed", "updated the description")
     if t.hr_department_id != prev_dept:
-        name = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first() if t.hr_department_id else None
-        _log("department_changed", f"changed department to {name.name if name else '-'}")
+        _log("department_changed", f"changed department to {dept_name(db, t.hr_department_id) or '-'}")
     if t.company_id != prev_company:
         c = db.query(models.HrEntity).filter(models.HrEntity.id == t.company_id).first() if t.company_id else None
         _log("company_changed", f"changed company to {c.name if c else '-'}")
@@ -1537,31 +1536,198 @@ def company_for(db: Session, email: str) -> str:
     return (emp.company or "") if emp else ""
 
 
+# ── Ticket departments = the company's GLOBAL departments (Neil, Oct 1 2026) ──
+# "The departments should come from global. It can't be that tasks have
+# different departments and tickets have different. We need to be able to set
+# the company, then import the departments into each module, and then have the
+# option of turning it off. Like, I don't want a construction ticket."
+#
+# So the LIST - which departments a company has, and what they are called -
+# comes only from HrDepartment (Settings -> Company Settings -> the company ->
+# Departments), the same rows the Task module reads. Adding, renaming and
+# deleting a department happens there and nowhere else. ticket_departments
+# survives as the Tickets module's per-department SETTINGS, keyed by the same
+# id: `enabled` (offered at intake or not), the escalation lead/backup, and the
+# intake order. A department added globally appears here on the next read,
+# enabled; a rename shows here on the next read (the global name wins).
+#
+# Legacy rows - departments created in the ticket desk between the Sept 13
+# split and this merge, which never existed globally - are PROMOTED once into
+# HrDepartment with the same id (_unify_legacy_departments), so no department
+# and no ticket's hr_department_id disappears. Where the company already has a
+# global department of that name, the two are merged instead: tickets are
+# re-pointed to the global id and the routing lead/backup carried over.
+_UNIFIED_KEY = "ticket_departments_unified_v1"
+
+
+def _dept_key(name: str) -> str:
+    return (name or "").strip().lower()
+
+
+def _unify_legacy_departments(db: Session) -> None:
+    """One-time promotion of ticket-only departments into the global list.
+
+    Guarded by a NexusSetting marker so it runs exactly once per database: after
+    the merge, a settings row whose department was deleted globally is a
+    deletion to respect, not a legacy row to bring back."""
+    if db.query(models.NexusSetting).filter(models.NexusSetting.key == _UNIFIED_KEY).first():
+        return
+    try:
+        hr_rows = db.query(models.HrDepartment).all()
+        hr_ids = {d.id for d in hr_rows}
+        by_name = {(d.company_id, _dept_key(d.name)): d for d in hr_rows}
+        next_sort: dict[str, int] = {}
+        for d in hr_rows:
+            next_sort[d.company_id] = max(next_sort.get(d.company_id, -1), d.sort_order or 0)
+        settings = {s.id: s for s in db.query(models.TicketDepartment).all()}
+        promoted, merged = [], []
+        for s in list(settings.values()):
+            if s.id in hr_ids:
+                continue
+            match = by_name.get((s.company_id, _dept_key(s.name)))
+            if match is not None and match.id != s.id:
+                # The same department twice (made in both places). Keep the
+                # global one; move the tickets and the routing over to it.
+                (db.query(models.TaskTicket).filter(models.TaskTicket.hr_department_id == s.id)
+                 .update({models.TaskTicket.hr_department_id: match.id}, synchronize_session=False))
+                keep = settings.get(match.id)
+                if keep is None:
+                    keep = models.TicketDepartment(id=match.id, company_id=match.company_id, name=match.name,
+                                                   sort_order=s.sort_order, enabled=True,
+                                                   created_by=s.created_by or "", created_at=s.created_at or now_iso())
+                    db.add(keep)
+                    settings[match.id] = keep
+                keep.lead_email = keep.lead_email or s.lead_email or ""
+                keep.backup_email = keep.backup_email or s.backup_email or ""
+                db.delete(s)
+                merged.append(s.name)
+                continue
+            nxt = next_sort.get(s.company_id, -1) + 1
+            next_sort[s.company_id] = nxt
+            g = models.HrDepartment(id=s.id, company_id=s.company_id, name=s.name, sort_order=nxt,
+                                    created_by=s.created_by or "tickets", created_at=s.created_at or now_iso())
+            db.add(g)
+            by_name[(s.company_id, _dept_key(s.name))] = g
+            promoted.append(s.name)
+        db.add(models.NexusSetting(key=_UNIFIED_KEY, updated_by="system", updated_at=now_iso(),
+                                   value=json.dumps({"promoted": promoted, "merged": merged})))
+        db.commit()
+    except Exception:
+        # Another worker got there first (both insert the marker) - its
+        # result stands, nothing to redo.
+        db.rollback()
+
+
+def _sync_ticket_departments(db: Session, company_id: Optional[str] = None) -> None:
+    """Give every global department a ticket settings row, and mirror its
+    current name/company onto it. Idempotent; commits only when something
+    changed."""
+    hq = db.query(models.HrDepartment)
+    sq = db.query(models.TicketDepartment)
+    if company_id is not None:
+        hq = hq.filter(models.HrDepartment.company_id == company_id)
+        sq = sq.filter(models.TicketDepartment.company_id == company_id)
+    settings = {s.id: s for s in sq.all()}
+    hr_rows = hq.all()
+    # A department moved between companies has its settings row under the old
+    # company - look it up by id, not through the company filter.
+    missing = [d.id for d in hr_rows if d.id not in settings]
+    if missing:
+        for s in db.query(models.TicketDepartment).filter(models.TicketDepartment.id.in_(missing)).all():
+            settings[s.id] = s
+    next_sort: dict[str, int] = {}
+    for s in settings.values():
+        next_sort[s.company_id] = max(next_sort.get(s.company_id, -1), s.sort_order or 0)
+    changed = False
+    for d in sorted(hr_rows, key=lambda d: (d.sort_order or 0, d.name or "")):
+        s = settings.get(d.id)
+        if s is None:
+            nxt = next_sort.get(d.company_id, -1) + 1
+            next_sort[d.company_id] = nxt
+            db.add(models.TicketDepartment(id=d.id, company_id=d.company_id, name=d.name, sort_order=nxt,
+                                           enabled=True, created_by="system", created_at=now_iso()))
+            changed = True
+        elif s.name != d.name or s.company_id != d.company_id:
+            s.name, s.company_id = d.name, d.company_id
+            changed = True
+    if changed:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()   # a concurrent read inserted the same row - fine
+
+
+def _dept_dict(s: models.TicketDepartment, live: Optional[models.HrDepartment]) -> dict:
+    return {"id": s.id, "name": live.name if live else s.name, "companyId": s.company_id,
+            "leadEmail": s.lead_email or "", "backupEmail": s.backup_email or "",
+            "enabled": s.enabled is not False,
+            # Deleted from the company's department list: kept in the full
+            # list only so tickets filed against it still show its name.
+            "removed": live is None}
+
+
+def _ticket_depts(db: Session, company_id: Optional[str] = None, *, enabled_only: bool = False,
+                  include_removed: bool = False) -> list[dict]:
+    _unify_legacy_departments(db)
+    _sync_ticket_departments(db, company_id)
+    hq = db.query(models.HrDepartment)
+    sq = db.query(models.TicketDepartment)
+    if company_id is not None:
+        hq = hq.filter(models.HrDepartment.company_id == company_id)
+        sq = sq.filter(models.TicketDepartment.company_id == company_id)
+    live = {d.id: d for d in hq.all()}
+    out = []
+    for s in sq.order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all():
+        g = live.get(s.id)
+        if g is None and not include_removed:
+            continue
+        if enabled_only and (g is None or s.enabled is False):
+            continue
+        out.append(_dept_dict(s, g))
+    return out
+
+
+def dept_name(db: Session, dept_id: str) -> str:
+    """A ticket's department name: the global name, else the last name the
+    ticket desk knew it by (a department since deleted globally)."""
+    if not dept_id:
+        return ""
+    d = db.query(models.HrDepartment).filter(models.HrDepartment.id == dept_id).first()
+    if d:
+        return d.name or ""
+    s = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == dept_id).first()
+    return (s.name or "") if s else ""
+
+
 @router.get("/ticket-departments")
 def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current_user),
                             db: Session = Depends(get_db)):
-    """`mine=true` returns only the departments of the requester's own company.
+    """`mine=true` is what Submit a Ticket offers: the ENABLED departments of
+    the requester's own company. Intake no longer asks which company a ticket
+    belongs to - a person works for one, and the server knows which.
 
-    Intake no longer asks which company a ticket belongs to - a person works for
-    one, the server knows which, and picking it was a question with exactly one
-    right answer that a requester could still get wrong. Default is unchanged so
-    the agent queue and Manage keep seeing every department."""
-    q = db.query(models.TicketDepartment)
+    The default (every company's, enabled or not, plus departments since
+    deleted globally, flagged `removed`) is for the agent queue, Manage and
+    every screen that has to name a department an existing ticket was filed
+    under."""
     if mine:
         company = company_for(db, user.get("email") or "")
         # No People record -> no company -> no departments to offer. The ticket
         # is still valid without one; triage routes it.
-        q = q.filter(models.TicketDepartment.company_id == (company or "\x00"))
-    rows = q.order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all()
-    return [{"id": d.id, "name": d.name, "companyId": d.company_id,
-             "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
+        if not company:
+            return []
+        return _ticket_depts(db, company, enabled_only=True)
+    return _ticket_depts(db, include_removed=True)
 
 
 def _dept_list(db: Session, company_id: str) -> list[dict]:
-    rows = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == company_id)
-            .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
-    return [{"id": d.id, "name": d.name, "companyId": d.company_id,
-             "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""} for d in rows]
+    """One company's departments as the settings screen shows them - every
+    global department, enabled or not."""
+    return _ticket_depts(db, company_id)
+
+
+_MANAGED_GLOBALLY = ("Departments are managed in Settings > Company Settings - add, rename or "
+                     "delete them there. Here you can only turn one on or off for tickets.")
 
 
 class TicketDepartmentIn(BaseModel):
@@ -1569,70 +1735,44 @@ class TicketDepartmentIn(BaseModel):
     name: str
 
 
-# Write endpoints for the ticket_departments table, under the ticket router
-# rather than routers/hr.py - same reason /ticket-companies and
-# /ticket-departments (read) exist here instead of reusing the HR module's
-# own: whoever runs the service desk (Manage -> Service Desk -> Departments)
-# is rarely also an HR admin, and require_hr_write would 403 them.
-#
-# Deliberately its own table (models.TicketDepartment), not HrDepartment:
-# those two used to be the same rows, so adding/renaming/deleting a
-# department here silently changed the People -> Companies -> Global Company
-# Setup list too, and vice versa (Pranshu, Sept 13 2026). Seeded once from
-# HrDepartment on migration (see main.py) with matching ids, so existing
-# tickets' hr_department_id kept resolving; from here the two are independent.
+# Adding, renaming and deleting moved to the global list (see the section
+# comment above). The routes stay, answering 410 with where to go instead, so
+# an old open tab gets a sentence rather than a 404/405.
 @router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    name = (body.name or "").strip()
-    if not name:
-        raise HTTPException(400, "Department name cannot be empty")
-    if len(name) > 40:
-        raise HTTPException(400, "Department name is too long (40 characters max)")
-    company = db.query(models.HrEntity).filter(models.HrEntity.id == body.company_id).first()
-    if not company:
-        raise HTTPException(404, "Company not found")
-    siblings = db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == body.company_id).all()
-    if any((s.name or "").strip().lower() == name.lower() for s in siblings):
-        raise HTTPException(409, f"“{name}” already exists for this company")
-    nxt = max([s.sort_order for s in siblings], default=-1) + 1
-    db.add(models.TicketDepartment(id=gen_id(), company_id=body.company_id, name=name,
-                               sort_order=nxt, created_by=user["email"], created_at=now_iso()))
-    db.commit()
-    return _dept_list(db, body.company_id)
+    raise HTTPException(410, _MANAGED_GLOBALLY)
 
 
 class TicketDepartmentUpdate(BaseModel):
     name:         Optional[str] = None
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
+    enabled:      Optional[bool] = None
 
 
 @router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
 def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
                              user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    """Rename a department and/or set who gets the escalation email for it -
-    see escalate_ticket. Same field HR's own department screen documents as
-    the triage lead/backup; one person can be both without conflict."""
+    """The Tickets module's settings for one global department: who gets the
+    escalation email for it (see escalate_ticket) and whether intake offers it.
+    The name is the global one and cannot be changed from here."""
+    if body.name is not None:
+        raise HTTPException(410, _MANAGED_GLOBALLY)
+    g = db.query(models.HrDepartment).filter(models.HrDepartment.id == dept_id).first()
+    if not g:
+        raise HTTPException(404, "Department not found")
+    _sync_ticket_departments(db, g.company_id)
     row = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == dept_id).first()
     if not row:
         raise HTTPException(404, "Department not found")
-    if body.name is not None:
-        new_name = (body.name or "").strip()
-        if not new_name:
-            raise HTTPException(400, "Department name cannot be empty")
-        if len(new_name) > 40:
-            raise HTTPException(400, "Department name is too long (40 characters max)")
-        siblings = db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == row.company_id,
-                                                             models.TicketDepartment.id != dept_id).all()
-        if any((s.name or "").strip().lower() == new_name.lower() for s in siblings):
-            raise HTTPException(409, f"“{new_name}” already exists for this company")
-        row.name = new_name
     if body.lead_email is not None:
         row.lead_email = (body.lead_email or "").strip().lower()
     if body.backup_email is not None:
         row.backup_email = (body.backup_email or "").strip().lower()
+    if body.enabled is not None:
+        row.enabled = bool(body.enabled)
     db.commit()
-    return _dept_list(db, row.company_id)
+    return _dept_list(db, g.company_id)
 
 
 class TicketDepartmentOrder(BaseModel):
@@ -1648,6 +1788,7 @@ def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends
     Construction, Admin, Operations). Ids missing from the list (a department
     added in another tab meanwhile) keep their relative order after the rest;
     ids from another company are ignored."""
+    _sync_ticket_departments(db, body.company_id)
     rows = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == body.company_id)
             .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
     pos = {dept_id: n for n, dept_id in enumerate(body.ids)}
@@ -1660,16 +1801,9 @@ def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends
 
 @router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
 def delete_ticket_department(dept_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    """Tickets already filed against this department keep their
-    hr_department_id untouched - it just stops being a pickable choice, same
-    as removing an HR department leaves existing employees' values alone."""
-    row = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == dept_id).first()
-    if not row:
-        raise HTTPException(404, "Department not found")
-    company_id = row.company_id
-    db.delete(row)
-    db.commit()
-    return _dept_list(db, company_id)
+    """Gone with the merge - turn the department off for tickets instead, or
+    delete it from the company's global list."""
+    raise HTTPException(410, _MANAGED_GLOBALLY)
 
 
 

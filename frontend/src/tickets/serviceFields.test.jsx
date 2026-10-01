@@ -10,6 +10,7 @@ import {
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, withDynamicOptions,
   intakeFields, TYPE_FIELDS, TICKET_TYPE_ORDER, TICKET_TYPE_META, NO_RECORDING_TYPES,
   serviceFieldApplies, HELP_TOPICS, helpGroupFor, topicArea,
+  topicOptions, helpWithLabel, HELP_SUBTOPIC_KEY,
 } from './ticketMeta';
 
 describe('service areas', () => {
@@ -349,5 +350,39 @@ describe('help topics', () => {
   it('never offers IT topics to Construction', () => {
     load();
     expect(helpGroupFor('construction').topics.map((t) => t.name)).not.toContain('Nexus');
+  });
+});
+
+// Oct 1 2026 (Neil): a topic may have an optional "Which one?" level -
+// Microsoft -> Outlook. Stored on typeFields.svc_helpSubtopic.
+describe('help topic sub-options', () => {
+  const GROUPS = [
+    { label: 'IT', departments: ['it'], topics: [
+      { name: 'Microsoft (Outlook, Teams, OneDrive)', area: 'email', options: ['Outlook', 'Teams'] },
+      { name: 'Egnyte', area: 'files' }] },
+  ];
+  const load = () => { HELP_TOPICS.length = 0; HELP_TOPICS.push(...GROUPS); };
+
+  it("lists a topic's sub-options, in any case, and none for a topic without them", () => {
+    load();
+    expect(topicOptions('microsoft (outlook, teams, onedrive)')).toEqual(['Outlook', 'Teams']);
+    expect(topicOptions('Egnyte')).toEqual([]);
+    expect(topicOptions('Front gate keypad')).toEqual([]);
+    expect(topicOptions('')).toEqual([]);
+  });
+
+  it("can be scoped to one department's group", () => {
+    load();
+    expect(topicOptions('Microsoft (Outlook, Teams, OneDrive)', { topics: [] })).toEqual([]);
+  });
+
+  it('shows the topic with its sub-option wherever Help With is shown', () => {
+    expect(helpWithLabel({ application: 'Microsoft', typeFields: { [HELP_SUBTOPIC_KEY]: 'Outlook' } })).toBe('Microsoft / Outlook');
+    expect(helpWithLabel({ application: 'Egnyte', typeFields: {} })).toBe('Egnyte');
+    expect(helpWithLabel({ application: '', typeFields: { [HELP_SUBTOPIC_KEY]: 'Outlook' } })).toBe('');
+  });
+
+  it('keeps the sub-option under an svc_ key, so a department change clears it and a type change keeps it', () => {
+    expect(HELP_SUBTOPIC_KEY.startsWith('svc_')).toBe(true);
   });
 });
