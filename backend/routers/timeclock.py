@@ -8697,6 +8697,20 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     if not priv.can_decide(row):
         raise HTTPException(403, f"This request is confidential - only {priv.reviewer_names(row) or 'the approver'} can decide it.")
     if row.status != "pending":
+        # A follow-up on an APPROVED request: the approver saw the conflicts
+        # the approval returned and now asks to remove the shifts inside it.
+        # Marks them only - the decision, approver and the person's bell stay.
+        if row.status == "approved" and body.status == "approved" and body.remove_shifts:
+            conflicts = _timeoff_shift_conflicts(db, row)
+            for r in conflicts:
+                r.pending_delete = 1
+            db.commit()
+            presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
+            team_tz = _team_tz(db) if conflicts else ""
+            out = _ser_timeoff(row, priv=priv)
+            out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
+            out["shiftsRemoved"] = len(conflicts)
+            return out
         raise HTTPException(409, f"Already {row.status}")
     row.status = body.status
     row.approver = user["email"]

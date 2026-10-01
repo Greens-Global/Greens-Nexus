@@ -440,6 +440,24 @@ class RebuildTests(unittest.TestCase):
         self.assertEqual(r["shiftsRemoved"], 1)
         self.assertEqual((self._row(afternoon["id"]).pending_delete, self._row(morning["id"]).pending_delete), (1, 0))
 
+    def test_approved_leave_takes_a_follow_up_remove_shifts(self):
+        # The inbox approves first, sees the conflicts, then asks to remove
+        # them: a second PATCH on the APPROVED row with remove_shifts marks
+        # the shifts and changes nothing else; any other repeat is still 409.
+        s1 = self._placed(A)
+        self._publish()
+        tid = self._timeoff(A, MON, MON)
+        self._as(M1)
+        first = self.client.patch(f"/timeclock/timeoff/{tid}", json={"status": "approved"}).json()
+        self.assertEqual([c["id"] for c in first["conflicts"]], [s1["id"]])
+        r = self.client.patch(f"/timeclock/timeoff/{tid}", json={"status": "approved", "remove_shifts": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["shiftsRemoved"], 1)
+        self.assertEqual(r.json()["status"], "approved")
+        self.assertEqual(self._row(s1["id"]).pending_delete, 1)
+        self.assertEqual(self.client.patch(f"/timeclock/timeoff/{tid}", json={"status": "approved"}).status_code, 409)
+        self.assertEqual(self.client.patch(f"/timeclock/timeoff/{tid}", json={"status": "rejected", "remove_shifts": True}).status_code, 409)
+
     def test_overlapping_time_off_is_refused(self):
         self._timeoff(A, MON, TUE)
         self._as(A)
