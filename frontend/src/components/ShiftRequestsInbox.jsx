@@ -32,7 +32,7 @@ const HEAD = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransfo
 export function StatusChip({ status }) {
   const [label, color] = STATUS_CHIP[status] || [status, 'var(--muted)'];
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, color, border: `1px solid ${color}`, borderRadius: 999, padding: '1px 8px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+    <span style={{ fontSize: 11, fontWeight: 700, color, border: `1px solid ${color}`, borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4, lineHeight: 1.3 }}>
       {status === 'approved' ? <CheckCircle2 size={11} /> : status === 'declined' || status === 'rejected' ? <XCircle size={11} /> : null}{label}
     </span>
   );

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Pencil, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Mail, Pencil, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
 import { iso } from './reportModel';
+import LeasingFromLedger from './LeasingFromLedger';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -56,6 +57,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const [show, setShow] = useState('current');       // current | behind | all
   const [editing, setEditing] = useState(null);       // { lease, replacing? }
   const [cell, setCell] = useState(null);             // { row, month }
+  const [fromLedger, setFromLedger] = useState(false); // Set Up From the Ledger (Oct 2)
   const seq = useRef(0);
 
   const load = useCallback((y) => {
@@ -112,6 +114,11 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <span>Received <strong><Amount value={sum.receivedToDate} /></strong></span>
             <span>Owed <strong style={{ color: sum.owed ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={sum.owed} /></strong></span>
             {canEdit && (
+              <button type="button" className="secondary-btn" onClick={() => setFromLedger(true)} title="Propose a lease for every customer who posted rent in the last twelve months" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+                <RefreshCw size={14} /> Set Up From the Ledger
+              </button>
+            )}
+            {canEdit && (
               <button type="button" className="primary-btn" onClick={() => setEditing({ lease: blank() })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
                 <Plus size={14} /> New Lease
               </button>
@@ -134,13 +141,14 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       </div>
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); load(year); }} />}
       {editing && <LeaseEditor lease={editing.lease} replacing={editing.replacing} canDelete={canDelete} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(year); }} />}
+      {fromLedger && <LeasingFromLedger onClose={() => setFromLedger(false)} onCreated={() => { setFromLedger(false); load(year); }} />}
     </AsyncSection>
   );
 }
 
 function RentRoll({ rows, totals, year, thisMonth, onCell, onLease, any, canEdit }) {
   if (!rows.length) {
-    return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'No lease matches.' : `No leases yet.${canEdit ? ' Start with New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
+    return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'No lease matches.' : `No leases yet.${canEdit ? ' Set Up From the Ledger proposes one for every customer who posted rent in the last twelve months, or start with New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
   }
   return (
     <div style={{ ...card, padding: 10 }}>

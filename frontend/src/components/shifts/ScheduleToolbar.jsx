@@ -1,9 +1,11 @@
 // The schedule toolbar (Oct 2026, Teams parity): ONE row, at most seven
-// controls - [‹ ›] [Today] [range] | Day / Week / Month | Group | + Add |
-// Share | ⋯. Everything that used to be a button of its own (Fill, Copy,
-// Clear, Import, Export, Print, Discard, Requests, the View menu, the
-// filters) lives under + Add or ⋯ now. "A huge mess compared to shifts in
-// Microsoft" (Neil, 10/01) was mostly this row.
+// controls - [‹ Today ›] [range] | Day / Week / Month | Group | + Add |
+// Share | ⋯ - with the range label as the visual anchor. Everything that
+// used to be a button of its own (Fill, Copy, Clear, Import, Export, Print,
+// Discard, Requests, the View menu, the filters) lives under + Add or ⋯.
+// "A huge mess compared to shifts in Microsoft" (Neil, 10/01) was mostly
+// this row. On a phone it collapses to [‹ Today ›] [Week ▾] [+] [⋯] with
+// the range under it; Share and the group picker move under ⋯.
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search } from 'lucide-react';
 import { api } from '../../api';
@@ -28,7 +30,7 @@ export function DialogHead({ title, onClose }) {
 }
 
 export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, rangeLabel, groups, groupFilter, onGroupFilter, canManage, busy, ready,
-  unsharedCount = 0, onAdd, onShare, actions }) {
+  unsharedCount = 0, onAdd, onShare, actions, phone = false }) {
   const viewName = VIEWS.find(([k]) => k === view)?.[1] || (view === 'twoweeks' ? 'Two Weeks' : 'Week');
   const addItems = [
     { key: 'shift', label: 'Shift', Icon: Clock, onClick: () => onAdd('shift') },
@@ -36,7 +38,20 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, rangeLa
     ...(actions.canTimeOff ? [{ key: 'timeoff', label: 'Time Off', Icon: CalendarOff, onClick: () => onAdd('timeoff') }] : []),
     { key: 'note', label: 'Day Note', Icon: StickyNote, onClick: () => onAdd('note') },
   ];
+  // On a phone, Share and the group picker live under ⋯ so the row stays
+  // [‹ Today ›] [Week ▾] [+] [⋯]; nothing is lost, only tucked away.
+  const activeGroups = (groups || []).filter((g) => !g.archived);
   const moreItems = [
+    ...(phone && canManage ? [
+      { key: 'share', label: `Share${unsharedCount ? ` (${unsharedCount})` : ''}`, Icon: Send, onClick: onShare, disabled: busy || !ready, title: unsharedCount ? 'Share these changes with the team' : 'Everything is shared with the team' },
+      'sep',
+    ] : []),
+    ...(phone && activeGroups.length ? [
+      { head: 'Group' },
+      { key: 'g-all', label: 'All Groups', hint: !groupFilter ? '✓' : '', onClick: () => onGroupFilter('') },
+      ...activeGroups.slice(0, 8).map((g) => ({ key: `g-${g.id}`, label: g.name, hint: groupFilter === g.id ? '✓' : '', onClick: () => onGroupFilter(g.id) })),
+      'sep',
+    ] : []),
     ...(canManage ? [
       { key: 'copy', label: 'Copy Week', Icon: Copy, onClick: actions.copy, disabled: !ready },
       { key: 'fill', label: 'Fill From Usual Hours', Icon: CalendarDays, onClick: actions.fill, disabled: !ready },
@@ -55,14 +70,34 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, rangeLa
       { key: 'requests', label: 'Requests', Icon: Inbox, onClick: actions.requests },
     ] : []),
   ];
+  const navBtn = { padding: 7, border: 'none', borderRadius: 0, width: 'auto', height: 'auto', background: 'none' };
+  const nav = (
+    <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)', flexShrink: 0 }}>
+      <button type="button" className="icon-btn" onClick={onPrev} aria-label={`Previous ${viewName.toLowerCase()}`} style={navBtn}><ChevronLeft size={16} /></button>
+      <button type="button" onClick={onToday} style={{ border: 'none', borderLeft: '1px solid var(--line)', borderRight: '1px solid var(--line)', background: 'none', padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Today</button>
+      <button type="button" className="icon-btn" onClick={onNext} aria-label={`Next ${viewName.toLowerCase()}`} style={navBtn}><ChevronRight size={16} /></button>
+    </div>
+  );
+  if (phone) {
+    const viewItems = VIEWS.map(([k, label]) => ({ key: k, label, hint: (view === k || (k === 'week' && view === 'twoweeks')) ? '✓' : '', onClick: () => onView(k) }));
+    return (
+      <div role="toolbar" aria-label="Schedule" style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {nav}
+          <MenuButton label={viewName} items={viewItems} ariaLabel="View" width={150} style={{ padding: '6px 10px', fontWeight: 700 }} />
+          <div style={{ flex: 1 }} />
+          {canManage && <MenuButton label="" Icon={Plus} items={addItems} ariaLabel="Add" primary width={190} disabled={!ready} align="right" style={{ padding: '7px 9px' }} />}
+          <MenuButton label="" Icon={MoreHorizontal} items={moreItems} ariaLabel="More" align="right" width={240} style={{ padding: '6px 8px' }}
+            badge={unsharedCount > 0 ? <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--wk-brand)', marginLeft: -4 }} /> : null} />
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 800, marginTop: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{rangeLabel}</div>
+      </div>
+    );
+  }
   return (
     <div role="toolbar" aria-label="Schedule" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-      <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)' }}>
-        <button type="button" className="icon-btn" onClick={onPrev} aria-label={`Previous ${viewName.toLowerCase()}`} style={{ padding: 7, border: 'none', borderRadius: 0 }}><ChevronLeft size={16} /></button>
-        <button type="button" onClick={onToday} style={{ border: 'none', borderLeft: '1px solid var(--line)', borderRight: '1px solid var(--line)', background: 'none', padding: '6px 12px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Today</button>
-        <button type="button" className="icon-btn" onClick={onNext} aria-label={`Next ${viewName.toLowerCase()}`} style={{ padding: 7, border: 'none', borderRadius: 0 }}><ChevronRight size={16} /></button>
-      </div>
-      <span style={{ fontSize: 15, fontWeight: 800, whiteSpace: 'nowrap' }}>{rangeLabel}</span>
+      {nav}
+      <span style={{ fontSize: 17, fontWeight: 800, whiteSpace: 'nowrap', letterSpacing: '-0.01em', marginRight: 4 }}>{rangeLabel}</span>
       <div role="group" aria-label="View" style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--card)' }}>
         {VIEWS.map(([k, label]) => {
           const on = view === k || (k === 'week' && view === 'twoweeks');

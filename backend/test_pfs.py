@@ -34,11 +34,12 @@ EVERYONE = (OWNER, ADMIN, EDITOR, VIEWER, ACCOUNTANT)
 GROUPS = {"grp-pfs-test-editor": ("pfs:editor", EDITOR), "grp-pfs-test-viewer": ("pfs:viewer", VIEWER),
           "grp-pfs-test-acct": ("accounting:full", ACCOUNTANT)}
 
-# Balance sheets the stand-in accounting service answers with, per entity.
+# Balance sheets the stand-in accounting service answers with, per entity -
+# debits minus credits like the real route (10/02), so a liability owed is NEGATIVE here.
 BOOKS = {
     "60100": [("asset", "10100", "Operating Chkg 7546", 1_000_000.00), ("asset", "10120", "Savings 2017", 250_000.50),
-              ("liability", "25000", "Loan Payable - F&M Bank", 400_000.00)],
-    "15000": [("asset", "10100", "Escondido Chkg", 80_000.00), ("liability", "25100", "Mortgage - Escondido", 2_000_000.00)],
+              ("liability", "25000", "Loan Payable - F&M Bank", -400_000.00)],
+    "15000": [("asset", "10100", "Escondido Chkg", 80_000.00), ("liability", "25100", "Mortgage - Escondido", -2_000_000.00)],
     # A family entity the way Charmi's screenshot showed it (10/01): bank
     # accounts without "bank" in their name, a 401k, a brokerage, land and a
     # building with their mortgage, a line of credit and a credit card.
@@ -46,8 +47,8 @@ BOOKS = {
               ("asset", "11309", "ANK - 401K - Fidelity - 6165", 327.85), ("asset", "11348", "WeBull Brokerage Account", 101.00),
               ("asset", "12000", "Accounts Receivable", 900.00), ("asset", "15100", "Land - Escondido", 400_000.00),
               ("asset", "15200", "Building - Escondido", 1_600_000.00), ("asset", "15900", "Accumulated Depreciation", -200_000.00),
-              ("liability", "25100", "Mortgage - Escondido - F&M", 1_200_000.00), ("liability", "24000", "Line of Credit - Chase", 50_000.00),
-              ("liability", "23000", "Amex Credit Card", 4_000.00), ("liability", "22000", "Accrued Payroll", 7_000.00)],
+              ("liability", "25100", "Mortgage - Escondido - F&M", -1_200_000.00), ("liability", "24000", "Line of Credit - Chase", -50_000.00),
+              ("liability", "23000", "Amex Credit Card", -4_000.00), ("liability", "22000", "Accrued Payroll", -7_000.00)],
 }
 # The P&L of the Escondido entity for a year, for Schedule E; of the
 # business for Schedule C.

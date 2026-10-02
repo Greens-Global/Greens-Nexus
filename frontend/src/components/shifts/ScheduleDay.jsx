@@ -1,16 +1,17 @@
 // Day view (Oct 2026): a timeline of who works when. Bars sit on a 24-hour
 // track; an overnight shift runs to the right edge. The header carries the
-// day's headcount and hours and each person their hours. Click a bar to
-// edit it, an empty track to add a shift - or, with a shift copied, to PASTE
-// it there (the copied banner used to promise that and the track ignored it).
+// day's headcount and hours and each person their hours. A bar says only
+// "8:30a - 5:30p" and the label; the lunch and the state are its title.
+// Click a bar to edit it, an empty track to add a shift - or, with a shift
+// copied, to PASTE it there.
 import { StickyNote, Users, CalendarRange } from 'lucide-react';
 import { formatHHMM } from '../../lib/datetime';
-import { Avatar } from '../ShiftScheduleExtras';
 import { TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { toMin, durMin, fmtHrs, paidMinutes, counts, shiftState, shiftTimeText, alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, unpaidLabel } from './shiftLib';
+import { PersonCell } from './ScheduleGrid';
+import { toMin, durMin, fmtHrs, paidMinutes, counts, shiftState, shiftTimeText, shiftShortText, alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, unpaidLabel } from './shiftLib';
 
 const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
-const GRID = { display: 'grid', gridTemplateColumns: '230px minmax(560px, 1fr)' };
+const GRID = { display: 'grid', gridTemplateColumns: '180px minmax(560px, 1fr)' };
 const STICKY_LEFT = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: '1px solid var(--line)' };
 
 export default function ScheduleDay({ date, sections, shifts, openCells, notes, canManage, offOn, holOn, copied, prefs, rowEditable, shiftEditable, dragId, on,
@@ -28,15 +29,15 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
     const unpaid = unpaidLabel(s);
     return (
       <button key={s.id} type="button" data-shift={s.id} onClick={clickable((e) => { e.stopPropagation(); on.openShift(e, s, email, date); })}
-        title={[shiftTimeText(s), s.label, st.title, unpaid, ...(s.conflicts || [])].filter(Boolean).join('\n')}
+        title={[`${shiftTimeText(s)}${s.code ? ` · ${s.code}` : ''}`, s.label, st.title, unpaid, s.note, ...(s.conflicts || [])].filter(Boolean).join('\n')}
         {...dragProps(s)} onContextMenu={(e) => on.menu(e, { email, date, groupId: s.groupId || '', shift: s })}
         onPointerDown={(e) => { dragProps(s).onPointerDown?.(e); on.longPress(e, { email, date, groupId: s.groupId || '', shift: s }); }}
         aria-label={`${email ? 'Shift' : 'Open shift'} ${shiftTimeText(s)}${st.tag ? `, ${st.tag}` : ''}`}
         style={{ position: 'absolute', top: 6, bottom: 6, left: `${(a / 1440) * 100}%`, width: `${(w / 1440) * 100}%`, minWidth: 30,
-          background: alpha(color, 0.2), borderLeft: `4px solid ${color}`, border: `1px ${s.published === false || !email ? 'dashed' : 'solid'} ${color}`, borderLeftWidth: 4, borderRadius: 6,
+          background: alpha(color, 0.12), border: `1px ${s.published === false && !s.hasChanges ? 'dashed' : 'solid'} ${s.published === false && !s.hasChanges ? color : 'transparent'}`, borderLeft: `3px solid ${color}`, borderRadius: 6,
           fontSize: 11, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: shiftEditable(s) ? 'grab' : 'pointer',
           padding: '0 6px', textAlign: 'left', fontFamily: 'inherit', opacity: dragId === s.id ? 0.4 : s.pendingDelete ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none' }}>
-        {shiftTimeText(s)}{s.label ? ` · ${s.label}` : ''}{unpaid ? ` · ${unpaid}` : ''}{email ? '' : ` · ${s.openSlots || 1} open`}{st.tag ? ` · ${st.tag}` : ''}
+        {shiftShortText(s)}{s.code ? <span style={{ color, marginLeft: 5, fontSize: '0.9em', fontWeight: 800 }}>{s.code}</span> : null}{s.label ? ` · ${s.label}` : ''}{email ? '' : ` · ${s.openSlots || 1} open`}
       </button>
     );
   };
@@ -76,10 +77,14 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
               <Users size={11} /> {people.size} {people.size === 1 ? 'person' : 'people'} · {fmtHrs(dayMin)}
             </div>
             {(notes[date] || canManage) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontWeight: 600 }}>
-                {notes[date] && <span style={{ fontSize: 11, color: 'hsl(var(--color-orange))' }}>{notes[date]}</span>}
-                {canManage && <button type="button" onClick={() => on.noteEdit(date)} aria-label={notes[date] ? 'Edit the day note' : 'Add a day note'}
-                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, display: 'inline-flex' }}><StickyNote size={11} /></button>}
+              <div className="sched-hdr" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontWeight: 600, minWidth: 0 }}>
+                {notes[date]
+                  ? <button type="button" onClick={() => canManage && on.noteEdit(date)} aria-label="Edit the day note" title={notes[date]} disabled={!canManage}
+                    style={{ border: 'none', background: 'none', cursor: canManage ? 'pointer' : 'default', padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: 'hsl(var(--color-orange))' }}>
+                    <StickyNote size={10} style={{ flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notes[date]}</span>
+                  </button>
+                  : <button type="button" className="hdr-tools" onClick={() => on.noteEdit(date)} aria-label="Add a day note" title="Add a day note"
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, display: 'inline-flex', opacity: 0 }}><StickyNote size={11} /></button>}
               </div>
             )}
           </div>
@@ -107,13 +112,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
               ) : null;
               return (
                 <div key={emp.email} style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ ...STICKY_LEFT, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                    {prefs.photos !== false && <Avatar name={emp.name} photoUrl={emp.photoUrl} size={30} />}
-                    <span style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{fmtHrs(min)}</div>
-                    </span>
-                  </div>
+                  <PersonCell emp={{ ...emp, availability: [] }} hrs={min} photos={prefs.photos !== false} style={STICKY_LEFT} />
                   {track(emp.email, g.id || '', items, extra)}
                 </div>
               );

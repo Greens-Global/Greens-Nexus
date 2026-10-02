@@ -1,91 +1,102 @@
-// The one shift block (Oct 2026): a 4px color bar, the time in bold, the
-// label, then "Lunch 30m" from the unpaid activities. The manager grid, My
-// Shifts and the team grid all draw this, so a shift looks the same wherever
-// it is seen. A draft is dashed with a "Draft" dot; an unshared edit gets a
-// striped corner; a removal is struck through. Time off is ITS OWN block
-// beside the shift, never in its place (a 2-4 PM appointment used to wipe a
-// 9-5 off two of the three grids).
-import { AlertTriangle, CalendarOff, Lock, PartyPopper } from 'lucide-react';
+// The one shift block (Oct 2026, "less clutter" - Visesh, Charmi, Neil):
+// ONE calm line, "8:30a - 5:30p" in the ink with the shift type's code in
+// the type's color beside a 3px bar of the same color. A second line only
+// when the shift has a label. Everything else - the lunch, the note, the
+// activities, the zone, the conflicts - is the hover title and the panel.
+// A draft is dashed; an edit that is not shared yet gets a small corner
+// mark; a removal is struck through. The time never truncates: the font
+// shrinks with the block (container units) before anything is cut.
+// Time off is ITS OWN outlined block beside the shift, never in its place.
+import { AlertTriangle, Lock } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
-import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, unpaidLabel, timeOffWhen, isApprovedOff, isAllDayOff } from './shiftLib';
+import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers } from './shiftLib';
 import { zoneOptionLabel, tzAbbrev } from '../../lib/worldClockZones';
 
-const STRIPES = 'repeating-linear-gradient(135deg, currentColor 0 2px, transparent 2px 5px)';
+// The time shrinks from 12px toward 9px as the block narrows (a share of
+// the block's width in container units - set on the LINE, never on the
+// block itself, since an element cannot measure against its own container),
+// so a 7-column week at 1440px reads whole and a two-week view still shows
+// every digit. A block that also carries a ×N, a zone or a warning shrinks
+// a little more; the time itself never shrinks past 8.5px and never cuts.
+const fit = (share, max = 12) => `clamp(8.5px, ${share}cqi, ${max}px)`;
+const LINE = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 };
 
-export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onContextMenu, dragProps = {}, tools = null,
+export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onContextMenu, dragProps = {},
   tabIndex, showConflicts = true, dragging = false, children, style, ...rest }) {
   const color = s.color || (open ? OPEN_SHIFT_COLOR : DEFAULT_SHIFT_COLOR);
   const st = shiftState(s);
   const zone = s.timeZone || s.timezone || '';
-  const otherZone = !!zone && !!teamZone && zone !== teamZone;
+  const otherZone = zoneDiffers(zone, teamZone);
   const unpaid = unpaidLabel(s);
-  const label = [s.code, s.label].filter((v, i, a) => v && a.indexOf(v) === i).join(' · ');
+  const code = s.code || '';
+  const label = s.label && s.label !== code ? s.label : '';
   const draft = s.published === false && !s.hasChanges && !s.pendingDelete;
-  const title = [`${shiftTimeText(s)}${label ? ` · ${label}` : ''}`, st.title, unpaid, s.note,
+  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, st.title, unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
+  const slots = open && (s.openSlots || 1) > 1 ? s.openSlots : 0;
+  const warn = showConflicts && s.conflicts?.length > 0;
+  const share = (compact ? 11 : 9.5) - (slots ? 1.3 : 0) - (otherZone ? 1.3 : 0) - (warn ? 0.6 : 0);
   return (
     <div data-shift={s.id} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
-      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}` : undefined}
+      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}` : undefined}
       title={title} className="sched-chip"
       onClick={interactive ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
       onContextMenu={onContextMenu}
       {...dragProps} {...rest}
-      style={{ position: 'relative', background: alpha(color, 0.14), borderLeft: `4px solid ${color}`, borderRadius: 6,
-        padding: compact ? '3px 5px' : '5px 26px 5px 8px', marginBottom: 3, minHeight: compact ? 0 : 46, minWidth: 0, overflow: 'hidden',
+      style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, 0.1), borderRadius: 6,
+        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px solid ${color}`,
+        padding: compact ? '2px 4px' : '4px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
-        outline: draft || open ? `1.5px dashed ${color}` : 'none', outlineOffset: -2,
         opacity: dragging ? 0.4 : s.pendingDelete ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
       {s.hasChanges && !s.pendingDelete && (
-        <span aria-hidden="true" title="Edited, not shared" style={{ position: 'absolute', top: 0, right: 0, width: 14, height: 14, color, opacity: 0.55,
-          backgroundImage: STRIPES, clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }} />
+        <span aria-hidden="true" title="Edited, not shared" style={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, background: color, clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }} />
       )}
-      {tools}
-      <div style={{ fontSize: compact ? 10.5 : 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
-        {draft && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />}
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{compact ? shiftTimeText(s).replace(/:00/g, '').replace(/ (AM|PM)/g, (m, ap) => ap.toLowerCase()[0]) : shiftTimeText(s)}</span>
-        {open && (s.openSlots || 1) > 1 && <span style={{ fontSize: 10, fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 6px', flexShrink: 0 }}>×{s.openSlots}</span>}
-        {showConflicts && s.conflicts?.length > 0 && (
-          <span title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join(' ')}`} style={{ display: 'inline-flex', flexShrink: 0, color: 'hsl(var(--color-orange))' }}>
-            <AlertTriangle size={11} />
+      <div style={{ ...LINE, display: 'flex', alignItems: 'baseline', gap: 4, fontSize: fit(share, compact ? 11 : 12), fontWeight: 700, lineHeight: 1.3 }}>
+        <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{shiftShortText(s)}</span>
+        {code && <span style={{ ...LINE, color, fontSize: '0.85em', fontWeight: 800, letterSpacing: '.02em', flexShrink: 1 }}>{code}</span>}
+        {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
+        {warn && (
+          <span title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join(' ')}`} style={{ display: 'inline-flex', flexShrink: 0, color: 'hsl(var(--color-orange))', alignSelf: 'center' }}>
+            <AlertTriangle size={10} />
           </span>
         )}
+        {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
       </div>
-      {!compact && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label || (open ? 'Open Shift' : 'Shift')}</span>
-          {st.tag && <span style={{ fontSize: 9.5, fontWeight: 800, color: st.tag === 'Draft' ? color : 'hsl(var(--color-orange))', flexShrink: 0 }}>{st.tag}</span>}
-          {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: 9.5, fontWeight: 700, border: '1px solid var(--line)', borderRadius: 6, padding: '0 4px', flexShrink: 0 }}>{tzAbbrev(zone)}</span>}
-        </div>
-      )}
-      {!compact && unpaid && <div style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{unpaid}</div>}
+      {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3 }}>{label}</div>}
       {children}
     </div>
   );
 }
 
-// Time off beside a shift. A partial day shows its hours; a pending request
-// reads "Requested"; confidential time off keeps a neutral tint and no note.
+// Time off beside a shift: a light outlined block, no fill, one line -
+// "Vacation" or "2:00p - 4:00p Medical". The reason, the dates and whether
+// it is still only requested (dashed) are the hover title. Confidential
+// time off reads plain "Time Off" with a lock.
 export function TimeOffBlock({ off: t, compact = false, showReason = true, style }) {
   const approved = isApprovedOff(t);
   const type = t.confidential ? 'Time Off' : (t.type ? timeOffLabel(t.type) : 'Time Off');
   const when = timeOffWhen(t);
   const range = t.startDate && t.endDate && t.startDate !== t.endDate ? `${formatDate(t.startDate)} - ${formatDate(t.endDate)}` : '';
   const title = [type, approved ? 'Approved' : 'Requested', range || when, showReason && !t.confidential ? t.note : ''].filter(Boolean).join('\n');
+  const short = timeOffShort(t);
+  // The hours never cut; a long custom type ("Medical Appointment") may.
   return (
-    <div data-timeoff={t.id || undefined} title={title}
-      style={{ background: 'hsla(var(--color-red),0.08)', borderLeft: `4px ${approved ? 'solid' : 'dashed'} hsl(var(--color-red))`, borderRadius: 6,
-        padding: compact ? '3px 5px' : '5px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-red))', ...style }}>
-      <div style={{ fontSize: compact ? 10.5 : 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        <CalendarOff size={10} style={{ flexShrink: 0 }} />
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{compact ? (isAllDayOff(t) ? 'Off' : when) : type}</span>
+    <div data-timeoff={t.id || undefined} title={title} aria-label={`${approved ? '' : 'Requested '}${type}, ${range || when}`}
+      style={{ containerType: 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.5)`, borderRadius: 6, background: 'transparent',
+        padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-red))', ...style }}>
+      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
+        {compact ? <span style={LINE}>{isAllDayOff(t) ? 'Off' : short}</span> : (
+          <>
+            {short && <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{short} </span>}
+            <span style={{ ...LINE, flexShrink: 1 }}>{type}</span>
+          </>
+        )}
         {t.confidential && <Lock size={10} aria-label="Confidential" style={{ flexShrink: 0 }} />}
       </div>
-      {!compact && <div style={{ fontSize: 10.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{approved ? '' : 'Requested · '}{range || when}</div>}
-      {!compact && showReason && t.note && !t.confidential && <div style={{ fontSize: 10.5, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.note}</div>}
     </div>
   );
 }
@@ -93,12 +104,10 @@ export function TimeOffBlock({ off: t, compact = false, showReason = true, style
 export function HolidayBlock({ holiday: h, compact = false, style }) {
   const name = h?.name || h?.title || 'Holiday';
   return (
-    <div title={name} style={{ background: 'hsla(var(--color-blue),0.1)', borderLeft: '4px solid hsl(var(--color-blue))', borderRadius: 6,
-      padding: compact ? '3px 5px' : '5px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-blue))', ...style }}>
-      <div style={{ fontSize: compact ? 10.5 : 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        <PartyPopper size={10} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{compact ? 'Hol' : (h?.type === 'half_day' ? 'Half-Day Holiday' : 'Holiday')}</span>
-      </div>
-      {!compact && <div style={{ fontSize: 10.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>}
+    <div title={`${h?.type === 'half_day' ? 'Half-day holiday' : 'Holiday'} · ${name}`}
+      style={{ border: '1px solid hsla(var(--color-blue),0.5)', borderRadius: 6, padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0,
+        color: 'hsl(var(--color-blue))', fontSize: compact ? 10 : 11, fontWeight: 700, lineHeight: 1.3, ...LINE, ...style }}>
+      {compact ? 'Hol' : name}
     </div>
   );
 }
@@ -108,9 +117,9 @@ export function HolidayBlock({ holiday: h, compact = false, style }) {
 export function UsualHint({ start, end, compact = false }) {
   if (compact) return null;
   return (
-    <div title="Usual hours (their shift type). Nothing is on the schedule for this day until a shift is placed."
-      style={{ fontSize: 10.5, color: 'var(--muted)', padding: '4px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-      Usual {shiftTimeText({ start, end })}
+    <div title={`Usual ${shiftTimeText({ start, end })} (their shift type). Nothing is on the schedule for this day until a shift is placed.`}
+      style={{ fontSize: 10.5, color: 'var(--muted)', padding: '4px 6px', ...LINE }}>
+      Usual {shiftShortText({ start, end })}
     </div>
   );
 }

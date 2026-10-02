@@ -156,7 +156,7 @@ export function Avatar({ name, photoUrl, size = 26 }) {
   );
 }
 
-// ── Shift menu (right-click, long-press, ⋯ or Shift+F10) ────────────────
+// ── Shift menu (right-click, long-press or Shift+F10) ───────────────────
 // On a shift: Edit, Details, Color, Move To Open Shifts, Copy, Delete. On an
 // empty day: Add Shift, the shift types to place in one click, Add Time Off,
 // Paste. Keyboard: arrows, Enter, Escape.
@@ -216,7 +216,7 @@ export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, onAct
   );
 }
 
-// ── Shift details (the magnifier on a shift) ─────────────────────────────
+// ── Shift details (the menu's Details, and what a read-only viewer gets) ──
 export function ShiftDetails({ at, shift: s, name, status, onEdit, onClose }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };

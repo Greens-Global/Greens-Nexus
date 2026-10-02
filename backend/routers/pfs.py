@@ -543,15 +543,21 @@ _BS_SECTIONS = ("asset", "liability", "equity")
 
 async def _balances(entity: str, as_of: str) -> dict[str, dict]:
     """GL code -> {title, section, amount} for one entity as of a date: assets
-    as they stand, liabilities as what is owed (both positive in the normal case)."""
+    as they stand, liabilities as what is OWED (both positive in the normal
+    case). The accounting app's balance sheet sends debits minus credits for
+    every section (checked live 10/02: a mortgage owed arrives as
+    -11,245,000.00), so liability and equity amounts are turned around here;
+    a liability account with a debit balance therefore reads negative - not
+    owed - rather than being flipped silently."""
     data = await accounting._acct_get("/api/internal/reports/balance-sheet", {"asof": as_of, "location": entity})
     out: dict[str, dict] = {}
     for s in data.get("sections") or []:
         if s.get("key") not in _BS_SECTIONS:
             continue
+        flip = -1.0 if s["key"] in ("liability", "equity") else 1.0
         for a in s.get("accounts") or []:
             if a.get("account_no"):
-                out[a["account_no"]] = {"title": a.get("title") or "", "section": s["key"], "amount": _r2(a.get("amount")),
+                out[a["account_no"]] = {"title": a.get("title") or "", "section": s["key"], "amount": _r2(flip * (a.get("amount") or 0)),
                                         "accountType": a.get("account_type") or ""}
     return out
 

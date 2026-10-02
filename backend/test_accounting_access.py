@@ -100,6 +100,8 @@ class AccountingAccessTests(unittest.TestCase):
                     {"login": "open", "id": "open", "name": "Open Person", "email": OPEN, "status": "active", "type": "", "restricted": True, "entities": ["12000", "56000"], "departments": ["9100"]},
                     {"login": "limited", "id": "limited", "name": "Limited Person", "email": LIMITED, "status": "active", "type": "", "restricted": False, "entities": [], "departments": []},
                     {"login": "ghost", "id": "ghost", "name": "Nobody Here", "email": "ghost@elsewhere.com", "status": "inactive", "type": "", "restricted": True, "entities": ["15000"], "departments": []},
+                    # Restricted in Intacct, but the rows could not be read (10/02): shown as unknown, never applied.
+                    {"login": "blind", "id": "blind", "name": "One Person", "email": ONE, "status": "active", "type": "", "restricted": True, "entitiesKnown": False, "entities": [], "departments": []},
                 ]}
             return {"ok": True, "echo": clean}
 
@@ -345,6 +347,7 @@ class AccountingAccessTests(unittest.TestCase):
         try:
             db.add(models.NexusEmployee(id="emp-acct-test-open", first_name="Open", last_name="Person", work_email=OPEN))
             db.add(models.NexusEmployee(id="emp-acct-test-limited", first_name="Limited", last_name="Person", work_email=LIMITED))
+            db.add(models.NexusEmployee(id="emp-acct-test-one", first_name="One", last_name="Person", work_email=ONE))
             db.commit()
         finally:
             db.close()
@@ -358,9 +361,11 @@ class AccountingAccessTests(unittest.TestCase):
             self.assertEqual((rows["open"]["matched"], rows["open"]["entities"], rows["open"]["current"], rows["open"]["differs"]), (True, ["12000", "56000"], [], True))
             self.assertEqual((rows["limited"]["matched"], rows["limited"]["entities"], rows["limited"]["current"], rows["limited"]["differs"]), (True, [], ["15000", "56000"], True))
             self.assertFalse(rows["ghost"]["matched"])
+            self.assertEqual((rows["blind"]["matched"], rows["blind"]["unknown"], rows["blind"]["differs"]), (True, True, False))
+            self.assertFalse(rows["open"]["unknown"])
             self.assertIn("USERTYPE", r.json()["notes"][0])
             # Apply to two: one gets Intacct's list, the unrestricted one has the limit lifted; the ghost is skipped.
-            a = self.client.post("/accounting/access/intacct/apply", json={"emails": [OPEN, LIMITED, "ghost@elsewhere.com"]})
+            a = self.client.post("/accounting/access/intacct/apply", json={"emails": [OPEN, LIMITED, ONE, "ghost@elsewhere.com"]})
             self.assertEqual(a.status_code, 200, a.text)
             self.assertEqual(sorted((x["email"], x["entities"]) for x in a.json()["applied"]), sorted([(OPEN, ["12000", "56000"]), (LIMITED, [])]))
             people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
@@ -370,7 +375,7 @@ class AccountingAccessTests(unittest.TestCase):
         finally:
             db = database.SessionLocal()
             try:
-                db.query(models.NexusEmployee).filter(models.NexusEmployee.id.in_(["emp-acct-test-open", "emp-acct-test-limited"])).delete(synchronize_session=False)
+                db.query(models.NexusEmployee).filter(models.NexusEmployee.id.in_(["emp-acct-test-open", "emp-acct-test-limited", "emp-acct-test-one"])).delete(synchronize_session=False)
                 db.commit()
             finally:
                 db.close()
