@@ -163,44 +163,49 @@ export default function Accounting({ activeSub, onSubChange }) {
     partners: 'Vendor and customer records, with changes sent to a manager for approval before they are keyed into Intacct',
     allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
   }[sub];
-  // Reports, Packages and Access are working screens: the statement has to
-  // start high on the page (Neil, Sep 25), so their header is one line. On
-  // Reports it is slimmer still (Charmi, 10/02: "adjust the top width a
-  // little bit so we can get more data") - "Accounting · Financial reports
-  // ..." on one line with almost no margin, so about six more rows fit.
-  const slim = ['reports', 'packages', 'access', 'pfs', 'mri', 'loans'].includes(sub);
-  const slimmer = sub === 'reports';
+  // Every tab has the same one-line header (10/02): the statement still
+  // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
+  // when switching tabs.
 
   return (
     <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: slimmer ? 2 : slim ? 6 : 16, alignItems: slim ? 'center' : undefined, ...(slimmer ? { minHeight: 0 } : {}) }}>
-        <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: slimmer ? 6 : 10, flexWrap: 'wrap' } : undefined}>
-          <h2 style={slim ? { fontSize: slimmer ? '1.02rem' : '1.15rem', margin: 0, lineHeight: 1.3 } : undefined}>Accounting</h2>
-          <p style={slim ? { margin: 0, fontSize: slimmer ? '0.76rem' : '0.8rem', lineHeight: 1.3 } : undefined}>{slimmer ? `· ${subtitle}` : subtitle}</p>
+      {/* One header for every tab (Visesh, 10/02: the search "keeps jumping
+          on every screen change"). Three fixed columns - title, search,
+          Open Nexus Accounting - so the search sits in the same centered spot
+          on every tab; on Reports, which has its own search, the slot stays
+          and is simply empty. One line, one height, everywhere. */}
+      <div className="view-header acct-header">
+        <div className="acct-header-title">
+          <h2>Accounting</h2>
+          <p title={subtitle}>{subtitle}</p>
         </div>
-        {access && sub !== 'reports' && (
-          <form role="search" onSubmit={(e) => { e.preventDefault(); goSearch(headerSearch); }} style={{ position: 'relative', flex: '0 1 380px', minWidth: 200 }}>
-            <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
-            <input type="text" value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} aria-label="Search the ledger"
-              placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
-            {headerSearch && (
-              <button type="button" onClick={() => setHeaderSearch('')} aria-label="Clear search"
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
-                <X size={14} />
-              </button>
-            )}
-          </form>
-        )}
-        {/* The way into the accounting app itself. It came off the tabs on
-            09/30 (Charmi: "remove it everywhere") and then nobody could find
-            it (Charmi, 10/02: "I am not able to find the open Nexus
-            Accounting tab?") - so it is one quiet link up here, in a new tab. */}
-        {access && (
-          <button type="button" onClick={openAccountingApp} disabled={launching} title="Open the Nexus Accounting app in a new tab"
-            style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', cursor: launching ? 'wait' : 'pointer', fontWeight: 600 }}>
-            <ExternalLink size={14} /> {launching ? 'Opening...' : 'Open Nexus Accounting'}
-          </button>
-        )}
+        <div className="acct-header-search">
+          {access && sub !== 'reports' && (
+            <form role="search" onSubmit={(e) => { e.preventDefault(); goSearch(headerSearch); }} style={{ position: 'relative', width: '100%' }}>
+              <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
+              <input type="text" value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} aria-label="Search the ledger"
+                placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
+              {headerSearch && (
+                <button type="button" onClick={() => setHeaderSearch('')} aria-label="Clear search"
+                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
+                  <X size={14} />
+                </button>
+              )}
+            </form>
+          )}
+        </div>
+        <div className="acct-header-actions">
+          {/* The way into the accounting app itself. It came off the tabs on
+              09/30 (Charmi: "remove it everywhere") and then nobody could find
+              it (Charmi, 10/02: "I am not able to find the open Nexus
+              Accounting tab?") - so it is one quiet link up here, in a new tab. */}
+          {access && (
+            <button type="button" onClick={openAccountingApp} disabled={launching} title="Open the Nexus Accounting app in a new tab"
+              style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', cursor: launching ? 'wait' : 'pointer', fontWeight: 600 }}>
+              <ExternalLink size={14} /> {launching ? 'Opening...' : 'Open Nexus Accounting'}
+            </button>
+          )}
+        </div>
       </div>
 
       {access && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />}
@@ -210,7 +215,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       ) : limited ? (
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
-        <div style={{ marginTop: slimmer ? 4 : 8 }}>
+        <div style={{ marginTop: 8 }}>
           {sub === 'reports' && <ReportsTab search={search} />}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
@@ -222,7 +227,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       ) : (
         <DashProvider>
           <DashNav.Provider value={(to) => onSubChange?.(to)}>
-            <div style={{ marginTop: slimmer ? 4 : slim ? 8 : 16 }}>
+            <div style={{ marginTop: 8 }}>
               {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
