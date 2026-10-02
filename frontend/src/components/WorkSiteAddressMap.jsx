@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { Search, MapPin, AlertTriangle } from 'lucide-react';
 import { searchAddresses, metersBetween } from '../lib/addressSearch';
 import { Spinner } from './AsyncState';
+import { formatDistance } from '../lib/distance';
 
 // Work site location, address first (Pranshu, Sep 30).
 //
@@ -33,7 +34,7 @@ const PIN_ICON = L.divIcon({
 });
 const FAR_M = 500;   // a pin this far from its address is probably a mistake
 
-const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+const distText = (m) => formatDistance(m);   // miles / feet (lib/distance.js)
 
 export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = false, onPick, onAdjust,
   showSearch = true, focus = null, checkPoints = null, anchorLabel = 'the address' }) {

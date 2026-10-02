@@ -23,6 +23,7 @@ import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
+import { formatDistance, formatAccuracy } from '../lib/distance';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -402,7 +403,7 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM >= 1000 ? `${(p.distanceM / 1000).toFixed(1)} km` : `${p.distanceM} m`} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${formatDistance(p.distanceM)} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
       <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
@@ -414,7 +415,7 @@ function GeoChip({ p }) {
   if (p.geoStatus === 'low_accuracy') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
       title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
-      <MapPinOff size={12} /> approx. location (±{p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})
+      <MapPinOff size={12} /> approx. location ({formatAccuracy(p.accuracyM)})
     </span>);
   // No geofence verdict, but a location WAS captured (no geofenced work site to
   // judge against, or a coarse Wi-Fi/IP fix): still show the recorded location so
@@ -423,7 +424,7 @@ function GeoChip({ p }) {
   if (p.lat && p.lng) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
       title="Location recorded. No geofenced location to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
-      <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
+      <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (${formatAccuracy(p.accuracyM)})` : ''}
     </span>);
   return null;
 }
