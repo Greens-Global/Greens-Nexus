@@ -3,6 +3,7 @@ import { Link2, CheckCircle, AlertTriangle, ExternalLink, ChevronDown, ChevronRi
 import { api } from '../api';
 import { metersBetween, googleMapsUrl } from '../lib/addressSearch';
 import { Spinner } from './AsyncState';
+import { formatDistance } from '../lib/distance';
 
 // A location from its Google Maps link (Pranshu, Sep 30). The address search
 // (OpenStreetMap) misses or misplaces many US addresses, so HR can paste the
@@ -21,7 +22,7 @@ const PRECISION = {
   view:        { ok: false, label: 'Map View Only', note: 'This link only says where the map was looking, not a pinned place. Make sure the pin is on the building - or in Google Maps click the building first, then copy the link.' },
 };
 const FAR_MOVE_M = 1000;
-const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+const distText = (m) => formatDistance(m);   // miles / feet (lib/distance.js)
 
 export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved }) {
   const [text, setText] = useState('');

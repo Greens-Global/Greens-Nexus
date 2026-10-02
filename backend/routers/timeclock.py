@@ -52,6 +52,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
+from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 
@@ -351,6 +352,17 @@ def _live_geo(db: Session, email: str, punches: list) -> dict:
 
 
 
+def _us_distance(meters: float) -> str:
+    """Meters as US readers expect them (Oct 2 - "we don't want it in km"):
+    miles from a tenth of a mile up, feet below. Same rule as the screens'
+    frontend/src/lib/distance.js. Storage and the geofence math stay metric."""
+    m = max(0.0, float(meters or 0))
+    mi = m / 1609.344
+    if mi >= 0.1:
+        return f"{round(mi):,} mi" if mi >= 10 else f"{mi:.1f} mi"
+    return f"{round(m / 0.3048):,} ft"
+
+
 def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     """Bell + email to the manager for one out-of-fence punch. The email is
     best-effort on a thread (Graph is outbound HTTP; a punch must never wait
@@ -361,7 +373,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     dist = int(geo.get("distance_m") or 0)
     when = _fmt_local(row.at, row.tz_offset_min or 0)
     _hr_notify(db, emp.manager_email, "Out-of-fence punch",
-               f"{who} {verb} at {when}, {dist:,}m from {site} - outside the geofence. Open the timecard to review.",
+               f"{who} {verb} at {when}, {_us_distance(dist)} from {site} - outside the geofence. Open the timecard to review.",
                ref_id=row.id, action=_timecard_action(db, emp.work_email, row.local_date))
     try:
         from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
@@ -372,8 +384,8 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
     maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
     html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
-            f"<p>Nearest location: <b>{site}</b> - {dist:,} m away"
-            f"{' (GPS accuracy ±' + str(int(row.accuracy_m or 0)) + ' m)' if row.accuracy_m else ''}.</p>"
+            f"<p>Nearest location: <b>{site}</b> - {_us_distance(dist)} away"
+            f"{' (GPS accuracy ±' + _us_distance(row.accuracy_m) + ')' if row.accuracy_m else ''}.</p>"
             + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
             + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
     subject = f"Out-of-fence punch: {who} {verb} at {when}"
@@ -713,7 +725,10 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
              if (s.latitude or "").strip() and (s.longitude or "").strip()]
     # Beginning-of-day message is required before the first punch-in of the day:
     # true only until either the BOD is posted or an in-punch already exists today.
-    local_today = _local_date(_now_iso(), tz_offset_min)
+    # "Today" is the WORKDAY - inside a shift that started yesterday evening it
+    # is still yesterday (shift_day.py), or a night shift is asked for a second
+    # BOD after midnight.
+    local_today = _shift_day(db, email, _now_iso(), tz_offset_min)
     has_bod = (db.query(TimeBod)
                .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
                        TimeBod.local_date == local_today).first())
@@ -898,9 +913,11 @@ def punch(body: PunchIn, request: Request,
                             TimeBod.local_date == row.local_date).first())
         first_in_today = prior_in is None and bod_done is None
     elif body.kind == "out":
+        # The shift this clock-out closes (its clock-in's day) - a 2:30 AM
+        # clock-out after a 6:30 PM start reports on the day the shift began.
         eod_done = (db.query(TimeBod)
                     .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
-                            TimeBod.local_date == row.local_date).first())
+                            TimeBod.local_date == _shift_day(db, email, row.at, row.tz_offset_min or 0)).first())
         prompt_eod = eod_done is None
         close_track_session(db, email, "clock_out")  # tracking never outlives the shift
     # Shared-PC binding: claim the device on clock-IN (it now belongs to this
@@ -8333,9 +8350,16 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
         rid, rname, _gn = _resolve_group_chat(db, user["email"])
         if rid:
             chan_id, chan_name = rid[:120], (rname or "")[:120]
+    # Filed under the WORKDAY it reports on (Oct 2, shift_day.py): the day of
+    # the shift being worked, so a 2:30 AM End-of-day for a shift that began at
+    # 6:30 PM lands on the evening's date, in any time zone. An EOD composed
+    # just after the clock-out (an older client, or the gate's own retry)
+    # still belongs to that shift. created_at keeps the real send time.
+    workday = _shift_day(db, user["email"], now, body.tz_offset_min or 0,
+                         grace_min=0 if kind == "bod" else 180)
     row = TimeBod(id=row_id, employee_email=user["email"],
                   kind=kind,
-                  local_date=_local_date(now, body.tz_offset_min or 0),
+                  local_date=workday,
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],
                   team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
@@ -8497,18 +8521,33 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
     bod = next((r for r in rows if r.kind == "bod"), None)
     eod = next((r for r in rows if r.kind == "eod"), None)
 
+    # The workday's own shift: its clock-in, and the clock-out that closed it
+    # even when that came after midnight (the next calendar day is fetched for
+    # it). A clock-out early on `date` that closed the PREVIOUS evening's shift
+    # belongs to that day, not this one.
+    try:
+        _d = datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    _prev = (_d - timedelta(days=1)).strftime("%Y-%m-%d")
+    _next = (_d + timedelta(days=1)).strftime("%Y-%m-%d")
     punches = (db.query(TimePunch)
-               .filter(TimePunch.employee_email == target, TimePunch.local_date == date,
+               .filter(TimePunch.employee_email == target, TimePunch.local_date >= _prev,
+                       TimePunch.local_date <= _next,
                        TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
                .order_by(TimePunch.at.asc()).all())
-    punch_in_at = next((p.at for p in punches if p.kind == "in"), "")
-    punch_out_at = next((p.at for p in reversed(punches) if p.kind == "out"), "")
+    _b = _shift_bounds_by_day(punches).get(date) or {}
+    punch_in_at = _b.get("first_in", "")
+    punch_out_at = _b.get("last_out", "")
 
     def ser(r):
         return {"message": r.message or "", "tasks": r.tasks or ""} if r else None
 
     return {"email": target, "date": date, "bod": ser(bod), "eod": ser(eod),
-            "punchInAt": punch_in_at, "punchOutAt": punch_out_at}
+            "punchInAt": punch_in_at, "punchOutAt": punch_out_at,
+            # The punching device's UTC offsets: shown on the employee's clock.
+            "punchInTz": _b.get("in_tz") if punch_in_at else None,
+            "punchOutTz": _b.get("out_tz") if punch_out_at else None}
 
 
 # ── Time off (leave requests inside the Time module) ─────────────────────────

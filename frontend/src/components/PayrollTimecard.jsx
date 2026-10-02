@@ -17,6 +17,7 @@ import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
 import EmployeeCombobox from './EmployeeCombobox';
 import { downloadBlob } from './accounting/reportModel';
+import { formatDistance } from '../lib/distance';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -147,7 +148,7 @@ function periodStartFor(date) {
 // on the company list (Sep 30): inside one -> that site's name; inside none ->
 // "Out of Location". The nearest site is only a hint in the tooltip -
 // showing it as the location read as "she was at Menifee" when she was not.
-const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+const distText = (m) => formatDistance(m);   // miles / feet (lib/distance.js)
 function outOfLocationHint(site, dist) {
   return site ? `Not inside any company location. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not inside any company location.';
 }

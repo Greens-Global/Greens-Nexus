@@ -93,7 +93,7 @@ describe('WorkSiteAddressMap', () => {
     const { rerender } = render(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={() => {}} />);
     expect(screen.getByText(/Drag the pin \(or click the map\) onto the exact building/)).toBeTruthy();
     rerender(<WorkSiteAddressMap lat="33.5286" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={() => {}} />);
-    expect(screen.getByText(/The pin is 1\.1 km from the address/)).toBeTruthy();
+    expect(screen.getByText(/The pin is 0\.7 mi from the address/)).toBeTruthy();   // ~1.1 km, in US units
   });
 
   it('says so when nothing matches, and when the search is unreachable', { timeout: 30000 }, async () => {

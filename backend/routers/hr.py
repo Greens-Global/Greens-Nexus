@@ -3571,6 +3571,7 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
 # ---------------------------------------------------------------------------
 from models import TimeBod, TimePunch
 from datetime import timedelta
+from shift_day import shift_bounds_by_day
 
 
 @router.get("/employees/{eid}/bod")
@@ -3595,26 +3596,38 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
             .order_by(TimeBod.created_at.desc()).limit(200).all())
 
     # The actual clock-in/out time (from TimePunch, the punch of record) beside
-    # each BOD/EOD post - "in" backs a BOD, "out" backs an EOD. A day can hold
-    # more than one of each (corrections, multiple sessions): the first in-punch
-    # and the last out-punch are the ones that bracket the work day.
+    # each BOD/EOD post - "in" backs a BOD, "out" backs an EOD. Paired by SHIFT,
+    # the payroll rule (shift_day.py, Oct 2): a workday's clock-in, and the
+    # clock-out that closed that shift even when it came after midnight - a
+    # 6:30 PM - 2:30 AM shift shows its 2:30 AM clock-out on the evening's day,
+    # not the next one. A day holding several shifts brackets them: the first
+    # clock-in, the last clock-out. One calendar day either side is fetched so
+    # shifts that cross the range edges still pair.
     dates = sorted({r.local_date for r in rows})
-    punch_in_at, punch_out_at = {}, {}
+    punch_in_at, punch_out_at, punch_tz = {}, {}, {}
     if dates:
+        lo = (datetime.strptime(dates[0], "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        hi = (datetime.strptime(dates[-1], "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
         punches = (db.query(TimePunch)
-                   .filter(TimePunch.employee_email == email, TimePunch.local_date.in_(dates),
+                   .filter(TimePunch.employee_email == email, TimePunch.local_date >= lo,
+                           TimePunch.local_date <= hi,
                            TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
                    .order_by(TimePunch.at.asc()).all())
-        for p in punches:
-            if p.kind == "in" and p.local_date not in punch_in_at:
-                punch_in_at[p.local_date] = p.at
-            elif p.kind == "out":
-                punch_out_at[p.local_date] = p.at   # keep overwriting - last one wins
+        for day, b in shift_bounds_by_day(punches).items():
+            if b["first_in"]:
+                punch_in_at[day] = b["first_in"]
+                punch_tz[("bod", day)] = b["in_tz"]
+            if b["last_out"]:
+                punch_out_at[day] = b["last_out"]
+                punch_tz[("eod", day)] = b["out_tz"]
 
     return {"start": start_d, "end": end_d, "logs": [{
         "id": r.id, "kind": r.kind, "date": r.local_date,
         "message": r.message or "", "tasks": r.tasks or "", "at": r.created_at,
         "punchAt": (punch_in_at if r.kind == "bod" else punch_out_at).get(r.local_date, ""),
+        # The punching device's UTC offset (JS getTimezoneOffset) - the screen
+        # shows the employee's own wall-clock time, not the viewer's.
+        "punchTz": punch_tz.get((r.kind, r.local_date)),
     } for r in rows]}
 
 

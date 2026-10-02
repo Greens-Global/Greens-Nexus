@@ -22,6 +22,7 @@ import TimesheetsToReview from './TimesheetsToReview';
 import { Avatar } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { formatDistance, formatAccuracy } from '../lib/distance';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // Confidential time off (Sep 29): the server blanks the note for anyone but
@@ -715,7 +716,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                           {p.originalAt && <span title={`Originally ${localTime(p.originalAt)} - adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
                           {p.lat && (
                             <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer"
-                              title={`${p.geoStatus === 'in_fence' ? `At ${p.workSiteName}` : `${p.distanceM}m from ${p.workSiteName || 'nearest site'}`} (±${p.accuracyM}m)`}
+                              title={`${p.geoStatus === 'in_fence' ? `At ${p.workSiteName}` : `${formatDistance(p.distanceM)} from ${p.workSiteName || 'nearest site'}`} (${formatAccuracy(p.accuracyM)})`}
                               style={{ display: 'inline-flex', color: p.geoStatus === 'out_of_fence' ? '#b45309' : p.geoStatus === 'in_fence' ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
                               <MapPin size={11} />
                             </a>
