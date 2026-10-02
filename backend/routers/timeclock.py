@@ -8517,7 +8517,9 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
     rows = (db.query(TimeBod)
             .filter(TimeBod.employee_email == target, TimeBod.local_date == date,
                     TimeBod.kind.in_(("bod", "eod")), TimeBod.message != "(sent outside Nexus)")
-            .all())
+            .order_by(TimeBod.created_at.desc()).all())
+    # The latest of each when a day holds two (a re-send) - deterministic, not
+    # whichever row the database happened to return first.
     bod = next((r for r in rows if r.kind == "bod"), None)
     eod = next((r for r in rows if r.kind == "eod"), None)
 
