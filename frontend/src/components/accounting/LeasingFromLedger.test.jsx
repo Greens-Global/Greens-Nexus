@@ -9,7 +9,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // Leasing tab and the rent roll reloads after a create.
 
 const proposals = {
-  from: '2025-10-01', to: '2026-09-30', entitiesScanned: 3, entitiesWithRentAccounts: 2, lookedFor: ['Rent', 'Rental', 'Lease / Leasing', 'Tenant'],
+  from: '2025-10-01', to: '2026-09-30', entitiesScanned: 3, parentsSkipped: 1, entitiesWithRentAccounts: 2, lookedFor: ['Rent', 'Rental', 'Lease / Leasing', 'Tenant'],
   rentAccounts: [{ entityCode: '15000', entityName: 'Greens Escondido, LLC.', code: '41101', title: 'Rental Income' }],
   setUp: 1, missing: 1,
   proposals: [
@@ -43,6 +43,7 @@ describe('LeasingFromLedger', () => {
     const existing = within(dialog).getByText('Overstie Management').closest('tr');
     expect(within(existing).getByText('Set Up')).toBeTruthy();
     expect(within(existing).queryByRole('checkbox')).toBeNull();
+    expect(within(dialog).getByText('Entities scanned: 3 leaf entities (1 parent skipped - their figures roll up from the children)')).toBeTruthy();
     const fresh = within(dialog).getByText('Santos Blancas Jr.').closest('tr');
     expect(within(fresh).getByText('2,100.00')).toBeTruthy();
     expect(within(fresh).getByText('Nov 2025')).toBeTruthy();
@@ -62,6 +63,30 @@ describe('LeasingFromLedger', () => {
     expect(screen.getByText(/41101 Rental Income/)).toBeTruthy();
     expect(screen.getByText(/add the lease by hand with New Lease/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Create/ })).toBeNull();
+  });
+
+  it('polls the scan every few seconds, showing the progress until the table', async () => {
+    let n = 0;
+    const scanning = (done, total) => ({ scanning: true, done, total, startedAt: '2026-10-02T18:00:00Z' });
+    api.getLeaseProposals.mockImplementation(async () => { n += 1; return n === 1 ? scanning(0, 253) : n === 2 ? scanning(120, 253) : proposals; });
+    render(<LeasingFromLedger pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
+    await within(dialog).findByText('Reading the ledger... 0 of 253 entities');
+    await within(dialog).findByText('Reading the ledger... 120 of 253 entities');
+    expect(within(dialog).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('120');
+    await within(dialog).findByText('Santos Blancas Jr.');
+    expect(within(dialog).queryByRole('progressbar')).toBeNull();
+    expect(api.getLeaseProposals).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows why a scan failed and starts it over on Try Again', async () => {
+    let n = 0;
+    api.getLeaseProposals.mockImplementation(async () => { n += 1; if (n === 1) { const e = new Error('Accounting service error: the ledger is closed for maintenance'); e.status = 424; throw e; } return proposals; });
+    render(<LeasingFromLedger pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
+    await within(dialog).findByText(/closed for maintenance/);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Try Again' }));
+    await within(dialog).findByText('Santos Blancas Jr.');
   });
 
   it('says so when the accounting service is not connected', async () => {
