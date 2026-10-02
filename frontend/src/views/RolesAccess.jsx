@@ -23,7 +23,11 @@ import AnchoredMenu from '../components/AnchoredMenu';
 // plain-English cards, and the full matrix lives in a tamed Audit tab with
 // module families that expand on demand.
 const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
-const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
+// Not offered in a role's bundle: admin screens, the compensation reveal (its
+// own toggle), and Development - off the nav since Neil, Aug 11 ("the module
+// isn't being built right now"), so a grant on it opened nothing (Oct 2).
+// Existing grants on it stay harmless; the view still resolves for old links.
+const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp', 'development'].includes(m.id));
 const TIERS = Object.keys(ROLES);
 
 // Starter bundle for a brand-new Employee-tier job role - prefills the editor

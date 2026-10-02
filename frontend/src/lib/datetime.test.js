@@ -37,3 +37,21 @@ describe('weekOfYear (ISO weeks)', () => {
     expect(weekOfYear('2025-12-29')).toBe(1);
   });
 });
+
+describe('wallClock (Oct 2 - punches on the employee clock)', () => {
+  it('reads a naive-UTC punch on the device offset, with its own date', async () => {
+    const { wallClock } = await import('./datetime');
+    // 2:30 AM IST on Oct 2 = 21:00 UTC on Oct 1; IST offset is -330.
+    expect(wallClock('2026-10-01T21:00:00', -330)).toEqual({ time: '2:30 AM', date: '2026-10-02', zone: 'GMT+5:30' });
+    // 10:00 PM PDT on Oct 1 = 05:00 UTC on Oct 2; PDT offset is 420.
+    expect(wallClock('2026-10-02T05:00:00', 420)).toEqual({ time: '10:00 PM', date: '2026-10-01', zone: 'GMT-7' });
+    expect(wallClock('', 0)).toBeNull();
+  });
+  it('marks an after-midnight clock-out with its date in the Work Log', async () => {
+    const { punchTime } = await import('../components/WorkLogDrawer');
+    const tz = new Date().getTimezoneOffset();
+    expect(punchTime('2026-10-01T21:00:00', -330, '2026-10-01')).toMatch(/^2:30 AM, Oct 2/);
+    // Same zone as the viewer: no zone tag.
+    expect(punchTime('2026-10-01T21:00:00', tz, '2026-10-01')).not.toMatch(/GMT/);
+  });
+});

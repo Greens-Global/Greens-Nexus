@@ -7,6 +7,7 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import LedgerSearch from './LedgerSearch';
 import SavedReportsManager from './SavedReportsManager';
 import SendReportDialog from './SendReportDialog';
+import { linesFile } from './linesExport';
 import { takePendingDrill } from './drill';
 import { useAccountingPrefs } from './prefs';
 import Amount, { Figure } from './Amount';
@@ -254,6 +255,23 @@ export default function ReportsTab({ search = null }) {
     }
   };
 
+  // Oct 2 (Charmi): in a drill-down or a search the same Export menu takes
+  // the lines on screen - one Export, every format, everywhere.
+  const [linesExport, setLinesExport] = useState(null);   // { build, lines, name, title } from LedgerSearch
+  const [linesBusy, setLinesBusy] = useState('');
+  const exportLines = async (format) => {
+    if (!linesExport || linesBusy) return;
+    setLinesBusy(format);
+    try {
+      const file = await linesFile(await linesExport.build(), format);
+      downloadBlob(file.name, file);
+    } catch (e) {
+      setError(e?.message || 'Could not export the lines.');
+    } finally {
+      setLinesBusy('');
+    }
+  };
+
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report, config);
@@ -300,6 +318,32 @@ export default function ReportsTab({ search = null }) {
     if (!result || result.config.report !== config.report) return null;
     return result.flux ? withFluxNotes(result, fluxNotes) : result;
   }, [result, config.report, fluxNotes]);
+  // Oct 2 (Charmi): the "contains" box under every column, on every report,
+  // like the ledger lines grid. Typed text narrows the account and line rows
+  // (amounts match with or without commas); a section heading stays while
+  // something under it matches, and the grand total stays (it is the whole
+  // report's - the line under the table says so).
+  const [colFilters, setColFilters] = useState({});
+  useEffect(() => { setColFilters({}); }, [config.report]);
+  const filterOn = Object.values(colFilters).some((v) => (v || '').trim());
+  const visibleRows = useMemo(() => {
+    const rows = shown?.rows || [];
+    if (!filterOn) return rows;
+    const wants = Object.entries(colFilters).map(([k, v]) => [k, (v || '').trim().toLowerCase()]).filter(([, v]) => v);
+    const cellOf = (r, k) => {
+      if (k === '__label') return `${r.code || ''} ${r.title || r.label || ''}`;
+      const i = shown.columns.findIndex((c) => c.key === k);
+      const v = r.values?.[i];
+      if (typeof v === 'number') { const a = Math.abs(v).toFixed(2); return `${a} ${Number(a).toLocaleString('en-US', { minimumFractionDigits: 2 })} ${v < 0 ? `-${a} (${a})` : ''}`; }
+      return String(v ?? '');
+    };
+    const hit = (r) => wants.every(([k, v]) => cellOf(r, k).toLowerCase().includes(k === '__label' ? v : v.replace(/,/g, '')) || cellOf(r, k).toLowerCase().includes(v));
+    const matched = rows.filter((r) => (r.kind === 'account' || r.kind === 'line') && hit(r));
+    const keepSections = new Set(matched.map((r) => r.section).filter(Boolean));
+    const keep = new Set(matched);
+    return rows.filter((r) => keep.has(r) || (r.kind === 'section' && (keepSections.has(r.section) || hit(r))) || r.kind === 'grand');
+  }, [shown, colFilters, filterOn]);
+  const matchedCount = filterOn ? visibleRows.filter((r) => r.kind === 'account' || r.kind === 'line').length : 0;
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
@@ -361,12 +405,18 @@ export default function ReportsTab({ search = null }) {
             showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
             showHistoricalAccounts={!!prefs.showHistoricalAccounts} onShowHistoricalAccounts={(v) => setPrefs({ showHistoricalAccounts: v })}
             flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
-          <ExportMenu disabled={!shown || searching} items={[
+          <ExportMenu disabled={searching ? !linesExport : !shown} items={searching ? [
+            { key: 'excel', label: 'Excel', hint: 'Every line, columns as on screen, live totals', onPick: () => exportLines('excel'), busy: linesBusy === 'excel' },
+            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => exportLines('csv'), busy: linesBusy === 'csv' },
+            { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportLines('pdf'), busy: linesBusy === 'pdf' },
+            { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, lines attached', Icon: Mail, onPick: () => setSending('email') },
+            { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
+          ] : [
             { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
             { key: 'pdf', label: 'PDF', hint: 'Laid out like a page of a package', onPick: () => shown && exportPdf(shown), busy: pdfBusy },
             { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, statement attached', Icon: Mail, onPick: () => setSending('email') },
-            { key: 'egnyte', group: 'send', label: 'Save to Egnyte...', hint: 'Into a folder you name', Icon: FolderUp, onPick: () => setSending('egnyte') },
+            { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             { key: 'share', group: 'send', label: 'Share With a Teammate...', hint: 'Memorized for the team, with a bell notice', Icon: Share2, onPick: () => setSending('share') },
           ]} />
           <button type="button" onClick={() => setFull((v) => !v)} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
@@ -400,11 +450,16 @@ export default function ReportsTab({ search = null }) {
 
       {sent && (
         <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
-          <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open in Egnyte</a></>}</span>
+          <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open the File</a></>}</span>
           <button type="button" onClick={() => setSent(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
         </div>
       )}
-      {sending && shown && (
+      {sending && searching && linesExport && (
+        <SendReportDialog mode={sending} title={linesExport.title} baseName={linesExport.name} what="lines"
+          makeFile={async (format, name) => linesFile(await linesExport.build(), format, name)}
+          onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
+      )}
+      {sending && !searching && shown && (
         <SendReportDialog mode={sending} result={shown} entities={entities} title={activeSaved?.name || def.label} config={storable(config)}
           onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
       )}
@@ -416,7 +471,7 @@ export default function ReportsTab({ search = null }) {
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} />
+          dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport} />
       )}
 
       {!searching && error && <div style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{error}</div>}
@@ -478,11 +533,20 @@ export default function ReportsTab({ search = null }) {
                   <ResizableHead width={colW} onResize={(w) => setPrefs({ accountWidth: w })}>{shown.glLabel || 'Account'}</ResizableHead>
                   {shown.columns.map((c) => <th key={c.key} className={c.type === 'date' || c.type === 'text' ? undefined : 'acct-num'} style={c.emphasis ? EMPHASIS : undefined}>{c.label}</th>)}
                 </tr>
+                <tr className="acct-filter-row">
+                  {[{ key: '__label', label: shown.glLabel || 'Account' }, ...shown.columns].map((c, i) => (
+                    <td key={c.key} className={i === 0 ? 'acct-head' : undefined}>
+                      <input type="text" value={colFilters[c.key] || ''} onChange={(e) => setColFilters((f) => ({ ...f, [c.key]: e.target.value }))}
+                        aria-label={`Filter ${c.label}`} placeholder={c.type === 'amount' || c.type === 'variance' ? '0.00' : 'contains'}
+                        className={c.type === 'amount' || c.type === 'variance' ? 'acct-num' : undefined} />
+                    </td>
+                  ))}
+                </tr>
               </thead>
               <tbody>
-                {shown.rows.map((r, i) => {
-                  if (r.kind !== 'section' && r.section && collapsed.has(r.section)) return null;
-                  const open = r.kind === 'section' && !collapsed.has(r.section);
+                {visibleRows.map((r, i) => {
+                  if (!filterOn && r.kind !== 'section' && r.section && collapsed.has(r.section)) return null;
+                  const open = r.kind === 'section' && (filterOn || !collapsed.has(r.section));
                   return <StatementRow key={`${r.kind}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} colW={colW}
                     onToggle={() => toggleSection(r.section)} onDrill={drillInto}
                     onNote={shown.flux ? (row) => { setNoteError(''); setNoteEdit({ code: row.code, title: row.title, text: fluxNotes[row.code] || '' }); } : null} />;
@@ -512,6 +576,12 @@ export default function ReportsTab({ search = null }) {
                   <button type="submit" className="primary-btn" disabled={noteBusy}>{noteBusy ? 'Saving...' : 'Save Explanation'}</button>
                 </div>
               </form>
+            </div>
+          )}
+          {filterOn && (
+            <div role="status" style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>Filtered to {matchedCount.toLocaleString('en-US')} {matchedCount === 1 ? 'row' : 'rows'}. Section and grand totals are for the whole report.</span>
+              <button type="button" onClick={() => setColFilters({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear column filters</button>
             </div>
           )}
           {(shown.notes || []).map((n) => <div key={n} style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{n}</div>)}
@@ -587,7 +657,7 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill, onNote = nu
           <button type="button" className="acct-fold" aria-expanded={open} aria-label={`${open ? 'Fold' : 'Open'} ${row.label}`} onClick={(e) => { e.stopPropagation(); onToggle(); }}>
             <Chevron size={13} />
           </button>
-          {row.label}{!open ? <span className="acct-count">{row.count}</span> : null}
+          {row.code && row.title ? <><span className="acct-code">{row.code}</span>{row.title}</> : row.label}{!open ? <span className="acct-count">{row.count}</span> : null}
         </td>
         {cells}
       </tr>

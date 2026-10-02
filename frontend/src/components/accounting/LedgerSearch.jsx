@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, Download, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -7,7 +7,7 @@ import EntryDetail from './EntryDetail';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { PopoverPanel, usePopover } from './reportControls';
-import { downloadCsv } from './reportModel';
+import { linesBaseName } from './linesExport';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -131,7 +131,7 @@ function applyDims(dims, entities) {
   return { place, party, unapplied };
 }
 
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null, full = false }) {
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, full = false }) {
   const entitiesKey = entities.join(',');
   const applied = useMemo(() => applyDims(dims, entities), [dims, entitiesKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Narrowing picked from the chips. A drill-down arrives with its account set.
@@ -144,7 +144,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [exporting, setExporting] = useState(false);
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
   const seq = useRef(0);
 
@@ -235,27 +234,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const rows = data?.rows || [];
   const facets = data?.facets || {};
 
-  const exportCsv = async () => {
-    if (!total || exporting) return;
-    setExporting(true);
-    try {
-      // The screen shows one page; the file is the whole result (walked 1,000 at a time).
-      const all = [];
-      for (let offset = 0; offset < Math.min(total, EXPORT_CAP); offset += 1000) {
-        const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
-        all.push(...(d?.rows || []));
-      }
-      // The columns on screen, in their order; amounts as numbers.
-      const out = [columns.map((c) => c.label)];
-      all.forEach((r) => out.push(columns.map((c) => (c.num ? (r[c.key] || '') : c.text(r)))));
-      downloadCsv(`Ledger-Lines_${(term || account?.code || party?.name || 'results').replace(/[^A-Za-z0-9]+/g, '-').slice(0, 40)}.csv`, out);
-    } catch (e) {
-      setError(e?.message || 'Could not export the results.');
-    } finally {
-      setExporting(false);
-    }
-  };
-
   // Drag a column's right edge to resize it; double-click puts it back.
   const startResize = (c, e) => {
     e.preventDefault();
@@ -276,6 +254,36 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
   const journalsText = applied.place.journals ? ` · journals ${applied.place.journals}` : '';
   const labelSpan = columns.filter((c) => !c.num).length;
+
+  // Oct 2 (Charmi): one Export, the report's own at the top. The lines hand it
+  // a builder for the WHOLE result (walked 1,000 at a time, up to EXPORT_CAP),
+  // in the columns on screen and their order, amounts as numbers.
+  const exportKey = JSON.stringify([params, columns.map((c) => c.key), total, heading, periodText, entityName, book]);
+  useEffect(() => {
+    if (!onExport) return undefined;
+    if (!total) { onExport(null); return undefined; }
+    const build = async () => {
+      const all = [];
+      for (let offset = 0; offset < Math.min(total, EXPORT_CAP); offset += 1000) {
+        const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
+        all.push(...(d?.rows || []));
+      }
+      const firstNum = columns.findIndex((c) => c.num);
+      const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, all.reduce((n, r) => n + (Number(r[c.key]) || 0), 0)]));
+      return {
+        title: `Ledger Lines - ${heading}`,
+        period: periodText.replace(/\//g, '-'),
+        subtitle: [entityName, periodText, book === 'all' ? 'all books' : `${book} book`, `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
+        columns: columns.map((c) => ({ label: c.label, num: !!c.num, width: colWidth(c) })),
+        rows: all.map((r) => columns.map((c) => (c.num ? (Number(r[c.key]) || 0) : c.text(r)))),
+        totals: firstNum > 0 ? columns.map((c, i) => (c.num ? Math.round(sums[c.key] * 100) / 100 : i === 0 ? `Totals - ${all.length.toLocaleString('en-US')} lines` : '')) : null,
+        capped: total > EXPORT_CAP,
+      };
+    };
+    onExport({ build, lines: total, name: linesBaseName({ title: `Ledger Lines - ${heading}`, period: periodText.replace(/\//g, '-') }), title: `Ledger Lines - ${heading}` });
+    return undefined;
+  }, [exportKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onExport?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={card}>
@@ -302,9 +310,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             <option value="cash">Cash Book</option>
           </select>
           <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />
-          <button type="button" className="primary-btn" onClick={exportCsv} disabled={!total || exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-            <Download size={14} /> {exporting ? 'Exporting...' : 'Export CSV'}
-          </button>
         </div>
       </div>
 

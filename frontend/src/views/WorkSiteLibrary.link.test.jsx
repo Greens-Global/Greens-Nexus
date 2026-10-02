@@ -132,12 +132,13 @@ describe('Location Library - placed from the Google Maps link', () => {
     expect(await screen.findByText('Used by Greens Global')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Edit/ }));
     expect(screen.getByText(/Placed from a Google Maps link on 09\/30\/2026 by hr@greensglobal.com/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '200 m' }));
+    // The radius is picked in feet (Oct 2) and still saved in whole meters.
+    fireEvent.click(screen.getByRole('button', { name: '650 ft' }));
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(api.updateWorkSite).toHaveBeenCalled());
     const [id, body] = api.updateWorkSite.mock.calls[0];
     expect(id).toBe('s1');
-    expect(body.radius_m).toBe(200);
+    expect(body.radius_m).toBe(198);   // 650 ft
     expect(body.company_ids).toEqual(['c1']);
     expect(body).not.toHaveProperty('location_source');
     expect(body).not.toHaveProperty('map_link');

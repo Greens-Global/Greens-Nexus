@@ -10,7 +10,8 @@ import {
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
@@ -747,7 +748,8 @@ function WorkLogsSection({ employee }) {
     return pollWhileVisible(() => load(true), 15000);
   }, [load, start, end]);
 
-  // Group the flat, newest-first list into one card per local_date (BOD + EOD together).
+  // Group the flat, newest-first list into one card per WORKDAY (BOD + EOD together) -
+  // an overnight shift's EOD and clock-out sit on the day the shift began.
   const byDate = [];
   for (const l of logs || []) {
     let group = byDate.find(g => g.date === l.date);
@@ -776,15 +778,16 @@ function WorkLogsSection({ employee }) {
         <div style={{ display: 'grid', gap: 8 }}>
           {byDate.map(g => (
             <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              {/* The WORKDAY - the day the shift began (shift_day.py, Oct 2). */}
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{formatWeekday(`${g.date}T12:00:00`, 'short')}, {formatDate(`${g.date}T12:00:00`)}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
                 {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
                       {slot?.punchAt && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
-                          {punchLabel} {punchTime(slot.punchAt)}
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt, slot.punchTz, g.date)}, on the employee's clock`}>
+                          {punchLabel} {punchTime(slot.punchAt, slot.punchTz, g.date)}
                         </span>
                       )}
                     </div>
@@ -3663,7 +3666,8 @@ const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.lat
 // only when the point was set in this edit.
 const siteBody = f => {
   const { link_point, loc_changed, addr_manual, link_address, verifiedAt, verifiedBy, saved_point, pin_adjusted, location_source, map_link, ...rest } = f;   // eslint-disable-line no-unused-vars
-  return { ...rest, radius_m: Number(f.radius_m) || 150, ...(loc_changed ? { location_source, map_link } : {}) };
+  // The form keeps exact meters (the editor works in feet); the API stores whole meters.
+  return { ...rest, radius_m: Math.round(Number(f.radius_m)) || 150, ...(loc_changed ? { location_source, map_link } : {}) };
 };
 // The list badge: a site whose point came from the old map pin is re-checked
 // once by searching its address (Sep 30) - nothing moves until someone does.
@@ -3688,12 +3692,13 @@ function SiteVerifyBadge({ s }) {
     </span>
   );
 }
-const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-';
+const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${formatDistance(s.radiusM)}` : ''].filter(Boolean).join(' · ') || '-';
 
 // Radius guidance (competitor research, Sep 30): phone GPS drifts ~50 m, so a
 // fence under 100 m flags people who are on-site; most sites want 100-300 m.
-const RADIUS_PRESETS = [100, 150, 200, 300, 500];
-const ftText = m => `${Math.round(m * 3.28084).toLocaleString('en-US')} ft`;
+// Entered and shown in FEET (Oct 2 - US units); stored in meters as before.
+const RADIUS_PRESETS_FT = [330, 500, 650, 1000, 1650];
+const ftOf = m => Math.round(metersToFeet(m));
 
 // ── The location form (Neil, Oct 1) ─────────────────────────────────────────
 // ONE way to place a location: paste the building's Google Maps link. Its
@@ -3809,7 +3814,9 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
     if (!next) setCheckPoints(null);
     try { localStorage.setItem(PUNCHES_PREF, next ? '1' : '0'); } catch { /* storage blocked - just this visit */ }
   };
-  const r = Number(f.radius_m) || 0;
+  const r = Number(f.radius_m) || 0;          // meters, as stored
+  const [ftDraft, setFtDraft] = useState(null);   // the feet box while typing
+  const setFeet = (ft) => set('radius_m', feetToMeters(ft));
   const hasPoint = f.latitude !== '' && f.longitude !== '' && Number.isFinite(Number(f.latitude)) && Number.isFinite(Number(f.longitude));
   const status = f.loc_changed && f.location_source === 'google_link'
     ? (f.pin_adjusted ? 'Pin fine-tuned from the Google Maps point. Save to keep it.' : 'Placed from the Google Maps link. Save to keep it.')
@@ -3925,24 +3932,27 @@ function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entitie
         <div style={{ marginTop: 14 }}>
           <label style={FL}>GEOFENCE RADIUS</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="range" min={50} max={1000} step={10} value={Math.min(1000, Math.max(50, r || 150))} aria-label="Geofence radius slider"
-              onChange={e => set('radius_m', Number(e.target.value))} style={{ flex: 1, accentColor: 'hsl(217,91%,50%)' }} />
-            <input className="form-input" type="number" min={25} max={5000} value={f.radius_m} aria-label="Geofence radius in meters"
-              onChange={e => set('radius_m', e.target.value)} style={{ width: 84 }} />
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>m</span>
+            <input type="range" min={165} max={3300} step={25} value={Math.min(3300, Math.max(165, ftOf(r || 150)))} aria-label="Geofence radius slider"
+              onChange={e => { setFtDraft(null); setFeet(Number(e.target.value)); }} style={{ flex: 1, accentColor: 'hsl(217,91%,50%)' }} />
+            <input className="form-input" type="number" min={80} max={16400} value={ftDraft ?? (f.radius_m === '' ? '' : ftOf(r))} aria-label="Geofence radius in feet"
+              onChange={e => { setFtDraft(e.target.value); setFeet(e.target.value); }} onBlur={() => setFtDraft(null)} style={{ width: 84 }} />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>ft</span>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
-            {RADIUS_PRESETS.map(v => (
-              <button key={v} type="button" onClick={() => set('radius_m', v)} aria-pressed={r === v}
-                style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${r === v ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: r === v ? 'rgba(37,99,235,0.1)' : 'var(--card)',
-                  color: r === v ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v} m</button>
-            ))}
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${ftText(r)} across the building` : ''}</span>
+            {RADIUS_PRESETS_FT.map(v => {
+              const on = ftOf(r) === v;
+              return (
+                <button key={v} type="button" onClick={() => { setFtDraft(null); setFeet(v); }} aria-pressed={on}
+                  style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${on ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: on ? 'rgba(37,99,235,0.1)' : 'var(--card)',
+                    color: on ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v.toLocaleString('en-US')} ft</button>
+              );
+            })}
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${formatDistance(2 * r)} across` : ''}</span>
           </div>
           <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
             {r > 0 && r < 100
-              ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 100 m, normal phone GPS drift will mark people who are on-site as Out of Location.</>
-              : 'Most locations work well at 100-300 m. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
+              ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 330 ft, normal phone GPS drift will mark people who are on-site as Out of Location.</>
+              : 'Most locations work well at 330-1,000 ft. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
           </p>
         </div>
       </div>

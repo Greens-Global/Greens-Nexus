@@ -47,7 +47,7 @@ describe('WorkSiteLinkPanel', () => {
   it('calls out a big move from where the site is saved', () => {
     render(<WorkSiteLinkPanel link={LINK} point={{ lat: 38.3733, lng: -122.9167, precision: 'place', label: '' }}
       savedPoint={[33.5186, -117.155]} onResolved={vi.fn()} />);
-    expect(screen.getByTestId('link-result')).toHaveTextContent(/moves the location \d[\d.]* km from where it is saved now/);
+    expect(screen.getByTestId('link-result')).toHaveTextContent(/moves the location \d[\d.,]* (mi|ft) from where it is saved now/);
     expect(screen.getByTestId('link-result')).toHaveTextContent('Make sure it is the right building');
   });
 });
