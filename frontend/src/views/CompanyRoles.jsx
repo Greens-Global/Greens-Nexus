@@ -86,6 +86,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
   const duplicateHere = r => setEditing({
     name: r.name, tier: r.tier, department: r.department, description: r.description,
     allowed_modules: r.allowed_modules, monitoring_exempt: r.monitoring_exempt, bod_exempt: r.bod_exempt,
+    time_tracking_exempt: r.time_tracking_exempt,
   });
 
   async function onDelete(r) {

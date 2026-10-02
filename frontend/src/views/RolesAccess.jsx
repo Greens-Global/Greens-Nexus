@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
-  LayoutGrid, Copy, MonitorOff, PlayCircle, Users, User, TrendingUp, MailPlus, ChevronLeft,
+  LayoutGrid, Copy, MonitorOff, TimerOff, PlayCircle, Users, User, TrendingUp, MailPlus, ChevronLeft,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import { api } from '../api';
@@ -616,6 +616,12 @@ export default function RolesAccess({ embedded = false }) {
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
                           background: 'rgba(37,99,235,0.1)', color: 'hsl(var(--color-blue))' }}>
                         <MonitorOff size={12} /> Not monitored</span>
+                    )}
+                    {selected.time_tracking_exempt && (
+                      <span title="People in this role have no time clock and no timesheet."
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                          background: 'rgba(37,99,235,0.1)', color: 'hsl(var(--color-blue))' }}>
+                        <TimerOff size={12} /> No Time Tracking</span>
                     )}
                     <TierBadge tier={selected.tier} />
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)} title="Edit role"><Pencil size={13} /></button>
@@ -1471,18 +1477,20 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
   });
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [bodExempt, setBodExempt] = useState(!!role?.bod_exempt);
+  const [ttExempt, setTtExempt] = useState(!!role?.time_tracking_exempt);
   const [busy, setBusy] = useState(false);
   const deptOptions = departments || [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
   const initialBundle = useMemo(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])), [role]);
   const dirty = name !== (role?.name || '') || tier !== (role?.tier || 'employee') || dept !== (role?.department || '')
     || desc !== (role?.description || '') || monExempt !== !!role?.monitoring_exempt
     || bodExempt !== !!role?.bod_exempt
+    || ttExempt !== !!role?.time_tracking_exempt
     || JSON.stringify(bundle) !== JSON.stringify(initialBundle);
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
-    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, bod_exempt: bodExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, bod_exempt: bodExempt, time_tracking_exempt: ttExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
     try {
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body)
@@ -1547,6 +1555,20 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Skip day and break messages</span>
             <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role are never asked for the beginning/end-of-day or break messages - punches go straight through. Use for field workers who cannot type these out.
+            </span>
+          </span>
+        </button>
+        <button type="button" aria-pressed={ttExempt} onClick={() => setTtExempt(v => !v)}
+          style={{ display: 'flex', alignItems: 'flex-start', gap: 11, textAlign: 'left', width: '100%', padding: '11px 13px',
+            border: `1.5px solid ${ttExempt ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 10,
+            background: ttExempt ? 'var(--mist)' : 'transparent', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+          <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, marginTop: 1, display: 'grid', placeItems: 'center',
+            border: `1.5px solid ${ttExempt ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: ttExempt ? 'var(--ink)' : 'transparent', color: 'var(--card)' }}>
+            {ttExempt && <Check size={13} />}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from time tracking</span>
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+              People in this role have no time clock and no timesheet. Use for salaried leadership who are not tracked.
             </span>
           </span>
         </button>
