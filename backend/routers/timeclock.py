@@ -3170,7 +3170,7 @@ def _ps_oneliner(script: str) -> str:
 
 
 @router.get("/agent/install-command")
-def agent_install_command(user: dict = Depends(require_tracking_full)):
+def agent_install_command(user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     """Return the ONE reusable Windows one-liner used on every PC (like Flowace's
     silent command). It downloads the installer + agent bundle and installs the
     DISCLOSED agent (visible tray icon; nothing covert), carrying the shared
@@ -3178,9 +3178,16 @@ def agent_install_command(user: dict = Depends(require_tracking_full)):
     Run it in an ELEVATED prompt for the employee-proof service that covers every
     profile on the PC; a normal prompt does a removable per-user install. Who gets
     attributed is decided by whoever clocks in on the website (shared-PC pairing)."""
-    configured = bool(_AGENT_INSTALL_URL and _AGENT_BUNDLE_URL and _AGENT_ENROLL_KEY)
+    # New installs get the same build the updater targets: the current published
+    # release wins over the env bundle (which went stale at 0.8.5 and left fresh
+    # PCs a version behind until the updater caught up).
+    rel = (db.query(AgentRelease).filter(AgentRelease.is_current == 1, AgentRelease.version != "",
+                                         AgentRelease.bundle_url != "")
+           .order_by(AgentRelease.published_at.desc()).first())
+    current_bundle = (rel.bundle_url if rel else "") or _AGENT_BUNDLE_URL
+    configured = bool(_AGENT_INSTALL_URL and current_bundle and _AGENT_ENROLL_KEY)
     install_url = _AGENT_INSTALL_URL or "<set NEXUS_AGENT_INSTALL_URL>"
-    bundle_url  = _AGENT_BUNDLE_URL or "<set NEXUS_AGENT_BUNDLE_URL>"
+    bundle_url  = current_bundle or "<set NEXUS_AGENT_BUNDLE_URL>"
     enroll_key  = _AGENT_ENROLL_KEY or "<set NEXUS_AGENT_ENROLL_KEY>"
     # Fetch install.ps1 to a temp file, run it with the shared key + targets, clean
     # up. Single-quoted PS literals; the key/urls carry no quote chars to escape.
