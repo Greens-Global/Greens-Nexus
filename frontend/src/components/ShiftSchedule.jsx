@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { useIsMobile } from '../lib/useIsMobile';
 import { formatDate, formatWeekday, formatMonthYear, formatHHMM } from '../lib/datetime';
 import { zoneOptionLabel } from '../lib/worldClockZones';
 import { exportExcel } from '../tasks/exporting';
@@ -15,6 +16,7 @@ import { CopyModal, ClearModal, BulkModal } from './shifts/ScheduleDialogs';
 import ScheduleGrid from './shifts/ScheduleGrid';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
+import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel from './shifts/ShiftPanel';
 import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText } from './shifts/shiftLib';
 
@@ -22,7 +24,8 @@ import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber,
 // This file is the container: it owns the data, the API calls and the
 // interactions (drag, menus, keyboard, clipboard). What is on screen is
 // components/shifts/: ScheduleToolbar (one row, seven controls), ScheduleGrid
-// (week, two weeks), ScheduleDay, ScheduleMonth, ShiftPanel (the right-hand
+// (week, two weeks), ScheduleDay, ScheduleMonth, SchedulePhone (a day list
+// on a phone - never a 7-column grid there), ShiftPanel (the right-hand
 // editor) and ScheduleDialogs (Copy / Clear / Fill).
 //
 // Rows = people grouped by shift group (or location), columns = the days in
@@ -43,6 +46,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const { myEmail } = useRole() || {};
   const me = (myEmail || '').toLowerCase();
   const nameOf = useNameResolver();
+  const phone = useIsMobile();
   const [view, setView] = useState('week');
   const [cursor, setCursor] = useState(() => new Date());
   const [query, setQuery] = useState('');
@@ -92,7 +96,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   useEffect(() => { load(); }, [load]);
 
   const presets = data?.shifts || [];
-  const teamZone = data?.timeZone || '';
+  const teamZone = data?.timeZone || '';                       // the IANA id, what a shift's zone is compared with
+  const teamZoneLabel = teamZone ? zoneOptionLabel(teamZone) : '';   // "(GMT-7) Pacific Daylight Time - Los Angeles", said once under the grid
   const canManage = data?.canManage !== false;
   const managing = !!data && canManage;
   const canTimeOff = !data?.groupScheduler;
@@ -537,7 +542,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
       <ScheduleToolbar view={view} onView={pickView} onPrev={() => shiftRange(-1)} onNext={() => shiftRange(1)} onToday={() => setCursor(new Date())}
         rangeLabel={rangeLabel} groups={groups} groupFilter={groupFilter} onGroupFilter={setGroupFilter} canManage={toolbarManage} busy={busy} ready={ready}
-        unsharedCount={managing ? unsharedCount : 0}
+        unsharedCount={managing ? unsharedCount : 0} phone={phone}
         onAdd={(kind) => {
           if (kind === 'note') { setNoteDate(view === 'day' ? start : isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start); setOpen('note'); return; }
           const date = view === 'day' ? start : (isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start);
@@ -569,6 +574,10 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
         <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={load} />
       ) : data === null ? (
         <SkeletonBlocks count={6} height={60} borderRadius={10} />
+      ) : phone && view !== 'month' && groupBy !== 'shift' ? (
+        <SchedulePhone days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOn={usualOn}
+          notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
+          rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn} />
       ) : view === 'day' ? (
         <ScheduleDay date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
@@ -577,15 +586,16 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
         <ScheduleMonth days={days} shifts={shown.filter((s) => s.email)} openShifts={shown.filter((s) => !s.email)} timeoff={data.timeoff || []}
           holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} weekStart={weekStart} onOpenDay={openDay} />
       ) : groupBy === 'shift' ? (
-        <ShiftTypeWeek days={days} shifts={shown} presets={presets} names={names} teamZone={teamZone ? zoneOptionLabel(teamZone) : ''}
+        <ShiftTypeWeek days={days} shifts={shown} presets={presets} names={names} teamZone={teamZone}
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />
       ) : (
         <ScheduleGrid days={days} compact={compact} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} availOn={availOn} usualOn={usualOn}
-          notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone ? zoneOptionLabel(teamZone) : ''} canManage={managing}
+          notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} shiftEditable={shiftEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
           copied={copied} dropKey={dropKey} dragId={drag?.id} collapsed={collapsed} on={gridOn}
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable} />
       )}
+      {data && teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
 
       {ghost && (
         <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 11.5, fontWeight: 800,
@@ -603,7 +613,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       {panel && (
         <ShiftPanel key={`${panel.cell.email}|${panel.cell.date}|${panel.cell.existing?.id || ''}|${panel.mode}`} cell={panel.cell} initialMode={panel.mode}
           presets={presets} groups={groups.filter((g) => !g.archived)} people={Object.values(empByEmail).filter((e) => e.canEdit !== false)} nameOf={nameOf}
-          teamZone={teamZone ? zoneOptionLabel(teamZone) : ''} busy={busy} canTimeOff={canTimeOff}
+          teamZone={teamZoneLabel} busy={busy} canTimeOff={canTimeOff}
           onSave={saveCell} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell}
           onCopy={(s) => { copyShift(s); setPanel(null); }} onToOpen={(s) => moveShift(s, '', s.date, false)}
           onSaveTimeOff={saveTimeOff} onClose={() => setPanel(null)} />
@@ -638,10 +648,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
 
       <style>{`.sched-cell:hover .sched-add, .sched-cell:focus-visible .sched-add { opacity: 1 !important; }
         .sched-cell:focus-visible { outline: 2px solid var(--wk-brand) !important; outline-offset: -2px; }
-        .sched-chip:hover .chip-tools, .sched-chip:focus-within .chip-tools, .sched-chip:focus-visible .chip-tools { opacity: 1 !important; }
         .sched-chip:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
         .sched-person:hover .person-tools, .sched-person:focus-within .person-tools { opacity: 1 !important; }
-        @media (pointer: coarse) { .chip-tools, .person-tools { opacity: 1 !important; } }
+        .sched-group:hover .group-tools, .sched-group:focus-within .group-tools { opacity: 1 !important; }
+        .sched-hdr:hover .hdr-tools, .sched-hdr:focus-within .hdr-tools { opacity: 1 !important; }
+        @media (pointer: coarse) { .person-tools, .group-tools, .hdr-tools { opacity: 1 !important; } }
         .shift-menu-item:hover:not(:disabled), .shift-menu-item:focus-visible { background: var(--bg) !important; outline: none; }
         body.sched-dragging, body.sched-dragging * { cursor: grabbing !important; user-select: none !important; }`}</style>
     </div>

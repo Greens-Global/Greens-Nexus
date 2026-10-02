@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Shifts > My Shifts (Oct 2026): my shared shifts as blocks, time off BESIDE
-// a shift (a partial day with its hours), the group grid laid out like Teams
-// Shifts, a Request link under a shift that opens the one request dialog,
-// open shifts requestable only from today on, the zone chip, availability
-// that never saves over a failed load, and an error with Retry.
+// Shifts > My Shifts (Oct 2026; decluttered 10/02): one line that says the
+// week, my shared shifts as one-line blocks, time off BESIDE a shift (a
+// partial day with its hours), the group grid laid out like Teams Shifts
+// (a day list on a phone), a Request link under a shift that opens the one
+// request dialog, open shifts requestable only from today on, the zone chip
+// only in another zone, availability that never saves over a failed load,
+// and an error with Retry.
 
 const timeMySchedule = vi.fn();
 const shiftRequestsMine = vi.fn();
@@ -74,18 +76,43 @@ describe('MyShifts week and group grid', () => {
     expect(me.textContent).toContain('7.5 Hrs');
     expect(bob.textContent).toContain('8 Hrs');
     const block = me.querySelector('[data-shift="mine1"]');
-    expect(block.textContent).toContain('9:00 AM - 5:00 PM');
-    expect(block.textContent).toContain('GST · Front Desk');
-    expect(block.textContent).toContain('Lunch 30m');
-    expect(block.style.borderLeft).toContain('4px solid');
+    expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
+    expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
+    expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
+    expect(block.style.borderLeft).toContain('3px solid');
     const grid = screen.getByRole('table', { name: 'Store schedule' });
-    expect(grid.textContent).toContain('Week: 15.5 Hrs');
-    expect(grid.textContent).toContain('Times in');
+    expect(grid.textContent).toContain('Week · 15.5 Hrs');
+    expect(grid.textContent).not.toContain('Times in');
+    expect(screen.getAllByText(/^Times in /)).toHaveLength(1);           // said once, under the grid
     expect(grid.textContent).toContain('Day Notes');
     expect(grid.textContent).toContain('Inventory day');
     expect(grid.textContent).toContain('Open Shifts');
+    expect(grid.textContent).toContain('Store15.5 Hrs · 2 people');
     const header = within(grid).getAllByRole('columnheader')[0];
-    expect(header.textContent).toMatch(/[A-Z][a-z]{2} [A-Z][a-z]{2}/);   // "Mon Sep"
+    expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once
+  });
+
+  it('says the week in one line, and nothing repeats the date range', async () => {
+    render(<MyShifts />);
+    const line = await screen.findByRole('status', { name: 'Week summary' });
+    expect(line.textContent).toMatch(/^This week: 1 shift · 8 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
+    expect(screen.getAllByText(new RegExp(`${monday.slice(5, 7)}/${monday.slice(8, 10)}/${monday.slice(0, 4)} - `))).toHaveLength(1);
+    expect(screen.queryByText('NEXT SHIFT')).toBeNull();
+  });
+
+  it('on a phone, lays the group out as a day list with a day strip', async () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+      matches: /max-width/.test(q), media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+    }));
+    try {
+      render(<MyShifts />);
+      const grid = await screen.findByRole('table', { name: 'Store schedule' });
+      expect(within(grid).queryByRole('columnheader')).toBeNull();
+      const strip = screen.getByRole('tablist', { name: 'Day' });
+      expect(within(strip).getAllByRole('tab')).toHaveLength(7);
+      expect(within(strip).getByRole('tab', { selected: true }).getAttribute('aria-label')).toContain(`${DAY.slice(5, 7)}/${DAY.slice(8, 10)}/${DAY.slice(0, 4)}`);
+      expect(grid.querySelector('[data-member="bob@x.com"] [data-shift="bob1"]')).toBeTruthy();
+    } finally { mm.mockRestore(); }
   });
 
   it('keeps a shift beside a partial day of time off, with its hours (QA 19 / 20)', async () => {
@@ -96,7 +123,7 @@ describe('MyShifts week and group grid', () => {
     render(<MyShifts />);
     const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
     expect(bob.querySelector('[data-shift="bob1"]')).toBeTruthy();          // the shift is still there
-    expect(bob.querySelector('[data-timeoff="to2"]').textContent).toContain('2:00 PM - 4:00 PM');
+    expect(bob.querySelector('[data-timeoff="to2"]').textContent).toBe('2:00p - 4:00p Personal');
     expect(bob.textContent).toContain('8 Hrs');                              // and still counts
     // My own day card shows both too, and my hours are not dropped.
     expect(document.querySelector('[data-timeoff="to1"]').textContent).toContain('Personal');
@@ -106,7 +133,6 @@ describe('MyShifts week and group grid', () => {
   it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
     timeMySchedule.mockResolvedValue({ ...sched, shift: { id: 'p', name: 'Day Shift', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' } });
     render(<MyShifts />);
-    await screen.findByText('GST · Front Desk').catch(() => null);
     await screen.findAllByText('Usual Hours');
     expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
     expect(screen.queryByText('Off')).toBeNull();
@@ -126,7 +152,7 @@ describe('MyShifts week and group grid', () => {
     render(<MyShifts />);
     expect(await screen.findByText('Your shifts could not be loaded right now.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('GST · Front Desk').catch(() => screen.findByText('Front Desk'))).toBeTruthy();
+    expect(await screen.findByText('Front Desk')).toBeTruthy();
   });
 });
 

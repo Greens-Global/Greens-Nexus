@@ -46,6 +46,9 @@ export function viewDays(view, cursor, weekStart = 'monday') {
 // "Mon Sep 29" - a day header always says its month (Teams parity; a week
 // across a month boundary used to read "29 30 1 2 3").
 export const dayHeading = (d, style = 'short') => `${formatWeekday(d, style)} ${formatMonthDay(d)}`;
+// "Mon 28" - the calm day header (Oct 2026); the month is said apart, once,
+// where the view crosses into it.
+export const dayShort = (d) => `${formatWeekday(d, 'short')} ${d.getDate()}`;
 
 // ── Times and hours ──────────────────────────────────────────────────────
 export const toMin = (hhmm) => { const [h, m] = String(hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
@@ -55,6 +58,12 @@ export const durMin = (start, end) => { let d = toMin(end) - toMin(start); if (d
 export const sameTime = (a, b) => !!a && !!b && String(a).slice(0, 5) === String(b).slice(0, 5);
 export const timeText = (start, end) => `${formatHHMM(start)} - ${formatHHMM(end)}`;
 export const shiftTimeText = (s) => timeText(s.start, s.end);
+// "8:30a - 5:30p" - the one line a block carries (Oct 2026, "less clutter"):
+// the same 12-hour time with the meridiem down to a letter so it never has
+// to be cut. Screen readers, tooltips and the panel keep the full "8:30 AM".
+export const shortTime = (hhmm) => formatHHMM(hhmm).replace(/ (AM|PM)$/, (m, ap) => ap[0].toLowerCase());
+export const shortTimeText = (start, end) => `${shortTime(start)} - ${shortTime(end)}`;
+export const shiftShortText = (s) => shortTimeText(s.start, s.end);
 
 // Unpaid minutes inside a shift: the unpaid activities when there are any
 // (CONTRACT.md 1 - `paid: false`), else the plain break the shift carries.
@@ -124,6 +133,12 @@ export function alpha(hex, a) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+// ── Zones ────────────────────────────────────────────────────────────────
+// A shift kept in another zone than the team's. Both sides are IANA ids
+// ("America/Los_Angeles"); the grid used to compare the id with the team's
+// LABEL, so every block wore a "PDT" chip (Visesh, 10/02).
+export const zoneDiffers = (zone, teamZone) => !!zone && !!teamZone && String(zone) !== String(teamZone);
+
 // ── Time off ─────────────────────────────────────────────────────────────
 // Every entry a person has on a day. The grid payload carries startTime /
 // endTime / allDay (CONTRACT.md 3-4); an older row with dates only is a
@@ -136,6 +151,7 @@ export const isAllDayOff = (t) => !!t && (t.allDay === true || !(t.startTime && 
 // "All Day" or "2:00 PM - 4:00 PM" - a partial day shows its hours, so a
 // two-hour appointment never reads as a day off.
 export const timeOffWhen = (t) => (isAllDayOff(t) ? 'All Day' : timeText(t.startTime, t.endTime));
+export const timeOffShort = (t) => (isAllDayOff(t) ? '' : shortTimeText(t.startTime, t.endTime));
 export const isApprovedOff = (t) => t?.status === 'approved';
 // A whole approved day off - the one case a person is not expected at all.
 export const dayFullyOff = (entries) => (entries || []).some((t) => isApprovedOff(t) && isAllDayOff(t));

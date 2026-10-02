@@ -1,32 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, Info, StickyNote, Timer, Plane, ArrowLeftRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Info, StickyNote, ArrowLeftRight } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, zoneClock, formatHHMM } from '../lib/datetime';
+import { formatDate, zoneClock, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { zoneOptionLabel } from '../lib/worldClockZones';
 import { useNameResolver } from '../lib/useNameResolver';
+import { useIsMobile } from '../lib/useIsMobile';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { shiftPhase } from './shiftScheduleLib';
 import TeamShiftGrid from './TeamShiftGrid';
 import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
-import { isoDate, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayHeading } from './shifts/shiftLib';
+import { isoDate, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 
-// Shifts > My Shifts (Sep 29; rebuilt Oct 2026). A read-only week of the
-// signed-in person's own SHARED shifts, with time off and holidays beside
-// them, a tile strip that says whether they are on shift right now, then
-// their group's week (TeamShiftGrid) and their availability. A day with
-// nothing shared shows the usual hours of their shift type as a reminder
-// (never a shift, never counted) - and nothing at all otherwise (it used to
-// say "Off", which reads as time off). Asking for a swap, an offer or an
-// open shift lives in Workday > Time Off; the "Request" link under a shift
-// here opens that same dialog with the shift filled in.
+// Shifts > My Shifts (Sep 29; rebuilt Oct 2026; decluttered 10/02). A
+// read-only week of the signed-in person's own SHARED shifts, with time off
+// and holidays beside them: one line that says the week ("This week: 2
+// shifts · 15.5 Hrs · no time off · next shift Tue 9:00a"), the 7-day
+// strip of their own days, then their group's week (TeamShiftGrid) and
+// their availability. A day with nothing shared shows the usual hours of
+// their shift type as a reminder (never a shift, never counted) - and
+// nothing at all otherwise (it used to say "Off", which reads as time
+// off). Asking for a swap, an offer or an open shift lives in Workday >
+// Time Off; the "Request" link under a shift here opens that same dialog
+// with the shift filled in.
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
 export default function MyShifts() {
   const nameOf = useNameResolver();
+  const phone = useIsMobile();
   const [weekStart, setWeekStartPref] = useState('monday');
   const [cursor, setCursor] = useState(() => new Date());
   const [data, setData] = useState(null);
@@ -104,7 +108,7 @@ export default function MyShifts() {
     const mins = worked.reduce((m, d) => m + d.shifts.reduce((a, s) => a + paidMinutes(s), 0), 0);
     const offDays = days.filter((d) => d.timeoff.length).length;
     const pending = days.some((d) => d.timeoff.some((t) => t.status === 'pending'));
-    return { on, shown: on || next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending };
+    return { on, next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending };
   }, [data, days, clockOf]);
 
   const teams = data?.teams || [];
@@ -127,70 +131,69 @@ export default function MyShifts() {
     return teamRows.filter((r) => r.days.some((d) => !dayFullyOff(d.off) && d.shifts.some((s) => shiftPhase(s, d.key, clockOf(s)) === 'on')));
   }, [team, teamRows, clockOf, thisWeek]);
   const teamZone = data?.timeZone || '';
+  const teamZoneLabel = teamZone ? zoneOptionLabel(teamZone) : '';
   const cfg = reqs?.settings || {};
   const canAsk = (reqs?.teammates || []).length > 0 && (cfg.swaps !== false || cfg.offers !== false);
   const pendingIds = new Set((reqs?.mine || []).filter((r) => PENDING.includes(r.status)).map((r) => r.shift?.id));
   const openList = cfg.openShifts ? reqs?.openShifts || [] : [];
   const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
+  const whenText = (x) => (x.d.isToday ? 'today' : x.d.key === isoDate(addDays(now, 1)) ? 'tomorrow' : dayShort(x.d.date));
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', background: 'var(--card)' }}>
           <button type="button" onClick={() => setCursor((c) => addDays(c, -7))} title="Previous Week" aria-label="Previous week"
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
           <button type="button" onClick={() => setCursor(new Date())} disabled={thisWeek}
             style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: thisWeek ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
-            {thisWeek ? 'This Week' : rangeText}
+            This Week
           </button>
           <button type="button" onClick={() => setCursor((c) => addDays(c, 7))} title="Next Week" aria-label="Next week"
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronRight size={16} /></button>
         </div>
-        {thisWeek && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{rangeText}</span>}
-        {teamZone && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>Times in {zoneOptionLabel(teamZone)}</span>}
+        <span style={{ fontSize: 17, fontWeight: 800, whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>{rangeText}</span>
       </div>
 
       {glance && !error && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
-          <GlanceTile icon={Clock} label={glance.on ? 'On Shift Now' : 'Next Shift'} tone={glance.on ? 'green' : 'brand'}
-            value={glance.shown ? (glance.shown.d.isToday ? 'Today' : glance.shown.d.key === isoDate(addDays(now, 1)) ? 'Tomorrow' : dayHeading(glance.shown.d.date)) : 'None this week'}
-            sub={glance.shown ? `${formatHHMM(glance.shown.s.start)} - ${formatHHMM(glance.shown.s.end)}${glance.shown.s.label ? ` · ${glance.shown.s.label}` : ''}` : 'Nothing else shared'} />
-          <GlanceTile icon={Timer} label="Hours" tone="brand" value={fmtHrs(glance.mins)}
-            sub={`${glance.shiftCount} shift${glance.shiftCount === 1 ? '' : 's'} ${thisWeek ? 'this week' : 'that week'} · paid time, unpaid breaks excluded`} />
-          <GlanceTile icon={Plane} label="Time Off" tone={glance.offDays ? 'amber' : 'muted'}
-            value={glance.offDays ? `${glance.offDays} day${glance.offDays === 1 ? '' : 's'}` : 'None'}
-            sub={glance.pending ? 'Includes a pending request' : glance.offDays ? 'Approved' : thisWeek ? 'This week' : 'That week'} />
+        <div role="status" aria-label="Week summary" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+          {thisWeek ? 'This week' : 'That week'}: <b style={{ color: 'var(--ink)' }}>{glance.shiftCount} shift{glance.shiftCount === 1 ? '' : 's'}</b>
+          {' · '}<b style={{ color: 'var(--ink)' }}>{fmtHrs(glance.mins)}</b>
+          {' · '}{glance.offDays ? <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.offDays} day{glance.offDays === 1 ? '' : 's'} off{glance.pending ? ' (one requested)' : ''}</b> : 'no time off'}
+          {' · '}{glance.on ? <><b style={{ color: 'hsl(var(--color-green))' }}>on shift now</b> until {shortTime(glance.on.s.end)}</>
+            : glance.next ? <>next shift <b style={{ color: 'var(--ink)' }}>{whenText(glance.next)} {shiftShortText(glance.next.s)}</b></>
+              : 'next shift none'}
         </div>
       )}
 
       {error ? (
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
-        <SkeletonBlocks count={7} height={120} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
+        <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
-          {days.map((d) => (
+        <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
+          {days.map((d, i) => (
             <div key={d.key} style={{
-              background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 14, padding: '12px 13px', minHeight: 118,
-              boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 6,
+              background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : 96,
+              boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
             }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{d.date.getDate()}</span>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: d.isToday ? 'var(--wk-brand)' : 'var(--muted)' }}>{dayHeading(d.date).replace(/ \d+$/, '')}</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
+                {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
                 {d.isToday && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
               </div>
-              {d.holiday && <div style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 6 }}><CalendarDays size={12} /> {d.holiday}</div>}
-              {d.note && <div style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'flex-start', gap: 6 }}><StickyNote size={12} style={{ flexShrink: 0, marginTop: 2 }} /> {d.note}</div>}
-              {d.timeoff.map((t, i) => <TimeOffBlock key={t.id || i} off={t} style={{ marginBottom: 0 }} />)}
+              {d.holiday && <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>}
+              {d.note && <div title={d.note} style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'flex-start', gap: 5 }}><StickyNote size={11} style={{ flexShrink: 0, marginTop: 2 }} /> <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.note}</span></div>}
+              {d.timeoff.map((t, i2) => <TimeOffBlock key={t.id || i2} off={t} style={{ marginBottom: 0 }} />)}
               {d.shifts.map((s) => {
                 const askable = canAsk && s.date >= todayKey && !pendingIds.has(s.id);
                 return (
                   <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }}>
-                    {s.note && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{s.note}</div>}
-                    {pendingIds.has(s.id) ? <div style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 3 }}>Request Pending</div>
+                    {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
+                    {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (
                         <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap or offer for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
-                          style={{ alignSelf: 'flex-start', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                          style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
                             border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}>
                           <ArrowLeftRight size={10} /> Request
                         </button>
@@ -199,9 +202,9 @@ export default function MyShifts() {
                 );
               })}
               {!d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
-                <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', borderLeft: '3px dotted var(--wk-line2)', paddingLeft: 9 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
+                <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', borderLeft: '3px dotted var(--wk-line2)', paddingLeft: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
                 </div>
               )}
             </div>
@@ -215,11 +218,13 @@ export default function MyShifts() {
           nameOf={nameOf} onClose={() => setAsk(null)} onDone={done} />
       )}
 
-      {data && team && (
+      {data && team ? (
         <TeamShiftGrid teams={teams} team={team} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
           openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek}
-          timeZoneLabel={teamZone ? zoneOptionLabel(teamZone) : ''} teamZone={teamZone} />
-      )}
+          timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
+      ) : data && teamZoneLabel ? (
+        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
+      ) : null}
 
       <MyAvailability />
 
@@ -231,29 +236,6 @@ export default function MyShifts() {
           {data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
           {' '}Swaps, offers and open-shift requests are in Workday &gt; Time Off.
         </span>
-      </div>
-    </div>
-  );
-}
-
-const GLANCE_TONE = {
-  brand: { fg: 'var(--wk-brand)', bg: 'var(--wk-brand-tint)' },
-  green: { fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' },
-  amber: { fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
-  muted: { fg: 'var(--muted)', bg: 'var(--mist)' },
-};
-
-function GlanceTile({ icon: Icon, label, value, sub, tone = 'brand' }) {
-  const t = GLANCE_TONE[tone] || GLANCE_TONE.brand;
-  return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, padding: '12px 14px', boxShadow: 'var(--wk-shadow)', display: 'flex', gap: 11, alignItems: 'center', minWidth: 0 }}>
-      <span style={{ width: 34, height: 34, borderRadius: 10, background: t.bg, color: t.fg, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-        <Icon size={17} />
-      </span>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' }}>{label}</div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', lineHeight: 1.25 }}>{value}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>
       </div>
     </div>
   );
