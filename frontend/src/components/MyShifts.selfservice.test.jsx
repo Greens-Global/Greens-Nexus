@@ -102,7 +102,8 @@ describe('MyShifts week and group grid', () => {
     render(<MyShifts />);
     const line = await screen.findByRole('status', { name: 'Week summary' });
     expect(line.textContent).toMatch(/^This week: 1 shift · 8 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
-    expect(screen.getAllByText(new RegExp(`${monday.slice(5, 7)}/${monday.slice(8, 10)}/${monday.slice(0, 4)} - `))).toHaveLength(1);
+    expect(document.querySelectorAll('[data-range-title]')).toHaveLength(1);   // the decorated date, once
+    expect(document.querySelector('.date-block').getAttribute('title')).toMatch(new RegExp(`^${monday.slice(5, 7)}/${monday.slice(8, 10)}/${monday.slice(0, 4)} - `));
     expect(screen.queryByText('NEXT SHIFT')).toBeNull();
   });
 
