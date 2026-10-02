@@ -277,11 +277,14 @@ class CompensationSaveTests(unittest.TestCase):
             self.assertEqual(r_us.overtime_rule, "ca")
             self.assertEqual(hr.payroll_fields(db, emp_in)["defaultOvertimeRule"], "none")
             self.assertEqual(hr.payroll_fields(db, emp_us)["overtimeRule"], "ca")
-            # An explicit choice wins; the timecard-only fields ride along.
+            # An explicit choice wins; the timecard-only fields ride along. A
+            # stale timeTrackingExempt is ignored - the exemption is set on the
+            # role in Settings > Access since Oct 2.
             self._save(db, HOURLY, {"base": 25, "payBasis": "hourly", "currency": "USD",
                                     "overtimeRule": "federal", "fullDayHours": 9, "timeTrackingExempt": True})
             r_us = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == HOURLY).first()
-            self.assertEqual((r_us.overtime_rule, r_us.full_day_hours, r_us.time_tracking_exempt), ("federal", 9.0, 1))
+            self.assertEqual((r_us.overtime_rule, r_us.full_day_hours, r_us.time_tracking_exempt or 0), ("federal", 9.0, 0))
+            self.assertFalse(hr.payroll_fields(db, emp_us)["timeTrackingExempt"])
         finally:
             db.close()
 

@@ -842,6 +842,8 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN timezone TEXT DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
             "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
+            # Time-tracking exemption moves to the role (Visesh, Oct 2) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1837,6 +1839,10 @@ def _run_migrations():
         # payroll allocation runs. New tables - RLS per CLAUDE.md.
         "ALTER TABLE accounting_partner_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_allocation_runs ENABLE ROW LEVEL SECURITY",
+        # Time-tracking exemption is set on the role / access group in Settings >
+        # Access, beside the screen-share exemption (Visesh, Oct 2).
+        # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

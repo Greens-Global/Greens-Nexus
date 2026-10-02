@@ -58,7 +58,8 @@ class ReviewCase(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.TimesheetReview, models.TimePunch, models.TimeApproval, models.HrSignParty,
                   models.HrSignRequest, models.HrSignConsent, models.HrSignDocument, models.HrSignSeal,
-                  models.HrSignOtpChallenge, models.NexusEmployee, models.HrEntity, models.PayrollRate):
+                  models.HrSignOtpChallenge, models.NexusEmployee, models.HrEntity, models.PayrollRate,
+                  models.NexusGroupMember, models.NexusGroup):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test Co", hr_contact_email=HR))
         for email, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (HR, "Hana", "")):
@@ -164,13 +165,25 @@ class ReviewLoopTests(ReviewCase):
         self.assertEqual(e.exception.status_code, 409)
 
     def test_exempt_from_time_tracking_has_no_timesheet(self):
-        # Exempt = no clock and no timesheet (Visesh, 10/02).
-        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="USD", monthly_salary=1,
-                                       full_day_hours=8, overtime_rule="none", time_tracking_exempt=1))
+        # Exempt = no clock and no timesheet (Visesh, 10/02). The flag is set on
+        # the person's role in Settings > Access.
+        self.db.add(models.NexusGroup(id="g-ts-mp", name="Managing Principal", is_job_role=1,
+                                      time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-ts-mp", email=EMP))
         self.db.commit()
         with self.assertRaises(HTTPException) as e:
             tsr.submit(self.db, EMP, ANCHOR)
         self.assertEqual(e.exception.status_code, 400)
+
+    def test_legacy_pay_record_flag_no_longer_exempts(self):
+        # payroll_rates.time_tracking_exempt is a kept record, never read (Oct 2).
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="hourly", currency="USD", hourly_rate=20,
+                                       full_day_hours=8, overtime_rule="ca", time_tracking_exempt=1))
+        self.db.add(models.NexusGroup(id="g-ts-crew", name="Crew", is_job_role=1, time_tracking_exempt=0))
+        self.db.add(models.NexusGroupMember(group_id="g-ts-crew", email=EMP))
+        self.db.commit()
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(r.status, "with_manager")
 
     def test_agreeing_needs_an_hr_contact(self):
         self.db.query(models.HrEntity).update({"hr_contact_email": ""})
