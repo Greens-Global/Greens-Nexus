@@ -130,6 +130,19 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   useEffect(() => { load(); }, [load]);
 
   const presets = data?.shifts || [];
+  // Custom shifts the schedule already uses with a label (e.g. "All Properties"
+  // from Teams) - offered beside the shift types so they can be added again.
+  const quickPicks = useMemo(() => {
+    const m = new Map();
+    (data?.scheduled || []).forEach((s) => {
+      const label = (s.label || '').trim();
+      if (s.shiftId || !label || !s.start || !s.end) return;
+      const key = `${label}|${s.start}|${s.end}`;
+      const cur = m.get(key) || { key, label, start: s.start, end: s.end, color: s.ownColor || '', n: 0 };
+      cur.n += 1; m.set(key, cur);
+    });
+    return [...m.values()].sort((a, b) => b.n - a.n || a.label.localeCompare(b.label)).slice(0, 6);
+  }, [data]);
   const teamZone = data?.timeZone || '';                       // the IANA id, what a shift's zone is compared with
   const teamZoneLabel = teamZone ? zoneOptionLabel(teamZone) : '';   // "(GMT-7) Pacific Daylight Time - Los Angeles", said once under the grid
   const canManage = data?.canManage !== false;
@@ -947,7 +960,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       {personMenu && <PersonMenu menu={personMenu} presets={presets} usualId={data?.usual?.[personMenu.emp.email] || ''} canTimeOff={canTimeOff} onAction={personAction} onClose={() => setPersonMenu(null)} />}
       {panel && (
         <ShiftPanel key={`${panel.cell.email}|${panel.cell.date}|${panel.cell.existing?.id || ''}|${panel.mode}`} cell={panel.cell} initialMode={panel.mode}
-          presets={presets} groups={groups.filter((g) => !g.archived)} people={Object.values(empByEmail).filter((e) => e.canEdit !== false)} nameOf={nameOf}
+          presets={presets} quickPicks={quickPicks} groups={groups.filter((g) => !g.archived)} people={Object.values(empByEmail).filter((e) => e.canEdit !== false)} nameOf={nameOf}
           teamZone={teamZoneLabel} busy={busy} canTimeOff={canTimeOff}
           onSave={saveCell} onAssign={assignOpen} onDelete={delCell} onDiscard={discardCell}
           onCopy={(s) => { copyShift(s); setPanel(null); }} onToOpen={(s) => moveShift(s, '', s.date, false)}
