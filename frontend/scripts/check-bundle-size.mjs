@@ -155,6 +155,9 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // batch; the old ShiftsPanel, ShiftSelfService and modal editors came out as
 // the new screens went in. No new dependency. Deliberate; every piece was
 // asked for (Visesh, 10/02).
+// Oct 2, 2026 (late): 10400 -> 10480. Charmi's export batch: the report's
+// Export menu now builds ledger-line files (linesExport.js: PDF / Excel /
+// CSV) and Save to Files opens the full Files browser. ~5 KB over.
 // Oct 2, 2026 (evening): 10320 -> 10400. Charmi + Neil's accounting batch:
 // columns per picked employee, Egnyte destination + folder browser, Journals
 // filter, Flux Analysis, drill from every figure, PFS classification + Move
@@ -163,7 +166,7 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // Export for Intacct. Measured 10295 KB locally (25 KB under), CI reads about
 // 10 KB higher. +80 KB headroom. No new dependency. Deliberate; every piece
 // was asked for (Visesh, 10/02: "build all of it").
-const TOTAL_KB     = 10400;
+const TOTAL_KB     = 10480;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

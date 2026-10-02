@@ -428,15 +428,23 @@ describe('general ledger', () => {
     expect(a.searchAccountingLedger.mock.calls.map((c) => c[0].account)).toEqual(['11341', '41101']);
     expect(a.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ location: '15000', from: '2026-01-01', to: '2026-09-28', book: 'accrual' });
     expect(r.pickable.map((p) => p.code)).toEqual(['11341', '41101', '61101']);
-    expect(r.summary.map((f) => [f.label, f.value])).toEqual([['Debits', '1,300.00'], ['Credits', '1,000.00'], ['Lines', '3']]);
+    // Oct 2 (Charmi): no Debits / Credits up top - the line counter stays.
+    expect(r.summary.map((f) => [f.label, f.value])).toEqual([['Lines', '3']]);
+    expect(r.glLabel).toBe('Account');
   });
 
   it('lists the accounts only when too many are open at once', async () => {
     const many = { ...tb, rows: Array.from({ length: 30 }, (_x, i) => ({ account_no: String(60000 + i), title: `Account ${i}`, opening: 0, debit: 10, credit: 0, closing: 10 })) };
     const a = { ...api(), getAccountingTrialBalance: vi.fn(async () => many) };
     const r = await runReport(a, resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger' }, NOW));
-    expect(a.searchAccountingLedger).not.toHaveBeenCalled();
-    expect(r.rows.filter((x) => x.kind === 'section')).toHaveLength(30);
+    // Plain account rows (no fold arrow that opens nothing), closing balance, and one count of the period's lines.
+    expect(r.rows.filter((x) => x.kind === 'section')).toHaveLength(0);
+    expect(r.rows.filter((x) => x.kind === 'account')).toHaveLength(30);
+    expect(r.rows[0]).toMatchObject({ kind: 'account', code: '60000', title: 'Account 0', values: ['', '', '', 10, 0, 10] });
+    expect(a.searchAccountingLedger).toHaveBeenCalledTimes(1);
+    expect(a.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ limit: 1, from: '2026-01-01', to: '2026-09-28' });
+    expect(a.searchAccountingLedger.mock.calls[0][0].account).toBeUndefined();
+    expect(r.summary).toEqual([{ label: 'Lines', value: '0' }]);
     expect(r.notes[0]).toMatch(/30 accounts have activity/);
     // Picking accounts opens them.
     const r2 = await runReport(api(), resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', accounts: ['41101'] }, NOW));

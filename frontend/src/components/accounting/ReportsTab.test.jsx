@@ -81,11 +81,27 @@ vi.mock('../../api', () => ({
     getPeopleDirectory: vi.fn(async () => [{ email: 'urmi.gor@greensglobal.com', name: 'Urmi Gor' }]),
   },
 }));
-vi.mock('./LedgerSearch', () => ({
-  default: ({ drill, term, onBusy }) => {
+const LINES_TABLE = {
+  title: 'Ledger Lines - 61000 Repairs', period: '01-01-2026 - 08-31-2026', subtitle: 'All entities',
+  columns: [{ label: 'Date', width: 96 }, { label: 'Debit', num: true, width: 118 }], rows: [['08/19/2026', 22.46]], totals: ['Totals - 1 lines', 22.46],
+};
+vi.mock('./LedgerSearch', async () => {
+  const { useEffect } = await import('react');
+  function LedgerSearchMock({ drill, term, onBusy, onExport }) {
     onBusy?.(false);
+    // The real grid hands the report's Export menu a builder for its lines.
+    useEffect(() => { onExport?.({ build: async () => LINES_TABLE, lines: 1, name: 'Ledger Lines - 61000 Repairs', title: 'Ledger Lines - 61000 Repairs' }); return () => onExport?.(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
     return <div data-testid="ledger-search" data-from={drill?.from}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
-  },
+  }
+  return { default: LedgerSearchMock };
+});
+// Save to Files browses with the Files screen's own browser; here, a stand-in that picks Lenders.
+vi.mock('../../egnyte/EgnyteFolderPick', () => ({
+  default: ({ startPath, showTree, onPick }) => (
+    <div role="dialog" aria-label="Files Picker" data-start={startPath} data-tree={String(!!showTree)}>
+      <button type="button" onClick={() => onPick('/Shared/Accounting/Reports/Lenders')}>Use This Folder</button>
+    </div>
+  ),
 }));
 
 import ReportsTab from './ReportsTab';
@@ -119,6 +135,17 @@ describe('ReportsTab statement table', () => {
     // Every account amount is a drill button.
     fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: '400.00' }));
     expect(screen.getByTestId('ledger-search').textContent).toContain('drill:61000');
+  });
+
+  it('narrows the statement with the contains boxes under the headings (Charmi, 10/02)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Filter Account'), { target: { value: 'repa' } });
+    expect(screen.getByText('Repairs')).toBeTruthy();
+    expect(screen.queryByText('Rental Income')).toBeNull();
+    expect(screen.getByText(/Filtered to 1 row\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear column filters' }));
+    expect(screen.getByText('Rental Income')).toBeTruthy();
   });
 
   it('drills from every figure - a section total, Net Income - into the period with no account (Charmi, 10/02)', async () => {
@@ -345,7 +372,7 @@ describe('ReportsTab controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
     expect(within(screen.getByRole('menu', { name: 'Export' })).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
       'ExcelTotals in bold, columns fitted, live formulas', 'CSVPlain values, one row per line', 'PDFLaid out like a page of a package',
-      'Email...From your own mailbox, statement attached', 'Save to Egnyte...Into a folder you name', 'Share With a Teammate...Memorized for the team, with a bell notice',
+      'Email...From your own mailbox, statement attached', 'Save to Files...Into a folder in Files, named as you like', 'Share With a Teammate...Memorized for the team, with a bell notice',
     ]);
     fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'Fill the screen' }));
@@ -460,25 +487,61 @@ describe('ReportsTab controls', () => {
     expect(within(screen.getByRole('dialog', { name: 'Filters' })).queryByText(/hidden/i)).toBeNull();
   });
 
-  it('says where the Egnyte file goes, with Browse to pick the folder (R2)', async () => {
+  it('says where the file goes in Files, renames it, and browses with the Files browser (R2; Charmi 10/02)', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
     fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Save to Egnyte/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Save to Egnyte' });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Save to Files/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Save to Files' });
     const d = new Date();
     const today = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
     const line = within(dialog).getByLabelText('Where the file will be saved');
     expect(line.textContent).toBe(`Will be saved as /Shared/Accounting/Reports/Income Statement - All entities - 01-01-${d.getFullYear()} to ${today}.pdf`);
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Excel' }));
     expect(line.textContent).toMatch(/\.xlsx$/);
-    // Browse lists Egnyte's folders; picking one fills the box.
+    // Browse opens the Files browser, tree and all, at the folder in the box; picking fills the box.
     fireEvent.click(within(dialog).getByRole('button', { name: /Browse/ }));
-    fireEvent.click(await within(dialog).findByRole('button', { name: /Lenders/ }));
-    await waitFor(() => expect(api.egnyteFolder).toHaveBeenLastCalledWith('/Shared/Accounting/Reports/Lenders'));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Use This Folder' }));
-    expect(within(dialog).getByLabelText('Egnyte Folder').value).toBe('/Shared/Accounting/Reports/Lenders');
+    const picker = screen.getByRole('dialog', { name: 'Files Picker' });
+    expect(picker.dataset.start).toBe('/Shared/Accounting/Reports');
+    expect(picker.dataset.tree).toBe('true');
+    fireEvent.click(within(picker).getByRole('button', { name: 'Use This Folder' }));
+    expect(screen.queryByRole('dialog', { name: 'Files Picker' })).toBeNull();
+    expect(within(dialog).getByLabelText('Folder').value).toBe('/Shared/Accounting/Reports/Lenders');
     expect(line.textContent).toMatch(/^Will be saved as \/Shared\/Accounting\/Reports\/Lenders\/Income Statement/);
+    // Rename: the name box sets the file's name; the extension follows the format.
+    fireEvent.change(within(dialog).getByLabelText('File Name'), { target: { value: 'September Lender Pack' } });
+    expect(line.textContent).toBe('Will be saved as /Shared/Accounting/Reports/Lenders/September Lender Pack.xlsx');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save to Files' }));
+    await waitFor(() => expect(api.egnyteUpload).toHaveBeenCalled());
+    const [folder, file] = api.egnyteUpload.mock.calls.at(-1);
+    expect(folder).toBe('/Shared/Accounting/Reports/Lenders');
+    expect(file.name).toBe('September Lender Pack.xlsx');
+  });
+
+  it('exports a drill-down from the one Export menu at the top, every format (Charmi, 10/02)', async () => {
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: '400.00' }));
+    await screen.findByTestId('ledger-search');
+    const exportBtn = screen.getByRole('button', { name: /^Export/ });
+    await waitFor(() => expect(exportBtn.disabled).toBe(false));
+    fireEvent.click(exportBtn);
+    const items = screen.getAllByRole('menuitem').map((m) => m.textContent);
+    expect(items.some((t) => /^Excel/.test(t))).toBe(true);
+    expect(items.some((t) => /^CSV/.test(t))).toBe(true);
+    expect(items.some((t) => /^PDF/.test(t))).toBe(true);
+    expect(items.some((t) => /Save to Files/.test(t))).toBe(true);
+    expect(items.some((t) => /Share With a Teammate/.test(t))).toBe(false);
+    fireEvent.click(screen.getByRole('menuitem', { name: /Save to Files/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Save to Files' });
+    expect(within(dialog).getByLabelText('File Name').value).toBe('Ledger Lines - 61000 Repairs');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'CSV' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save to Files' }));
+    await waitFor(() => expect(api.egnyteUpload).toHaveBeenCalled());
+    const file = api.egnyteUpload.mock.calls.at(-1)[1];
+    expect(file.name).toBe('Ledger Lines - 61000 Repairs.csv');
+    const text = await new Promise((done) => { const fr = new FileReader(); fr.onload = () => done(fr.result); fr.readAsText(file); });
+    expect(text).toContain('08/19/2026,22.46');
   });
 
   it('offers Journals under Filters, grouped by kind, and says Not available yet when the accounting app has none (R7)', async () => {

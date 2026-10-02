@@ -763,13 +763,22 @@ async function generalLedger(api, config, book, drillCur) {
     // Lines come newest first from the search; a ledger reads oldest first.
     const list = [...(got?.rows || [])].sort((x, y) => (x.entry_date || '').localeCompare(y.entry_date || '') || (x.entry_no || '').localeCompare(y.entry_no || '', 'en-US', { numeric: true }));
     if (got && got.total > list.length) cut += got.total - list.length;
-    rows.push({ kind: 'section', section: key, code: key, label: `${key} ${a.title}`, count: list.length, values: ['', detail ? 'Opening balance' : '', '', round2(a.debit), round2(a.credit), round2(a.opening)], drill: drillCur });
+    // Oct 2 (Charmi): with no lines listed an account is a plain banded row -
+    // not a bold heading with a fold arrow that opens nothing - and its balance
+    // is the closing one. With lines, the heading folds them.
+    if (!detail) {
+      rows.push({ kind: 'account', code: key, title: a.title, values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
+      totalDebit = round2(totalDebit + (a.debit || 0));
+      totalCredit = round2(totalCredit + (a.credit || 0));
+      return;
+    }
+    rows.push({ kind: 'section', section: key, code: key, title: a.title, label: `${key} ${a.title}`, count: list.length, values: ['', 'Opening balance', '', round2(a.debit), round2(a.credit), round2(a.opening)], drill: drillCur });
     let running = round2(a.opening || 0);
     list.forEach((l) => {
       running = round2(running + glSigned(l));
       rows.push({ kind: 'line', section: key, label: formatDate(l.entry_date), entryId: l.entry_id, values: [l.entry_no || '', l.description || l.memo || '', l.location_name || l.location || '', round2(l.debit), round2(l.credit), running] });
     });
-    if (detail) rows.push({ kind: 'subtotal', section: key, code: key, title: a.title, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
+    rows.push({ kind: 'subtotal', section: key, code: key, title: a.title, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
     totalDebit = round2(totalDebit + (a.debit || 0));
     totalCredit = round2(totalCredit + (a.credit || 0));
   });
@@ -778,11 +787,21 @@ async function generalLedger(api, config, book, drillCur) {
   if (!detail && accounts.length) notes.push(`${accounts.length} accounts have activity - the lines are listed for up to ${GL_MAX_ACCOUNTS} accounts at a time. Pick the accounts to open under Accounts.`);
   if (cut) notes.push(`${cut.toLocaleString('en-US')} more lines were not listed (${GL_MAX_LINES.toLocaleString('en-US')} per account at most). Narrow the period for the whole run.`);
   if (dimsText({ ...config, accounts: [] }).length) notes.push('Department, vendor, customer, employee, Project-Job and item filters narrow the balances; the lines listed are the account\'s whole activity for the entities and period.');
-  const summary = [
-    { label: 'Debits', value: money(totalDebit), amount: totalDebit }, { label: 'Credits', value: money(totalCredit), amount: totalCredit },
-    { label: 'Lines', value: rows.filter((r) => r.kind === 'line').length.toLocaleString('en-US') },
-  ];
-  return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Date / Account' };
+  // Oct 2 (Charmi): no Debits / Credits up top (the Total row has them); the
+  // line counter counts every posted line behind the report, listed or not.
+  // With lines listed that is the searches' totals; without, one count of the
+  // period's lines (when no accounts are picked - more than the listing limit
+  // picked has no single count, so the counter is left out).
+  let lineCount = null;
+  if (detail) lineCount = lines.reduce((n, g) => n + (g?.total || 0), 0);
+  else if (accounts.length && !wanted) {
+    try {
+      const c = await api.searchAccountingLedger({ from: config.from, to: config.to, book: book === 'cash' ? 'cash' : 'accrual', ...place, limit: 1, offset: 0 });
+      lineCount = c?.total ?? null;
+    } catch { lineCount = null; }
+  } else if (!accounts.length) lineCount = 0;
+  const summary = lineCount == null ? [] : [{ label: 'Lines', value: lineCount.toLocaleString('en-US') }];
+  return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Account' };
 }
 
 // ── Flux Analysis ────────────────────────────────────────────────────────────

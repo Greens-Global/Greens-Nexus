@@ -2346,6 +2346,9 @@ html { overflow-x: hidden; }
 .acct-report td.acct-indent { padding-left: 30px; }
 .acct-report .acct-num { text-align: right; }
 .acct-report tbody tr:hover td { background: var(--bg-secondary); }
+/* An account number is the muted tone before the name on every accounting
+   screen - statements, lines, entries, packages, PFS, MRI (Charmi, 10/02). */
+.acct-code { color: var(--text-muted); margin-right: 8px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .acct-report .acct-code { color: var(--text-muted); margin-right: 8px; }
 .acct-report .acct-section td { background: var(--bg-secondary); font-weight: 700; cursor: pointer; }
 .acct-report .acct-section td.acct-label { padding-left: 6px; }
@@ -2358,6 +2361,16 @@ html { overflow-x: hidden; }
 .acct-report .acct-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
 .acct-report .acct-resize:hover { background: var(--wk-brand, #2b45e1); opacity: .35; }
 .acct-report th.acct-head { overflow: visible; }
+/* The "contains" boxes under the headings, as on the lines grid (Charmi, 10/02). */
+.acct-report .acct-filter-row td { position: sticky; top: 29px; z-index: 2; padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+.acct-report .acct-filter-row td.acct-head { left: 0; z-index: 4; }
+.acct-report .acct-filter-row input {
+  width: 100%; min-width: 70px; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px;
+  font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary);
+}
+.acct-report .acct-filter-row input.acct-num { text-align: right; }
+.acct-report .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+.acct-report .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
 
 /* ── Accounting -> ledger lines and the journal entry (Neil, Charmi, Sep 25) ──
    An Intacct-style list: fixed column widths the reader drags, a filter box
