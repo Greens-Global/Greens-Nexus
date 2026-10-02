@@ -42,7 +42,7 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
 
 // One person on one day: photo, name and hours on the left, the day's
 // blocks on the right. The whole row is the drop / press target.
-export function PhoneRow({ avatar, name, sub, isMe = false, onTap, children, style, ...rest }) {
+export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, children, style, ...rest }) {
   return (
     <div {...rest} onClick={onTap} style={{ display: 'grid', gridTemplateColumns: '124px minmax(0, 1fr)', gap: 8, alignItems: 'center', padding: '7px 10px', borderBottom: '1px solid var(--line)',
       background: isMe ? 'var(--wk-brand-tint)' : undefined, boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', cursor: onTap ? 'pointer' : 'default', ...style }}>
@@ -51,6 +51,7 @@ export function PhoneRow({ avatar, name, sub, isMe = false, onTap, children, sty
         <span style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12.5, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
           {sub && <div style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sub}</div>}
+          {sub2 && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub2}</div>}
         </span>
       </div>
       <div style={{ minWidth: 0 }}>{children}</div>
@@ -137,7 +138,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
                 const editable = rowEditable(emp.email);
                 const isMe = emp.email === me;
                 return (
-                  <PhoneRow key={emp.email} data-cell={`${emp.email}|${ds}`} isMe={isMe} name={emp.name} sub={`${fmtHrs(empWeekMin(emp.email))}${usual ? ` · Usual ${shiftShortText(usual)}` : ''}`}
+                  <PhoneRow key={emp.email} data-cell={`${emp.email}|${ds}`} isMe={isMe} name={emp.name} sub={fmtHrs(empWeekMin(emp.email))} sub2={usual ? `Usual ${shiftShortText(usual)}` : ''}
                     avatar={prefs.photos !== false ? <Avatar name={emp.name} photoUrl={emp.photoUrl} size={28} /> : null}
                     onTap={!items.length ? emptyTap(emp.email, g.id || '', editable) : undefined} {...press({ email: emp.email, date: ds, groupId: g.id || '', shift: null })}>
                     {h && <HolidayBlock holiday={h} />}

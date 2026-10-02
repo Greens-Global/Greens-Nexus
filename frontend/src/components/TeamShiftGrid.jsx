@@ -92,7 +92,7 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
           {d && rows.map((r) => {
             const rd = dayOf(r, d);
             return (
-              <PhoneRow key={r.email} data-member={r.email} aria-current={r.isMe ? 'true' : undefined} isMe={r.isMe} name={r.name} sub={`${fmtHrs(rowMin(r))}${r.shift ? ` · Usual ${shiftShortText(r.shift)}` : ''}`}
+              <PhoneRow key={r.email} data-member={r.email} aria-current={r.isMe ? 'true' : undefined} isMe={r.isMe} name={r.name} sub={fmtHrs(rowMin(r))} sub2={r.shift ? `Usual ${shiftShortText(r.shift)}` : ''}
                 avatar={<span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}><Avatar name={r.name} photoUrl={r.photoUrl} size={28} />{isOn(r) && <OnDot />}</span>}>
                 {rd ? cellBody(rd) : null}
               </PhoneRow>

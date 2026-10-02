@@ -519,12 +519,14 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       : `${formatDate(days[0])} - ${formatDate(days[days.length - 1])}`;
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
   const pickView = (k) => setView(k === 'week' && prefs.twoWeeks ? 'twoweeks' : k);
-  // Folded groups: what the user chose, else folded when nothing is in
-  // view (no shifts, no open shifts, nobody off).
+  // Folded groups: what the user chose, else a group (when there are
+  // several sections) is folded when nothing is in view - no shifts, no open
+  // shifts, nobody off. "Everyone" and a lone group never fold by themselves.
   const collapsed = useMemo(() => {
     const set = new Set();
     sections.forEach((g) => {
       const key = sectionKey(g);
+      if (!g.isGroup || sections.length < 2) { if (fold[key]) set.add(key); return; }
       const busyGroup = days.some((d) => { const ds = isoDate(d); return (openCells[`${g.id || ''}|${ds}`] || []).length || g.members.some((m) => (byCell[`${m.email}|${ds}`] || []).length || offOn(m.email, ds).length); });
       if (fold[key] ?? !busyGroup) set.add(key);
     });

@@ -88,9 +88,9 @@ export function TimeOffBlock({ off: t, compact = false, showReason = true, style
   // The hours never cut; a long custom type ("Medical Appointment") may.
   return (
     <div data-timeoff={t.id || undefined} title={title} aria-label={`${approved ? '' : 'Requested '}${type}, ${range || when}`}
-      style={{ containerType: 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.32)`, borderRadius: 6, background: 'hsla(var(--color-red),0.08)',
+      style={{ containerType: compact ? undefined : 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.32)`, borderRadius: 6, background: 'hsla(var(--color-red),0.08)',
         padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-red))', ...style }}>
-      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
+      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: compact ? 10.5 : fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
         {compact ? <span style={LINE}>{isAllDayOff(t) ? 'Off' : short}</span> : (
           <>
             {short && <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{short} </span>}

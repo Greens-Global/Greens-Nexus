@@ -82,7 +82,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
   const limited = emp.availability?.length > 0;
   return (
     <div {...rest} className="sched-person"
-      style={{ padding: `${PAD + 2}px 30px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative',
+      style={{ padding: `${PAD + 2}px ${tools ? 30 : 10}px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative',
         boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...style }}>
       {photos && (
         <span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
