@@ -141,3 +141,35 @@ export function formatMonthDay(v, fallback = '') {
   if (!d) return fallback;
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
 }
+
+// A compact, readable range for a heading (Shifts toolbar, 10/02): month
+// names, the month said once when both ends share it, the year left to a
+// caption beside it.
+//   ('2026-09-28', '2026-10-04') -> "Sep 28 - Oct 4"
+//   ('2026-10-05', '2026-10-11') -> "Oct 5 - 11"
+//   ('2026-10-02', '2026-10-02') -> "Oct 2"
+//   ('2026-12-28', '2027-01-03') -> "Dec 28, 2026 - Jan 3, 2027" (two years: both said)
+export function formatRangeShort(start, end, fallback = '') {
+  const a = toDate(start);
+  const b = toDate(end) || a;
+  if (!a) return fallback;
+  const mon = (d) => new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d);
+  if (a.getFullYear() !== b.getFullYear()) {
+    return `${mon(a)} ${a.getDate()}, ${a.getFullYear()} - ${mon(b)} ${b.getDate()}, ${b.getFullYear()}`;
+  }
+  if (a.getMonth() === b.getMonth()) {
+    return a.getDate() === b.getDate() ? `${mon(a)} ${a.getDate()}` : `${mon(a)} ${a.getDate()} - ${b.getDate()}`;
+  }
+  return `${mon(a)} ${a.getDate()} - ${mon(b)} ${b.getDate()}`;
+}
+
+// ISO-8601 week of the year (weeks start Monday; week 1 holds the first
+// Thursday)  ->  weekOfYear('2026-09-28') = 40
+export function weekOfYear(v) {
+  const d = toDate(v);
+  if (!d) return 0;
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));      // the Thursday of this week
+  const jan4 = new Date(t.getFullYear(), 0, 4);
+  return 1 + Math.round(((t - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+}

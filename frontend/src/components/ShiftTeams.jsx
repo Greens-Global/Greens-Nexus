@@ -85,16 +85,17 @@ export function TeamSwitcher({ groups, value, onChange }) {
 }
 
 // A team header's ... menu.
-export function TeamMenu({ team, canReorder, onAction }) {
+export function TeamMenu({ team, canReorder, onAction, withAdd = false, align = 'left', trigger = null }) {
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
   const act = (a) => { setOpen(false); onAction(a); };
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
-      <button type="button" onClick={() => setOpen(o => !o)} aria-label={`${team.name} options`} aria-haspopup="menu"
-        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '0 4px', fontSize: 15, lineHeight: 1, fontWeight: 800 }}>⋯</button>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-label={`${team.name} options`} aria-haspopup="menu" title={`${team.name} options`}
+        style={trigger || { border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '0 4px', fontSize: 15, lineHeight: 1, fontWeight: 800 }}>⋯</button>
       {open && (
-        <div role="menu" aria-label={`${team.name} options`} style={{ ...POP, top: 'calc(100% + 4px)', left: 0, width: 190, padding: '4px 0' }}>
+        <div role="menu" aria-label={`${team.name} options`} className={align === 'right' ? 'm-menu-r' : 'm-menu'} style={{ ...POP, top: 'calc(100% + 4px)', [align]: 0, width: 190, padding: '4px 0', textTransform: 'none', letterSpacing: 'normal' }}>
+          {withAdd && <button type="button" role="menuitem" style={{ ...ITEM, fontWeight: 700 }} onClick={() => act('add')}>Add Members</button>}
           <button type="button" role="menuitem" style={ITEM} onClick={() => act('rename')}>Rename Group</button>
           {canReorder && <button type="button" role="menuitem" style={ITEM} onClick={() => act('reorder')}>Reorder Groups</button>}
           <button type="button" role="menuitem" style={ITEM} onClick={() => act('archive')}>{team.archived ? 'Restore Group' : 'Archive Group'}</button>

@@ -2,7 +2,7 @@
 // grid, My Shifts, the team grid, the request cards and the settings. One
 // rule for hours, one for time off, one set of date helpers - the three
 // grids used to disagree on all of them (Shifts QA, 10/02).
-import { formatHHMM, formatWeekday, formatMonthDay } from '../../lib/datetime';
+import { formatHHMM, formatWeekday, formatMonthDay, formatMonthYear, formatRangeShort, formatDate, weekOfYear } from '../../lib/datetime';
 
 // ── Dates ────────────────────────────────────────────────────────────────
 // The LOCAL calendar date as YYYY-MM-DD. toISOString() is UTC, so east of UTC
@@ -165,3 +165,161 @@ export function orderGroups(groups) {
 // Names: the directory name first, then what the row carries, never the
 // raw email (nameOf comes from useNameResolver).
 export const displayName = (nameOf, email, stored) => (nameOf ? nameOf(email, stored) : (stored || email || ''));
+
+// The key a grid section (a group, a location, "Everyone Else") is folded
+// under - the group id, else its name. Remembered per user (WeekGrid).
+export const sectionKey = (g) => (g?.id ? String(g.id) : `name:${g?.name || ''}`);
+
+// ── Toolbar date (10/02) ─────────────────────────────────────────────────
+// What the decorated date block says: a big compact title, a small caption,
+// and the exact MM/DD/YYYY range for its tooltip.
+//   week   -> "Sep 28 - Oct 4" / "2026 · Week 40 · This Week"
+//   day    -> "Oct 2" / "Friday · Today"
+//   month  -> "October 2026" / "This Month"
+const plural = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+function relative(n, unit) {
+  if (n === 0) return `This ${unit}`;
+  if (n === -1) return `Last ${unit}`;
+  if (n === 1) return `Next ${unit}`;
+  return n > 0 ? `In ${plural(n, unit)}` : `${plural(-n, unit)} Ago`;
+}
+export function rangeCaption(view, first, last, weekStart = 'monday', now = new Date()) {
+  const a = parseIso(first), b = parseIso(last || first);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const exact = first === (last || first) ? formatDate(first) : `${formatDate(first)} - ${formatDate(last)}`;
+  if (view === 'day') {
+    const diff = Math.round((a - today) / 86400000);
+    const when = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : diff === -1 ? 'Yesterday' : String(a.getFullYear());
+    return { title: formatRangeShort(first, first), caption: `${formatWeekday(a)} · ${when}`, exact, isNow: diff === 0 };
+  }
+  if (view === 'month') {
+    const diff = (a.getFullYear() - today.getFullYear()) * 12 + a.getMonth() - today.getMonth();
+    return { title: formatMonthYear(a), caption: relative(diff, 'Month'), exact, isNow: diff === 0 };
+  }
+  const weeks = Math.round((weekStartOf(a, weekStart) - weekStartOf(today, weekStart)) / (7 * 86400000));
+  const contains = today >= a && today <= b;
+  const years = a.getFullYear() === b.getFullYear() ? String(a.getFullYear()) : `${a.getFullYear()} - ${b.getFullYear()}`;
+  // The ISO week of the range's first week (its Thursday decides it).
+  const wkA = weekOfYear(addDaysIso(first, weekStart === 'sunday' ? 1 : 0));
+  const span = Math.round((b - a) / 86400000) + 1 > 7;
+  const wk = span ? `Weeks ${wkA} - ${weekOfYear(addDaysIso(first, (weekStart === 'sunday' ? 1 : 0) + 7))}` : `Week ${wkA}`;
+  const rel = contains ? 'This Week' : relative(weeks, 'Week');
+  return { title: formatRangeShort(first, last), caption: `${years} · ${wk} · ${rel}`, exact, isNow: contains };
+}
+
+// ── Team colors (10/02) ──────────────────────────────────────────────────
+// A group has no color of its own; the switcher's dot is its place in the
+// saved order on a palette of eight distinct hues (no red - red reads as an
+// error), so eight teams never share a dot. Without a place, a stable pick
+// by id.
+export const TEAM_COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2', '#ea580c', '#64748b'];
+export function teamColor(id, index = -1) {
+  if (index >= 0) return TEAM_COLORS[index % TEAM_COLORS.length];
+  if (!id) return DEFAULT_SHIFT_COLOR;
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return TEAM_COLORS[h % TEAM_COLORS.length];
+}
+
+// ── Conflicts (10/02) ────────────────────────────────────────────────────
+// Why a placed shift may be a mistake, one short line each:
+//   "Duplicate of another shift"          same person, day and times
+//   "Overlaps 6:30p - 2:30a draft"        another of their shifts (overnight counts)
+//   "On approved Vacation"                approved time off, a partial day if it overlaps
+//   "Outside availability: Sat unavailable" / "Outside availability: Sat 8:00a - 12:00p"
+// The grid API sends its own sentences per shift (`conflicts`); they win for
+// anything the client does not see (a holiday, a request still pending, a
+// shift outside the loaded days), and the client's short line replaces the
+// API's for the same kind of conflict.
+const DAY3 = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const dayIndex = (iso) => Math.round(parseIso(iso).getTime() / 86400000);
+// [start, end) in minutes from a fixed day; an end at or before the start runs
+// past midnight. A zero-length span is null (it overlaps nothing).
+function spanOf(date, start, end) {
+  if (!date || !start || !end) return null;
+  const a = toMin(start), b = toMin(end);
+  if (a === b) return null;
+  const base = dayIndex(date) * 1440;
+  return [base + a, base + (b > a ? b : b + 1440)];
+}
+const hits = (x, y) => !!x && !!y && x[0] < y[1] && y[0] < x[1];
+const offType = (t) => (t?.confidential || !t?.type ? 'Time Off' : String(t.type).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()));
+const apiKind = (msg) => {
+  const m = String(msg || '');
+  if (/^Overlaps another shift/.test(m)) return 'overlap';
+  if (/time off/i.test(m)) return /requested/i.test(m) ? 'requested' : 'timeoff';
+  if (/^(Marked unavailable|Outside their availability)/.test(m)) return 'availability';
+  if (/holiday/i.test(m)) return 'holiday';
+  return 'other';
+};
+
+// { [shiftId]: ['reason', ...] } for every person's shift in `scheduled`.
+export function conflictMap(scheduled = [], timeoff = [], availability = {}) {
+  const out = {};
+  const byPerson = {};
+  (scheduled || []).forEach((s) => { if (s?.email && !s.pendingDelete) (byPerson[s.email] ||= []).push(s); });
+  Object.entries(byPerson).forEach(([email, list]) => {
+    const offs = (timeoff || []).filter((t) => (t.email || '').toLowerCase() === email.toLowerCase() && isApprovedOff(t));
+    const avail = availability?.[email] || [];
+    list.forEach((s) => {
+      const mine = spanOf(s.date, s.start, s.end);
+      const found = [];   // [kind, text]
+      if (mine) {
+        let dup = false;
+        list.forEach((o) => {
+          if (o === s || o.id === s.id) return;
+          if (o.date === s.date && sameTime(o.start, s.start) && sameTime(o.end, s.end)) { dup = true; return; }
+          if (hits(mine, spanOf(o.date, o.start, o.end))) found.push(['overlap', `Overlaps ${shiftShortText(o)}${o.published === false ? ' draft' : ''}`]);
+        });
+        if (dup) found.unshift(['duplicate', 'Duplicate of another shift']);
+        // Time off on the shift's day, or the next one for an overnight shift.
+        const days = mine[1] > (dayIndex(s.date) + 1) * 1440 ? [s.date, addDaysIso(s.date, 1)] : [s.date];
+        const seen = new Set();
+        days.forEach((ds) => offs.forEach((t) => {
+          if (!(t.startDate <= ds && ds <= t.endDate) || seen.has(t)) return;
+          const off = isAllDayOff(t) ? [dayIndex(ds) * 1440, dayIndex(ds) * 1440 + 1440] : spanOf(ds, t.startTime, t.endTime);
+          if (hits(mine, off)) { seen.add(t); found.push(['timeoff', `On approved ${offType(t)}`]); }
+        }));
+        const wd = (parseIso(s.date).getDay() + 6) % 7;
+        avail.filter((a) => a.weekday === wd).forEach((a) => {
+          if (a.kind === 'unavailable') found.push(['availability', `Outside availability: ${DAY3[wd]} unavailable`]);
+          else if (a.start && a.end) {
+            const win = spanOf(s.date, a.start, a.end);
+            if (win && !(win[0] <= mine[0] && mine[1] <= win[1])) found.push(['availability', `Outside availability: ${DAY3[wd]} ${shortTimeText(a.start, a.end)}`]);
+          }
+        });
+      }
+      const kinds = new Set(found.map(([k]) => (k === 'duplicate' ? 'overlap' : k)));
+      const api = (s.conflicts || []).filter((m) => !kinds.has(apiKind(m)));
+      const lines = [...new Set([...found.map(([, t]) => t), ...api])];
+      if (lines.length) out[s.id] = lines;
+    });
+  });
+  return out;
+}
+
+// ── Coverage (10/02) ─────────────────────────────────────────────────────
+// Per day: who is expected (their usual shift type works that weekday and
+// they are not on a whole approved day off) and who is on (any placed shift,
+// draft or shared, not being removed). A person counts once.
+//   members: [{ email, name }]; usualOf(email) -> preset with `days` ("1,2,3", Mon=1)
+export function coverageFor(members, dayIsos, { byCell = {}, offOn = () => [], usualOf = () => null } = {}) {
+  return dayIsos.map((ds) => {
+    const wd = (parseIso(ds).getDay() + 6) % 7;
+    const expected = [], on = [], off = [];
+    members.forEach((m) => {
+      const working = (byCell[`${m.email}|${ds}`] || []).some((x) => !x.pendingDelete);
+      if (working) on.push(m);
+      const p = usualOf(m.email);
+      const days = String(p?.days || '').split(',').map(Number).filter((n) => n >= 1 && n <= 7).map((n) => n - 1);
+      if (!p || !(days.length ? days : [0, 1, 2, 3, 4]).includes(wd)) return;
+      if (dayFullyOff(offOn(m.email, ds))) { off.push(m); return; }
+      expected.push(m);
+    });
+    const onSet = new Set(on.map((m) => m.email));
+    const missing = expected.filter((m) => !onSet.has(m.email));
+    const short = Math.max(0, expected.length - expected.filter((m) => onSet.has(m.email)).length);
+    const tone = !expected.length && !on.length ? 'none' : short === 0 ? 'met' : short === 1 ? 'short1' : 'short2';
+    return { date: ds, expected: expected.length, on: on.length, missing, off, short, tone };
+  });
+}

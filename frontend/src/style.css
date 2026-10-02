@@ -5109,3 +5109,89 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .acct-report .acct-note { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 .acct-report .acct-note:hover { color: var(--wk-brand, #2b45e1); }
 .acct-report .acct-note-empty { color: var(--text-muted); font-style: italic; }
+
+/* ── Shifts motion (10/02) ─────────────────────────────────────────────────
+   One place for the schedule's motion: fast, purposeful, transform and
+   opacity only (never height/width/margin). The JS side (durations for
+   timers, the reduced-motion check) is components/shifts/motion.js.
+   prefers-reduced-motion turns every one of these off. */
+:root {
+  --m-fast: 120ms;     /* menus */
+  --m-base: 150ms;     /* team switch fade, row rise, number roll */
+  --m-pop: 160ms;      /* a new block pops in, a removed one shrinks out */
+  --m-slide: 180ms;    /* week change */
+  --m-panel: 200ms;    /* the editor panel */
+  --m-ease: cubic-bezier(.2, .8, .2, 1);
+  --m-stagger: 15ms;
+  --m-stagger-cap: 200ms;
+}
+@keyframes m-in-r   { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes m-in-l   { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes m-fade   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes m-rise   { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes m-pop    { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes m-leave  { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.94); } }
+@keyframes m-menu   { from { opacity: 0; transform: scale(.98) translateY(-2px); } to { opacity: 1; transform: none; } }
+@keyframes m-panel  { from { opacity: .4; transform: translateX(32px); } to { opacity: 1; transform: none; } }
+@keyframes m-glow   { 0% { opacity: 0; } 35% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes m-roll-up   { from { opacity: 0; transform: translateY(70%); } to { opacity: 1; transform: none; } }
+@keyframes m-roll-down { from { opacity: 0; transform: translateY(-70%); } to { opacity: 1; transform: none; } }
+@keyframes m-bar    { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.m-slide-next { animation: m-in-r var(--m-slide) var(--m-ease) both; }
+.m-slide-prev { animation: m-in-l var(--m-slide) var(--m-ease) both; }
+.m-fade { animation: m-fade var(--m-base) ease-out both; }
+/* Rows rise in one after another: --ri is set on each row wrapper (a
+   display: contents element passes the custom property down to its cells). */
+.m-stagger [data-ri] > * { animation: m-rise var(--m-base) var(--m-ease) both; animation-delay: min(calc(var(--ri, 0) * var(--m-stagger)), var(--m-stagger-cap)); }
+.m-pop { animation: m-pop var(--m-pop) var(--m-ease) both; }
+.m-leave { animation: m-leave var(--m-pop) ease-in forwards; pointer-events: none; }
+.m-menu { animation: m-menu var(--m-fast) var(--m-ease) both; transform-origin: top left; }
+.m-menu-r { animation: m-menu var(--m-fast) var(--m-ease) both; transform-origin: top right; }
+.m-panel { animation: m-panel var(--m-panel) var(--m-ease) both; }
+.m-bar { animation: m-bar var(--m-panel) var(--m-ease) both; }
+.m-dim { opacity: .78; transition: opacity var(--m-panel) ease-out; }
+.m-undim { opacity: 1; transition: opacity var(--m-panel) ease-out; }
+.m-today-glow [data-today]::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: color-mix(in srgb, var(--wk-brand) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
+.m-roll { display: inline-flex; overflow: hidden; vertical-align: bottom; }
+.m-roll > span { display: inline-block; }
+.m-roll-up > span { animation: m-roll-up var(--m-base) var(--m-ease) both; }
+.m-roll-down > span { animation: m-roll-down var(--m-base) var(--m-ease) both; }
+.sched-chip { transition: transform var(--m-fast) var(--m-ease), box-shadow var(--m-fast) var(--m-ease); }
+.sched-chip[role="button"]:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(15, 23, 42, .12); }
+.sched-arrow { transition: background var(--m-fast) ease-out, transform var(--m-fast) var(--m-ease); }
+.sched-arrow:hover { background: var(--bg) !important; }
+.sched-arrow:active { transform: scale(.94); }
+.date-block, .team-picker-btn { transition: background var(--m-fast) ease-out, box-shadow var(--m-fast) ease-out; }
+.date-block:hover { background: var(--bg) !important; }
+.team-picker-btn:hover { background: var(--bg) !important; }
+.sched-today:hover { background: var(--wk-brand-tint) !important; }
+.mini-day:hover { background: var(--bg) !important; }
+/* A pointer at something: a missing person's empty day (coverage), the first
+   conflict (the header link). A ring that fades in and out, once. */
+@keyframes m-ring { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+.m-pulse-cell::before { content: ''; position: absolute; inset: 2px; border-radius: 8px; pointer-events: none; z-index: 1;
+  box-shadow: inset 0 0 0 2px hsl(var(--color-orange)); background: hsla(var(--color-orange), .08); animation: m-ring 1.4s ease-out 1 both; }
+.m-pulse::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 2px hsl(var(--color-orange)); animation: m-ring 1.2s ease-out 2 both; }
+@media (prefers-reduced-motion: reduce) {
+  .m-pulse-cell::before, .m-pulse::after { animation: none !important; opacity: 1; }
+  .m-slide-next, .m-slide-prev, .m-fade, .m-stagger [data-ri] > *, .m-pop, .m-menu, .m-menu-r, .m-panel, .m-bar,
+  .m-roll-up > span, .m-roll-down > span, .m-today-glow [data-today]::after { animation: none !important; }
+  .m-leave { animation: none !important; opacity: 0; }
+  .m-dim, .m-undim, .sched-chip, .sched-arrow, .date-block, .team-picker-btn { transition: none !important; }
+  .sched-chip[role="button"]:hover, .sched-arrow:active { transform: none; }
+}
+
+/* Accounting header (10/02): one layout on every tab so the search never
+   moves - title | centered fixed-width search | actions. */
+.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 440px) minmax(0, 1fr); align-items: center; gap: 16px; min-height: 44px; margin-bottom: 8px; }
+.acct-header-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.acct-header-title h2 { margin: 0; font-size: 1.15rem; line-height: 1.3; white-space: nowrap; }
+.acct-header-title p { margin: 0; font-size: 0.8rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.acct-header-search { min-width: 0; }
+.acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
+@media (max-width: 900px) {
+  .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+}

@@ -6,8 +6,9 @@
 // A draft is dashed; an edit that is not shared yet gets a small corner
 // mark; a removal is struck through. The time never truncates: the font
 // shrinks with the block (container units) before anything is cut.
-// Time off is ITS OWN outlined block beside the shift, never in its place.
-import { AlertTriangle, Lock } from 'lucide-react';
+// Time off is ITS OWN soft rose block beside the shift, never in its place.
+// An open shift is the same block with a hollow (double) bar and a ×N.
+import { Lock } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
 import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers } from './shiftLib';
@@ -23,7 +24,7 @@ const fit = (share, max = 12) => `clamp(8.5px, ${share}cqi, ${max}px)`;
 const LINE = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 };
 
 export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onContextMenu, dragProps = {},
-  tabIndex, showConflicts = true, dragging = false, children, style, ...rest }) {
+  tabIndex, showConflicts = true, dragging = false, className = '', children, style, ...rest }) {
   const color = s.color || (open ? OPEN_SHIFT_COLOR : DEFAULT_SHIFT_COLOR);
   const st = shiftState(s);
   const zone = s.timeZone || s.timezone || '';
@@ -38,20 +39,24 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const interactive = !!onOpen;
   const slots = open && (s.openSlots || 1) > 1 ? s.openSlots : 0;
   const warn = showConflicts && s.conflicts?.length > 0;
-  const share = (compact ? 11 : 9.5) - (slots ? 1.3 : 0) - (otherZone ? 1.3 : 0) - (warn ? 0.6 : 0);
+  const share = (compact ? 11 : 9.5) - (slots ? 1.3 : 0) - (otherZone ? 1.3 : 0);
   return (
-    <div data-shift={s.id} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
+    <div data-shift={s.id} data-conflict={warn ? '' : undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
       aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}` : undefined}
-      title={title} className="sched-chip"
+      title={title} className={`sched-chip${className ? ` ${className}` : ''}`}
       onClick={interactive ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
       onContextMenu={onContextMenu}
       {...dragProps} {...rest}
-      style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, 0.1), borderRadius: 6,
-        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px solid ${color}`,
-        padding: compact ? '2px 4px' : '4px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
+      style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, open ? 0.08 : 0.12), borderRadius: 6,
+        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px ${open ? 'double' : 'solid'} ${color}`,
+        padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
         opacity: dragging ? 0.4 : s.pendingDelete ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
+      {warn && (
+        <span data-conflict-dot="" title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join('; ')}`}
+          style={{ position: 'absolute', top: 3, right: s.hasChanges && !s.pendingDelete ? 11 : 4, width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-orange))', boxShadow: '0 0 0 1.5px var(--card)', zIndex: 1 }} />
+      )}
       {s.hasChanges && !s.pendingDelete && (
         <span aria-hidden="true" title="Edited, not shared" style={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, background: color, clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }} />
       )}
@@ -59,11 +64,6 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{shiftShortText(s)}</span>
         {code && <span style={{ ...LINE, color, fontSize: '0.85em', fontWeight: 800, letterSpacing: '.02em', flexShrink: 1 }}>{code}</span>}
         {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
-        {warn && (
-          <span title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join(' ')}`} style={{ display: 'inline-flex', flexShrink: 0, color: 'hsl(var(--color-orange))', alignSelf: 'center' }}>
-            <AlertTriangle size={10} />
-          </span>
-        )}
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
       </div>
       {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3 }}>{label}</div>}
@@ -72,7 +72,8 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   );
 }
 
-// Time off beside a shift: a light outlined block, no fill, one line -
+// Time off beside a shift (a partial day; whole days are the grid's
+// spanning pill): a soft rose block, one line -
 // "Vacation" or "2:00p - 4:00p Medical". The reason, the dates and whether
 // it is still only requested (dashed) are the hover title. Confidential
 // time off reads plain "Time Off" with a lock.
@@ -86,9 +87,9 @@ export function TimeOffBlock({ off: t, compact = false, showReason = true, style
   // The hours never cut; a long custom type ("Medical Appointment") may.
   return (
     <div data-timeoff={t.id || undefined} title={title} aria-label={`${approved ? '' : 'Requested '}${type}, ${range || when}`}
-      style={{ containerType: 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.5)`, borderRadius: 6, background: 'transparent',
+      style={{ containerType: compact ? undefined : 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.32)`, borderRadius: 6, background: 'hsla(var(--color-red),0.08)',
         padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-red))', ...style }}>
-      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
+      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: compact ? 10.5 : fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
         {compact ? <span style={LINE}>{isAllDayOff(t) ? 'Off' : short}</span> : (
           <>
             {short && <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{short} </span>}
@@ -108,18 +109,6 @@ export function HolidayBlock({ holiday: h, compact = false, style }) {
       style={{ border: '1px solid hsla(var(--color-blue),0.5)', borderRadius: 6, padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0,
         color: 'hsl(var(--color-blue))', fontSize: compact ? 10 : 11, fontWeight: 700, lineHeight: 1.3, ...LINE, ...style }}>
       {compact ? 'Hol' : name}
-    </div>
-  );
-}
-
-// A person's usual hours on a day with nothing placed - a reminder, never a
-// shift, and never counted.
-export function UsualHint({ start, end, compact = false }) {
-  if (compact) return null;
-  return (
-    <div title={`Usual ${shiftTimeText({ start, end })} (their shift type). Nothing is on the schedule for this day until a shift is placed.`}
-      style={{ fontSize: 10.5, color: 'var(--muted)', padding: '4px 6px', ...LINE }}>
-      Usual {shiftShortText({ start, end })}
     </div>
   );
 }

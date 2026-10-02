@@ -86,8 +86,14 @@ describe('MyShifts week and group grid', () => {
     expect(screen.getAllByText(/^Times in /)).toHaveLength(1);           // said once, under the grid
     expect(grid.textContent).toContain('Day Notes');
     expect(grid.textContent).toContain('Inventory day');
-    expect(grid.textContent).toContain('Open Shifts');
-    expect(grid.textContent).toContain('Store15.5 Hrs · 2 people');
+    expect(grid.textContent).not.toContain('Open Shifts');              // only when there are open shifts
+    expect(grid.querySelector('[data-team]')).toBeNull();                 // one team: no group header row (the heading names it)
+    // The same one-grid engine as the manager's Schedule: me marked with a bar and "You", no row tint.
+    expect(grid.querySelectorAll('[data-week-grid]')).toHaveLength(1);
+    const mePerson = me.querySelector('[data-person]');
+    expect(mePerson.textContent).toContain('You');
+    expect(mePerson.style.boxShadow).toContain('inset 3px 0 0');
+    me.querySelectorAll('[data-cell]').forEach((c) => expect(c.style.gridRow).toBe(mePerson.style.gridRow));
     const header = within(grid).getAllByRole('columnheader')[0];
     expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once
   });
@@ -131,12 +137,29 @@ describe('MyShifts week and group grid', () => {
   });
 
   it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, shift: { id: 'p', name: 'Day Shift', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' } });
+    timeMySchedule.mockResolvedValue({ ...sched, shift: { id: 'p', name: 'Day Shift', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' },
+      teams: [{ ...sched.teams[0], members: [{ ...sched.teams[0].members[0], shift: { id: 'p', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' } }, sched.teams[0].members[1]] }] });
     render(<MyShifts />);
     await screen.findAllByText('Usual Hours');
     expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
     expect(screen.queryByText('Off')).toBeNull();
     expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
+    // In the group grid, usual hours are one line under the name - the cells stay empty.
+    const me = screen.getByText('Me Here').closest('[data-member]');
+    expect(me.querySelector('[data-person]').textContent).toContain('Usual 8:30a - 5:30p');
+    me.querySelectorAll('[data-cell]').forEach((c) => expect(c.textContent).toBe(''));
+  });
+
+  it('draws a teammate\'s days off as one spanning pill in the group grid', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [{ ...sched.teams[0], members: [sched.teams[0].members[0],
+      { ...sched.teams[0].members[1], scheduled: [], timeoff: [{ id: 'vac', startDate: monday, endDate: plus(30), type: 'vacation', status: 'pending' }] }] }] });
+    render(<MyShifts />);
+    const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
+    const pills = bob.querySelectorAll('[data-timeoff="vac"]');
+    expect(pills).toHaveLength(1);
+    expect(pills[0].style.gridColumn).toBe('2 / span 7');
+    expect(pills[0].style.border).toContain('dashed');                  // requested
+    expect(within(pills[0]).getByLabelText('Continues next week')).toBeTruthy();
   });
 
   it('marks a shift kept in another zone', async () => {
