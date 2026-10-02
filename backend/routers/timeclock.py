@@ -352,6 +352,17 @@ def _live_geo(db: Session, email: str, punches: list) -> dict:
 
 
 
+def _us_distance(meters: float) -> str:
+    """Meters as US readers expect them (Oct 2 - "we don't want it in km"):
+    miles from a tenth of a mile up, feet below. Same rule as the screens'
+    frontend/src/lib/distance.js. Storage and the geofence math stay metric."""
+    m = max(0.0, float(meters or 0))
+    mi = m / 1609.344
+    if mi >= 0.1:
+        return f"{round(mi):,} mi" if mi >= 10 else f"{mi:.1f} mi"
+    return f"{round(m / 0.3048):,} ft"
+
+
 def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     """Bell + email to the manager for one out-of-fence punch. The email is
     best-effort on a thread (Graph is outbound HTTP; a punch must never wait
@@ -362,7 +373,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     dist = int(geo.get("distance_m") or 0)
     when = _fmt_local(row.at, row.tz_offset_min or 0)
     _hr_notify(db, emp.manager_email, "Out-of-fence punch",
-               f"{who} {verb} at {when}, {dist:,}m from {site} - outside the geofence. Open the timecard to review.",
+               f"{who} {verb} at {when}, {_us_distance(dist)} from {site} - outside the geofence. Open the timecard to review.",
                ref_id=row.id, action=_timecard_action(db, emp.work_email, row.local_date))
     try:
         from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
@@ -373,8 +384,8 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
     maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
     html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
-            f"<p>Nearest location: <b>{site}</b> - {dist:,} m away"
-            f"{' (GPS accuracy ±' + str(int(row.accuracy_m or 0)) + ' m)' if row.accuracy_m else ''}.</p>"
+            f"<p>Nearest location: <b>{site}</b> - {_us_distance(dist)} away"
+            f"{' (GPS accuracy ±' + _us_distance(row.accuracy_m) + ')' if row.accuracy_m else ''}.</p>"
             + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
             + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
     subject = f"Out-of-fence punch: {who} {verb} at {when}"

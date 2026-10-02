@@ -6,6 +6,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { formatTimeTz, useDisplayTz } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
+import { formatDistance, formatAccuracy } from '../lib/distance';
 
 // Geofence Punch view (Charmi, Sep 25 - SwipeClock's "Geofence Punch For
 // <name>" screen): one person's In and Out punches for a period on a map,
@@ -36,7 +37,7 @@ function Pin({ status, size = 14 }) {
 }
 
 const KIND = { in: 'In', out: 'Out' };
-const distText = (m) => ((m || 0) >= 1000 ? `${((m || 0) / 1000).toFixed(1)} km` : `${m || 0} m`);
+const distText = (m) => formatDistance(m || 0);   // miles / feet (lib/distance.js)
 const geoCache = new Map();
 async function reverseGeocode(lat, lng) {
   const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
@@ -235,7 +236,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                           <td style={{ ...td, maxWidth: 320 }}>{where}{out && addresses[p.id] ? <div style={{ fontSize: 11, color: 'var(--muted)' }}>{distText(p.distanceM)} from {p.workSiteName || 'the nearest site'}</div> : null}</td>
                           <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{p.lat ? Number(p.lat).toFixed(5) : '-'}</td>
                           <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{p.lng ? Number(p.lng).toFixed(5) : '-'}</td>
-                          <td style={{ ...td, color: '#2563eb', fontWeight: 700 }}>{p.lat ? `${p.accuracyM}m` : '-'}</td>
+                          <td style={{ ...td, color: '#2563eb', fontWeight: 700 }}>{p.lat ? formatAccuracy(p.accuracyM) : '-'}</td>
                         </tr>
                       );
                     })}
