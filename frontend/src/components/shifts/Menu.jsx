@@ -38,7 +38,8 @@ export function menuKeys(e) {
 }
 
 // A button that opens a menu under itself. `items` = [{ key, label, Icon,
-// hint, danger, disabled, onClick }] or 'sep' or { head: 'Section' }.
+// hint, danger, disabled, onClick, checked }] or 'sep' or { head: 'Section' }.
+// An item with a boolean `checked` is a switch (menuitemcheckbox).
 export function MenuButton({ label, Icon, items, className = 'secondary-btn', align = 'left', ariaLabel, badge, primary = false, disabled = false, style, width = 220, children }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -57,11 +58,13 @@ export function MenuButton({ label, Icon, items, className = 'secondary-btn', al
           {items.map((it, i) => (it === 'sep' ? <div key={`sep${i}`} style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
             : it.head ? <div key={`h${i}`} style={HEAD}>{it.head}</div>
               : (
-                <button key={it.key || it.label} type="button" role="menuitem" disabled={it.disabled} title={it.title}
+                <button key={it.key || it.label} type="button" role={typeof it.checked === 'boolean' ? 'menuitemcheckbox' : 'menuitem'}
+                  aria-checked={typeof it.checked === 'boolean' ? it.checked : undefined} disabled={it.disabled} title={it.title}
                   onClick={() => { setOpen(false); it.onClick?.(); }} className="shift-menu-item"
                   style={{ ...ITEM, color: it.danger ? 'hsl(var(--color-red))' : it.disabled ? 'var(--muted)' : 'var(--ink)', opacity: it.disabled ? 0.55 : 1, cursor: it.disabled ? 'default' : 'pointer' }}>
                   {it.Icon && <it.Icon size={14} />} <span style={{ flex: 1 }}>{it.label}</span>
                   {it.hint && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{it.hint}</span>}
+                  {typeof it.checked === 'boolean' && <Switch on={it.checked} />}
                 </button>
               )))}
         </div>
@@ -104,3 +107,10 @@ export function MenuItem({ Icon, label, hint, danger, disabled, onClick, role = 
 }
 export const MenuSep = () => <div style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />;
 export const MenuHead = ({ children }) => <div style={HEAD}>{children}</div>;
+
+// The small on/off switch a checkbox menu item wears.
+export const Switch = ({ on }) => (
+  <span aria-hidden="true" style={{ width: 26, height: 15, borderRadius: 999, background: on ? 'var(--wk-brand)' : 'var(--line)', position: 'relative', flexShrink: 0, transition: 'background .15s' }}>
+    <span style={{ position: 'absolute', top: 2, left: on ? 13 : 2, width: 11, height: 11, borderRadius: '50%', background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.2)' }} />
+  </span>
+);

@@ -7,7 +7,7 @@
 // this row. On a phone it collapses to [‹ Today ›] [Week ▾] [+] [⋯] with
 // the range under it; Share and the group picker move under ⋯.
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, EyeOff } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime, formatWeekday } from '../../lib/datetime';
 import { MenuButton } from './Menu';
@@ -63,6 +63,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, rangeLa
     { key: 'print', label: 'Print', Icon: Printer, onClick: actions.print, disabled: !ready },
     'sep',
     { key: 'view', label: 'View Options', Icon: SlidersHorizontal, onClick: actions.viewOptions },
+    { key: 'hideEmpty', label: 'Hide People Without Shifts', Icon: EyeOff, checked: !!actions.hideEmpty, onClick: actions.toggleHideEmpty },
     ...(canManage ? [
       'sep',
       { key: 'discard', label: `Discard Changes${actions.discardCount ? ` (${actions.discardCount})` : ''}`, Icon: RotateCcw, onClick: actions.discard, disabled: !actions.discardCount || busy,

@@ -1,7 +1,7 @@
 // Schedule grid extras: the Shift Types row layout, Excel import, the row
 // avatar, the context menus and the details card. Kept out of
 // ShiftSchedule.jsx, which is the container; the grid itself is
-// components/shifts/ScheduleGrid.jsx (Oct 2026 rebuild).
+// components/shifts/WeekGrid.jsx (Oct 2026 rebuild, redesigned 10/02).
 import { useEffect, useState } from 'react';
 import { X, Upload, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock } from 'lucide-react';
 import { parseScheduleSheet } from './shiftScheduleLib';

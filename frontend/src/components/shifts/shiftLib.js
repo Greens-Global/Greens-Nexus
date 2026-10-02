@@ -165,3 +165,7 @@ export function orderGroups(groups) {
 // Names: the directory name first, then what the row carries, never the
 // raw email (nameOf comes from useNameResolver).
 export const displayName = (nameOf, email, stored) => (nameOf ? nameOf(email, stored) : (stored || email || ''));
+
+// The key a grid section (a group, a location, "Everyone Else") is folded
+// under - the group id, else its name. Remembered per user (WeekGrid).
+export const sectionKey = (g) => (g?.id ? String(g.id) : `name:${g?.name || ''}`);

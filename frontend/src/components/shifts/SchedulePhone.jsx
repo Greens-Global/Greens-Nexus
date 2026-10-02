@@ -8,8 +8,8 @@ import { useEffect, useState } from 'react';
 import { CalendarRange, StickyNote, Plus } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
-import { ShiftBlock, TimeOffBlock, HolidayBlock, UsualHint } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts } from './shiftLib';
+import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
+import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, sectionKey, shiftShortText } from './shiftLib';
 
 // The strip: one chip per day, the picked one filled, today ringed, a dot
 // for a day with a note. Scrolls sideways when the week is wider than the
@@ -64,7 +64,7 @@ export function firstDay(days) {
   return days.map(isoDate).find((ds) => ds === today) || (days[0] ? isoDate(days[0]) : '');
 }
 
-export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOn, notes, holidayDates, me, prefs, teamZone, canManage,
+export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOf = () => null, notes, holidayDates, me, prefs, teamZone, canManage,
   rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on }) {
   const [day, setDay] = useState(() => firstDay(days));
   // A new range (next week) lands on today or its first day.
@@ -114,8 +114,8 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
         </div>
         {openCells.__ungrouped && openRow({ id: '' })}
         {sections.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Nobody is on the schedule in this view.</div>}
-        {sections.map((g, gi) => {
-          const key = g.id || `sec-${gi}`;
+        {sections.map((g) => {
+          const key = sectionKey(g);
           const open = !collapsed.has(key);
           const groupMin = g.members.reduce((a, m) => a + empWeekMin(m.email), 0);
           return (
@@ -133,18 +133,17 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
                 const items = byCell[`${emp.email}|${ds}`] || [];
                 const off = offOn(emp.email, ds);
                 const h = holOn(emp.email, ds);
-                const usual = !items.length && !off.length && !h ? usualOn(emp.email, d) : null;
+                const usual = usualOf(emp.email);
                 const editable = rowEditable(emp.email);
                 const isMe = emp.email === me;
                 return (
-                  <PhoneRow key={emp.email} data-cell={`${emp.email}|${ds}`} isMe={isMe} name={emp.name} sub={fmtHrs(empWeekMin(emp.email))}
+                  <PhoneRow key={emp.email} data-cell={`${emp.email}|${ds}`} isMe={isMe} name={emp.name} sub={`${fmtHrs(empWeekMin(emp.email))}${usual ? ` · Usual ${shiftShortText(usual)}` : ''}`}
                     avatar={prefs.photos !== false ? <Avatar name={emp.name} photoUrl={emp.photoUrl} size={28} /> : null}
                     onTap={!items.length ? emptyTap(emp.email, g.id || '', editable) : undefined} {...press({ email: emp.email, date: ds, groupId: g.id || '', shift: null })}>
                     {h && <HolidayBlock holiday={h} />}
                     {off.map((t, i) => <TimeOffBlock key={t.id || i} off={t} />)}
                     {items.map((s) => block(s, emp.email, g.id || ''))}
-                    {usual && <UsualHint start={usual.start} end={usual.end} />}
-                    {!items.length && !off.length && !h && !usual && editable && <AddHint />}
+                    {!items.length && !off.length && !h && editable && <AddHint />}
                   </PhoneRow>
                 );
               })}

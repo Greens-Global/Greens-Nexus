@@ -7,7 +7,7 @@
 import { StickyNote, Users, CalendarRange } from 'lucide-react';
 import { formatHHMM } from '../../lib/datetime';
 import { TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { PersonCell } from './ScheduleGrid';
+import { PersonCell } from './WeekGrid';
 import { toMin, durMin, fmtHrs, paidMinutes, counts, shiftState, shiftTimeText, shiftShortText, alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, unpaidLabel } from './shiftLib';
 
 const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
