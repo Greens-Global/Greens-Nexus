@@ -729,7 +729,7 @@ function lastWeekRange() {
 // see what someone said they'd do and what was left pending. Defaults to the
 // trailing week; the date filter pages back through older history. BOD and
 // EOD render together on the same card for each day.
-function WorkLogsSection({ employee }) {
+export function WorkLogsSection({ employee }) {
   const [[start, end], setRange] = useState(lastWeekRange);
   const [logs, setLogs] = useState(null);
   const load = useCallback((quiet = false) => {
@@ -750,11 +750,15 @@ function WorkLogsSection({ employee }) {
 
   // Group the flat, newest-first list into one card per WORKDAY (BOD + EOD together) -
   // an overnight shift's EOD and clock-out sit on the day the shift began.
+  // EVERY message is kept (Oct 3): a day can hold two EODs - a re-sent one,
+  // or an old row filed before the shift-day fix next to the right one - and
+  // keeping only one silently hid the other (whichever came first won).
+  // Oldest first inside a day, each with its send time when there are several.
   const byDate = [];
   for (const l of logs || []) {
     let group = byDate.find(g => g.date === l.date);
-    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
-    group[l.kind] = l;
+    if (!group) { group = { date: l.date, bod: [], eod: [] }; byDate.push(group); }
+    group[l.kind].unshift(l);
   }
 
   return (
@@ -781,7 +785,9 @@ function WorkLogsSection({ employee }) {
               {/* The WORKDAY - the day the shift began (shift_day.py, Oct 2). */}
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{formatWeekday(`${g.date}T12:00:00`, 'short')}, {formatDate(`${g.date}T12:00:00`)}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
+                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, posts, kind, punchLabel]) => {
+                  const slot = posts.find(x => x.punchAt) || posts[0];
+                  return (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
@@ -791,14 +797,22 @@ function WorkLogsSection({ employee }) {
                         </span>
                       )}
                     </div>
-                    {slot ? (<>
-                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
-                      <TaskChecklist tasks={slot.tasks} kind={kind} />
-                    </>) : (
+                    {posts.length ? posts.map((post, i) => (
+                      <div key={post.id} style={i ? { marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--line)' } : undefined}>
+                        {posts.length > 1 && (
+                          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>
+                            Sent {punchTime(post.at, slot?.punchTz, g.date)}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{post.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                        <TaskChecklist tasks={post.tasks} kind={kind} />
+                      </div>
+                    )) : (
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
