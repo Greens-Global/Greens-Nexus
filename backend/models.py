@@ -663,6 +663,10 @@ class NexusGroup(Base):
     # Aug 25: field workers "that cannot type" were blocked from clocking in by
     # the required BOD message). A person is exempt if ANY of their groups sets it.
     bod_exempt        = Column(Integer, default=0)
+    # Members of a group flagged time_tracking_exempt=1 have no time clock and no
+    # timesheet (salaried leadership; Visesh, Oct 2 - set in Settings > Access
+    # beside the screen-share exemption). A person is exempt if ANY group sets it.
+    time_tracking_exempt = Column(Integer, default=0)
     # Job roles only: the role's default manager/timesheet approver. Assigning the
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
@@ -2434,7 +2438,7 @@ class PayrollRate(Base):
     # Salaried/exempt people (leadership, principals) are not time-tracked at all:
     # no punch card, no "hours this week" widgets (Charmi, Aug 21). Distinct from
     # pay_type='fixed' - fixed-salary staff still punch (attendance drives pay).
-    time_tracking_exempt = Column(Integer, default=0)      # 1 = hide/skip time tracking
+    time_tracking_exempt = Column(Integer, default=0)      # LEGACY (Oct 2): no longer read - the exemption is nexus_groups.time_tracking_exempt
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 

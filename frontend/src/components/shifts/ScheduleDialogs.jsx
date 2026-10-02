@@ -176,7 +176,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultStart, defaultEnd,
             <div>
               <div style={LBL}>Shift Type</div>
               <select className="form-input" value={shiftId} onChange={(e) => setShiftId(e.target.value)} style={INPUT} aria-label="Shift type">
-                {shifts.map((s) => <option key={s.id} value={s.id}>{s.code ? `${s.code} · ` : ''}{s.name} ({formatHHMM(s.start)} - {formatHHMM(s.end)})</option>)}
+                {shifts.map((s) => <option key={s.id} value={s.id}>{s.name || s.code} ({formatHHMM(s.start)} - {formatHHMM(s.end)})</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>

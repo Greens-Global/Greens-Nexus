@@ -3349,7 +3349,11 @@ def default_overtime_rule(db: Session, emp: NexusEmployee) -> str:
 
 def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
     """The timecard-only part of the pay record, as the Pay & Benefits screen
-    shows it: the OT rule in force, full-day hours and the exemption flag."""
+    shows it: the OT rule in force, full-day hours and the exemption flag.
+    The time-tracking exemption is read from the person's role (Settings >
+    Access, Visesh Oct 2) - shown read-only here with the role that sets it."""
+    from routers.timeclock import time_tracking_exempt_via
+    _via = time_tracking_exempt_via(db, emp.work_email) if emp is not None and emp.work_email else ""
     row = (db.query(PayrollRate).filter(PayrollRate.employee_email == (emp.work_email or "").lower()).first()
            if emp is not None and emp.work_email else None)
     return {
@@ -3358,7 +3362,8 @@ def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
                         else default_overtime_rule(db, emp),
         "defaultOvertimeRule": default_overtime_rule(db, emp),
         "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
-        "timeTrackingExempt": bool(getattr(row, "time_tracking_exempt", 0) or 0) if row else False,
+        "timeTrackingExempt": bool(_via),
+        "timeTrackingExemptVia": _via,
         "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
         "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
         "isSet": row is not None,
@@ -3368,7 +3373,7 @@ def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
 def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
     """Pay & Benefits saved → reflect base/basis/currency in the timecard rate,
     plus the timecard-only fields that live on the comp record since Sep 30
-    (overtimeRule, fullDayHours, timeTrackingExempt). Pay & Benefits is the
+    (overtimeRule, fullDayHours). Pay & Benefits is the
     ONLY writer of PayrollRate from the UI."""
     if not emp or not emp.work_email:
         return
@@ -3403,8 +3408,8 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
             row.full_day_hours = max(1.0, float(comp.get("fullDayHours") or 8))
         except (TypeError, ValueError):
             pass
-    if "timeTrackingExempt" in comp:
-        row.time_tracking_exempt = 1 if comp.get("timeTrackingExempt") else 0
+    # timeTrackingExempt is no longer written here: the exemption is set on the
+    # role in Settings > Access (Visesh, Oct 2); a stale value sent is ignored.
 
 
 def _rate_history_rows(db: Session, email: str) -> list:

@@ -18,7 +18,7 @@ const INPUT = { width: '100%', fontSize: 13 };
 const LINK_BTN = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, padding: 0, fontFamily: 'inherit' };
 const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' };
 
-export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], groups = [], people = [], nameOf, teamZone = '', busy = false,
+export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], quickPicks = [], groups = [], people = [], nameOf, teamZone = '', busy = false,
   canTimeOff = true, onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onSaveTimeOff, onClose }) {
   const ex = cell.existing || null;
   const isOpen = !cell.email;
@@ -54,7 +54,7 @@ export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], 
       {mode === 'timeoff' ? (
         <TimeOffForm email={cell.email} name={who} date={cell.date} busy={busy} onSave={onSaveTimeOff} onClose={onClose} />
       ) : (
-        <ShiftForm cell={cell} ex={ex} isOpen={isOpen} presets={presets} groups={groups} people={people} nameOf={nameOf} teamZone={teamZone} busy={busy}
+        <ShiftForm cell={cell} ex={ex} isOpen={isOpen} presets={presets} quickPicks={quickPicks} groups={groups} people={people} nameOf={nameOf} teamZone={teamZone} busy={busy}
           onSave={onSave} onAssign={onAssign} onDelete={onDelete} onDiscard={onDiscard} onCopy={onCopy} onToOpen={onToOpen} onClose={onClose}
           onTimeOff={cell.email && canTimeOff ? () => setMode('timeoff') : undefined} />
       )}
@@ -63,7 +63,7 @@ export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], 
 }
 
 // Shift type chips: the presets, then Custom.
-function TypeChips({ presets, value, onPick }) {
+function TypeChips({ presets, value, onPick, quickPicks = [], pickedQuick = '', onQuick }) {
   const chip = (on, color, label, onClick, key) => (
     <button key={key} type="button" aria-pressed={on} onClick={onClick}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit',
@@ -75,8 +75,9 @@ function TypeChips({ presets, value, onPick }) {
     <div>
       <div style={LBL}>Shift Type</div>
       <div role="group" aria-label="Shift type" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {presets.map((p) => chip(value === p.id, p.color || DEFAULT_SHIFT_COLOR, `${p.code || p.name}${p.start ? ` ${formatHHMM(p.start)} - ${formatHHMM(p.end)}` : ''}`, () => onPick(p.id), p.id))}
-        {chip(!value, DEFAULT_SHIFT_COLOR, 'Custom', () => onPick(''), '__custom')}
+        {presets.map((p) => chip(value === p.id, p.color || DEFAULT_SHIFT_COLOR, `${p.name || p.code}${p.start ? ` ${formatHHMM(p.start)} - ${formatHHMM(p.end)}` : ''}`, () => onPick(p.id), p.id))}
+        {quickPicks.map((q) => chip(!value && pickedQuick === q.key, q.color || DEFAULT_SHIFT_COLOR, `${q.label} ${formatHHMM(q.start)} - ${formatHHMM(q.end)}`, () => onQuick(q), `q|${q.key}`))}
+        {chip(!value && !pickedQuick, DEFAULT_SHIFT_COLOR, 'Custom', () => onPick(''), '__custom')}
       </div>
     </div>
   );
@@ -101,7 +102,7 @@ function ColorPick({ value, presetColor, onChange }) {
   );
 }
 
-function ShiftForm({ cell, ex, isOpen, presets, groups, people, nameOf, teamZone, busy, onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onClose, onTimeOff }) {
+function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people, nameOf, teamZone, busy, onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onClose, onTimeOff }) {
   const firstGroupOf = (email) => groups.find((g) => (g.members || []).includes(email))?.id || '';
   const [shiftId, setShiftId] = useState(ex ? (ex.shiftId || '') : (presets[0]?.id || ''));
   const [start, setStart] = useState(ex?.start || '');
@@ -125,7 +126,17 @@ function ShiftForm({ cell, ex, isOpen, presets, groups, people, nameOf, teamZone
   const paid = Math.max(0, (effStart && effEnd ? durMin(effStart, effEnd) : 0) - effBreak);
   const zone = ex?.timeZone || preset?.timezone || teamZone;
 
-  const pickType = (id) => { setShiftId(id); setStart(''); setEnd(''); setBrk(''); if (!id && !start) { setStart(effStart); setEnd(effEnd); } };
+  // Custom keeps the times on screen (it used to blank them when the shift
+  // already had its own times); a shift type takes its own times.
+  const quickKey = (q) => q.key;
+  const [pickedQuick, setPickedQuick] = useState(() => {
+    if (!ex || ex.shiftId || !ex.label) return '';
+    return quickPicks.find((q) => q.label === ex.label && q.start === ex.start && q.end === ex.end)?.key || '';
+  });
+  const pickType = (id) => { setPickedQuick(''); if (id) { setShiftId(id); setStart(''); setEnd(''); setBrk(''); } else { setShiftId(''); setStart(effStart); setEnd(effEnd); } };
+  // A saved custom shift (e.g. "All Properties", from Teams): no shift type,
+  // its times, label and color.
+  const pickQuick = (q) => { setShiftId(''); setStart(q.start); setEnd(q.end); setLabel(q.label); setColor(q.color || ''); setBrk(''); setPickedQuick(quickKey(q)); };
 
   // Live warnings as the day and times change (overlap, time off, holiday) -
   // the same check the grid's warning icon comes from. Never blocks Save.
@@ -165,7 +176,7 @@ function ShiftForm({ cell, ex, isOpen, presets, groups, people, nameOf, teamZone
     <>
       <div onKeyDown={onKey} style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'grid', gap: 14, alignContent: 'start' }}>
         {noPresets && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet. Add them under Settings &gt; Global Settings &gt; Shifts, or set the times here.</div>}
-        {!noPresets && <TypeChips presets={presets} value={shiftId} onPick={pickType} />}
+        {(!noPresets || quickPicks.length > 0) && <TypeChips presets={presets} value={shiftId} onPick={pickType} quickPicks={quickPicks} pickedQuick={pickedQuick} onQuick={pickQuick} />}
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ flex: 1 }}><div style={LBL}>Start</div><input type="time" className="form-input" aria-label="Start" value={effStart} onChange={(e) => setStart(e.target.value)} style={INPUT} /></label>
           <label style={{ flex: 1 }}><div style={LBL}>End</div><input type="time" className="form-input" aria-label="End" value={effEnd} onChange={(e) => setEnd(e.target.value)} style={INPUT} /></label>

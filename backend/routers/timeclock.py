@@ -742,9 +742,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         # end) - punches go straight through (Neil, Aug 25).
         "bodExempt": _bod_ex,
         # Salaried/exempt people (Charmi, Aug 21): the client hides the punch
-        # card and every "hours this week" surface. The flag lives on the pay
-        # record (HR sets it in the wage editor).
-        "timeTrackingExempt": bool(getattr(_rr, "time_tracking_exempt", 0) or 0) if _rr else False,
+        # card and every "hours this week" surface. Set on the person's role in
+        # Settings > Access (Visesh, Oct 2).
+        "timeTrackingExempt": is_time_tracking_exempt(db, email),
         # US hourly staff never see the 60-minute break countdown (Neil, Aug 24:
         # the allowance framing was an India assumption and reads as an
         # entitlement that invites overtime). India keeps it: 'none' OT rule OR
@@ -966,12 +966,11 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
 @router.get("/me")
 def my_timesheet(start: str = "", end: str = "",
                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == user["email"]).first()
     _mine = _live_punches(db, user["email"], start, end)
     return {"days": _day_summaries(_mine, _round_min(db), break_cfg=_break_cfg_for(db, user["email"]),
                                    geo=_live_geo(db, user["email"], _mine)),
             # My HR hides its hours widgets for salaried/exempt people (Charmi, Aug 21)
-            "timeTrackingExempt": bool(getattr(_rr, "time_tracking_exempt", 0) or 0) if _rr else False}
+            "timeTrackingExempt": is_time_tracking_exempt(db, user["email"])}
 
 
 # ── Manager / HR endpoints ────────────────────────────────────────────────────
@@ -995,18 +994,20 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     _bp = _breakpolicy_cfg(db)
     _rates = {r.employee_email: r for r in db.query(PayrollRate).all()}
     _rules = {em: (getattr(r, "overtime_rule", None) or "ca") for em, r in _rates.items()}
+    _tt_exempt = time_tracking_exempt_emails(db)
 
     # Show EVERY hourly employee in scope, not only those who happen to have
     # punches this period (Charmi, Aug 25 - "I don't even see Vicky; when I run
     # payroll how do I get everyone's hours?"). Without this, a person with a
     # clean period or who never clocked in simply vanishes from the timesheet,
     # the sidebar, and search. No-punch people get a zero row (days={}), which
-    # renders as N.A. Salaried leadership with time_tracking_exempt, and fixed
+    # renders as N.A. Salaried leadership exempt from time tracking, and fixed
     # (non-hourly) pay types, stay out - they are not on the hourly timesheet.
     def _in_roster(em: str) -> bool:
         r = _rates.get(em)
-        # time_tracking_exempt = opted off the clock entirely; always excluded.
-        if r is not None and getattr(r, "time_tracking_exempt", 0):
+        # Exempt from time tracking (set on the role) = off the clock entirely;
+        # always excluded.
+        if (em or "").lower() in _tt_exempt:
             return False
         # Fixed-salary people live on the MONTHLY salaried view, so the hourly
         # roster normally leaves them out. The TEAM list passes include_fixed=True
@@ -2189,6 +2190,42 @@ def _is_monitoring_exempt(db: Session, email: str) -> bool:
         NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
 
 
+def time_tracking_exempt_via(db: Session, email: str) -> str:
+    """The name of the role / access group that makes this person exempt from
+    time tracking, or "" when they are tracked. Exempt = no time clock and no
+    timesheet (salaried leadership). Set per role in Settings > Access beside
+    the screen-share exemption (Visesh, Oct 2) - payroll_rates.time_tracking_exempt
+    is a legacy column and is no longer read. Any group the person belongs to
+    counts; a job role is named in preference to a plain access group."""
+    em = (email or "").strip().lower()
+    if not em:
+        return ""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(func.lower(NexusGroupMember.email) == em).all()]
+    if not gids:
+        return ""
+    rows = db.query(NexusGroup).filter(
+        NexusGroup.id.in_(gids), NexusGroup.time_tracking_exempt == 1).all()
+    if not rows:
+        return ""
+    rows.sort(key=lambda g: (0 if getattr(g, "is_job_role", 0) else 1, (g.name or "").lower()))
+    return rows[0].name or "a role"
+
+
+def is_time_tracking_exempt(db: Session, email: str) -> bool:
+    """True when any group the person belongs to has time_tracking_exempt=1."""
+    return bool(time_tracking_exempt_via(db, email))
+
+
+def time_tracking_exempt_emails(db: Session) -> set:
+    """Every exempt member's email (lowercase), in two queries - for list views."""
+    gids = [g.id for g in db.query(NexusGroup.id).filter(NexusGroup.time_tracking_exempt == 1).all()]
+    if not gids:
+        return set()
+    return {(m.email or "").strip().lower() for m in db.query(NexusGroupMember.email)
+            .filter(NexusGroupMember.group_id.in_(gids)).all() if m.email}
+
+
 def _is_bod_exempt(db: Session, email: str) -> bool:
     """True when the person belongs to any group/role flagged bod_exempt - they
     skip the Beginning/End-of-day and break message prompts entirely (Neil,
@@ -3139,7 +3176,7 @@ def _ps_oneliner(script: str) -> str:
 
 
 @router.get("/agent/install-command")
-def agent_install_command(user: dict = Depends(require_tracking_full)):
+def agent_install_command(user: dict = Depends(require_tracking_full), db: Session = Depends(get_db)):
     """Return the ONE reusable Windows one-liner used on every PC (like Flowace's
     silent command). It downloads the installer + agent bundle and installs the
     DISCLOSED agent (visible tray icon; nothing covert), carrying the shared
@@ -3147,9 +3184,16 @@ def agent_install_command(user: dict = Depends(require_tracking_full)):
     Run it in an ELEVATED prompt for the employee-proof service that covers every
     profile on the PC; a normal prompt does a removable per-user install. Who gets
     attributed is decided by whoever clocks in on the website (shared-PC pairing)."""
-    configured = bool(_AGENT_INSTALL_URL and _AGENT_BUNDLE_URL and _AGENT_ENROLL_KEY)
+    # New installs get the same build the updater targets: the current published
+    # release wins over the env bundle (which went stale at 0.8.5 and left fresh
+    # PCs a version behind until the updater caught up).
+    rel = (db.query(AgentRelease).filter(AgentRelease.is_current == 1, AgentRelease.version != "",
+                                         AgentRelease.bundle_url != "")
+           .order_by(AgentRelease.published_at.desc()).first())
+    current_bundle = (rel.bundle_url if rel else "") or _AGENT_BUNDLE_URL
+    configured = bool(_AGENT_INSTALL_URL and current_bundle and _AGENT_ENROLL_KEY)
     install_url = _AGENT_INSTALL_URL or "<set NEXUS_AGENT_INSTALL_URL>"
-    bundle_url  = _AGENT_BUNDLE_URL or "<set NEXUS_AGENT_BUNDLE_URL>"
+    bundle_url  = current_bundle or "<set NEXUS_AGENT_BUNDLE_URL>"
     enroll_key  = _AGENT_ENROLL_KEY or "<set NEXUS_AGENT_ENROLL_KEY>"
     # Fetch install.ps1 to a temp file, run it with the shared key + targets, clean
     # up. Single-quoted PS literals; the key/urls carry no quote chars to escape.
@@ -5106,6 +5150,9 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             # '' = no preset: the team's zone (shift settings) applies.
             "timezone": (p.timezone or "") if p else "",
             "code": (p.code or p.name) if p else "",
+            # The shift type's own name, shown under the time when the shift has
+            # no label of its own (Visesh, 10/02: "the shift name is gone").
+            "shiftName": (p.name or "") if p else "",
             "color": pend.get("color", getattr(row, "color", "") or "") or (p.color if p else "#64748b")}
 
 
@@ -7973,7 +8020,9 @@ class RateIn(BaseModel):
     monthly_salary: Optional[float] = None   # fixed pay: gross per month
     weekend_ot_amount: Optional[float] = None
     full_day_hours: Optional[float] = None
-    time_tracking_exempt: Optional[bool] = None   # salaried leadership: no time tracking at all
+    # Ignored since Oct 2: the time-tracking exemption is set on the role in
+    # Settings > Access. Kept so an old client sending it is not rejected.
+    time_tracking_exempt: Optional[bool] = None
 
 
 def _rate_dict(row) -> dict:
@@ -7987,7 +8036,6 @@ def _rate_dict(row) -> dict:
         # weekend_ot_amount stays on the table (never drop a column) but is no
         # longer read anywhere: weekend pay is calculated (A5, Charmi Sep 30).
         "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
-        "timeTrackingExempt": bool(getattr(row, "time_tracking_exempt", 0) or 0) if row else False,
         "isSet": row is not None,
     }
 
@@ -8083,8 +8131,6 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
         row.weekend_ot_amount = max(0.0, float(body.weekend_ot_amount or 0))
     if body.full_day_hours is not None:
         row.full_day_hours = max(1.0, float(body.full_day_hours or 8))
-    if body.time_tracking_exempt is not None:
-        row.time_tracking_exempt = 1 if body.time_tracking_exempt else 0
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.flush()                       # so the sync reads the just-updated rate

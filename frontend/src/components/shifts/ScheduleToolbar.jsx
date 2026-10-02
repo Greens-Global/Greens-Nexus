@@ -290,7 +290,7 @@ export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onG
             <label style={{ flex: 1, minWidth: 150 }}><div style={LBL}>Shift Type</div>
               <select className="form-input" value={presetFilter} onChange={(e) => onPresetFilter(e.target.value)} aria-label="Filter by shift type" style={{ width: '100%', fontSize: 13 }}>
                 <option value="">All Shift Types</option>
-                {presets.map((p) => <option key={p.id} value={p.id}>{p.code ? `${p.code} · ` : ''}{p.name}</option>)}
+                {presets.map((p) => <option key={p.id} value={p.id}>{p.name || p.code}</option>)}
               </select>
             </label>
           </div>

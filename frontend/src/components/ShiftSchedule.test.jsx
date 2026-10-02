@@ -503,10 +503,34 @@ describe('The editor panel', () => {
     const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
     expect(panel.tagName).toBe('ASIDE');
     expect(screen.getByText('Amy Adams')).toBeTruthy();                // the grid is still there
-    expect(within(panel).getByRole('button', { name: /GST 9:00 AM - 5:00 PM/, pressed: true })).toBeTruthy();   // shift type chips
+    expect(within(panel).getByRole('button', { name: /Store 9:00 AM - 5:00 PM/, pressed: true })).toBeTruthy();   // shift type chips
     fireEvent.change(within(panel).getByLabelText('Label'), { target: { value: 'Front Desk' } });
     fireEvent.keyDown(within(panel).getByLabelText('Label'), { key: 'Enter', ctrlKey: true });
     await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({ label: 'Front Desk', group_id: '' })));
+  });
+
+  it('offers a labeled custom shift already on the schedule (e.g. All Properties) beside the shift types', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com', shiftId: '', code: '', label: 'All Properties', start: '08:30', end: '17:30', ownColor: '#94a3b8' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(blockOf('s1'));
+    const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
+    fireEvent.click(within(panel).getByRole('button', { name: /All Properties 8:30 AM - 5:30 PM/ }));
+    expect(within(panel).getByLabelText('Start').value).toBe('08:30');
+    expect(within(panel).getByLabelText('Label').value).toBe('All Properties');
+    fireEvent.click(within(panel).getByRole('button', { name: /^Save/ }));
+    await waitFor(() => expect(timeSchedUpdate).toHaveBeenCalledWith('s1', expect.objectContaining({ shift_id: '', start_hhmm: '08:30', end_hhmm: '17:30', label: 'All Properties', color: '#94a3b8' })));
+  });
+
+  it('keeps the times when a shift is switched to Custom', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ start: '10:00', end: '18:00' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(blockOf('s1'));
+    const panel = screen.getByRole('dialog', { name: 'Edit Shift' });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Custom' }));
+    expect(within(panel).getByLabelText('Start').value).toBe('10:00');
+    expect(within(panel).getByLabelText('End').value).toBe('18:00');
   });
 
   it('gives a shift its own color', async () => {
@@ -633,7 +657,9 @@ describe('Views, options, export, drag', () => {
     const day = await screen.findByLabelText(`Open ${formatUs(today)}`);
     expect(day.textContent).toContain('1 shift');
     expect(day.textContent).toContain('2 open');
-    expect(day.textContent).toContain('Bob off');
+    // Who is working and who is off show as faces (10/02); Bob is off all day.
+    expect(day.querySelector('[title$=" - off"]')?.getAttribute('title')).toMatch(/^Bob .* - off$/);
+    expect(day.querySelector('[title$=" - working"]')).toBeTruthy();
     fireEvent.click(day);
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(today, today));
     expect(await screen.findByLabelText(/^Shift 9:00 AM - 5:00 PM/)).toBeTruthy();

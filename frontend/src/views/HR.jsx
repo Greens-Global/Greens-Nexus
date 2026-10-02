@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
@@ -1105,7 +1106,8 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {sectionLabel('Time clock')}
           {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? '' : ' (company default)'}`)}
           {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
-          {row2('tracking', 'Time tracking', data.payroll?.timeTrackingExempt ? 'Exempt (no time tracking)' : 'Tracked')}
+          {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
+          {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
           {sectionLabel('Pay history')}
           {(data.rateHistory || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No pay recorded yet.</div>
@@ -5067,7 +5069,7 @@ const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'V
 // writer of PayrollRate; the timecard only reads.
 const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['federal', 'Federal (weekly 40h only)'], ['none', 'None (no US overtime premium)']];
 const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
-  overtimeRule: '', fullDayHours: '8', timeTrackingExempt: false };
+  overtimeRule: '', fullDayHours: '8' };
 
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
@@ -5087,11 +5089,10 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (!live) return;
         const pr = r.payroll || {};
         const nextComp = { ...COMP_DEFAULTS, ...(r.compensation || {}) };
-        // A record saved before Sep 30 has no rule / hours / exemption of its
-        // own - start from what the timecard is using today.
+        // A record saved before Sep 30 has no rule / hours of its own - start
+        // from what the timecard is using today.
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
-        if ((r.compensation || {}).timeTrackingExempt === undefined && pr.timeTrackingExempt) nextComp.timeTrackingExempt = true;
         const nextBank = r.bank || [];
         setComp(nextComp); setBank(nextBank); setPayroll(pr);
         baselineRef.current = { comp: nextComp, bank: nextBank };
@@ -5173,12 +5174,8 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               </div>
               <div>
                 <label style={FL}>TIME TRACKING</label>
-                <select className="form-input" style={{ width: '100%' }} value={comp.timeTrackingExempt ? 'exempt' : 'tracked'}
-                  onChange={e => setC('timeTrackingExempt', e.target.value === 'exempt')}>
-                  <option value="tracked">Tracked (punches and hours)</option>
-                  <option value="exempt">Exempt (salaried - no time tracking)</option>
-                </select>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Exempt hides the punch card, timer and hours widgets for this person.</div>
+                <div data-testid="comp-time-tracking" style={{ fontSize: 13, color: 'var(--ink)', padding: '8px 0' }}>{timeTrackingText(payroll)}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
               </div>
             </div>
 

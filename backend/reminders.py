@@ -375,10 +375,9 @@ def run_daily_scan() -> int:
         _sign_due = _today == (datetime.strptime(_pend, "%Y-%m-%d").date() - timedelta(days=1))
         _signed = set()
         # Exempt from time tracking = no clock and no timesheet, so never a
-        # "Sign your timecard" nudge (Visesh, 10/02).
-        from models import PayrollRate
-        _exempt = {r.employee_email.lower() for r in db.query(PayrollRate.employee_email)
-                   .filter(PayrollRate.time_tracking_exempt == 1).all() if r.employee_email}
+        # "Sign your timecard" nudge (Visesh, 10/02). Set on the role.
+        from routers.timeclock import time_tracking_exempt_emails
+        _exempt = time_tracking_exempt_emails(db)
         if _sign_due:
             _signed = {a.employee_email for a in db.query(TimeApproval).filter(
                 TimeApproval.kind == "employee_sign", TimeApproval.period_start == _pstart,
