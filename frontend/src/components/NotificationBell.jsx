@@ -7,6 +7,7 @@ import { useMsal }           from '@azure/msal-react';
 import { useRole }           from '../contexts/RoleContext';
 import { api }               from '../api';
 import { setPendingOpen }    from '../lib/pendingOpen';
+import { openNotificationTarget } from '../lib/openTarget';
 import { RaiseNotice } from './PriorityBar';
 
 // Resolved dynamically from MSAL account - see myName below
@@ -500,12 +501,11 @@ export default function NotificationBell({ onNavigate }) {
   // Timesheet review bells name the employee + period (timesheet_review._notify,
   // Sep 29): open THAT timecard in People > Time, same two-halves handoff as
   // tasks and tickets (lib/pendingOpen.js).
+  // Punch-fix requests name their row (Neil, 10/02): the same helper the
+  // priority bar uses opens the request, else the timecard.
   function openTimecardFor(n) {
-    const email = n.action?.timecard;
-    if (!email) return;
-    const detail = { email, start: n.action.start || '', payType: n.action.payType || '' };
-    setPendingOpen('timecard', detail);
-    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-timecard', { detail })), 0);
+    if (!n.action?.timecard && !n.action?.punchRequestId) return;
+    openNotificationTarget(n.action);
   }
 
   function handleUpdateClick(n) {

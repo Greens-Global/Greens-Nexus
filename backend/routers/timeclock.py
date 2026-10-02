@@ -2606,9 +2606,15 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     # Notify the approver - the employee's manager, or ALL managers if none is set,
     # so a no-manager employee's request still reaches someone.
     what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
+    # Open lands on the request itself - People > Time > Punch requests with
+    # this row highlighted (Neil, 10/02: "doesn't take me to Amy's approval,
+    # it just takes me to the time card area"). The timecard keys stay so an
+    # older client still opens the person's card.
+    action = {**_timecard_action(db, req.employee_email, local_date),
+              "sub": "hr-time-requests", "punchRequestId": req.id}
     _notify_approvers(db, employee_email=req.employee_email, title="Timesheet fix requested",
                       body=f"{name} asked to {what} on {_us_day(local_date)}. Reason: {reason}",
-                      ref_id=req.id, action=_timecard_action(db, req.employee_email, local_date))
+                      ref_id=req.id, action=action)
     db.commit()
     return _pr_dict(req)
 
