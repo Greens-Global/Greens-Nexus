@@ -26,18 +26,39 @@ Every figure comes through the accounting app's internal API (routers/
 accounting.py is the reference): balance-sheet and pnl per entity, the
 dashboard's tables op for the loan rows. Nexus never opens the accounting
 database. A person limited to certain entities (Neil, Sep 25) sees only the
-loans of those entities; every ledger read goes through `_limit`. The scan is
-many calls, so it is cached per caller for five minutes in this process.
+loans of those entities; every ledger read goes through `_limit`.
+
+Live run, 10/02 (317 entities, 811 liability accounts):
+  - Credit cards ("OSM - Capital One - 5431" on 22603) matched on the lender's
+    name. A lender-name-only match now counts only from GL 25000 up (the
+    long-term range: 26xxx mortgages, 27xxx LOC / auto / credit union loans);
+    a 2xxxx below that needs a loan word.
+  - The balance sheet sends every amount as debits less credits: a mortgage
+    owed is NEGATIVE (GE Five Star 26013 = -11,245,000), a positive liability
+    is a debit balance (Golden 1 26023 = +14,500,000). `owed` = -amount is
+    the loan balance everywhere; principal paid = owed a year ago less owed
+    now; a debit balance is proposed with a flag and shown as negative owed,
+    never flipped.
+  - A parent entity rolls its children up ("(AM) (G) 910 S. El Camino Real"
+    = 12027-1 + 12027-2), so the same loan was proposed twice. Only LEAF
+    entities are scanned.
+  - 105 s is more than one request may take (Azure drops it at 230 s): the
+    scan is a background job on the request's loop - the first GET starts it
+    and answers 202 with the progress, later GETs the same until the result
+    (kept 30 minutes, cleared on create); a failed job answers 424 once and
+    the next GET starts it again. The review (one second) stays synchronous.
 """
 import asyncio
 import calendar
+import contextvars
 import re
 import time
 from collections import defaultdict
-from datetime import date
-from typing import Any, Optional
+from datetime import date, datetime, timezone
+from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -51,41 +72,156 @@ _edit = require_module_grant("accounting", "editor")
 
 DEFAULT_COVENANT = 1.35
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
-_SCAN_TTL = 300.0
+_SCAN_TTL = 300.0          # the review, synchronous
+_RESULT_TTL = 1800.0       # a finished scan job
+_PARTIAL_TTL = 60.0        # a scan with entities not read: shown, then re-run
 _SCAN: dict[tuple, tuple[float, Any]] = {}
-# Ledger reads in flight at once - one semaphore PER EVENT LOOP. A module-level
+LENDER_ONLY_MIN_GL = 25000
+# Ledger reads in flight at once - one semaphore PER EVENT LOOP (a module-level
 # asyncio.Semaphore binds to the first loop that waits on it and then raises
-# "bound to a different event loop" from any other (TestClient runs each
-# request on its own loop; a worker restart does the same).
-_SEMS: dict[int, asyncio.Semaphore] = {}
+# "bound to a different event loop" from any other; TestClient runs each
+# request on its own loop, a worker restart does the same) and per size: a
+# request reads 4 at a time, a background scan job 6.
+_PARALLEL: contextvars.ContextVar[int] = contextvars.ContextVar("acct_scan_parallel", default=4)
+_SEMS: dict[tuple[int, int], asyncio.Semaphore] = {}
 
 
 def _sem() -> asyncio.Semaphore:
     loop = asyncio.get_running_loop()
-    sem = _SEMS.get(id(loop))
+    key = (id(loop), _PARALLEL.get())
+    sem = _SEMS.get(key)
     if sem is None:
-        _SEMS.clear()
-        sem = _SEMS[id(loop)] = asyncio.Semaphore(4)
+        for k in [k for k in _SEMS if k[0] != id(loop)]:
+            _SEMS.pop(k, None)
+        sem = _SEMS[key] = asyncio.Semaphore(key[1])
     return sem
 
 
-async def gather_tolerant(makers: list, what: str, empty):
+async def gather_tolerant(makers: list, what: list, empty, on_done: Optional[Callable[[], None]] = None):
     """Run the reads together. `makers` are zero-argument callables that
     build the coroutine, so a read that fails can be retried once; one that
     fails twice is answered with `empty` and a note. One entity the
     accounting app drops (10/02: it closed a connection mid-scan of 317
-    entities) must not take the whole screen down with it."""
-    results = await asyncio.gather(*[m() for m in makers], return_exceptions=True)
-    out, notes = [], []
-    for i, r in enumerate(results):
-        if isinstance(r, BaseException):
+    entities) must not take the whole screen down with it. `on_done` is
+    called once per read as it settles (the job's progress)."""
+    notes: list[str] = []
+
+    async def one(i: int):
+        try:
             try:
-                r = await makers[i]()
-            except Exception as e:  # noqa: BLE001 - the note carries the reason
-                notes.append(f"{what[i] if i < len(what) else 'a read'}: {getattr(e, 'detail', None) or e.__class__.__name__}")
-                r = empty() if callable(empty) else empty
-        out.append(r)
+                return await makers[i]()
+            except Exception:  # noqa: BLE001 - retried once
+                return await makers[i]()
+        except Exception as e:  # noqa: BLE001 - the note carries the reason
+            notes.append(f"{what[i] if i < len(what) else 'a read'}: {getattr(e, 'detail', None) or e.__class__.__name__}")
+            return empty() if callable(empty) else empty
+        finally:
+            if on_done:
+                on_done()
+
+    out = list(await asyncio.gather(*[one(i) for i in range(len(makers))]))
     return out, notes
+
+
+# ── Scan jobs (both scans: loans and leases) ────────────────────────────────
+class ScanJob:
+    """One background scan: started on the request's loop, polled by later
+    requests. `done` / `total` count entities."""
+
+    def __init__(self, key: tuple):
+        self.key = key
+        self.done = 0
+        self.total = 0
+        self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        self.loop = asyncio.get_running_loop()
+        self.task: Optional[asyncio.Task] = None
+        self.result: Optional[dict] = None
+        self.error: Optional[str] = None
+        self.status = 424            # what a failed job answers with; a 503 (not configured) stays a 503
+        self.finished: Optional[float] = None
+        self.cacheable = True
+
+    def tick(self) -> None:
+        self.done += 1
+
+    def progress(self) -> dict:
+        return {"scanning": True, "done": self.done, "total": self.total, "startedAt": self.started_at}
+
+    def failed(self) -> bool:
+        return bool(self.error) or self.loop.is_closed() or bool(self.task and self.task.done() and self.result is None)
+
+    def expired(self, now: float) -> bool:
+        return self.result is not None and now - (self.finished or 0) >= (_RESULT_TTL if self.cacheable else _PARTIAL_TTL)
+
+
+_JOBS: dict[tuple, ScanJob] = {}
+_INTERRUPTED = "The ledger scan was interrupted - open again to start it over."
+
+
+def scan_job(key: tuple, run: Callable[[ScanJob], Any]) -> ScanJob:
+    """The job for `key`: the finished one while its result is fresh, the
+    running one, or a new one started now (`run(job)` is awaited on this
+    loop and must set job.total and call job.tick()). A failed job raises
+    424 with the reason ONCE and is forgotten, so the next call starts over."""
+    now = time.monotonic()
+    job = _JOBS.get(key)
+    if job and job.expired(now):
+        _JOBS.pop(key, None)
+        job = None
+    if job and job.result is None and job.failed():
+        _JOBS.pop(key, None)
+        raise HTTPException(status_code=job.status, detail=job.error or _INTERRUPTED)
+    if job:
+        return job
+    job = ScanJob(key)
+
+    async def runner():
+        _PARALLEL.set(6)
+        try:
+            job.result = await run(job)
+            job.finished = time.monotonic()
+        except Exception as e:  # noqa: BLE001 - the job carries the reason
+            job.error = str(getattr(e, "detail", None) or f"{e.__class__.__name__}: {e}")
+            if isinstance(e, HTTPException) and e.status_code == 503:
+                job.status = 503
+
+    job.task = asyncio.create_task(runner())
+    _JOBS[key] = job
+    return job
+
+
+async def scan_result(key: tuple, run: Callable[[ScanJob], Any]) -> dict:
+    """The scan's result, waiting for the job when it is still running (the
+    create routes, right after the dialog showed the table)."""
+    job = scan_job(key, run)
+    if job.result is None and job.task is not None:
+        await asyncio.shield(job.task)
+    if job.result is None:
+        _JOBS.pop(key, None)
+        raise HTTPException(status_code=job.status, detail=job.error or _INTERRUPTED)
+    return job.result
+
+
+def forget_jobs(email: str, kind: str) -> None:
+    for k in [k for k in _JOBS if k[0] == email and k[1] == kind]:
+        _JOBS.pop(k, None)
+
+
+def leaf_entities(entities: list[dict]) -> tuple[list[dict], int]:
+    """(the leaf entities, how many parents were left out). An entity is a
+    parent when another entity's parent_code is its code or another code
+    starts with "<code>-" (Intacct's child-code convention, the same rule as
+    accounting._with_children); its figures roll up from the children, so
+    scanning it too would propose everything twice."""
+    codes = {e["code"] for e in entities}
+    parents: set[str] = set()
+    for e in entities:
+        if e.get("parent_code") in codes:
+            parents.add(e["parent_code"])
+        for c in codes:
+            if c != e["code"] and e["code"].startswith(f"{c}-"):
+                parents.add(c)
+    return [e for e in entities if e["code"] not in parents], len(parents)
 
 
 def _r2(v) -> float:
@@ -96,7 +232,11 @@ def _r2(v) -> float:
 # A loan is a liability whose title or number says so (loan, mortgage, note
 # payable, line of credit, LOC, HELOC, financing, promissory, borrowing) or
 # names a lender (F&M, Citi, Chase, BofA, Wells, SBA, PNC, US Bank, a bank or
-# credit union, EIDL / PPP). Working-capital and payroll balances are never
+# credit union, EIDL / PPP) - but a lender's name ALONE counts only from GL
+# 25000 up, the long-term range (26xxx mortgages, 27xxx LOC / auto / credit
+# union loans seen live): "OSM - Capital One - 5431" on 22603, "GC - Chase -
+# 2305" on 22301 and "US Bank - Amazon - 4863" on 22114 are credit cards.
+# Working-capital and payroll balances are never
 # loans, whatever else the title says, unless it says "loan": accounts
 # payable, credit cards, payroll, accrued, deferred, unearned, security and
 # customer deposits, clearing / suspense. "Due to <entity>" and intercompany
@@ -119,6 +259,9 @@ LENDER_NAMES = [
 ]
 _LENDER_ANY = re.compile("|".join(rx.pattern for rx, _ in LENDER_NAMES))
 _NEVER = re.compile(r"accounts payable|\ba/p\b|credit card|\bamex\b|\bvisa\b|mastercard|discover|payroll|withh|accrued|deferred|unearned|security deposit|customer deposit|tenant deposit|sales tax|tax payable|clearing|suspense|garnish")
+# Never a loan even when a loan word is in the title: the interest owed on one
+# is an accrual ("HELOC Interest Payable" on 25011, live 10/02).
+_NEVER_EVEN_WITH_LOAN_WORD = re.compile(r"interest payable|accrued interest|interest accru")
 _INTERCO = re.compile(r"intercompany|inter-company|\bi/c\b|due to|\bdue from\b|related part|shareholder|member loan|officer")
 _STRIP = re.compile(r"\b(loans?|payable|mortgage|notes?|n/p|line of credit|loc|heloc|financing|equipment|promissory|intercompany|inter-company|due|from|to|the|a|an|of|-|–|:)\b", re.I)
 LOOKED_FOR = ["Loan", "Mortgage", "Note Payable / Notes", "Line of Credit / LOC / HELOC", "Financing / Promissory / Borrowing",
@@ -134,7 +277,7 @@ def classify_loan_account(section: str, code: str, title: str, entity_names: Opt
     t = (title or "").strip()
     low = t.lower()
     says_loan = bool(LOAN_WORDS.search(low))
-    if _NEVER.search(low) and not says_loan:
+    if _NEVER_EVEN_WITH_LOAN_WORD.search(low) or (_NEVER.search(low) and not says_loan):
         return None
     names_entity = ""
     for ecode, ename in (entity_names or {}).items():
@@ -147,16 +290,25 @@ def classify_loan_account(section: str, code: str, title: str, entity_names: Opt
     interco = bool(_INTERCO.search(low)) or bool(names_entity)
     if interco and not says_loan:
         return None
-    if not says_loan and not _LENDER_ANY.search(low):
-        return None
+    if not says_loan:
+        n = _gl_number(code)
+        if not _LENDER_ANY.search(low) or n is None or n < LENDER_ONLY_MIN_GL:
+            return None
     lender = ""
     for rx, name in LENDER_NAMES:
         if rx.search(low):
             lender = name
             break
+    if lender in ("Bank", "Credit Union"):
+        lender = _guess_lender(t) or lender      # "City National Bank - Gr. FLP LOC": the bank's own name
     if interco:
         return {"kind": "intercompany", "lender": names_entity or lender or _guess_lender(t)}
     return {"kind": "external", "lender": lender or _guess_lender(t)}
+
+
+def _gl_number(code: str) -> Optional[int]:
+    m = re.match(r"\d+", (code or "").strip())
+    return int(m.group()) if m else None
 
 
 def _guess_lender(title: str) -> str:
@@ -181,7 +333,10 @@ async def _entities(scope: dict) -> list[dict]:
 
 
 async def _balance_sheet(scope: dict, entity: str, asof: str) -> dict[str, dict]:
-    """GL code -> {title, section, amount} of one entity as of a date."""
+    """GL code -> {title, section, amount, owed} of one entity as of a date.
+    `amount` is the ledger's figure, debits less credits for every section
+    (confirmed on 15001, 10/02); `owed` is the positive amount owed for a
+    liability (-amount), the amount itself elsewhere."""
     location, _ = await _limit(scope, entity, None)
     async with _sem():
         data = await accounting._acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location})
@@ -191,8 +346,16 @@ async def _balance_sheet(scope: dict, entity: str, asof: str) -> dict[str, dict]
             continue
         for a in s.get("accounts") or []:
             if a.get("account_no"):
-                out[str(a["account_no"])] = {"title": a.get("title") or "", "section": s["key"], "amount": _r2(a.get("amount")), "accountType": a.get("account_type") or ""}
+                amount = _r2(a.get("amount"))
+                out[str(a["account_no"])] = {"title": a.get("title") or "", "section": s["key"], "amount": amount, "owed": owed(s["key"], amount), "accountType": a.get("account_type") or ""}
     return out
+
+
+def owed(section: str, amount: float) -> float:
+    """What is owed on a balance sheet account: a liability's credit balance
+    arrives negative, so owed = -amount; a debit balance comes out negative
+    and is shown that way, never flipped."""
+    return _r2(-amount) if section == "liability" else _r2(amount)
 
 
 async def _pnl(scope: dict, entity: str, from_: str, to: str) -> list[dict]:
@@ -270,18 +433,20 @@ def _set_up_key(r: dict) -> tuple[str, str]:
 
 
 # ── Proposals ───────────────────────────────────────────────────────────────
-async def _scan(scope: dict, month: str) -> dict:
-    """Every entity's liability accounts as of the month end, classified."""
-    key = (scope["user"]["email"], "loans", month)
-    hit = _SCAN.get(key)
-    now = time.monotonic()
-    if hit and now - hit[0] < _SCAN_TTL:
-        return hit[1]
-    entities = await _entities(scope)
+def _scan_key(scope: dict, month: str) -> tuple:
+    return (scope["user"]["email"], "loans", month)
+
+
+async def _scan(scope: dict, month: str, job: Optional[ScanJob] = None) -> dict:
+    """Every leaf entity's liability accounts as of the month end, classified."""
+    entities, parents = leaf_entities(await _entities(scope))
     names = {e["code"]: e.get("name") or "" for e in entities}
     _, asof = month_bounds(month)
+    if job:
+        job.total = len(entities)
     sheets, notes = await gather_tolerant([(lambda e=e: _balance_sheet(scope, e["code"], asof)) for e in entities],
-                                          [f"{e.get('name') or e['code']} ({e['code']}) balance sheet" for e in entities], dict)
+                                          [f"{e.get('name') or e['code']} ({e['code']}) balance sheet" for e in entities], dict,
+                                          on_done=job.tick if job else None)
     proposals, liabilities = [], 0
     for e, sheet in zip(entities, sheets):
         for code, a in sorted(sheet.items()):
@@ -292,27 +457,21 @@ async def _scan(scope: dict, month: str) -> dict:
             if not hit_:
                 continue
             proposals.append({"entityCode": e["code"], "entityName": names.get(e["code"]) or e["code"], "glAccount": code, "title": a["title"],
-                              "balance": a["amount"], "lender": hit_["lender"], "kind": hit_["kind"], "balanceSource": "ledger"})
-    out = {"month": month, "asOf": asof, "entitiesScanned": len(entities), "liabilityAccounts": liabilities, "proposals": proposals, "lookedFor": LOOKED_FOR,
-           "notes": [f"Not read this time - {n}" for n in notes]}
-    if notes:
-        return out   # a partial scan is shown, never cached as the answer
-    _SCAN[key] = (now, out)
+                              "balance": a["owed"], "debitBalance": a["owed"] < 0, "lender": hit_["lender"], "kind": hit_["kind"], "balanceSource": "ledger"})
+    out = {"month": month, "asOf": asof, "entitiesScanned": len(entities), "parentsSkipped": parents, "liabilityAccounts": liabilities,
+           "proposals": proposals, "lookedFor": LOOKED_FOR, "notes": [f"Not read this time - {n}" for n in notes]}
+    if job:
+        job.cacheable = not notes   # a partial scan is shown, never kept as the answer
     return out
 
 
 def _forget(email: str) -> None:
     for k in [k for k in _SCAN if k[0] == email]:
         _SCAN.pop(k, None)
+    forget_jobs(email, "loans")
 
 
-@router.get("/proposals")
-async def proposals(month: Optional[str] = None, scope: dict = Depends(entity_scope)):
-    """One proposed loan per loan-like liability account, with the ones
-    already in fin_loans marked as set up (idempotent: re-running proposes
-    only what is missing)."""
-    month = _month(month)
-    scan, existing = await asyncio.gather(_scan(scope, month), _loan_rows(scope, month))
+def _with_status(scan: dict, existing: list[dict]) -> dict:
     have = {_set_up_key(r): r for r in existing}
     rows = []
     for p in scan["proposals"]:
@@ -322,6 +481,19 @@ async def proposals(month: Optional[str] = None, scope: dict = Depends(entity_sc
         row["loanId"] = cur.get("id") if cur else None
         rows.append(row)
     return {**scan, "proposals": rows, "setUp": sum(1 for r in rows if r["status"] == "set_up"), "missing": sum(1 for r in rows if r["status"] == "new")}
+
+
+@router.get("/proposals")
+async def proposals(month: Optional[str] = None, scope: dict = Depends(entity_scope)):
+    """One proposed loan per loan-like liability account, with the ones
+    already in fin_loans marked as set up (idempotent: re-running proposes
+    only what is missing). The scan runs in the background: 202 with the
+    progress until it is done, then the result."""
+    month = _month(month)
+    job = scan_job(_scan_key(scope, month), lambda job: _scan(scope, month, job))
+    if job.result is None:
+        return JSONResponse(status_code=202, content=job.progress())
+    return _with_status(job.result, await _loan_rows(scope, month))
 
 
 class CreateItem(BaseModel):
@@ -347,7 +519,7 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
     month = _month(body.month)
     if not body.items:
         raise HTTPException(status_code=400, detail="Tick at least one loan to create.")
-    scan, existing = await asyncio.gather(_scan(scope, month), _loan_rows(scope, month))
+    scan, existing = await asyncio.gather(scan_result(_scan_key(scope, month), lambda job: _scan(scope, month, job)), _loan_rows(scope, month))
     have = {_set_up_key(r) for r in existing}
     by_key = {(p["entityCode"], p["glAccount"]): p for p in scan["proposals"]}
     accounting_dashboard._require_configured()
@@ -385,7 +557,10 @@ def _num(v) -> float:
 
 def review_rows(loans: list[dict], sheets: dict, pnls: dict, month: str, names: dict) -> list[dict]:
     """The review figures per loan. `sheets` is {(entity, 'now'|'m1'|'m12'):
-    {gl: {amount}}}; `pnls` is {(entity, 'month'|'t12'): [accounts]}. An
+    {gl: {owed, ...}}} (`owed` as `_balance_sheet` gives it: positive for a
+    loan owed, negative for a debit balance); `pnls` is {(entity,
+    'month'|'t12'): [accounts]}. Principal paid is owed before less owed now,
+    floored at zero inside the debt service (a draw is not a payment). An
     entity's interest and NOI belong to the property, so with several loans on
     one entity the interest is shared by balance and the DSCR is the entity's
     NOI over the entity's whole debt service - the figure a lender looks at."""
@@ -402,15 +577,15 @@ def review_rows(loans: list[dict], sheets: dict, pnls: dict, month: str, names: 
             gl = str(l.get("gl_account") or "").strip()
             ledger = bool((l.get("balance_source") or "manual") == "ledger" and gl)
             at = {when: sheets.get((entity, when), {}).get(gl) for when in ("now", "m1", "m12")} if ledger else {}
-            now_, m1, m12 = ((at.get(w) or {}).get("amount") if at.get(w) else None for w in ("now", "m1", "m12"))
+            now_, m1, m12 = ((at.get(w) or {}).get("owed") if at.get(w) else None for w in ("now", "m1", "m12"))
             balance = now_ if now_ is not None else (_num(l.get("balance")) if not ledger else 0.0)
-            figs.append({"loan": l, "balance": _r2(balance), "m1": m1, "m12": m12,
+            figs.append({"loan": l, "balance": _r2(balance), "m1": m1, "m12": m12, "debitBalance": bool(ledger and now_ is not None and now_ < 0),
                          "principalMonth": _r2(m1 - now_) if ledger and m1 is not None and now_ is not None else None,
                          "principalT12": _r2(m12 - now_) if ledger and m12 is not None and now_ is not None else None})
-        total_bal = sum(f["balance"] for f in figs) or 0.0
+        total_bal = sum(max(0.0, f["balance"]) for f in figs) or 0.0
         entity_ds = 0.0
         for f in figs:
-            share = (f["balance"] / total_bal) if total_bal > 0 else (1.0 / len(figs))
+            share = (max(0.0, f["balance"]) / total_bal) if total_bal > 0 else (1.0 / len(figs))
             f["interestMonth"] = _r2(int_month * share)
             f["interestT12"] = _r2(int_t12 * share)
             f["debtServiceMonth"] = _r2(max(0.0, f["principalMonth"] or 0) + f["interestMonth"])
@@ -423,7 +598,7 @@ def review_rows(loans: list[dict], sheets: dict, pnls: dict, month: str, names: 
             out.append({
                 "id": l.get("id"), "loanNo": l.get("loan_no") or "", "lender": l.get("lender") or "", "kind": l.get("kind") or "external",
                 "entityCode": entity, "entityName": names.get(entity) or entity, "glAccount": str(l.get("gl_account") or ""),
-                "balanceSource": l.get("balance_source") or "manual", "balance": f["balance"], "balanceMonthAgo": f["m1"], "balanceYearAgo": f["m12"],
+                "balanceSource": l.get("balance_source") or "manual", "balance": f["balance"], "debitBalance": f["debitBalance"], "balanceMonthAgo": f["m1"], "balanceYearAgo": f["m12"],
                 "principalPaid": f["principalMonth"], "interestPaid": f["interestMonth"], "debtService": f["debtServiceMonth"],
                 "principalPaidT12": f["principalT12"], "interestPaidT12": f["interestT12"], "debtServiceT12": f["debtServiceT12"],
                 "entityDebtServiceT12": _r2(entity_ds), "noiT12": n["noi"], "incomeT12": n["income"], "operatingExpensesT12": n["operatingExpenses"],

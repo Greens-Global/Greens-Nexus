@@ -4,8 +4,10 @@ rent roll opened empty).
 
 A tenant is an Intacct customer, and rent received is what posted to the
 lease's income accounts for that customer in that month (routers/leasing.py).
-So the ledger already knows who the tenants are: for each entity the caller
-may read, the income accounts whose title says Rent / Rental / Lease, the
+So the ledger already knows who the tenants are: for each LEAF entity the
+caller may read (a parent entity rolls its children up - "(AM) (G) 910 S. El
+Camino Real" is 12027-1 + 12027-2 - so scanning it too proposed every tenant
+twice), the income accounts whose title says Rent / Rental / Lease, the
 customers who posted to them in the last twelve months, and the month-by-
 month amounts. One lease is proposed per (entity, customer) - tenant = the
 customer, property = the entity, monthly rent = the most common amount of the
@@ -14,18 +16,29 @@ writes the leases through the same validation and save New Lease uses;
 a customer who already has an active lease on that entity is shown as set
 up, never duplicated. Nothing is emailed to anyone.
 
-Reads go through the accounting app's internal API only (pnl per entity,
-buckets by customer and by month); every read passes `_limit`. The scan is
-many calls and is cached per caller for five minutes in this process.
+Reads go through the accounting app's internal API only, every one through
+`_limit`: the P&L account list once per entity (a light read), ONE buckets
+by=customer read for each entity that has a rent account (a heavy one: every
+posting of the window - reading it for every entity instead of the P&L made
+the live scan slower, 391 s against 305 s), then by=month only for the
+customers with rent postings - and not even that when the by=customer rows
+carry a date and the customer posted in fewer than two months of the window
+(the live payload carries no date, so the month read stays). The accounting
+app answers about two reads a second whatever the parallelism, so the count
+of reads is the scan's time. 305 s live is more than one request may take, so the
+scan is a background job (accounting_loans.scan_job): the first GET starts it
+and answers 202 with the progress, later GETs the same until the result (kept
+30 minutes, cleared on create); a failed job answers 424 once and the next
+GET starts over.
 """
 import asyncio
 import re
-import time
 from collections import Counter, defaultdict
 from datetime import date
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import models
@@ -33,7 +46,7 @@ from auth import require_module_grant
 from database import SessionLocal
 from routers import accounting, leasing
 from routers.accounting import _limit, entity_scope
-from routers.accounting_loans import _entities, _sem, gather_tolerant, month_bounds, shift_month
+from routers.accounting_loans import ScanJob, _entities, _sem, forget_jobs, gather_tolerant, leaf_entities, month_bounds, scan_job, scan_result, shift_month
 
 router = APIRouter(prefix="/accounting/leasing", tags=["Accounting"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
 _edit = require_module_grant("accounting", "editor")
@@ -42,8 +55,7 @@ RENT_WORDS = re.compile(r"\brents?\b|rental|\blease\b|leasing|tenant")
 LOOKED_FOR = ["Rent", "Rental", "Lease / Leasing", "Tenant"]
 _INCOME = ("revenue", "other_income")
 _POSTED = 0.5     # dollars: below this a month did not post
-_TTL = 300.0
-_CACHE: dict[tuple, tuple[float, Any]] = {}
+_DATE_KEYS = ("month", "date", "entry_date", "posted", "period")
 
 
 def _r2(v) -> float:
@@ -55,6 +67,16 @@ def rent_accounts(pnl_accounts: list[dict]) -> list[dict]:
     """The income accounts rent posts to: revenue / other income whose title
     says rent, rental, lease or tenant."""
     return [a for a in pnl_accounts if a.get("section") in _INCOME and RENT_WORDS.search((a.get("title") or "").lower())]
+
+
+def row_month(row: dict) -> Optional[str]:
+    """'YYYY-MM' when a buckets row carries a date, else None (the live
+    by=customer payload does not; a by=month row's bucket is the month)."""
+    for k in _DATE_KEYS:
+        v = row.get(k)
+        if isinstance(v, str) and re.match(r"^\d{4}-\d{2}", v):
+            return v[:7]
+    return None
 
 
 def monthly_rent(monthly: dict[str, float]) -> Optional[float]:
@@ -116,12 +138,28 @@ async def _scan_entity(scope: dict, e: dict, from_: str, to: str) -> dict:
         return {"entity": e, "accounts": [], "proposals": []}
     codes = {a["account_no"] for a in accounts}
     data = await _buckets(scope, e["code"], "customer", from_, to)
+    rows = data.get("rows") or []
     labels = data.get("labels") or {}
-    customers = sorted({str(r.get("bucket") or "") for r in data.get("rows") or [] if r.get("bucket") and str(r.get("account_no")) in codes and (_r2(r.get("credit")) - _r2(r.get("debit"))) > _POSTED})
-    months = await asyncio.gather(*[_buckets(scope, e["code"], "month", from_, to, c) for c in customers])
+    rent_rows: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        if r.get("bucket") and str(r.get("account_no")) in codes:
+            rent_rows[str(r["bucket"])].append(r)
+    customers = sorted(c for c, rs in rent_rows.items() if sum(_r2(r.get("credit")) - _r2(r.get("debit")) for r in rs) > _POSTED)
     by_customer: dict[str, dict[str, float]] = {}
-    for cust, data_m in zip(customers, months):
-        cell: dict[str, float] = defaultdict(float)
+    need_months = []
+    for cust in customers:
+        months = {row_month(r) for r in rent_rows[cust]}
+        if None not in months and len(months) < 2:
+            # The payload says when it posted and it was one month: no month read needed.
+            cell: dict[str, float] = defaultdict(float)
+            for r in rent_rows[cust]:
+                cell[row_month(r)] += _r2(r.get("credit")) - _r2(r.get("debit"))
+            by_customer[cust] = dict(cell)
+        else:
+            need_months.append(cust)
+    months = await asyncio.gather(*[_buckets(scope, e["code"], "month", from_, to, c) for c in need_months])
+    for cust, data_m in zip(need_months, months):
+        cell = defaultdict(float)
         for r in data_m.get("rows") or []:
             if str(r.get("account_no")) in codes and r.get("bucket"):
                 cell[str(r["bucket"])[:7]] += _r2(r.get("credit")) - _r2(r.get("debit"))
@@ -139,35 +177,41 @@ def _active_leases() -> dict[tuple[str, str], str]:
         db.close()
 
 
-async def _scan(scope: dict) -> dict:
-    today = date.today()
-    this = today.isoformat()[:7]
+def _window() -> tuple[str, str]:
+    this = date.today().isoformat()[:7]
     from_, _ = month_bounds(shift_month(this, 11))
     _, to = month_bounds(this)
-    key = (scope["user"]["email"], "leases", from_, to)
-    hit = _CACHE.get(key)
-    now = time.monotonic()
-    if hit and now - hit[0] < _TTL:
-        return hit[1]
-    entities = await _entities(scope)
+    return from_, to
+
+
+def _scan_key(scope: dict) -> tuple:
+    from_, to = _window()
+    return (scope["user"]["email"], "leases", from_, to)
+
+
+async def _scan(scope: dict, job: Optional[ScanJob] = None) -> dict:
+    from_, to = _window()
+    entities, parents = leaf_entities(await _entities(scope))
+    if job:
+        job.total = len(entities)
     parts, notes = await gather_tolerant([(lambda e=e: _scan_entity(scope, e, from_, to)) for e in entities],
                                          [f"{e.get('name') or e['code']} ({e['code']})" for e in entities],
-                                         lambda: {"entity": {"code": "", "name": ""}, "accounts": [], "proposals": []})
+                                         lambda: {"entity": {"code": "", "name": ""}, "accounts": [], "proposals": []},
+                                         on_done=job.tick if job else None)
     parts = [p for p in parts if p["entity"].get("code")]
-    out = {
+    out: dict[str, Any] = {
         "notes": [f"Not read this time - {n}" for n in notes],
-        "from": from_, "to": to, "entitiesScanned": len(entities), "entitiesWithRentAccounts": sum(1 for p in parts if p["accounts"]),
+        "from": from_, "to": to, "entitiesScanned": len(entities), "parentsSkipped": parents, "entitiesWithRentAccounts": sum(1 for p in parts if p["accounts"]),
         "rentAccounts": [{"entityCode": p["entity"]["code"], "entityName": p["entity"].get("name") or p["entity"]["code"], "code": a["account_no"], "title": a["title"]} for p in parts for a in p["accounts"]],
         "proposals": [x for p in parts for x in p["proposals"]], "lookedFor": LOOKED_FOR,
     }
-    if not notes:
-        _CACHE[key] = (now, out)   # a partial scan is shown, never cached as the answer
+    if job:
+        job.cacheable = not notes   # a partial scan is shown, never kept as the answer
     return out
 
 
 def _forget(email: str) -> None:
-    for k in [k for k in _CACHE if k[0] == email]:
-        _CACHE.pop(k, None)
+    forget_jobs(email, "leases")
 
 
 def _with_status(scan: dict, have: dict) -> dict:
@@ -181,9 +225,13 @@ def _with_status(scan: dict, have: dict) -> dict:
 @router.get("/from-ledger/proposals")
 async def proposals(scope: dict = Depends(entity_scope)):
     """One proposed lease per (entity, customer) with rent postings in the last
-    twelve months; customers already on an active lease are marked set up."""
-    scan, have = await asyncio.gather(_scan(scope), asyncio.to_thread(_active_leases))
-    return _with_status(scan, have)
+    twelve months; customers already on an active lease are marked set up.
+    The scan runs in the background: 202 with the progress until it is done,
+    then the result."""
+    job = scan_job(_scan_key(scope), lambda job: _scan(scope, job))
+    if job.result is None:
+        return JSONResponse(status_code=202, content=job.progress())
+    return _with_status(job.result, await asyncio.to_thread(_active_leases))
 
 
 class CreateItem(BaseModel):
@@ -202,7 +250,7 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
     skipped, never duplicated (idempotent)."""
     if not body.items:
         raise HTTPException(status_code=400, detail="Tick at least one lease to create.")
-    scan, have = await asyncio.gather(_scan(scope), asyncio.to_thread(_active_leases))
+    scan, have = await asyncio.gather(scan_result(_scan_key(scope), lambda job: _scan(scope, job)), asyncio.to_thread(_active_leases))
     by_key = {(p["entityCode"], p["customerId"]): p for p in scan["proposals"]}
     created, skipped = [], []
     for it in body.items:

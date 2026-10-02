@@ -6,6 +6,7 @@ import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
 import { downloadBlob, downloadCsv } from './reportModel';
+import { POLL_MS, ScanProgress, entitiesScannedText, useLedgerScan } from './LedgerScan';
 
 // Accounting -> Loans & Financing (Neil and Charmi, 10/02: "Nothing has been
 // done on Loans & Financing for me to review"). The loans table was empty on
@@ -161,10 +162,10 @@ export default function LoansTab({ canEdit = false }) {
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>#{r.loanNo || '-'} · GL {r.glAccount || '-'} · {r.balanceSource === 'ledger' ? 'Ledger' : 'Kept by hand'}{r.sharedWith ? ` · interest shared with ${r.sharedWith} more on this entity` : ''}</div>
                       </td>
                       <td>{r.entityName}</td>
-                      <td style={num}><Amount value={r.balance} /></td>
+                      <td style={num}><Amount value={r.balance} />{r.debitBalance && <> <Chip tone="wait" title="This liability account carries a debit balance on the ledger: shown as negative owed, not flipped">Debit Balance</Chip></>}</td>
                       <td style={num}>{r.balanceMonthAgo == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.balanceMonthAgo} />}</td>
                       <td style={num}>{r.balanceYearAgo == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.balanceYearAgo} />}</td>
-                      <td style={num} title="Balance a month ago less the balance now; a negative is a draw">{r.principalPaid == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.principalPaid} zero="dash" />}</td>
+                      <td style={num} title="Owed a month ago less owed now; a negative is a draw and counts as no payment in the debt service">{r.principalPaid == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.principalPaid} zero="dash" />}</td>
                       <td style={num} title="The entity's Interest expense accounts for the month"><Amount value={r.interestPaid} zero="dash" /></td>
                       <td style={num}><Amount value={r.debtService} zero="dash" /></td>
                       <td style={num} title={`Income ${formatAmount(r.incomeT12)} less operating expenses ${formatAmount(r.operatingExpensesT12)} (interest, depreciation and amortization left out)`}><Amount value={r.noiT12} zero="dash" /></td>
@@ -250,23 +251,20 @@ function Maturities({ month, rows }) {
   );
 }
 
-// Set Up From the Ledger: the proposals, ticked and created.
-export function SetupDialog({ month, onClose, onCreated }) {
-  const [data, setData] = useState(null);
+// Set Up From the Ledger: the proposals, ticked and created. The scan is a
+// background job on the API (Oct 2: 145 s live): polled until the table.
+export function SetupDialog({ month, onClose, onCreated, pollMs = POLL_MS }) {
+  const scan = useLedgerScan(() => api.getLoanProposals(month), [month], pollMs);
+  const { data, progress, retry } = scan;
   const [error, setError] = useState('');
-  const [ticked, setTicked] = useState(() => new Set());
+  const [unticked, setUnticked] = useState(() => new Set());   // every new row starts ticked; this holds what was unticked
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    api.getLoanProposals(month)
-      .then((d) => { if (alive) { setData(d); setTicked(new Set((d.proposals || []).filter((p) => p.status === 'new').map((p) => `${p.entityCode}|${p.glAccount}`))); } })
-      .catch((e) => { if (alive) { setData({ proposals: [] }); setError(e?.message || 'Could not read the ledger.'); } });
-    return () => { alive = false; };
-  }, [month]);
+  const scanError = scan.error ? (scan.error.message || 'Could not read the ledger.') : '';
   const rows = data?.proposals || [];
   const fresh = rows.filter((p) => p.status === 'new');
-  const toggle = (k) => setTicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const ticked = { has: (k) => !unticked.has(k) };
+  const toggle = (k) => setUnticked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const create = () => {
     const items = fresh.filter((p) => ticked.has(`${p.entityCode}|${p.glAccount}`)).map((p) => ({ entityCode: p.entityCode, glAccount: p.glAccount }));
     if (!items.length) return;
@@ -289,8 +287,15 @@ export function SetupDialog({ month, onClose, onCreated }) {
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
           {error && <div style={bad}>{error}</div>}
+          {scanError && (
+            <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ flex: 1 }}>{scanError}</span>
+              <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>
+            </div>
+          )}
           {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
-          {data === null ? <SkeletonBlocks count={2} /> : done ? (
+          {data && !done && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{entitiesScannedText(data)} · {data.liabilityAccounts ?? 0} liability {data.liabilityAccounts === 1 ? 'account' : 'accounts'}</div>}
+          {progress ? <ScanProgress progress={progress} /> : scanError ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'loan' : 'loans'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
               {done.created.map((p) => <div key={`${p.entityCode}|${p.glAccount}`}>{p.lender || p.title} - {p.entityName}, GL {p.glAccount}, <Amount value={p.balance} /></div>)}
@@ -312,7 +317,8 @@ export function SetupDialog({ month, onClose, onCreated }) {
                     return (
                       <tr key={k} style={p.status === 'set_up' ? { color: 'var(--text-muted)' } : undefined}>
                         <td>{p.status === 'new' ? <input type="checkbox" checked={ticked.has(k)} onChange={() => toggle(k)} aria-label={`Create ${p.title} on ${p.entityName}`} /> : null}</td>
-                        <td>{p.entityName}</td><td>{p.glAccount}</td><td>{p.title}</td><td style={num}><Amount value={p.balance} /></td>
+                        <td>{p.entityName}</td><td>{p.glAccount}</td><td>{p.title}</td>
+                        <td style={num}><Amount value={p.balance} />{p.debitBalance && <> <Chip tone="wait" title="This liability account carries a debit balance on the ledger: it is shown as negative owed, not flipped">Debit Balance</Chip></>}</td>
                         <td>{p.lender || <span style={{ color: 'var(--text-muted)' }}>unknown - type it after</span>}</td>
                         <td><Chip tone={p.kind === 'intercompany' ? 'muted' : 'brand'}>{KIND[p.kind] || p.kind}</Chip></td>
                         <td>{p.status === 'set_up' ? <Chip tone="ok">Set Up</Chip> : <Chip tone="wait">New</Chip>}</td>

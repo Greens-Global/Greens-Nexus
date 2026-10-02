@@ -27,13 +27,15 @@ const review = {
   lookedFor: ['Loan', 'Mortgage', 'Note Payable / Notes', 'Line of Credit / LOC / HELOC', 'Financing / Promissory / Borrowing', "a lender's name (F&M, Citi, Chase, BofA, Wells Fargo, SBA, PNC, US Bank, a bank or credit union)"],
 };
 const proposals = {
-  month: '2026-09', asOf: '2026-09-30', entitiesScanned: 3, liabilityAccounts: 14, lookedFor: review.lookedFor, setUp: 1, missing: 2,
+  month: '2026-09', asOf: '2026-09-30', entitiesScanned: 253, parentsSkipped: 64, liabilityAccounts: 14, lookedFor: review.lookedFor, setUp: 1, missing: 3,
   proposals: [
-    { entityCode: '15000', entityName: 'Greens Escondido, LLC.', glAccount: '27100', title: 'F&M Loan #6870', balance: 1250000, lender: 'F&M Bank', kind: 'external', balanceSource: 'ledger', status: 'set_up', loanId: 'FL1' },
-    { entityCode: '12000', entityName: 'Greens Global, Inc.', glAccount: '27300', title: 'SBA EIDL Loan', balance: 150000, lender: 'SBA', kind: 'external', balanceSource: 'ledger', status: 'new', loanId: null },
-    { entityCode: '12000', entityName: 'Greens Global, Inc.', glAccount: '27500', title: 'Loan from Greens Escondido, LLC.', balance: 80000, lender: 'Greens Escondido, LLC.', kind: 'intercompany', balanceSource: 'ledger', status: 'new', loanId: null },
+    { entityCode: '15000', entityName: 'Greens Escondido, LLC.', glAccount: '27100', title: 'F&M Loan #6870', balance: 1250000, debitBalance: false, lender: 'F&M Bank', kind: 'external', balanceSource: 'ledger', status: 'set_up', loanId: 'FL1' },
+    { entityCode: '12000', entityName: 'Greens Global, Inc.', glAccount: '27300', title: 'SBA EIDL Loan', balance: 150000, debitBalance: false, lender: 'SBA', kind: 'external', balanceSource: 'ledger', status: 'new', loanId: null },
+    { entityCode: '12000', entityName: 'Greens Global, Inc.', glAccount: '27500', title: 'Loan from Greens Escondido, LLC.', balance: 80000, debitBalance: false, lender: 'Greens Escondido, LLC.', kind: 'intercompany', balanceSource: 'ledger', status: 'new', loanId: null },
+    { entityCode: '15001', entityName: '(G) Greens Escondido, LLC.', glAccount: '26023', title: 'GE - Golden 1 Credit Union - 5860 - (Mortgage)', balance: -14500000, debitBalance: true, lender: 'Golden 1 Credit Union', kind: 'external', balanceSource: 'ledger', status: 'new', loanId: null },
   ],
 };
+const scanning = (done, total) => ({ scanning: true, done, total, startedAt: '2026-10-02T18:00:00Z' });
 
 vi.mock('../../api', () => ({
   api: {
@@ -44,10 +46,10 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import LoansTab from './LoansTab';
+import LoansTab, { SetupDialog } from './LoansTab';
 import { api } from '../../api';
 
-beforeEach(() => { vi.clearAllMocks(); api.getLoanReview.mockImplementation(async () => review); });
+beforeEach(() => { vi.clearAllMocks(); api.getLoanReview.mockImplementation(async () => review); api.getLoanProposals.mockImplementation(async () => proposals); });
 
 describe('LoansTab', () => {
   it('reviews every loan for the month, DSCR against the covenant, sorted lowest first', async () => {
@@ -65,6 +67,7 @@ describe('LoansTab', () => {
     expect(within(fm).getByText('201,600.00')).toBeTruthy();     // NOI T12
     expect(within(fm).getByText('6.10% fixed')).toBeTruthy();
     expect(within(fm).getByText('06/30/2027')).toBeTruthy();     // US date
+    expect(screen.queryByText('Debit Balance')).toBeNull();
     expect(screen.getByText('By Lender')).toBeTruthy();
     expect(screen.getByText('By Entity')).toBeTruthy();
     expect(screen.getByText('Maturities - Next 24 Months')).toBeTruthy();
@@ -79,16 +82,48 @@ describe('LoansTab', () => {
     await within(dialog).findByText('SBA EIDL Loan');
     // The one already in fin_loans has no checkbox; the new ones are ticked.
     expect(within(dialog).getByText('Set Up')).toBeTruthy();
-    expect(within(dialog).getAllByText('New')).toHaveLength(2);
-    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(2);
+    expect(within(dialog).getAllByText('New')).toHaveLength(3);
+    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(3);
     expect(within(dialog).getByText('Intercompany')).toBeTruthy();
-    // Untick the intercompany one and create the rest.
+    // Leaf entities only; a debit balance is shown as negative owed with a chip, not flipped.
+    expect(within(dialog).getByText(/Entities scanned: 253 leaf entities \(64 parents skipped - their figures roll up from the children\)/)).toBeTruthy();
+    const golden = within(dialog).getByText(/Golden 1 Credit Union - 5860/).closest('tr');
+    expect(within(golden).getByText('(14,500,000.00)')).toBeTruthy();
+    expect(within(golden).getByText('Debit Balance')).toBeTruthy();
+    // Untick the intercompany one and the debit balance, create the rest.
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Loan from Greens Escondido/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Golden 1/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Loan' }));
     await within(dialog).findByText('1 loan set up.');
     expect(api.createLoansFromLedger).toHaveBeenCalledWith({ month: expect.stringMatching(/^\d{4}-\d{2}$/), items: [{ entityCode: '12000', glAccount: '27300' }] });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(api.getLoanReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('polls the scan every few seconds, showing the progress until the table', async () => {
+    let n = 0;
+    api.getLoanProposals.mockImplementation(async () => { n += 1; return n === 1 ? scanning(0, 317) : n === 2 ? scanning(120, 317) : proposals; });
+    render(<SetupDialog month="2026-09" pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Set up loans from the ledger/ });
+    await within(dialog).findByText('Reading the ledger... 0 of 317 entities');
+    expect(within(dialog).getByRole('progressbar').getAttribute('aria-valuemax')).toBe('317');
+    await within(dialog).findByText('Reading the ledger... 120 of 317 entities');
+    expect(within(dialog).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('120');
+    await within(dialog).findByText('SBA EIDL Loan');
+    expect(within(dialog).queryByRole('progressbar')).toBeNull();
+    expect(api.getLoanProposals).toHaveBeenCalledTimes(3);
+    expect(api.getLoanProposals).toHaveBeenCalledWith('2026-09');
+  });
+
+  it('shows why a scan failed and starts it over on Try Again', async () => {
+    let n = 0;
+    api.getLoanProposals.mockImplementation(async () => { n += 1; if (n === 1) { const e = new Error('Accounting service error: the ledger is closed for maintenance'); e.status = 424; throw e; } return proposals; });
+    render(<SetupDialog month="2026-09" pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Set up loans from the ledger/ });
+    await within(dialog).findByText(/closed for maintenance/);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Try Again' }));
+    await within(dialog).findByText('SBA EIDL Loan');
+    expect(within(dialog).queryByText(/closed for maintenance/)).toBeNull();
   });
 
   it('edits the typed fields through the same row', async () => {
@@ -104,6 +139,15 @@ describe('LoansTab', () => {
     expect(id).toBe('FL1');
     expect(month).toMatch(/^\d{4}-\d{2}$/);
     expect(body).toMatchObject({ lender: 'F&M Bank', ratePct: 6.25, rateType: 'fixed', maturity: '2027-06-30', covenantMin: 1.25 });
+  });
+
+  it('flags a loan whose account carries a debit balance in the review', async () => {
+    api.getLoanReview.mockImplementation(async () => ({ ...review, loans: [loan({ id: 'FL3', lender: 'Golden 1 Credit Union', glAccount: '26023', balance: -14500000, debitBalance: true, balanceMonthAgo: -14500000, balanceYearAgo: -14500000, principalPaid: 0, interestPaid: 0, debtService: 0, principalPaidT12: 0, interestPaidT12: 0, debtServiceT12: 0, dscr: null })] }));
+    render(<LoansTab canEdit />);
+    const row = (await screen.findAllByText('Golden 1 Credit Union'))[0].closest('tr');
+    expect(within(row).getAllByText('(14,500,000.00)').length).toBeGreaterThan(0);   // negative owed, shown in parentheses
+    expect(within(row).getByText('Debit Balance')).toBeTruthy();
+    expect(within(row).getByText('No Service')).toBeTruthy();
   });
 
   it('says what it looked for when nothing is set up, and where to add one by hand', async () => {

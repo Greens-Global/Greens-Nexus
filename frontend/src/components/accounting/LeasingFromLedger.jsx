@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import { api } from '../../api';
 import Amount from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
+import { POLL_MS, ScanProgress, entitiesScannedText, useLedgerScan } from './LedgerScan';
 
 // MRI -> Leasing -> Set Up From the Ledger (Neil and Charmi, 10/02: "Did you
 // work on ... MRI at all?" - production had no leases, so the rent roll was
@@ -15,6 +16,9 @@ import { SkeletonBlocks } from '../AsyncState';
 // rent = the most common amount of the last three posted months, start = the
 // first posted month. Tick + Create writes the leases the way New Lease does.
 // A customer already on an active lease for that entity is shown as set up.
+// Only LEAF entities are scanned (a parent rolls its children up and proposed
+// every tenant twice, Oct 2), and the scan is a background job on the API
+// (305 s live): polled every three seconds until the table.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (m) => (m ? `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}` : '');
@@ -25,23 +29,19 @@ const chip = (tone) => ({ display: 'inline-block', padding: '1px 8px', borderRad
 const notAvailable = (e) => e?.status === 503 || /not configured|not available/i.test(e?.message || '');
 const keyOf = (p) => `${p.entityCode}|${p.customerId}`;
 
-export default function LeasingFromLedger({ onClose, onCreated }) {
-  const [data, setData] = useState(null);
+export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS }) {
+  const scan = useLedgerScan(() => api.getLeaseProposals(), [], pollMs);
+  const { data, progress, retry } = scan;
   const [error, setError] = useState(null);
-  const [ticked, setTicked] = useState(() => new Set());
+  const [unticked, setUnticked] = useState(() => new Set());   // every new row starts ticked; this holds what was unticked
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    api.getLeaseProposals()
-      .then((d) => { if (alive) { setData(d); setTicked(new Set((d.proposals || []).filter((p) => p.status === 'new').map(keyOf))); } })
-      .catch((e) => { if (alive) { setData({ proposals: [] }); setError(e); } });
-    return () => { alive = false; };
-  }, []);
+  const shown = error || scan.error;
   const rows = data?.proposals || [];
   const fresh = rows.filter((p) => p.status === 'new');
+  const ticked = { has: (k) => !unticked.has(k) };
   const count = fresh.filter((p) => ticked.has(keyOf(p))).length;
-  const toggle = (k) => setTicked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const toggle = (k) => setUnticked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const create = () => {
     const items = fresh.filter((p) => ticked.has(keyOf(p))).map((p) => ({ entityCode: p.entityCode, customerId: p.customerId }));
     if (!items.length) return;
@@ -64,18 +64,24 @@ export default function LeasingFromLedger({ onClose, onCreated }) {
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
-          {error && (notAvailable(error)
+          {shown && (notAvailable(shown)
             ? <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read tenants from. Use New Lease.</div>
-            : <div style={bad}>{error.message || 'Could not read the ledger.'}</div>)}
+            : (
+              <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ flex: 1 }}>{shown.message || 'Could not read the ledger.'}</span>
+                {scan.error && <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>}
+              </div>
+            ))}
           {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
-          {data === null ? <SkeletonBlocks count={2} /> : done ? (
+          {data && !done && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{entitiesScannedText(data)}</div>}
+          {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'lease' : 'leases'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
               {done.created.map((p) => <div key={keyOf(p)}>{p.tenantName} at {p.entityName} - <Amount value={p.monthlyRent} /> a month from {monthLabel(p.firstMonth)}</div>)}
               {done.skipped.map((p) => <div key={keyOf(p)} style={{ color: 'var(--text-muted)' }}>{p.customerId} at {p.entityCode}: {p.why}</div>)}
             </div>
           ) : !rows.length ? (
-            error && notAvailable(error) ? null : (
+            shown && notAvailable(shown) ? null : (
               <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
                 <strong style={{ color: 'var(--text-primary)' }}>No rent postings found.</strong>
                 <span>
