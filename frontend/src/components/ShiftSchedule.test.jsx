@@ -633,7 +633,9 @@ describe('Views, options, export, drag', () => {
     const day = await screen.findByLabelText(`Open ${formatUs(today)}`);
     expect(day.textContent).toContain('1 shift');
     expect(day.textContent).toContain('2 open');
-    expect(day.textContent).toContain('Bob off');
+    // Who is working and who is off show as faces (10/02); Bob is off all day.
+    expect(day.querySelector('[title$=" - off"]')?.getAttribute('title')).toMatch(/^Bob .* - off$/);
+    expect(day.querySelector('[title$=" - working"]')).toBeTruthy();
     fireEvent.click(day);
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(today, today));
     expect(await screen.findByLabelText(/^Shift 9:00 AM - 5:00 PM/)).toBeTruthy();

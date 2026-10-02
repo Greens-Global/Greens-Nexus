@@ -914,7 +914,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} />
       ) : view === 'month' ? (
         <ScheduleMonth days={days} shifts={shown.filter((s) => s.email)} openShifts={shown.filter((s) => !s.email)} timeoff={data.timeoff || []}
-          holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} weekStart={weekStart} onOpenDay={openDay} />
+          holidayDates={holidayDates} holidayNames={holidayNames} notes={notes} visibleEmails={visibleEmails} names={names} people={empByEmail} weekStart={weekStart} onOpenDay={openDay} />
       ) : groupBy === 'shift' ? (
         <ShiftTypeWeek days={days} shifts={shown} presets={presets} names={names} teamZone={teamZone}
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />
