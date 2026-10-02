@@ -6,7 +6,8 @@
 // A draft is dashed; an edit that is not shared yet gets a small corner
 // mark; a removal is struck through. The time never truncates: the font
 // shrinks with the block (container units) before anything is cut.
-// Time off is ITS OWN outlined block beside the shift, never in its place.
+// Time off is ITS OWN soft rose block beside the shift, never in its place.
+// An open shift is the same block with a hollow (double) bar and a ×N.
 import { AlertTriangle, Lock } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
@@ -47,9 +48,9 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
       onContextMenu={onContextMenu}
       {...dragProps} {...rest}
-      style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, 0.1), borderRadius: 6,
-        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px solid ${color}`,
-        padding: compact ? '2px 4px' : '4px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
+      style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, open ? 0.08 : 0.12), borderRadius: 6,
+        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px ${open ? 'double' : 'solid'} ${color}`,
+        padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
         opacity: dragging ? 0.4 : s.pendingDelete ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
       {s.hasChanges && !s.pendingDelete && (
@@ -72,7 +73,8 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   );
 }
 
-// Time off beside a shift: a light outlined block, no fill, one line -
+// Time off beside a shift (a partial day; whole days are the grid's
+// spanning pill): a soft rose block, one line -
 // "Vacation" or "2:00p - 4:00p Medical". The reason, the dates and whether
 // it is still only requested (dashed) are the hover title. Confidential
 // time off reads plain "Time Off" with a lock.
@@ -86,9 +88,9 @@ export function TimeOffBlock({ off: t, compact = false, showReason = true, style
   // The hours never cut; a long custom type ("Medical Appointment") may.
   return (
     <div data-timeoff={t.id || undefined} title={title} aria-label={`${approved ? '' : 'Requested '}${type}, ${range || when}`}
-      style={{ containerType: 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.5)`, borderRadius: 6, background: 'transparent',
+      style={{ containerType: compact ? undefined : 'inline-size', border: `1px ${approved ? 'solid' : 'dashed'} hsla(var(--color-red),0.32)`, borderRadius: 6, background: 'hsla(var(--color-red),0.08)',
         padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0, overflow: 'hidden', color: 'hsl(var(--color-red))', ...style }}>
-      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
+      <div style={{ ...LINE, display: 'flex', alignItems: 'center', gap: 4, fontSize: compact ? 10.5 : fit(short ? 8.5 : 9.5, 11.5), fontWeight: 700, lineHeight: 1.3 }}>
         {compact ? <span style={LINE}>{isAllDayOff(t) ? 'Off' : short}</span> : (
           <>
             {short && <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{short} </span>}
@@ -108,18 +110,6 @@ export function HolidayBlock({ holiday: h, compact = false, style }) {
       style={{ border: '1px solid hsla(var(--color-blue),0.5)', borderRadius: 6, padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0,
         color: 'hsl(var(--color-blue))', fontSize: compact ? 10 : 11, fontWeight: 700, lineHeight: 1.3, ...LINE, ...style }}>
       {compact ? 'Hol' : name}
-    </div>
-  );
-}
-
-// A person's usual hours on a day with nothing placed - a reminder, never a
-// shift, and never counted.
-export function UsualHint({ start, end, compact = false }) {
-  if (compact) return null;
-  return (
-    <div title={`Usual ${shiftTimeText({ start, end })} (their shift type). Nothing is on the schedule for this day until a shift is placed.`}
-      style={{ fontSize: 10.5, color: 'var(--muted)', padding: '4px 6px', ...LINE }}>
-      Usual {shiftShortText({ start, end })}
     </div>
   );
 }

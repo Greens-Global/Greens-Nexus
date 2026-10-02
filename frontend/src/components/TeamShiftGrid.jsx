@@ -1,26 +1,19 @@
-// The group's week on My Shifts, laid out the way Microsoft Teams Shifts
-// lays it out and decluttered 10/02: a "Mon 28" day header with "7 · 57 Hrs"
-// muted under it, a Day Notes row only when there is a note, the group with
-// its hours, an Open Shifts row, then one row per person - photo, name,
-// "40 Hrs" - with each shift the same one-line block the manager's grid
-// draws (shifts/ShiftBlock.jsx). Time off is its own outlined block BESIDE
-// the shift, never in its place (Shifts QA 19). On a phone it is a day
-// list with a day strip, never a 7-column grid. Read-only: changing a shift
-// is the manager's grid.
+// The group's week on My Shifts (redesigned 10/02): the SAME engine as the
+// manager's Schedule (shifts/WeekGrid.jsx), read-only - one CSS grid, a
+// Day Notes row only when there is a note, the Open Shifts row only when
+// there are open shifts (with Request on each), usual hours under a name,
+// whole days off as one spanning pill. On a phone it is a day list with a
+// day strip, never a 7-column grid. Changing a shift is the manager's grid.
 import { useEffect, useState } from 'react';
 import { CalendarRange, Hand, Users } from 'lucide-react';
 import { useIsMobile } from '../lib/useIsMobile';
 import { Avatar } from './ShiftScheduleExtras';
-import { ShiftBlock, TimeOffBlock, UsualHint } from './shifts/ShiftBlock';
-import { PersonCell, DayHeader } from './shifts/ScheduleGrid';
+import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
+import WeekGrid from './shifts/WeekGrid';
 import { DayStrip, PhoneRow, firstDay } from './shifts/SchedulePhone';
-import { paidMinutes, fmtHrs, todayIso } from './shifts/shiftLib';
+import { paidMinutes, fmtHrs, todayIso, shiftShortText } from './shifts/shiftLib';
 
-const PERSON_W = 180;
-const GRID = { display: 'grid', gridTemplateColumns: `${PERSON_W}px repeat(7, minmax(116px, 1fr))` };
-const CELL = { borderLeft: '1px solid var(--line)', padding: 4, minHeight: 56, minWidth: 0 };
 const MUTED = { fontSize: 11, color: 'var(--muted)' };
-const STICKY = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: '1px solid var(--line)' };
 
 export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onNow = [], openShifts = [], onRequestOpen, busyOpenId = '', thisWeek, timeZoneLabel = '', teamZone = '' }) {
   const phone = useIsMobile();
@@ -37,13 +30,10 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
   const rowMin = (r) => r.days.reduce((a, d) => a + d.shifts.reduce((b, s) => b + paidMinutes(s), 0), 0);
   const weekMin = rows.reduce((a, r) => a + rowMin(r), 0);
   const openOn = (key) => openShifts.filter((s) => s.date === key);
-  const openCount = openShifts.filter((s) => days.some((d) => d.key === s.date)).reduce((a, s) => a + (s.openSlots || 1), 0);
-  const notes = days.some((d) => d.note);
   const isOn = (r) => onNow.some((o) => o.email === r.email);
 
-  const openBlock = (s, key) => (
-    <ShiftBlock key={s.id} shift={s} open teamZone={teamZone}>
-      {s.requested
+  const openExtra = (s, key) => (
+    s.requested
         ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-orange))' }}>Requested</span>
         : onRequestOpen && key >= today && (
           <button type="button" onClick={() => onRequestOpen(s)} disabled={busyOpenId === s.id} aria-label={`Request the open shift on ${key}`}
@@ -51,14 +41,13 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
               border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}>
             <Hand size={10} /> Request
           </button>
-        )}
-    </ShiftBlock>
+        )
   );
+  const openBlock = (s, key) => <ShiftBlock key={s.id} shift={s} open teamZone={teamZone}>{openExtra(s, key)}</ShiftBlock>;
   const cellBody = (d) => (
     <>
       {d.off.map((t, i) => <TimeOffBlock key={t.id || i} off={t} />)}
       {d.shifts.map((s) => <ShiftBlock key={s.id} shift={s} teamZone={teamZone} />)}
-      {!d.shifts.length && !d.off.length && d.usual && <UsualHint start={d.usual.start} end={d.usual.end} />}
     </>
   );
 
@@ -103,7 +92,7 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
           {d && rows.map((r) => {
             const rd = dayOf(r, d);
             return (
-              <PhoneRow key={r.email} data-member={r.email} aria-current={r.isMe ? 'true' : undefined} isMe={r.isMe} name={r.name} sub={fmtHrs(rowMin(r))}
+              <PhoneRow key={r.email} data-member={r.email} aria-current={r.isMe ? 'true' : undefined} isMe={r.isMe} name={r.name} sub={fmtHrs(rowMin(r))} sub2={r.shift ? `Usual ${shiftShortText(r.shift)}` : ''}
                 avatar={<span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}><Avatar name={r.name} photoUrl={r.photoUrl} size={28} />{isOn(r) && <OnDot />}</span>}>
                 {rd ? cellBody(rd) : null}
               </PhoneRow>
@@ -115,68 +104,26 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
     );
   }
 
+  // The desktop week: the same engine as the manager's Schedule, read-only.
+  const byCell = {};
+  const offBy = {};
+  rows.forEach((r) => r.days.forEach((d) => { byCell[`${r.email}|${d.key}`] = d.shifts; offBy[`${r.email}|${d.key}`] = d.off; }));
+  const openCells = {};
+  openShifts.forEach((s) => { if (days.some((d) => d.key === s.date)) (openCells[`${team.id || ''}|${s.date}`] ||= []).push(s); });
+  const notes = Object.fromEntries(days.filter((d) => d.note).map((d) => [d.key, d.note]));
+  const holidayDates = new Set(days.filter((d) => d.holiday).map((d) => d.key));
+  const rowOf = Object.fromEntries(rows.map((r) => [r.email, r]));
+  const meRow = rows.find((r) => r.isMe);
+  const section = { id: team.id, name: team.name, isGroup: true, members: rows.map((r) => ({ email: r.email, name: r.name, photoUrl: r.photoUrl, availability: [] })) };
   return (
     <div style={{ marginTop: 22 }}>
       {head}
-      <div className="scroll-tabs" style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, background: 'var(--card)', boxShadow: 'var(--wk-shadow)', overflow: 'auto' }}>
-        <div role="table" aria-label={`${team.name} schedule`} style={{ minWidth: PERSON_W + 7 * 116 }}>
-          <div role="row" style={{ ...GRID, borderBottom: '1px solid var(--line)', background: 'var(--bg)', position: 'sticky', top: 0, zIndex: 3 }}>
-            <div style={{ ...STICKY, zIndex: 4, background: 'var(--bg)', padding: '8px 12px', alignSelf: 'end', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }} title="Paid hours of everyone in the group this week">
-              Week · {fmtHrs(weekMin)}
-            </div>
-            {days.map((d, i) => (
-              <DayHeader key={d.key} d={d.date} stats={{ shifts: dayShifts(d), people: working(d).length, min: dayMin(d), first: i === 0 }} isToday={d.isToday} isHol={!!d.holiday} />
-            ))}
-          </div>
-
-          {notes && (
-            <div role="row" style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
-              <div style={{ ...STICKY, padding: '6px 12px', fontSize: 11, color: 'var(--muted)' }}>Day Notes</div>
-              {days.map((d) => (
-                <div key={d.key} title={d.note || undefined} style={{ borderLeft: '1px solid var(--line)', padding: '6px 9px', fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.note}</div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'baseline', gap: 8, position: 'sticky', left: 0 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)' }}>{team.name}</span>
-            <span style={MUTED}>{fmtHrs(weekMin)} · {rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
-          </div>
-
-          <div role="row" data-member="open" style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
-            <div style={{ ...STICKY, padding: '6px 8px 6px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <span style={{ width: 28, height: 28, borderRadius: '50%', border: '1px dashed var(--wk-line2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', flexShrink: 0 }}>
-                <CalendarRange size={13} />
-              </span>
-              <span>
-                <div style={{ fontSize: 12.5, fontWeight: 700 }}>Open Shifts</div>
-                <div style={MUTED}>{openCount} open</div>
-              </span>
-            </div>
-            {days.map((d) => (
-              <div key={d.key} role="cell" style={{ ...CELL, background: d.isToday ? 'var(--wk-brand-tint)' : 'transparent' }}>
-                {openOn(d.key).map((s) => openBlock(s, d.key))}
-              </div>
-            ))}
-          </div>
-
-          {rows.map((r) => {
-            const me = r.isMe;
-            return (
-              <div key={r.email} role="row" data-member={r.email} aria-current={me ? 'true' : undefined}
-                style={{ ...GRID, borderBottom: '1px solid var(--line)', background: me ? 'var(--wk-brand-tint)' : 'transparent' }}>
-                <PersonCell role="rowheader" emp={{ name: r.name, photoUrl: r.photoUrl, availability: [] }} isMe={me} hrs={rowMin(r)} onNow={isOn(r)}
-                  style={{ ...STICKY, background: me ? 'var(--wk-brand-tint)' : 'var(--card)', boxShadow: me ? 'inset 3px 0 0 var(--wk-brand)' : 'none' }} />
-                {r.days.map((d) => (
-                  <div key={d.key} role="cell" style={{ ...CELL, background: !me && d.isToday ? 'var(--wk-brand-tint)' : 'transparent' }}>
-                    {cellBody(d)}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <WeekGrid ariaRole="table" ariaLabel={`${team.name} schedule`} days={days.map((d) => d.date)} sections={[section]} byCell={byCell} openCells={openCells}
+        offOn={(email, ds) => offBy[`${email}|${ds}`] || []} usualOf={(email) => rowOf[email]?.shift || null} notes={notes} holidayDates={holidayDates}
+        me={meRow?.email || ''} teamZone={teamZone} empWeekMin={(email) => (rowOf[email] ? rowMin(rowOf[email]) : 0)}
+        dayStats={(date) => { const d = days.find((x) => x.date === date); return { shifts: dayShifts(d), people: working(d).length, min: dayMin(d) }; }}
+        weekMin={weekMin} overWeeks={(email) => { const m = rowOf[email] ? rowMin(rowOf[email]) : 0; return m > 40 * 60 ? [m] : []; }} onNowOf={(email) => !!rowOf[email] && isOn(rowOf[email])} notesRow maxHeight="none"
+        blockChildren={(s, { email, ds }) => (!email ? openExtra(s, ds) : null)} />
       {zoneLine}
     </div>
   );

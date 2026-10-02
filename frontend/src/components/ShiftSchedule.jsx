@@ -13,18 +13,18 @@ import { printSchedule, DEFAULT_VIEW_PREFS } from './shiftScheduleLib';
 import { AddMembersModal, ReorderTeamsModal } from './ShiftTeams';
 import { ScheduleToolbar, ShareDialog, DayNoteDialog, ViewOptionsDialog } from './shifts/ScheduleToolbar';
 import { CopyModal, ClearModal, BulkModal } from './shifts/ScheduleDialogs';
-import ScheduleGrid from './shifts/ScheduleGrid';
+import WeekGrid from './shifts/WeekGrid';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel from './shifts/ShiftPanel';
-import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText } from './shifts/shiftLib';
+import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, sectionKey } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
 // This file is the container: it owns the data, the API calls and the
 // interactions (drag, menus, keyboard, clipboard). What is on screen is
-// components/shifts/: ScheduleToolbar (one row, seven controls), ScheduleGrid
-// (week, two weeks), ScheduleDay, ScheduleMonth, SchedulePhone (a day list
+// components/shifts/: ScheduleToolbar (one row, seven controls), WeekGrid
+// (week, two weeks - one CSS grid, redesigned 10/02), ScheduleDay, ScheduleMonth, SchedulePhone (a day list
 // on a phone - never a 7-column grid there), ShiftPanel (the right-hand
 // editor) and ScheduleDialogs (Copy / Clear / Fill).
 //
@@ -56,7 +56,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const [prefs, setPrefsState] = useState(loadPrefs);
   const setPrefs = (next) => { setPrefsState(next); try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch { /* private mode */ } };
   const weekStart = prefs.weekStart === 'sunday' ? 'sunday' : 'monday';
-  const [collapsed, setCollapsed] = useState(() => new Set());
+  // Which groups are folded, per user: { key: true (folded) | false }. A
+  // group the user never touched is folded when it has no shifts in view.
+  const foldKey = `nexus.shifts.fold.${me || 'anon'}`;
+  const [fold, setFoldState] = useState(() => { try { return JSON.parse(localStorage.getItem(foldKey) || '{}') || {}; } catch { return {}; } });
+  const setFold = (next) => { setFoldState(next); try { localStorage.setItem(foldKey, JSON.stringify(next)); } catch { /* private mode */ } };
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -125,10 +129,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     return m;
   }, [data]);
   const availOn = useCallback((email, d) => (data?.availability?.[email] || []).find((a) => a.weekday === (d.getDay() + 6) % 7) || null, [data]);
-  const usualOn = useCallback((email, d) => {
-    const p = presets.find((x) => x.id === data?.usual?.[email]);
-    return p && (p.days || '').split(',').includes(String(d.getDay() || 7)) ? p : null;
-  }, [data, presets]);
+  // A person's usual hours (their shift type) - one line under their name.
+  const usualOf = useCallback((email) => presets.find((x) => x.id === data?.usual?.[email]) || null, [data, presets]);
 
   // Sections: the groups (saved order, archived apart), then everyone else;
   // or by location; or one list. Search, the group filter and Your Shifts
@@ -163,10 +165,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       .filter((g) => !picked || !byGroup || g.id === picked.id)
       .map((g) => ({ ...g, members: g.members.filter((m) => (!q || `${m.name || ''} ${m.email}`.toLowerCase().includes(q))
         && (!picked || byGroup || (picked.members || []).includes(m.email))
-        && (!prefs.mine || m.email === me)) }))
+        && (!prefs.mine || m.email === me)
+        && (!prefs.hideEmpty || days.some((d) => (byCell[`${m.email}|${isoDate(d)}`] || []).length))) }))
       .filter((g) => g.members.length || (g.id && g.canEdit && !q && !prefs.mine))
       .map((g) => ({ ...g, members: [...g.members].sort((a, b) => (b.email === me) - (a.email === me)) }));
-  }, [data, empByEmail, groups, query, groupFilter, groupBy, me, prefs.teams, prefs.mine]);
+  }, [data, empByEmail, groups, query, groupFilter, groupBy, me, prefs.teams, prefs.mine, prefs.hideEmpty, days, byCell]);
   const visibleEmails = useMemo(() => new Set(sections.flatMap((g) => g.members.map((m) => m.email))), [sections]);
   const visibleGroupIds = useMemo(() => new Set(sections.filter((g) => g.isGroup).map((g) => g.id)), [sections]);
   const showOpen = !prefs.mine && prefs.open !== false;
@@ -516,7 +519,20 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       : `${formatDate(days[0])} - ${formatDate(days[days.length - 1])}`;
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
   const pickView = (k) => setView(k === 'week' && prefs.twoWeeks ? 'twoweeks' : k);
-  const toggleCollapse = (key) => setCollapsed((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  // Folded groups: what the user chose, else a group (when there are
+  // several sections) is folded when nothing is in view - no shifts, no open
+  // shifts, nobody off. "Everyone" and a lone group never fold by themselves.
+  const collapsed = useMemo(() => {
+    const set = new Set();
+    sections.forEach((g) => {
+      const key = sectionKey(g);
+      if (!g.isGroup || sections.length < 2) { if (fold[key]) set.add(key); return; }
+      const busyGroup = days.some((d) => { const ds = isoDate(d); return (openCells[`${g.id || ''}|${ds}`] || []).length || g.members.some((m) => (byCell[`${m.email}|${ds}`] || []).length || offOn(m.email, ds).length); });
+      if (fold[key] ?? !busyGroup) set.add(key);
+    });
+    return set;
+  }, [sections, days, openCells, byCell, offOn, fold]);
+  const toggleCollapse = (key) => setFold({ ...fold, [key]: !collapsed.has(key) });
 
   const gridOn = {
     cellClick: (email, ds, groupId) => (copied ? pasteInto(email, ds, groupId) : setPanel({ cell: { email, date: ds, groupId }, mode: 'shift' })),
@@ -551,7 +567,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           else setPanel({ cell: { email: firstPerson, date }, mode: kind === 'timeoff' ? 'timeoff' : 'shift' });
         }}
         onShare={() => setOpen('share')}
-        actions={{ canTimeOff, copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
+        actions={{ canTimeOff, hideEmpty: !!prefs.hideEmpty, toggleHideEmpty: () => setPrefs({ ...prefs, hideEmpty: !prefs.hideEmpty }), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
           exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, discardCount,
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
 
@@ -575,7 +591,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       ) : data === null ? (
         <SkeletonBlocks count={6} height={60} borderRadius={10} />
       ) : phone && view !== 'month' && groupBy !== 'shift' ? (
-        <SchedulePhone days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOn={usualOn}
+        <SchedulePhone days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
           notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn} />
       ) : view === 'day' ? (
@@ -589,10 +605,10 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
         <ShiftTypeWeek days={days} shifts={shown} presets={presets} names={names} teamZone={teamZone}
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />
       ) : (
-        <ScheduleGrid days={days} compact={compact} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} availOn={availOn} usualOn={usualOn}
+        <WeekGrid days={days} compact={compact} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} availOn={availOn} usualOf={usualOf}
           notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
-          rowEditable={rowEditable} shiftEditable={shiftEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
-          copied={copied} dropKey={dropKey} dragId={drag?.id} collapsed={collapsed} on={gridOn}
+          rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
+          copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={gridOn}
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable} />
       )}
       {data && teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
@@ -654,7 +670,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
         .sched-hdr:hover .hdr-tools, .sched-hdr:focus-within .hdr-tools { opacity: 1 !important; }
         @media (pointer: coarse) { .person-tools, .group-tools, .hdr-tools { opacity: 1 !important; } }
         .shift-menu-item:hover:not(:disabled), .shift-menu-item:focus-visible { background: var(--bg) !important; outline: none; }
-        body.sched-dragging, body.sched-dragging * { cursor: grabbing !important; user-select: none !important; }`}</style>
+        body.sched-dragging, body.sched-dragging * { cursor: grabbing !important; user-select: none !important; }
+        body.sched-dragging .sched-span { pointer-events: none; }`}</style>
     </div>
   );
 }
