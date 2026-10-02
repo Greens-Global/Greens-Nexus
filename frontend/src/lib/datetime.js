@@ -173,3 +173,19 @@ export function weekOfYear(v) {
   const jan4 = new Date(t.getFullYear(), 0, 4);
   return 1 + Math.round(((t - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
 }
+
+// A punch on the EMPLOYEE'S own clock, not the viewer's (Oct 2 - a California
+// manager auditing an India night shift saw Pacific times). `iso` is the
+// stored naive-UTC punch time; `tzOffsetMin` is the punching device's
+// getTimezoneOffset() (UTC - local, as TimePunch.tz_offset_min stores it).
+// -> { time: '2:30 AM', date: '2026-10-02', zone: 'GMT+5:30' }, or null.
+export function wallClock(iso, tzOffsetMin) {
+  const t = Date.parse(`${String(iso || '').slice(0, 19)}Z`);
+  if (isNaN(t)) return null;
+  const off = Number(tzOffsetMin) || 0;
+  const d = new Date(t - off * 60000);   // the wall clock, read as UTC
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' }).format(d);
+  const east = -off, abs = Math.abs(east);
+  const zone = `GMT${east >= 0 ? '+' : '-'}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''}`;
+  return { time, date: d.toISOString().slice(0, 10), zone };
+}
