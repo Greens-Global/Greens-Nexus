@@ -8533,8 +8533,15 @@ def _custom_timeoff_types(db: Session) -> list:
     return [str(x) for x in v if str(x).strip()] if isinstance(v, list) else []
 
 
+# The employee request form's fixed list (Neil, Oct 1): Personal, Sick,
+# Vacation, Unpaid and Medical Appointment. The first four are built in;
+# Medical Appointment is accepted here too, so the form keeps working when an
+# admin's saved reason list leaves it out.
+_REQUEST_FORM_TYPES = ("Medical Appointment",)
+
+
 def _check_timeoff_type(db: Session, t: str) -> None:
-    allowed = TIMEOFF_TYPES + tuple(_custom_timeoff_types(db))
+    allowed = TIMEOFF_TYPES + _REQUEST_FORM_TYPES + tuple(_custom_timeoff_types(db))
     if (t or "").strip().lower() not in {x.lower() for x in allowed}:
         raise HTTPException(400, f"type must be one of {allowed}")
 

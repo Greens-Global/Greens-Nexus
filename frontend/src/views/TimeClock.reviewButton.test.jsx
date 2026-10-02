@@ -74,7 +74,7 @@ describe('Timesheets to Review on the Time Sheet tab', () => {
   it('gives a time-tracking-exempt reviewer the Time Sheet tab while something waits', async () => {
     globalThis.__status = { timeTrackingExempt: true };
     globalThis.__waiting = [ROW];
-    await renderTab('clock');
+    await renderTab('overview');
     // ModuleTabs renders its strip as plain buttons outside the header provider.
     expect(await screen.findByRole('button', { name: 'Time Sheet' })).toBeTruthy();
   }, SLOW);

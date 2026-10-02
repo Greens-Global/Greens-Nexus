@@ -158,9 +158,9 @@ const SHOTS = {
     ),
   },
   clock: {
-    legend: ['Clock tab', 'Punch In (becomes Punch Out once you are in)', 'Start Break / End Break', 'Where the punch was recorded'],
+    legend: ['Time Clock, at the top of Overview', 'Punch In (becomes Punch Out once you are in)', 'Start Break / End Break', 'Where the punch was recorded'],
     render: () => (
-      <Frame title="Workday" tabs={['Overview', 'Clock', 'Time Sheet', 'Shifts', 'Time Off']} active="Clock" activeRail={1} tabMark={1}>
+      <Frame title="Workday" tabs={['Overview', 'Time Sheet', 'Time Off']} active="Overview" activeRail={1} tabMark={1}>
         <Row style={{ alignItems: 'stretch' }}>
           <Card style={{ flex: 1.2 }}>
             <Col gap={9} style={{ alignItems: 'center', padding: '4px 0' }}>
