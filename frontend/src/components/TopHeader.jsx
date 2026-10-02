@@ -446,7 +446,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
         {headerTabs ? (
-          <nav className="hdr-tabs" aria-label="Module sections">
+          <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
             {headerTabs.tabs.map(({ key, label, Icon, badge }) => (
               <button key={key}
                 className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
@@ -612,6 +612,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   firing Support.jsx's own nexus:support-tour. */}
               {activeView === 'support' && (
                 <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:support-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
+              {/* Documents module's guided walkthrough (Oct 1) - same pattern,
+                  gated on activeView === 'documents' and firing Documents.jsx's
+                  own nexus:documents-tour. */}
+              {activeView === 'documents' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:documents-tour')); }}>
                   <PlayCircle size={14} /> Tour
                 </button>
               )}

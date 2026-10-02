@@ -8,6 +8,9 @@ import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
 import ModuleTabs from '../components/ModuleTabs';
+import GuidedTour from '../components/GuidedTour';
+import { useIsMobile } from '../lib/useIsMobile';
+import { buildDocumentsTourSteps } from './documentsTourSteps';
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
@@ -27,6 +30,10 @@ const TABS = [
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
+
+// Tour id this module reports to the server (routers/user_tours.py) - same
+// pattern as the Task, Ticket and Support tours' own ids.
+const DOCUMENTS_TOUR_ID = 'documents';
 
 export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
@@ -64,6 +71,34 @@ export default function Documents({ activeSub, onSubChange }) {
   // the sender's work) - but the link back to the document is only needed
   // later, once the envelope is actually sent.
   const esignSourceDocRef = useRef(esignPrefill?.sourceDocumentId || null);
+
+  // Guided tour (Oct 1) - same pattern as the Task module's (views/Tasks.jsx):
+  // runs itself once per person on their first visit, never again on its own,
+  // and replays from the profile menu's "Tour" row (TopHeader, gated on
+  // activeView === 'documents'), which fires nexus:documents-tour. "Seen" is
+  // server-side, per person - routers/user_tours.py - so a new browser or
+  // device does not repeat it.
+  const isMobile = useIsMobile();
+  const isMobileRef = useRef(isMobile);
+  const onSubChangeRef = useRef(onSubChange);
+  useEffect(() => { onSubChangeRef.current = onSubChange; isMobileRef.current = isMobile; });
+  // The steps are built when the tour OPENS (never during render), so they
+  // hold still while it runs; each step switches tabs at click time.
+  const [tourSteps, setTourSteps] = useState(null);
+  useEffect(() => {
+    const openTour = () => setTourSteps(buildDocumentsTourSteps({
+      go: (k) => onSubChangeRef.current?.(k), isMobile: isMobileRef.current }));
+    let cancelled = false;
+    api.getToursSeen()
+      .then(({ seen }) => { if (!cancelled && !seen?.[DOCUMENTS_TOUR_ID]) openTour(); })
+      .catch(() => { /* can't confirm "seen" - skip the auto-tour rather than risk nagging on every flaky load */ });
+    window.addEventListener('nexus:documents-tour', openTour);
+    return () => { cancelled = true; window.removeEventListener('nexus:documents-tour', openTour); };
+  }, []);
+  const closeTour = () => {
+    setTourSteps(null);
+    api.markTourSeen(DOCUMENTS_TOUR_ID).catch(() => {});
+  };
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -107,6 +142,7 @@ export default function Documents({ activeSub, onSubChange }) {
           navigation twice. */}
       {!pdfFullBleed && <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} mobileInline={false} />}
 
+      <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-dashboard' && (
         <DocumentsDashboard
           onGoToBrowse={(openCreate) => { onSubChange?.('documents-browse'); if (openCreate) setBrowseCreateSignal(n => n + 1); }}
@@ -137,6 +173,9 @@ export default function Documents({ activeSub, onSubChange }) {
       )}
 
       {sub === 'documents-pdf' && <PdfEditorModule />}
+      </div>
+
+      {tourSteps && <GuidedTour steps={tourSteps} onClose={closeTour} />}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
