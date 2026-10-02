@@ -30,7 +30,7 @@ export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], 
   useEffect(() => { panelRef.current?.querySelector('input, select, button[data-primary]')?.focus?.(); }, [mode]);
 
   return (
-    <aside ref={panelRef} role="dialog" aria-label={heading} aria-modal="false"
+    <aside ref={panelRef} role="dialog" aria-label={heading} aria-modal="false" className="m-panel"
       style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(460px, 100vw)', background: 'var(--card)', borderLeft: '1px solid var(--line)',
         boxShadow: '-12px 0 36px rgba(0,0,0,0.14)', zIndex: 1400, display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif' }}>
       <div style={{ padding: '14px 18px 10px', borderBottom: '1px solid var(--line)' }}>

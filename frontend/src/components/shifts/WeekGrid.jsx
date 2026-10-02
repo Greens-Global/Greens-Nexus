@@ -22,7 +22,7 @@
 // the My Shifts group grid (TeamShiftGrid.jsx). Everything it does goes
 // through `on`; without `on` the grid is read-only.
 import { Fragment } from 'react';
-import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, StickyNote, MoreHorizontal } from 'lucide-react';
+import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, CalendarDays, StickyNote, MoreHorizontal } from 'lucide-react';
 import { formatDate, formatMonthDay } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
@@ -117,7 +117,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
 
 // A day header: "Mon 28" bold (the month said once, where the view enters
 // it), "8 · 65 Hrs" muted under it, a note icon whose text is the hover.
-export function DayHeader({ d, stats, isToday, isHol, note, canManage, compact, coarse, onOpen, onNote, style }) {
+export function DayHeader({ d, stats, isToday, isHol, note, canManage, compact, coarse, onOpen, onNote, coverage = null, style, ...rest }) {
   const ds = isoDate(d);
   const month = (d.getDate() === 1 || stats?.first) ? formatMonthDay(d).replace(/ \d+$/, '') : '';
   const noteIcon = note ? (
@@ -136,7 +136,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, canManage, compact, 
     </button>
   ) : null;
   return (
-    <div role="columnheader" className="sched-hdr" style={{ padding: compact ? '8px 5px' : '9px 10px', borderLeft: LINE, borderBottom: LINE, minWidth: 0, ...style }}>
+    <div {...rest} role="columnheader" className="sched-hdr" style={{ padding: compact ? '8px 5px' : '9px 10px', borderLeft: LINE, borderBottom: LINE, minWidth: 0, ...style }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
         <button type="button" onClick={onOpen} disabled={!onOpen} aria-label={`Open ${formatDate(ds)}`} title={onOpen ? 'Open this day' : undefined}
           style={{ border: 'none', background: 'none', padding: 0, cursor: onOpen ? 'pointer' : 'default', fontFamily: 'inherit', minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 4,
@@ -154,6 +154,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, canManage, compact, 
           {compact ? (stats.shifts || '') : `${stats.shifts} · ${fmtHrs(stats.min)}`}
         </div>
       )}
+      {coverage && <div style={{ marginTop: 6 }}>{coverage}</div>}
     </div>
   );
 }
@@ -220,12 +221,40 @@ export function TimeOffPill({ t, days, c0, n, lane, row, compact = false }) {
   );
 }
 
+// Coverage (10/02): "3 of 4 on" and a thin bar per day - expected = people
+// whose usual hours work that weekday and who are not off; on = people with
+// a shift. Met reads muted green, one short amber, two or more red. A short
+// day's chip points at the missing people's empty cells.
+const COVER_TONE = { met: 'hsl(var(--color-green))', short1: 'hsl(var(--color-orange))', short2: 'hsl(var(--color-red))' };
+export function CoverageChip({ c, compact = false, onShort }) {
+  if (!c || c.tone === 'none') return <span aria-hidden="true" data-coverage="none" style={{ display: 'block', height: compact ? 14 : 18 }} />;
+  const color = COVER_TONE[c.tone];
+  const pct = c.expected ? Math.min(1, c.on / c.expected) : 1;
+  const tip = [c.missing.length ? `Missing: ${c.missing.map((m) => m.name).join(', ')}` : c.expected ? 'Everyone expected is on' : 'Nobody is expected (no usual hours this day)',
+    c.off.length ? `Off: ${c.off.map((m) => m.name).join(', ')}` : ''].filter(Boolean).join('\n');
+  const short = c.short > 0 && !!onShort;
+  return (
+    <button type="button" data-coverage={c.tone} onClick={short ? (e) => { e.stopPropagation(); onShort(c); } : undefined} title={tip} disabled={!short}
+      aria-label={`${c.expected ? `${c.on} of ${c.expected}` : c.on} on. ${tip.replace(/\n/g, '. ')}`}
+      style={{ display: 'block', width: '100%', border: 'none', background: 'none', padding: 0, cursor: short ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left', minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, fontSize: compact ? 10 : 10.5, fontWeight: 700, color: c.tone === 'met' ? 'var(--muted)' : color, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+        {c.expected ? `${c.on} of ${c.expected}` : c.on}{!compact && <span style={{ fontWeight: 500 }}>on</span>}
+      </span>
+      <span aria-hidden="true" style={{ display: 'block', height: 3, borderRadius: 2, background: 'var(--line)', marginTop: 2, overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', width: '100%', transformOrigin: 'left', transform: `scaleX(${pct})`, background: c.tone === 'met' ? 'color-mix(in srgb, hsl(var(--color-green)) 55%, transparent)' : color, borderRadius: 2 }} />
+      </span>
+    </button>
+  );
+}
+
 export default function WeekGrid({ days, compact = false, sections, byCell, openCells, offOn, holOn = () => null, availOn = () => null, usualOf = () => null,
   notes = {}, holidayDates = new Set(), me = '', prefs = {}, teamZone = '', canManage = false,
   rowEditable = () => false, empWeekMin, dayStats, weekMin, overWeeks = () => [], copied = null, dropKey = '', dragId = '',
   isCollapsed = () => false, on = null, dragProps = () => ({}), personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null,
-  ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)' }) {
+  ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
+  single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
+  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null }) {
   const today = todayIso();
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -241,7 +270,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   const stickyLeft = (row, extra) => ({ gridRow: row, gridColumn: 1, position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: LINE, borderBottom: LINE, minWidth: 0, ...extra });
 
   const block = (s, email, ds, groupId) => (
-    <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id}
+    <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id} className={blockClass(s)}
       showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }}
       {...(on ? {
         onOpen: (e) => on.openShift(e, s, email, ds),
@@ -256,42 +285,66 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   // One day cell. `top` is the room kept for the time-off pills above it.
   const dayCell = (row, email, d, c, groupId, items, r, editable, inner = null, top = 0) => {
     const ds = isoDate(d);
+    const ghost = !items.length && editable && on && email ? ghostOf(email, ds) : null;
     const handlers = on ? {
-      onClick: clickable(() => { if (!items.length && editable) on.cellClick(email, ds, groupId); }),
+      onClick: clickable((e) => { if (!items.length && editable) on.cellClick(email, ds, groupId, e); }),
       ...dropProps(email, ds), ...(editable ? hoverCell(email, ds, groupId) : {}),
       onContextMenu: (e) => on.menu(e, { email, date: ds, groupId, shift: null }),
       onPointerDown: (e) => on.longPress(e, { email, date: ds, groupId, shift: null }),
     } : {};
     return (
-      <div key={ds} data-cell={`${email}|${ds}`} data-r={r} data-c={c} data-group={groupId || undefined} tabIndex={on ? (r === 0 && c === 0 ? 0 : -1) : undefined} role={cellRole}
+      <div key={ds} data-cell={`${email}|${ds}`} data-r={r} data-c={c} data-group={groupId || undefined} data-today={ds === today ? '' : undefined} tabIndex={on ? (r === 0 && c === 0 ? 0 : -1) : undefined} role={cellRole}
+        title={ghost ? `Click to place ${shiftShortText(ghost)}${ghost.code ? ` ${ghost.code}` : ''} (their usual hours). Shift+click opens the editor.` : undefined}
         aria-label={`${email ? '' : 'Open shifts '}${formatDate(ds)}${items.length ? `, ${items.length} shift${items.length === 1 ? '' : 's'}` : ', empty'}`}
-        className="sched-cell" {...handlers}
+        className={`sched-cell${pulseCells?.has(`${email}|${ds}`) ? ' m-pulse-cell' : ''}`} {...handlers}
         style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top, ...(on ? dropStyle(email, ds) : {}) })}>
         {inner}
         {items.map((s) => block(s, email, ds, groupId))}
-        {!items.length && editable && on && (
+        {!items.length && editable && on && (ghost ? (
+          <div className="sched-add" data-ghost="" aria-hidden="true" style={{ position: 'absolute', left: compact ? 3 : PAD, right: compact ? 3 : PAD, top: (compact ? 3 : PAD) + top, opacity: 0, pointerEvents: 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`,
+              borderLeft: `3px solid ${ghost.color || 'var(--muted)'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
+              <Plus size={11} style={{ flexShrink: 0 }} />
+              <span style={ELLIPSIS}>{shiftShortText(ghost)}{ghost.code ? <span style={{ color: ghost.color || 'var(--muted)', marginLeft: 4 }}>{ghost.code}</span> : null}</span>
+            </div>
+          </div>
+        ) : (
           <div className="sched-add" aria-hidden="true" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', opacity: 0, pointerEvents: 'none' }}>
             <Plus size={16} />
           </div>
-        )}
+        ))}
       </div>
     );
   };
 
   // ── Header row ─────────────────────────────────────────────────────────
+  // One team on screen: its coverage rides in the sticky header.
+  const headCover = coverageOf && single && sections.length === 1 ? coverageOf(sections[0]) : null;
   const hr = addRow('auto');
   out.push(
     <div key="hdr" role="row" style={{ display: 'contents' }}>
       <div style={{ gridRow: hr, gridColumn: 1, position: 'sticky', top: 0, left: 0, zIndex: 4, background: 'var(--card)', borderRight: LINE, borderBottom: LINE,
-        padding: '9px 14px', display: 'flex', alignItems: 'flex-end', fontSize: 12, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}
-        title="Paid hours of the people shown. Open shifts are counted on their own row.">
-        Week · {fmtHrs(weekMin)}
+        padding: '9px 14px', display: 'flex', alignItems: 'flex-end', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {conflictCount > 0 && (
+            <button type="button" data-conflict-link="" onClick={onConflicts || undefined} disabled={!onConflicts} title="Go to the first one"
+              style={{ alignSelf: 'flex-start', border: 'none', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', borderRadius: 999, padding: '1px 8px',
+                fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: onConflicts ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'hsl(var(--color-orange))' }} />
+              {conflictCount} conflict{conflictCount === 1 ? '' : 's'}
+            </button>
+          )}
+          <span title="Paid hours of the people shown. Open shifts are counted on their own row.">Week · {fmtHrs(weekMin)}</span>
+          {headCover && <span style={{ fontSize: 10.5, fontWeight: 600 }} title="Expected = usual hours on that weekday, minus anyone off. On = anyone with a shift.">Coverage</span>}
+        </span>
+        {cornerTools}
       </div>
       {days.map((d, i) => {
         const ds = isoDate(d);
         return (
-          <DayHeader key={ds} d={d} stats={{ ...dayStats(d), first: i === 0 }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]}
+          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0 }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]}
             canManage={canManage} compact={compact} coarse={coarse} onOpen={on ? () => on.openDay(ds) : undefined} onNote={on ? () => on.noteEdit(ds) : undefined}
+            coverage={headCover ? <CoverageChip c={headCover[i]} compact={compact} onShort={onCoverage} /> : null}
             style={{ gridRow: hr, gridColumn: i + 2, position: 'sticky', top: 0, zIndex: 3, background: solid(colBg(d, today)) }} />
         );
       })}
@@ -317,6 +370,12 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     );
   }
 
+  // ── A team with nothing this week: one friendly row ─────────────────────
+  if (emptyNote) {
+    const er = addRow('auto');
+    out.push(<div key="empty-team" data-empty-team="" style={{ gridRow: er, gridColumn: '1 / -1', borderBottom: LINE, minWidth: 0 }}>{emptyNote}</div>);
+  }
+
   // ── Open Shifts row ────────────────────────────────────────────────────
   const openRow = (g) => {
     const gid = g.id || '';
@@ -328,7 +387,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     const cnt = days.reduce((a, d) => a + items(isoDate(d)).filter(counts).reduce((b, s) => b + (s.openSlots || 1), 0), 0);
     const editable = rowEditable('');
     return (
-      <div key={`open-${gid}`} role="row" data-open-row={gid || 'all'} data-member="open" style={{ display: 'contents' }}>
+      <div key={`open-${gid}`} role="row" data-open-row={gid || 'all'} data-member="open" data-ri={r} style={{ display: 'contents', '--ri': r }}>
         <div style={stickyLeft(row, { padding: any ? `${PAD + 2}px 10px ${PAD}px 14px` : '0 10px 0 14px', display: 'flex', alignItems: any ? 'flex-start' : 'center', gap: 10 })}>
           <span style={{ width: any ? 32 : 22, height: any ? 32 : 22, borderRadius: '50%', border: '1px dashed var(--wk-line2, var(--line))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', flexShrink: 0 }}>
             <CalendarRange size={any ? 14 : 11} />
@@ -356,11 +415,14 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   // ── Groups ─────────────────────────────────────────────────────────────
   sections.forEach((g, gi) => {
     const key = sectionKey(g);
-    const collapsed = isCollapsed(key);
+    const collapsed = !single && isCollapsed(key);
     const groupMin = g.members.reduce((a, m) => a + empWeekMin(m.email), 0);
     const hasOpen = days.some((d) => (openCells[`${g.id || ''}|${isoDate(d)}`] || []).length);
     const hasShifts = hasOpen || g.members.some((m) => days.some((d) => (byCell[`${m.email}|${isoDate(d)}`] || []).length));
     const people = `${g.members.length} ${g.members.length === 1 ? 'person' : 'people'}`;
+    if (single) {
+      if (g.isGroup && prefs.open !== false && (hasOpen || canManage)) out.push(openRow(g));
+    } else {
     const gr = addRow(`minmax(${SLIM}px, auto)`);
     out.push(
       <div key={`g-${key}`} role="row" data-team={g.id || undefined} style={{ display: 'contents' }}>
@@ -391,7 +453,22 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       </div>,
     );
     if (collapsed) return;
+    const cov = coverageOf && g.members.length ? coverageOf(g) : null;
+    if (cov && cov.some((c) => c.tone !== 'none')) {
+      const cr = addRow('auto');
+      out.push(
+        <div key={`cov-${key}`} role="row" data-coverage-row={g.id || 'all'} style={{ display: 'contents' }}>
+          <div style={stickyLeft(cr, { padding: '5px 14px', fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'flex', alignItems: 'center' })}>Coverage</div>
+          {days.map((d, c) => (
+            <div key={isoDate(d)} role={cellRole} style={cellStyle(cr, c, d, { padding: compact ? '4px 4px' : '5px 10px' })}>
+              <CoverageChip c={cov[c]} compact={compact} onShort={onCoverage} />
+            </div>
+          ))}
+        </div>,
+      );
+    }
     if (g.isGroup && prefs.open !== false && (hasOpen || canManage)) out.push(openRow(g));
+    }
     if (!g.members.length) {
       const er = addRow('auto');
       out.push(<div key={`none-${key}`} style={{ gridRow: er, gridColumn: '1 / -1', padding: '10px 14px', fontSize: 12, color: 'var(--muted)', borderBottom: LINE }}>Nobody in this group yet.</div>);
@@ -405,16 +482,23 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       const pdp = personDragProps ? personDragProps(emp, g) : {};
       out.push(
         <Fragment key={`p-${key}-${emp.email}`}>
-          <div role="row" data-member={emp.email} aria-current={isMe ? 'true' : undefined} style={{ display: 'contents' }}>
+          <div role="row" data-member={emp.email} aria-current={isMe ? 'true' : undefined} data-ri={r} style={{ display: 'contents', '--ri': r }}>
             <PersonCell role="rowheader" emp={{ ...emp, availability: prefs.availability !== false ? emp.availability : [] }} isMe={isMe} hrs={empWeekMin(emp.email)} over={overWeeks(emp.email)}
               data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)}
               viewOnly={!editable && canManage} photos={prefs.photos !== false}
               {...pdp}
               style={{ ...stickyLeft(row), boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...(pdp.style || {}) }}
               tools={on && canManage && editable ? (
-                <button type="button" className="person-tools" aria-label={`Options for ${emp.name}`} title="Options"
-                  onClick={(e) => { e.stopPropagation(); on.personMenu(e, emp, g); }}
-                  style={{ ...TOOL_BTN, flexShrink: 0, opacity: coarse ? 1 : 0 }}><MoreHorizontal size={13} /></button>
+                <span className="person-tools" style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, opacity: coarse ? 1 : 0 }}>
+                  <button type="button" aria-label={`Options for ${emp.name}`} title="Options"
+                    onClick={(e) => { e.stopPropagation(); on.personMenu(e, emp, g); }}
+                    style={{ ...TOOL_BTN, flexShrink: 0 }}><MoreHorizontal size={13} /></button>
+                  {personFill && usualCan(emp.email) && (
+                    <button type="button" aria-label={`Fill usual hours for ${emp.name}`} title="Fill Usual Hours - their usual shift on every free day in view"
+                      onClick={(e) => { e.stopPropagation(); personFill(emp); }}
+                      style={{ ...TOOL_BTN, flexShrink: 0, color: 'var(--wk-brand)' }}><CalendarDays size={12} /></button>
+                  )}
+                </span>
               ) : null} />
             {days.map((d, c) => {
               const ds = isoDate(d);
@@ -444,7 +528,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
 
   return (
     <div role={ariaRole} aria-label={ariaLabel} onKeyDown={on ? (e) => gridKeys(e, on) : undefined} onDragStart={(e) => e.preventDefault()}
-      className="week-grid"
+      className={`week-grid${motion ? ' m-stagger' : ''}${glowToday && motion ? ' m-today-glow' : ''}`}
       style={{ overflow: 'auto', border: LINE, borderRadius: 12, maxHeight, userSelect: on ? 'none' : undefined, WebkitUserSelect: on ? 'none' : undefined, background: 'var(--card)', position: 'relative' }}>
       <div data-week-grid="" style={{ display: 'grid', gridTemplateColumns: `${PERSON_W}px repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: rows.join(' '),
         minWidth: PERSON_W + n * (compact ? 62 : 120) }}>

@@ -87,7 +87,7 @@ describe('MyShifts week and group grid', () => {
     expect(grid.textContent).toContain('Day Notes');
     expect(grid.textContent).toContain('Inventory day');
     expect(grid.textContent).not.toContain('Open Shifts');              // only when there are open shifts
-    expect(grid.textContent).toContain('Store15.5 Hrs · 2 people');
+    expect(grid.querySelector('[data-team]')).toBeNull();                 // one team: no group header row (the heading names it)
     // The same one-grid engine as the manager's Schedule: me marked with a bar and "You", no row tint.
     expect(grid.querySelectorAll('[data-week-grid]')).toHaveLength(1);
     const mePerson = me.querySelector('[data-person]');

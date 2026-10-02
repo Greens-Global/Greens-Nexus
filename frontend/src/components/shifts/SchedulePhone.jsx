@@ -66,7 +66,7 @@ export function firstDay(days) {
 }
 
 export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOf = () => null, notes, holidayDates, me, prefs, teamZone, canManage,
-  rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on }) {
+  rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on, single = false, emptyNote = null }) {
   const [day, setDay] = useState(() => firstDay(days));
   // A new range (next week) lands on today or its first day.
   useEffect(() => { setDay((d) => (days.some((x) => isoDate(x) === d) ? d : firstDay(days))); }, [days]);
@@ -113,21 +113,22 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
             </button>
           )}
         </div>
+        {emptyNote}
         {openCells.__ungrouped && openRow({ id: '' })}
         {sections.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Nobody is on the schedule in this view.</div>}
         {sections.map((g) => {
           const key = sectionKey(g);
-          const open = !collapsed.has(key);
+          const open = single || !collapsed.has(key);
           const groupMin = g.members.reduce((a, m) => a + empWeekMin(m.email), 0);
           return (
             <div key={key} data-team={g.id || undefined}>
-              <button type="button" onClick={() => on.toggleCollapse(key)} aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${g.name}`}
+              {!single && <button type="button" onClick={() => on.toggleCollapse(key)} aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${g.name}`}
                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', border: 'none', borderBottom: '1px solid var(--line)', background: 'var(--bg)',
                   fontFamily: 'inherit', fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' }}>
                 <span style={{ transform: open ? 'rotate(90deg)' : 'none', display: 'inline-flex', transition: 'transform .15s' }}>›</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}{g.archived ? ' (Archived)' : ''}</span>
                 <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: 11 }}>{fmtHrs(groupMin)} · {g.members.length}</span>
-              </button>
+              </button>}
               {open && g.isGroup && prefs.open !== false && openRow(g)}
               {open && g.members.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>Nobody in this group yet.</div>}
               {open && g.members.map((emp) => {
