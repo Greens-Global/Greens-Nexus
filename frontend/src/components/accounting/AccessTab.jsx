@@ -141,7 +141,7 @@ function IntacctImport({ names, onClose, onApplied }) {
   useEffect(() => {
     let alive = true;
     api.getAccountingAccessFromIntacct()
-      .then((d) => { if (!alive) return; setData(d); setPicked(new Set((d?.people || []).filter((p) => p.matched && p.differs).map((p) => p.email))); })
+      .then((d) => { if (!alive) return; setData(d); setPicked(new Set((d?.people || []).filter((p) => p.matched && p.differs && !p.unknown).map((p) => p.email))); })
       .catch((e) => { if (alive) { setData({ people: [], notes: [] }); setError(e?.message || 'Could not read Intacct.'); } });
     return () => { alive = false; };
   }, []);
@@ -151,7 +151,9 @@ function IntacctImport({ names, onClose, onApplied }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   const people = data?.people || [];
-  const matched = people.filter((p) => p.matched);
+  // A restricted Intacct user whose entity list could not be read is shown,
+  // never ticked: applying would turn "restricted" into "every entity".
+  const matched = people.filter((p) => p.matched && !p.unknown);
   const toggle = (email) => setPicked((s) => { const n = new Set(s); if (n.has(email)) n.delete(email); else n.add(email); return n; });
   const list = (codes) => (codes.length ? codes.map((c) => names.get(c) ? `${names.get(c)} (${c})` : c).join(', ') : 'All entities');
   const apply = () => {
@@ -197,10 +199,15 @@ function IntacctImport({ names, onClose, onApplied }) {
                   <tbody>
                     {people.map((p) => (
                       <tr key={`${p.login}-${p.email}`} style={{ opacity: p.matched ? 1 : 0.6 }}>
-                        <td>{p.matched ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
+                        <td>{p.matched && !p.unknown ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
                         <td title={p.email || undefined}>{p.intacctName || p.login}{p.login && p.intacctName ? <span className="acct-code" style={{ marginLeft: 8 }}>{p.login}</span> : null}{p.status && !/active/i.test(p.status) ? <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.status}</span> : null}</td>
                         <td>{p.matched ? <>{p.name}{!p.hasGrant && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · no Accounting access yet</span>}</> : <span style={{ color: 'var(--text-muted)' }}>{p.email ? 'Not in Nexus People' : 'No email in Intacct'}</span>}</td>
-                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>{list(p.entities)}{p.departments?.length ? <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}</td>
+                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>
+                          {p.unknown
+                            ? <span style={{ color: 'var(--bad-fg, #dc2626)', fontWeight: 600 }} title="Intacct says this user is restricted, but the connection's login may not read which entities. Grant it the User Restrictions permission in Intacct and open this again.">Restricted - entities not readable</span>
+                            : list(p.entities)}
+                          {p.departments?.length ? <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}
+                        </td>
                         <td style={{ whiteSpace: 'normal', maxWidth: 360, color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: '0.72rem', color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
                       </tr>
                     ))}
