@@ -15,8 +15,8 @@ import {
   SavedReportsMenu, control,
 } from './reportControls';
 import {
-  BOOKS, REPORTS, activeColumns, bookLabel, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, csvFileName, csvRows,
-  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, iso, periodText, presetLabel, reportDef, resolveConfig, runReport,
+  BOOKS, EMPTY_DIMS, REPORTS, activeColumns, bookLabel, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
+  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, iso, periodText, presetLabel, reportDef, resolveConfig, runReport, withFluxNotes,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -47,15 +47,24 @@ import {
 // period, book and entity. Since 09/30 the other Accounting tabs carry the
 // same box (`search` prop): typing there lands here with the words typed.
 //
-// Sep 30 (Charmi and Neil, call of 09/29): Entities, Accounts, then Filters
-// (departments inside); the Columns dropdown is labeled; the filters in
-// force sit under the title as chips that come off in one click; zero
-// balances are hidden unless Customize shows them; one Export menu.
+// Sep 30 (Charmi and Neil, call of 09/29): Entities, Filters (departments
+// inside), then Accounts last (Charmi, 10/02: "keep accounts as the last
+// tab"); the Columns dropdown is labeled; the filters in force sit under the
+// title as chips that come off in one click; zero balances are hidden unless
+// Customize shows them; one Export menu.
 //
 // Figures (Charmi, 09/30): every number goes through <Amount /> - tabular
 // Inter, two decimals, a negative in parentheses that stand outside the
 // digit column (the reserved ) slot), a zero as a dash on the statement -
 // and copying cells puts raw numbers on the clipboard.
+//
+// Oct 2 (Charmi, Neil): two or more picks in a filter become one column per
+// pick plus a Total (Columns reads "By Employee (2 picked)"); EVERY figure -
+// section totals, subtotals, Net Income, a trial balance or ledger balance,
+// a bucket column - opens the lines behind it; Filters gets Journals;
+// Customize gets historical accounts; the drill-down scrolls with the page;
+// and Flux Analysis is a report of its own, with an Explanation per account
+// kept in Nexus.
 
 // What a memorized report keeps: the controls, never the figures. A named
 // period is kept by name so it moves with the calendar.
@@ -64,6 +73,7 @@ const storable = (c) => ({
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
   book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
   ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.showZero ? { showZero: true } : {}),
+  ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount } : {}),
 });
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
@@ -133,10 +143,12 @@ export default function ReportsTab({ search = null }) {
     window.addEventListener('nexus:accounting-drill', onEvent);
     return () => window.removeEventListener('nexus:accounting-drill', onEvent);
   }, [patch]);
-  // The lines behind one amount: the account, in that column's window and book.
+  // The lines behind one amount: the account, in that column's window and
+  // book. A total has no account (Charmi, 10/02: "make all the reports
+  // clickable"): it opens every line of the column's period and entity.
   const drillInto = (row, column) => {
-    if (!row.code || !column.drill) return;
-    setDrill({ account: row.code, accountName: row.title || '', ...column.drill });
+    if (!column.drill) return;
+    setDrill({ account: row.code || '', accountName: row.title || row.label || '', ...column.drill });
     toTop();
   };
 
@@ -244,7 +256,7 @@ export default function ReportsTab({ search = null }) {
 
   const def = reportDef(config.report);
   const cols = activeColumns(config);
-  const modes = columnModes(config.report);
+  const modes = columnModes(config.report, config);
   const showColumns = modes.length > 1 && config.book !== 'both';
   const chips = filterChips(config, entities, dimNames);
   const entityLabel = entityText(config, entities);
@@ -252,7 +264,42 @@ export default function ReportsTab({ search = null }) {
   const drillEntities = drill?.entity ? [drill.entity] : config.entities;
   const drillEntityLabel = drill?.entity ? entityText({ entities: [drill.entity] }, entities) : entityLabel;
   const sections = (result?.rows || []).filter((r) => r.kind === 'section');
-  const shown = result && result.config.report === config.report ? result : null;
+
+  // Flux Analysis explanations (Neil, 10/02): kept per entity set, account
+  // and period in Nexus (accounting_flux_notes). A limited caller's "all
+  // entities" is their own set, so the key names them.
+  const fluxKey = useMemo(() => {
+    if (config.report !== 'flux') return null;
+    const codes = config.entities.length ? [...config.entities] : limited ? entities.map((e) => e.code) : [];
+    return { entity: codes.length ? [...new Set(codes)].sort().join(',') : 'all', period: `${config.from}_${config.to}` };
+  }, [config.report, config.entities, config.from, config.to, limited, entities]);
+  const [fluxNotes, setFluxNotes] = useState({});     // accountNo -> text
+  const [noteEdit, setNoteEdit] = useState(null);     // { code, title, text }
+  const [noteError, setNoteError] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
+  useEffect(() => {
+    if (!fluxKey) return undefined;
+    let alive = true;
+    setFluxNotes({});
+    api.getAccountingFluxNotes(fluxKey.entity, fluxKey.period)
+      .then((d) => { if (alive) setFluxNotes(Object.fromEntries((d?.notes || []).map((n) => [n.accountNo, n.note]))); })
+      .catch(() => { /* the column reads empty; writing will say why */ });
+    return () => { alive = false; };
+  }, [fluxKey?.entity, fluxKey?.period]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveNote = (e) => {
+    e.preventDefault();
+    if (!noteEdit || noteBusy || !fluxKey) return;
+    setNoteBusy(true);
+    setNoteError('');
+    api.saveAccountingFluxNote({ entity: fluxKey.entity, period: fluxKey.period, accountNo: noteEdit.code, note: noteEdit.text.trim() })
+      .then((n) => { setFluxNotes((m) => ({ ...m, [noteEdit.code]: n?.note || '' })); setNoteEdit(null); })
+      .catch((err) => setNoteError(err?.message || 'Could not save the explanation.'))
+      .finally(() => setNoteBusy(false));
+  };
+  const shown = useMemo(() => {
+    if (!result || result.config.report !== config.report) return null;
+    return result.flux ? withFluxNotes(result, fluxNotes) : result;
+  }, [result, config.report, fluxNotes]);
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
   const select = (active) => ({ ...control, fontWeight: active ? 600 : 400, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', maxWidth: 300 });
@@ -298,16 +345,22 @@ export default function ReportsTab({ search = null }) {
           </select>
         )}
 
+        {/* Entities, Filters, then Accounts last (Charmi, 10/02). */}
         <EntitiesPicker entities={entities} value={config.entities} onChange={(codes) => patch({ entities: codes })} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
-        {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} />}
-        {canUseDims(config) && <FiltersButton dims={config.dims} onChange={(dims) => patch({ dims })} onNames={onNames} />}
+        {canUseDims(config) && (
+          <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts}
+            onChange={(dims) => { const mode = columnsForPicks(config, dims); setCollapsed(new Set()); patch({ dims, ...(mode ? { cols: mode } : {}) }); }} />
+        )}
+        {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
           <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${def.period === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
           <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
-            showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })} />
+            showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
+            showHistoricalAccounts={!!prefs.showHistoricalAccounts} onShowHistoricalAccounts={(v) => setPrefs({ showHistoricalAccounts: v })}
+            flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
           <ExportMenu disabled={!shown || searching} items={[
             { key: 'excel', label: 'Excel', hint: 'Totals in bold, columns fitted, live formulas', onPick: () => shown && exportExcel(shown), busy: xlsxBusy },
             { key: 'csv', label: 'CSV', hint: 'Plain values, one row per line', onPick: () => shown && downloadCsv(csvFileName(shown), csvRows(shown, entities)) },
@@ -362,7 +415,7 @@ export default function ReportsTab({ search = null }) {
       )}
 
       {searching && (
-        <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel}
+        <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
           dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} />
       )}
 
@@ -399,7 +452,7 @@ export default function ReportsTab({ search = null }) {
                 </span>
               ))}
               {chips.length > 1 && (
-                <button type="button" onClick={() => patch({ entities: [], dims: { departments: [], vendor: [], customer: [], employee: [], project: [], item: [] }, accounts: [] })}
+                <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [] })}
                   style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.74rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
                   Clear all filters
                 </button>
@@ -431,11 +484,36 @@ export default function ReportsTab({ search = null }) {
                   if (r.kind !== 'section' && r.section && collapsed.has(r.section)) return null;
                   const open = r.kind === 'section' && !collapsed.has(r.section);
                   return <StatementRow key={`${r.kind}-${r.section || ''}-${r.code || r.label}-${i}`} row={r} columns={shown.columns} open={open} colW={colW}
-                    onToggle={() => toggleSection(r.section)} onDrill={drillInto} />;
+                    onToggle={() => toggleSection(r.section)} onDrill={drillInto}
+                    onNote={shown.flux ? (row) => { setNoteError(''); setNoteEdit({ code: row.code, title: row.title, text: fluxNotes[row.code] || '' }); } : null} />;
                 })}
               </tbody>
             </table>
           </div>
+          {noteEdit && (
+            <div className="modal-overlay" onClick={() => setNoteEdit(null)} role="presentation">
+              <form className="modal-content" role="dialog" aria-modal="true" aria-label="Explanation" onClick={(e) => e.stopPropagation()} onSubmit={saveNote} style={{ maxWidth: 520 }}>
+                <div className="modal-header">
+                  <div>
+                    <h3 style={{ margin: 0 }}>Explanation</h3>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}><span className="acct-code">{noteEdit.code}</span>{noteEdit.title} · {periodText(config)}</div>
+                  </div>
+                  <button type="button" onClick={() => setNoteEdit(null)} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+                </div>
+                <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 8 }}>
+                  <label htmlFor="flux-note" style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Why did this account move?</label>
+                  <textarea id="flux-note" value={noteEdit.text} maxLength={2000} rows={4} autoFocus onChange={(e) => setNoteEdit((n) => ({ ...n, text: e.target.value }))}
+                    placeholder="One-time roof repair at Escondido, insured; claim filed 09/12." style={{ ...control, width: '100%', height: 'auto', padding: 8, lineHeight: 1.5, resize: 'vertical' }} />
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Kept for {entityLabel} and this period, for everyone on the accounting team. Clear the text to remove it.</div>
+                  {noteError && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{noteError}</div>}
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="secondary-btn" onClick={() => setNoteEdit(null)}>Cancel</button>
+                  <button type="submit" className="primary-btn" disabled={noteBusy}>{noteBusy ? 'Saving...' : 'Save Explanation'}</button>
+                </div>
+              </form>
+            </div>
+          )}
           {(shown.notes || []).map((n) => <div key={n} style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{n}</div>)}
           <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it; click a section to fold it; drag the edge of the Account heading to change its width (double-click resets).
@@ -468,13 +546,24 @@ const tint = (v) => (v < 0 ? 'var(--bad-fg, #dc2626)' : v > 0 ? 'var(--ok-fg, #1
 
 // One line of a statement: a fold-able section heading with its total, an
 // account (code and name on one line, every amount a drill-down), or a total.
-function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
+// Every figure with a window behind it drills (Charmi, 10/02) - an account
+// into its lines, a section total or subtotal into the column's whole
+// period; only a ledger line itself (it IS a line) and a variance do not.
+const DRILL_KINDS = new Set(['account', 'section', 'subtotal', 'grand']);
+function StatementRow({ row, columns, open, colW, onToggle, onDrill, onNote = null }) {
   const Chevron = open ? ChevronDown : ChevronRight;
   const variance = columns.findIndex((c) => c.type === 'variance');
   const cells = columns.map((c, i) => {
     const v = row.values[i];
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)' }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
-    if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: c.key === 'description' ? 460 : 220, overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : 'var(--text-secondary)' }}>{v || ''}</td>;
+    if (c.type === 'text' && c.key === 'note' && onNote && row.kind === 'account' && row.code) {
+      return (
+        <td key={c.key} title={v || 'Write why this account moved'} style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <button type="button" className={`acct-note${v ? '' : ' acct-note-empty'}`} onClick={() => onNote(row)} aria-label={`${v ? 'Edit' : 'Add'} explanation for ${row.code} ${row.title}`}>{v || 'Add explanation...'}</button>
+        </td>
+      );
+    }
+    if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: c.key === 'description' ? 460 : 220, overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : c.key === 'flag' && v ? 'var(--warn-fg, #b45309)' : 'var(--text-secondary)', fontWeight: c.key === 'flag' && v ? 700 : undefined }}>{v || ''}</td>;
     if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(row.values[variance]) }}><Figure text={v || '-'} /></td>;
     if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}><Figure text={cellText(row, c, v) || '-'} /></td>;
     if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}><Amount value={v} zero="dash" /></td>;
@@ -482,10 +571,11 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
     const figure = <Amount value={v} zero={row.kind === 'line' ? 'blank' : 'dash'} />;
     const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
     const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
+    const drills = c.drill && DRILL_KINDS.has(row.kind) && (row.kind !== 'section' || !row.values.every((x) => typeof x !== 'number'));
     return (
       <td key={c.key} className="acct-num" style={style}>
-        {row.kind === 'account' && row.code && c.drill
-          ? <button type="button" className="acct-drill" title="See the lines behind this amount" onClick={() => onDrill(row, c)}>{figure}</button>
+        {drills
+          ? <button type="button" className="acct-drill" title={row.code ? 'See the lines behind this amount' : 'See every line behind this total'} onClick={(e) => { e.stopPropagation(); onDrill(row, c); }}>{figure}</button>
           : figure}
       </td>
     );
@@ -498,6 +588,17 @@ function StatementRow({ row, columns, open, colW, onToggle, onDrill }) {
             <Chevron size={13} />
           </button>
           {row.label}{!open ? <span className="acct-count">{row.count}</span> : null}
+        </td>
+        {cells}
+      </tr>
+    );
+  }
+  if (row.kind === 'account' && row.flag) {
+    return (
+      <tr className="acct-flag" title="Over the flux thresholds">
+        <td className={`acct-label${row.section ? ' acct-indent' : ''}`} style={colW ? { maxWidth: colW } : undefined} title={`${row.code ? `${row.code} ` : ''}${row.title}`}>
+          {row.code ? <span className="acct-code">{row.code}</span> : null}
+          <span>{row.title}</span>
         </td>
         {cells}
       </tr>

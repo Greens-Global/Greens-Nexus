@@ -16,6 +16,7 @@ import GeofencePunchModal from './GeofencePunchModal';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
 import EmployeeCombobox from './EmployeeCombobox';
+import { downloadBlob } from './accounting/reportModel';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -492,6 +493,42 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     try { await api.timeUnfinalize({ email, start: perStart, end: perEnd }); toastOk?.('Period unlocked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
     setBusy(false);
+  }
+
+  // Exports (CSV, QuickBooks IIF, Intacct). Oct 2 (Neil: "Payroll Export
+  // Nexus to IIF is not working"): the buttons called the API and DROPPED the
+  // result - reqBlob hands back { blob, filename } and nobody saved it, so a
+  // click did nothing visible. Now: step up first, fetch, save the file,
+  // toast; a stale step-up (require_stepup 403 after the session lapsed) is
+  // renewed once and the fetch retried.
+  const [exporting, setExporting] = useState(false);
+  const [intacctOpen, setIntacctOpen] = useState(false);
+  const [intacct, setIntacct] = useState(() => {
+    try { return { journal: 'PYRJ', expense: '', clearing: '', location: '', ...(JSON.parse(localStorage.getItem('nexus.payroll.intacct') || '{}')) }; }
+    catch { return { journal: 'PYRJ', expense: '', clearing: '', location: '' }; }
+  });
+  const setIntacctField = (k, v) => setIntacct((cur) => {
+    const next = { ...cur, [k]: v };
+    try { localStorage.setItem('nexus.payroll.intacct', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
+    return next;
+  });
+  async function exportFile(fetcher, label) {
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
+    setExporting(true);
+    try {
+      let res;
+      try { res = await fetcher(); }
+      catch (e) {
+        if (!isStepUpRequired(e)) throw e;
+        const again = await ensureStepUp();
+        if (!again.ok) { if (!again.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
+        res = await fetcher();
+      }
+      downloadBlob(res.filename || `${label}.txt`, res.blob);
+      toastOk?.(`${label} downloaded${res.filename ? ` - ${res.filename}` : ''}.`);
+    } catch (e) { toastErr?.(e?.message || `Could not export the ${label}.`); }
+    finally { setExporting(false); }
   }
 
   // Numeric columns (Hours, Hrs/day, Non-OT, OT, OT 2x, Wage) are right-aligned
@@ -978,11 +1015,28 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               </div>
             )}
             {!self && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
-                onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportIif(perStart, perEnd); }}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+              <button className="secondary-btn" disabled={exporting} title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
+                onClick={() => exportFile(() => api.timeExportIif(perStart, perEnd), 'QuickBooks IIF')}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
+              <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
+                onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>
+              {intacctOpen && (
+                <form onSubmit={(e) => { e.preventDefault(); setIntacctOpen(false); exportFile(() => api.timeExportIntacct(perStart, perEnd, intacct), 'Intacct GL import'); }}
+                  style={{ flexBasis: '100%', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
+                  {[['journal', 'Journal', 'PYRJ'], ['expense', 'Wage Expense Account', '60100'], ['clearing', 'Payroll Clearing Account', '21500'], ['location', 'Entity (Location ID)', '12000']].map(([k, lbl, ph]) => (
+                    <label key={k} style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 3 }}>
+                      {lbl}
+                      <input type="text" value={intacct[k] || ''} placeholder={ph} aria-label={lbl} onChange={(e) => setIntacctField(k, e.target.value)}
+                        style={{ fontSize: 12, padding: '4px 6px', width: k === 'journal' ? 70 : 130 }} />
+                    </label>
+                  ))}
+                  <button type="submit" className="primary-btn" style={{ fontSize: 12 }}>Download</button>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>One entry for {formatDate(perStart)} to {formatDate(perEnd)}: a debit per employee per pay class, one credit per employee to the clearing account. Blank accounts are left for Intacct to ask.</span>
+                </form>
+              )}
               {/* Approving is now "Agree" in the review panel below; HR's
                   signature there finalizes. Unlock / Finalize stay as the HR
                   override for a period that never went through review. */}

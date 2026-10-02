@@ -4833,3 +4833,63 @@ class PayrollRateHistory(Base):
     overtime_rule  = Column(String, default="ca")                 # ca | federal | none
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class AccountingFluxNote(Base):
+    """An explanation on one line of a Flux Analysis (Neil, 10/02: "MRE ...
+    Flux Analysis"): why account X moved between this period and the last,
+    kept in Nexus per entity set, account and period so the next close finds
+    it. `entity` is the picked entity codes joined by ',' (or 'all');
+    `period` is "<from>_<to>". The person and the time are `noted_by` /
+    `noted_at` (the spec's by/at - BY is an SQL keyword). New table -
+    create_all builds it; RLS must be enabled on dev and prod at release
+    (the startup sweep and the line in main.py both do it)."""
+    __tablename__ = "accounting_flux_notes"
+    id         = Column(String, primary_key=True)                # uuid
+    entity     = Column(String, default="", index=True)          # "15000" | "15000,56000" | "all"
+    account_no = Column(String, default="", index=True)
+    period     = Column(String, default="", index=True)          # "YYYY-MM-DD_YYYY-MM-DD"
+    note       = Column(String, default="")
+    noted_by   = Column(String, default="")
+    noted_at   = Column(String, default="")
+class AccountingPartnerChange(Base):
+    """A requested change to a vendor or customer record (Charmi and Neil,
+    10/01: "edit a vendor, change all the details and get pushed to manager
+    for approval"). Intacct stays the source of truth, one way: the record
+    itself lives there, Nexus keeps the ask. `changes` is {field: {from, to}}
+    for the fields edited; `status` runs pending -> approved | declined. An
+    approved row shows on the record as its current values with an "Awaiting
+    Intacct" badge until someone keys it into Intacct from the export. New
+    table - create_all builds it; RLS must be enabled on dev and prod at
+    release."""
+    __tablename__ = "accounting_partner_changes"
+    id           = Column(String, primary_key=True)              # uuid
+    kind         = Column(String, default="vendor", index=True)  # vendor | customer
+    partner_id   = Column(String, default="", index=True)        # Intacct VENDORID / CUSTOMERID
+    partner_name = Column(String, default="")
+    changes      = Column(JSON, default=dict)                    # {field: {"from": .., "to": ..}}
+    status       = Column(String, default="pending", index=True)  # pending | approved | declined
+    requested_by = Column(String, default="", index=True)
+    requested_at = Column(String, default="")
+    decided_by   = Column(String, default="")
+    decided_at   = Column(String, default="")
+    note         = Column(String, default="")
+
+
+class AccountingAllocationRun(Base):
+    """One monthly payroll allocation entry as it was built (Neil, 10/01:
+    "allocations journal entry from people and done monthly"). The basis is
+    each person's worked hours by work site from Time Clock, the cost that
+    month's wages from the payroll card; `lines` keeps the whole preview
+    (people, their shares, the entry lines and the mapping used) so the
+    export can be produced again unchanged. Nothing is posted anywhere - the
+    CSV is keyed into Intacct by hand. `run_by` / `run_at` answer as `by` /
+    `at` on the API. New table - create_all builds it; RLS must be enabled
+    on dev and prod at release."""
+    __tablename__ = "accounting_allocation_runs"
+    id      = Column(String, primary_key=True)                   # uuid
+    month   = Column(String, default="", index=True)             # YYYY-MM
+    entity  = Column(String, default="", index=True)             # paying entity code, "" = every entity
+    run_by  = Column(String, default="")
+    run_at  = Column(String, default="")
+    lines   = Column(JSON, default=dict)

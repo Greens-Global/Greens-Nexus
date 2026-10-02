@@ -162,6 +162,21 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
     page.drawText(fit(font, 9.5, v, W - MARGIN * 2 - 170), { x: MARGIN + 170, y, size: 9.5, font, color: INK });
     y -= ROW + 1;
   });
+  // The co-borrower (Charmi, 10/01), mirroring the borrower's facts.
+  const co = d.coBorrower || {};
+  if (co.name) {
+    heading('Co-Borrower');
+    [
+      ['Name', co.name], ['Address', [co.address, co.city_state_zip].filter(Boolean).join(', ')], ['Phone', co.phone], ['Email', co.email],
+      ['Date of Birth', co.date_of_birth ? formatDate(co.date_of_birth) : ''], ['Marital Status', co.marital_status], ['Employer', co.employer], ['Title', co.title],
+      ['Social Security Number', co.ssn_last4 ? `XXX-XX-${co.ssn_last4}` : ''],
+    ].filter(([, v]) => v).forEach(([k, v]) => {
+      room(0);
+      page.drawText(clean(k), { x: MARGIN, y, size: 9.5, font, color: MUTED });
+      page.drawText(fit(font, 9.5, v, W - MARGIN * 2 - 170), { x: MARGIN + 170, y, size: 9.5, font, color: INK });
+      y -= ROW + 1;
+    });
+  }
   if ((d.members || []).length) {
     heading('Parties to This Statement');
     d.members.forEach((m) => { room(0); page.drawText(fit(font, 9.5, `${m.name}${m.role ? ` - ${m.role}` : ''}`, W - MARGIN * 2), { x: MARGIN, y, size: 9.5, font, color: INK }); y -= ROW; });
@@ -195,6 +210,29 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
     room(ROW);
     page.drawText('Market value and loan balance are shown at the share owned.', { x: MARGIN, y, size: 8.5, font, color: MUTED });
   }
+
+  // ── Schedule E and Schedule C (Charmi, 10/01) ─────────────────────────────
+  const sch = statement.schedules || { e: [], c: [] };
+  const schedule = (title, blocks, income, net, withCogs) => {
+    newPage(title);
+    const cols = [{ label: 'IRS Line', width: 384 }, { label: 'Amount', width: 120, num: true }];
+    blocks.forEach((b) => {
+      heading(`${b.label}${b.entity ? `  (entity ${b.entity})` : ''}`);
+      if (b.address) { room(0); page.drawText(fit(font, 8.5, b.address, W - MARGIN * 2), { x: MARGIN, y, size: 8.5, font, color: MUTED }); y -= ROW - 2; }
+      const rows = [[income, money(b.income)]];
+      if (withCogs) { rows.push(['Cost of Goods Sold', money(b.cogs)]); rows.push(['Gross Profit', money(b.income - b.cogs)]); }
+      b.lines.forEach((x) => rows.push([x.label, money(x.amount)]));
+      rows.push(['Total Expenses', money(b.expenses)]);
+      table(cols, rows, [net, money(b.net)], title);
+      room(ROW);
+      page.drawText(`At ${pct(b.ownershipPct)} owned: ${money(b.netAtShare)}`, { x: MARGIN, y, size: 8.5, font, color: MUTED });
+      y -= ROW;
+    });
+    room(ROW);
+    page.drawText(`From the entity's ledger for the calendar year ${sch.year || ''}. Lines follow the IRS form; account titles decide the line.`.trim(), { x: MARGIN, y, size: 8.5, font, color: MUTED });
+  };
+  if ((sch.e || []).length) schedule('Schedule E - Rental Real Estate', sch.e, 'Rents Received', 'Net Income (Loss)', false);
+  if ((sch.c || []).length) schedule('Schedule C - Profit or Loss From Business', sch.c, 'Gross Receipts', 'Net Profit (Loss)', true);
 
   // ── Summary ───────────────────────────────────────────────────────────────
   newPage('Summary');

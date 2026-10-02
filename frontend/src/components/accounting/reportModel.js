@@ -20,7 +20,14 @@ export const REPORTS = [
   { key: 'trial-balance', label: 'Trial Balance', period: 'range' },
   { key: 'general-ledger', label: 'General Ledger', period: 'range' },
   { key: 'cash-position', label: 'Cash Position', period: 'asof' },
+  // Flux Analysis (Neil, 10/02 - the first cut of MRE, pending the talk with
+  // Charmi): this period against the one before it, per income statement
+  // account, with the variance over a threshold flagged and an explanation
+  // kept per account and period (accounting_flux_notes).
+  { key: 'flux', label: 'Flux Analysis', period: 'range' },
 ];
+/** The flag thresholds a Flux Analysis starts with: both must be passed for a line to be flagged. */
+export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
 /** The General Ledger lists lines for at most this many accounts at once; more than that, it lists the accounts only. */
 export const GL_MAX_ACCOUNTS = 25;
 const GL_MAX_LINES = 1000;
@@ -55,8 +62,34 @@ const BS_COLUMNS = [
   ['total', 'Total Only'], ['entity', 'By Entity'], ['department', 'By Department'], ['month', 'Last 12 Month-Ends'],
   ['quarter', 'Last 4 Quarter-Ends'], ['prior_month', 'vs Prior Month-End'], ['prior_year', 'vs Same Date Last Year'], ['year_end', 'vs Last Year-End'],
 ];
+const FLUX_COLUMNS = [['prior_period', 'vs Prior Period'], ['prior_year', 'vs Prior Year']];
 const pair = (rows) => rows.map(([key, label]) => ({ key, label }));
-export const columnModes = (report) => (report === 'pnl' ? pair(PNL_COLUMNS) : report === 'balance-sheet' ? pair(BS_COLUMNS) : pair([['total', 'Total Only']]));
+// Which filter a column layout splits by, for "(2 picked)" on its label.
+const MODE_PICKS = { department: 'departments', vendor: 'vendor', customer: 'customer', employee: 'employee', project: 'project', item: 'item' };
+/**
+ * The column layouts a report offers. With `config`, a layout whose filter
+ * holds two or more picks says so - "By Employee (2 picked)" (Charmi, 10/02:
+ * two employees picked must be two columns, not one combined figure).
+ */
+export function columnModes(report, config = null) {
+  const base = report === 'pnl' ? pair(PNL_COLUMNS) : report === 'balance-sheet' ? pair(BS_COLUMNS) : report === 'flux' ? pair(FLUX_COLUMNS) : pair([['total', 'Total Only']]);
+  if (!config) return base;
+  return base.map((m) => {
+    const n = m.key === 'entity' ? (config.entities || []).length : (config.dims?.[MODE_PICKS[m.key]] || []).length;
+    return n >= 2 ? { ...m, label: `${m.label} (${n} picked)` } : m;
+  });
+}
+/**
+ * The layout to switch to when a filter has just grown to two or more picks
+ * while the statement is Total Only: one column per picked value. Null when
+ * nothing should change ("Total Only" picked on purpose afterwards stays).
+ */
+export function columnsForPicks(config, dims) {
+  if (activeColumns(config) !== 'total') return null;
+  const modes = columnModes(config.report);
+  const grown = Object.entries(MODE_PICKS).find(([mode, key]) => modes.some((m) => m.key === mode) && (dims?.[key] || []).length >= 2 && (config.dims?.[key] || []).length < 2);
+  return grown ? grown[0] : null;
+}
 const LEGACY_COMPARE = { 'prior-year': 'prior_year', 'prior-period': 'prior_period', 'prior-month': 'prior_month' };
 const COMPARE_MODES = ['prior_period', 'prior_year', 'prior_month', 'year_end'];
 const DIM_MODES = ['vendor', 'customer', 'employee', 'project', 'item'];
@@ -84,10 +117,16 @@ export const DIM_KINDS = [
   { key: 'employee', kind: 'employee', label: 'Employee', plural: 'employees' },
   { key: 'project', kind: 'project', label: 'Project-Job', plural: 'Project-Jobs' },
   { key: 'item', kind: 'item', label: 'Item', plural: 'items' },
+  // Journals (Neil, 10/02): AP, AR, payroll, user defined and statistical
+  // journals, by symbol. Listed by the accounting app (GET /accounting/
+  // journals); a statistical journal never adds into money totals.
+  { key: 'journals', kind: 'journal', label: 'Journals', one: 'Journal', plural: 'journals' },
 ];
 /** The kinds behind the Filters button: all of them since 09/30 (department used to have its own dropdown). */
 export const POPOVER_DIMS = DIM_KINDS;
-export const EMPTY_DIMS = { departments: [], vendor: [], customer: [], employee: [], project: [], item: [] };
+export const EMPTY_DIMS = { departments: [], vendor: [], customer: [], employee: [], project: [], item: [], journals: [] };
+/** How the journal kinds read as headings in the Journals list, in the order they are listed. */
+export const JOURNAL_KINDS = { general: 'General', ap: 'Payables (AP)', ar: 'Receivables (AR)', payroll: 'Payroll', user: 'User Defined', statistical: 'Statistical' };
 export const countDims = (d) => POPOVER_DIMS.reduce((n, k) => n + ((d?.[k.key] || []).length ? 1 : 0), 0);
 
 // Historical classes carry "(H)" in their Intacct name (Charmi, Sep 25).
@@ -194,7 +233,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function defaultConfig(now = new Date()) {
   const [f, t] = presetRange('ytd', now).map(iso);
-  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false };
+  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS };
 }
 
 // A config as it should run TODAY: a named period ("Year-to-Date") moves with
@@ -225,7 +264,11 @@ export function resolveConfig(config, now = new Date()) {
   // A view memorized before Columns existed kept its comparison under `compare`.
   if (!config?.cols && LEGACY_COMPARE[c.compare]) c.cols = LEGACY_COMPARE[c.compare];
   delete c.compare;
-  c.cols = columnModes(c.report).some((m) => m.key === c.cols) ? c.cols : 'total';
+  const modes = columnModes(c.report);
+  c.cols = modes.some((m) => m.key === c.cols) ? c.cols : modes[0].key;
+  // Flux thresholds: a number each, never below zero.
+  c.fluxPct = Number.isFinite(Number(c.fluxPct)) && Number(c.fluxPct) >= 0 ? Number(c.fluxPct) : FLUX_DEFAULTS.fluxPct;
+  c.fluxAmount = Number.isFinite(Number(c.fluxAmount)) && Number(c.fluxAmount) >= 0 ? Number(c.fluxAmount) : FLUX_DEFAULTS.fluxAmount;
   return c;
 }
 
@@ -233,7 +276,7 @@ export function resolveConfig(config, now = new Date()) {
 export const activeColumns = (config) => (config.book === 'both' && canPickBook(config) ? 'total' : config.cols);
 export const canPickBook = (config) => config.report !== 'cash-position';
 export const canUseDims = (config) => config.report !== 'cash-position';
-export const canPickAccounts = (config) => config.report === 'pnl' || config.report === 'balance-sheet' || config.report === 'general-ledger';
+export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux'].includes(config.report);
 
 export const periodText = (config) => {
   const def = reportDef(config.report);
@@ -262,7 +305,7 @@ export function filterChips(config, entities = [], names = {}) {
   DIM_KINDS.forEach((k) => {
     (config.dims[k.key] || []).forEach((code) => {
       const name = names[k.kind]?.[code];
-      out.push({ key: `${k.key}:${code}`, label: `${k.label}: ${name ? `${name} (${code})` : code}`, patch: { dims: { ...config.dims, [k.key]: config.dims[k.key].filter((c) => c !== code) } } });
+      out.push({ key: `${k.key}:${code}`, label: `${k.one || k.label}: ${name ? `${name} (${code})` : code}`, patch: { dims: { ...config.dims, [k.key]: config.dims[k.key].filter((c) => c !== code) } } });
     });
   });
   (config.accounts || []).forEach((code) => {
@@ -271,8 +314,8 @@ export function filterChips(config, entities = [], names = {}) {
   return out;
 }
 export function dimsText(config) {
-  const out = DIM_KINDS.filter((k) => config.dims[k.key].length)
-    .map((k) => (config.dims[k.key].length === 1 ? `${k.label} ${config.dims[k.key][0]}` : `${config.dims[k.key].length} ${k.plural}`));
+  const out = DIM_KINDS.filter((k) => (config.dims[k.key] || []).length)
+    .map((k) => (config.dims[k.key].length === 1 ? `${k.one || k.label} ${config.dims[k.key][0]}` : `${config.dims[k.key].length} ${k.plural}`));
   if (config.accounts?.length) out.push(`${config.accounts.length} ${config.accounts.length === 1 ? 'account' : 'accounts'}`);
   return out;
 }
@@ -499,7 +542,13 @@ async function readColumns(api, config, entities = []) {
     fetchBuckets(api, config, bucketRange, mode, book, entities),
     isBs ? fetchBuckets(api, config, { from: undefined, to: dayBefore(fyStart) }, mode, book, entities) : Promise.resolve(null),
   ]);
-  const { rows, folded } = foldBuckets(mode, data.rows || []);
+  // A column per PICKED value (Charmi, 10/02): with two employees picked and
+  // By Employee, only those two are columns. The accounting app already
+  // narrows to the picked set; this keeps a stray bucket from adding into
+  // the Total should it ever send one.
+  const pickedKey = MODE_PICKS[mode];
+  const picked = DIM_MODES.includes(mode) && (config.dims?.[pickedKey] || []).length ? new Set(config.dims[pickedKey]) : null;
+  const { rows, folded } = foldBuckets(mode, (data.rows || []).filter((r) => !picked || picked.has(r.bucket)));
   const labels = data.labels || {};
   const statements = statementsByBucket(rows, SECTIONS[report].map(([k]) => k));
   let keys = [...new Set(rows.filter((r) => (isBs ? true : PL_KEYS.includes(r.section))).map((r) => r.bucket))];
@@ -668,6 +717,7 @@ export async function runReport(api, config, entities = []) {
   }
 
   if (config.report === 'general-ledger') return { ...base, ...(await generalLedger(api, config, book, drillCur)) };
+  if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
 
   const read = await readColumns(api, config, entities);
   return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read) };
@@ -698,9 +748,10 @@ async function generalLedger(api, config, book, drillCur) {
   const lines = detail
     ? await Promise.all(accounts.map((a) => api.searchAccountingLedger({ account: a.account_no, from: config.from, to: config.to, book: book === 'cash' ? 'cash' : 'accrual', ...place, limit: GL_MAX_LINES, offset: 0 })))
     : [];
+  // An account heading's or a total's figure opens the lines behind it (Charmi, 10/02); a line is already a line.
   const columns = [
     { key: 'entry', label: 'Entry', type: 'text' }, { key: 'description', label: 'Description', type: 'text' }, { key: 'entity', label: 'Entity', type: 'text' },
-    { key: 'debit', label: 'Debit', type: 'amount' }, { key: 'credit', label: 'Credit', type: 'amount' }, { key: 'balance', label: 'Balance', type: 'amount' },
+    { key: 'debit', label: 'Debit', type: 'amount', drill: drillCur }, { key: 'credit', label: 'Credit', type: 'amount', drill: drillCur }, { key: 'balance', label: 'Balance', type: 'amount', drill: drillCur },
   ];
   const rows = [];
   let totalDebit = 0;
@@ -718,7 +769,7 @@ async function generalLedger(api, config, book, drillCur) {
       running = round2(running + glSigned(l));
       rows.push({ kind: 'line', section: key, label: formatDate(l.entry_date), entryId: l.entry_id, values: [l.entry_no || '', l.description || l.memo || '', l.location_name || l.location || '', round2(l.debit), round2(l.credit), running] });
     });
-    if (detail) rows.push({ kind: 'subtotal', section: key, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
+    if (detail) rows.push({ kind: 'subtotal', section: key, code: key, title: a.title, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
     totalDebit = round2(totalDebit + (a.debit || 0));
     totalCredit = round2(totalCredit + (a.credit || 0));
   });
@@ -732,6 +783,95 @@ async function generalLedger(api, config, book, drillCur) {
     { label: 'Lines', value: rows.filter((r) => r.kind === 'line').length.toLocaleString('en-US') },
   ];
   return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Date / Account' };
+}
+
+// ── Flux Analysis ────────────────────────────────────────────────────────────
+// This period against the one before it (or the same period last year), per
+// income statement account: the two figures, Variance $ and Variance %, a
+// flag when BOTH thresholds are passed (10% and $5,000 to start - the usual
+// audit rule; one alone flags every small account or every big one), and an
+// Explanation kept per account and period. Statement sections and subtotals
+// read as on the income statement, so the net income flux is on the page too.
+const FLUX_NOTE_AT = 5;   // the Explanation column's index in a flux row's values
+/**
+ * The variance lines of a flux: `cur` and `prior` are pnl `sections`
+ * ([{ key, accounts: [{ account_no, title, amount }] }]). Returns
+ * [{ code, title, section, cur, prior, variance, pct, flag }], variance =
+ * cur - prior, pct = variance / |prior| (NaN when prior is 0), flag when
+ * |variance| >= amount AND (|pct| >= pct% or prior is 0 and amount passed).
+ */
+export function fluxRows(cur, prior, { fluxPct = FLUX_DEFAULTS.fluxPct, fluxAmount = FLUX_DEFAULTS.fluxAmount } = {}) {
+  const byAccount = new Map();
+  const take = (sections, side) => (sections || []).forEach((s) => (s.accounts || []).forEach((a) => {
+    const row = byAccount.get(keyOf(a)) || { code: a.account_no || '', title: a.title, section: s.key, cur: 0, prior: 0 };
+    row[side] = round2(row[side] + (a.amount || 0));
+    byAccount.set(keyOf(a), row);
+  }));
+  take(cur, 'cur');
+  take(prior, 'prior');
+  const out = [...byAccount.values()].map((r) => {
+    const variance = round2(r.cur - r.prior);
+    const pct = Math.abs(r.prior) < 0.005 ? Number.NaN : variance / Math.abs(r.prior);
+    const overAmount = Math.abs(variance) >= fluxAmount - 0.005;
+    const overPct = Number.isNaN(pct) ? Math.abs(variance) >= 0.005 : Math.abs(pct) * 100 >= fluxPct - 0.0005;
+    return { ...r, variance, pct, flag: overAmount && overPct };
+  });
+  return out.sort((x, y) => x.code.localeCompare(y.code, 'en-US', { numeric: true }));
+}
+async function fluxAnalysis(api, config, book) {
+  const range = { from: config.from, to: config.to };
+  const prior = activeColumns(config) === 'prior_year' ? { from: yearBack(config.from), to: yearBack(config.to) } : (([from, to]) => ({ from, to }))(priorPeriod(config.from, config.to));
+  const [a, b] = await Promise.all([fetchStatement(api, { ...config, report: 'pnl' }, range, book), fetchStatement(api, { ...config, report: 'pnl' }, prior, book)]);
+  const rangeText = (r) => `${formatDate(r.from)} - ${formatDate(r.to)}`;
+  const drillOf = (r) => ({ from: r.from, to: r.to, book });
+  const columns = [
+    { key: 'cur', label: rangeText(range), type: 'amount', drill: drillOf(range) },
+    { key: 'prior', label: rangeText(prior), type: 'amount', drill: drillOf(prior) },
+    { key: 'var', label: 'Variance $', type: 'variance' }, { key: 'pct', label: 'Variance %', type: 'pct' },
+    { key: 'flag', label: 'Flag', type: 'text' }, { key: 'note', label: 'Explanation', type: 'text' },
+  ];
+  const lines = fluxRows(a.sections, b.sections, config);
+  const wanted = config.accounts?.length ? new Set(config.accounts) : null;
+  const rows = [];
+  const pickable = [];
+  const totals = {};
+  const vals = (c, p) => [c, p, round2(c - p), pct(c, p), '', ''];
+  SECTIONS.pnl.forEach(([key, label]) => {
+    let accounts = lines.filter((r) => r.section === key);
+    accounts.forEach((r) => { if (r.code) pickable.push({ code: r.code, title: r.title, section: label }); });
+    if (wanted) accounts = accounts.filter((r) => !r.code || wanted.has(r.code));
+    totals[key] = [round2(accounts.reduce((s, r) => s + r.cur, 0)), round2(accounts.reduce((s, r) => s + r.prior, 0))];
+    const shown = config.showZero ? accounts : accounts.filter((r) => Math.abs(r.cur) >= 0.005 || Math.abs(r.prior) >= 0.005);
+    if (!shown.length && totals[key].every((v) => Math.abs(v) < 0.005)) return;
+    rows.push({ kind: 'section', section: key, label, count: shown.length, values: vals(...totals[key]) });
+    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Review' : '', ''] }));
+  });
+  const t = (k) => totals[k] || [0, 0];
+  const at = (i) => {
+    const gross = t('revenue')[i] - t('cogs')[i];
+    const operating = gross - t('expense')[i];
+    return { gross: round2(gross), operating: round2(operating), net: round2(operating + t('other_income')[i] - t('other_expense')[i]) };
+  };
+  const [c, p] = [at(0), at(1)];
+  if (rows.length) {
+    rows.push({ kind: 'subtotal', label: 'Gross Profit', values: vals(c.gross, p.gross) });
+    rows.push({ kind: 'subtotal', label: 'Operating Income', values: vals(c.operating, p.operating) });
+    rows.push({ kind: 'grand', label: 'Net Income', tone: true, values: vals(c.net, p.net) });
+  }
+  const flagged = rows.filter((r) => r.kind === 'account' && r.flag).length;
+  const summary = [
+    { label: 'Net Income', value: money(c.net), amount: c.net, tone: c.net >= 0 ? 'good' : 'bad' },
+    { label: 'Prior', value: money(p.net), amount: p.net },
+    { label: 'Change', value: [money(c.net - p.net), pct(c.net, p.net)].filter(Boolean).join(' · '), tone: c.net - p.net >= 0 ? 'good' : 'bad' },
+    { label: 'Flagged', value: String(flagged) },
+  ];
+  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). Click an Explanation cell to write why the account moved; the note is kept for this entity set and period.`];
+  return { org: a.org || '', generatedAt: a.generated_at || '', mode: 'compare', otherLabel: rangeText(prior), columns, rows, summary, pickable, notes, flux: { period: `${config.from}_${config.to}` } };
+}
+/** The flux result with the kept explanations filled in: `notes` = { accountNo: text }. */
+export function withFluxNotes(result, notes) {
+  if (!result?.flux) return result;
+  return { ...result, rows: result.rows.map((r) => (r.kind === 'account' && r.code ? { ...r, values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? notes?.[r.code] || '' : v)) } : r)) };
 }
 
 // ── Adjustments on a statement (packages) ────────────────────────────────────
@@ -828,6 +968,21 @@ export function csvFileName(result) {
   const who = config.entities.length === 1 ? config.entities[0] : config.entities.length ? 'entities' : 'all-entities';
   const cols = activeColumns(config) === 'total' ? '' : `_${activeColumns(config)}`;
   return `${def.label.replace(/[^A-Za-z]+/g, '-')}_${who}_${config.book}${cols}_${stamp}.csv`;
+}
+
+/**
+ * The statement's name as a file someone else will find (Charmi, 10/02: "I am
+ * not sure where will this be stored?"): "Income Statement - Darshana R.
+ * Kadakia MD Inc. (13000) - 01-01-2026 to 12-31-2026.pdf". `format`: pdf,
+ * excel (.xlsx) or csv.
+ */
+export function reportFileName(result, entities = [], format = 'pdf') {
+  const { config, def } = result;
+  const d = (s) => formatDate(s).replace(/\//g, '-');
+  const when = def.period === 'asof' ? `as of ${d(config.asof)}` : `${d(config.from)} to ${d(config.to)}`;
+  const safe = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const ext = format === 'excel' ? 'xlsx' : format === 'csv' ? 'csv' : 'pdf';
+  return `${safe(def.label)} - ${safe(entityText(config, entities))} - ${when}.${ext}`;
 }
 
 const csvCell = (v) => {

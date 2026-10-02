@@ -205,7 +205,8 @@ function _isRetryable(options) {
 // array of Intacct codes; an empty or missing key adds nothing.
 function dimsQuery(dims) {
   if (!dims) return "";
-  return ["locations", "departments", "vendor", "customer", "employee", "project", "item"]
+  // `journals` (Neil, 10/02): journal symbols, passed through on every report read.
+  return ["locations", "departments", "vendor", "customer", "employee", "project", "item", "journals"]
     .filter((k) => Array.isArray(dims[k]) && dims[k].length)
     .map((k) => `&${k}=${encodeURIComponent(dims[k].join(","))}`)
     .join("");
@@ -1059,12 +1060,15 @@ export const api = {
   deletePfsLine: (id, lineId) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
   getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),
-  producePfsStatement: (id, asof) =>
-    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof }) }),
+  producePfsStatement: (id, asof, format = "pdf") =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof, format }) }),
   getPfsStatements: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/statements`),
   getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
   getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
   getPfsLedgerAccounts: (entity, asof) => req(`/pfs/ledger/accounts?entity=${encodeURIComponent(entity)}&asof=${asof}`),
+  // "Move to...": a line's section and category, nothing else (Charmi, 10/01).
+  movePfsLine: (id, lineId, section, category) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
@@ -1791,6 +1795,40 @@ export const api = {
   shiftRequestSettingsGet: ()      => req('/timeclock/shift-requests/settings'),
   timeOffListRange:    (status = '', from = '', to = '', limit = 2000) =>
     req(`/timeclock/timeoff?status=${encodeURIComponent(status)}&from=${from}&to=${to}&limit=${limit}`),
+  // ── Accounting > Reports, batch of 10/02 (Charmi, Neil): the journal list
+  //    for the Journals filter ({available, journals}; available false = the
+  //    accounting app has no list yet), and the Flux Analysis explanation
+  //    notes kept per entity set, account and period ──
+  getAccountingJournals:   ()               => req('/accounting/journals'),
+  getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
+  saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
+
+  // ── Accounting, Oct 2 (Charmi and Neil, 10/01 call) ──
+  // Budget per entity and year (contract B1/B2 through the backend proxy).
+  // A 501 means the accounting app has not shipped the route yet.
+  getAccountingBudget:  (location, year, source = '') => req(`/accounting/budgets?location=${encodeURIComponent(location)}&year=${year}${source ? `&source=${source}` : ''}`),
+  saveAccountingBudget: (body) => req('/accounting/budgets', { method: 'PUT', body: JSON.stringify(body) }),
+  // Vendors and customers as Intacct has them (contract V1), and the change
+  // requests Nexus keeps for them.
+  getAccountingPartners:        (kind, q = '') => req(`/accounting/partners?kind=${encodeURIComponent(kind)}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
+  getAccountingPartnerChanges:  (status = '', kind = '') => req(`/accounting/partners/changes?status=${encodeURIComponent(status)}&kind=${encodeURIComponent(kind)}`),
+  createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
+  decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
+  exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // The monthly payroll allocation entry: the mapping, a preview for a month,
+  // the runs kept, and a run as an Intacct GL import CSV or a workbook.
+  getAllocationsMap:    () => req('/accounting/allocations/map'),
+  saveAllocationsMap:   (map) => req('/accounting/allocations/map', { method: 'PUT', body: JSON.stringify(map) }),
+  previewAllocations:   (month) => req(`/accounting/allocations/preview?month=${month}`, { timeoutMs: 120_000 }),
+  getAllocationRuns:    () => req('/accounting/allocations/runs'),
+  saveAllocationRun:    (body) => req('/accounting/allocations/runs', { method: 'POST', body: JSON.stringify(body) }),
+  deleteAllocationRun:  (id) => req(`/accounting/allocations/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  allocationRunCsv:     (id) => reqBlob(`/accounting/allocations/runs/${encodeURIComponent(id)}/export.csv`),
+  allocationRunExcel:   (id) => reqBlob(`/accounting/allocations/runs/${encodeURIComponent(id)}/export.xlsx`),
+  // Payroll for the period as an Intacct GL import (same layout), next to the
+  // QuickBooks IIF on the team timecard.
+  timeExportIntacct:    (start, end, { journal = 'PYRJ', expense = '', clearing = '', location = '' } = {}) =>
+    reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

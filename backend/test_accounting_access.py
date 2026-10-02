@@ -77,11 +77,18 @@ class AccountingAccessTests(unittest.TestCase):
         self.calls = []
         self.entry_lines = [{"location": "15000"}, {"location": "15000-1"}]
 
+        self.journals = [{"symbol": "APJ", "title": "Accounts Payable", "kind": "ap"}, {"symbol": "GJ", "title": "General Journal", "kind": "general"},
+                         {"symbol": "STAT", "title": "Units", "kind": "statistical"}, {"symbol": "UDJ1", "title": "Allocations", "kind": "nonsense"}]
+
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
             self.calls.append((path, clean))
             if path.endswith("/reports/locations"):
                 return {"ok": True, "entities": ENTITIES}
+            if path.endswith("/journals"):
+                if self.journals is None:
+                    raise accounting.UpstreamError(404, "Accounting service returned 404")
+                return {"ok": True, "journals": self.journals}
             if path.endswith("/reports/cash-position"):
                 bal = {"15000": 100.25, "56000": 50.5}.get(clean.get("location"), 1000.0)
                 return {"ok": True, "location": clean.get("location"), "total": bal,
@@ -220,6 +227,38 @@ class AccountingAccessTests(unittest.TestCase):
         _as(ONE)
         self.client.get("/accounting/reports/buckets?to=2026-09-28&by=department")
         self.assertEqual(self._sent("/reports/buckets")[-1], {"to": "2026-09-28", "by": "department", "location": "15000"})
+
+    def test_journals_travel_on_the_five_report_reads(self):
+        """Neil, 10/02: the Journals filter (AP, AR, user defined, statistical)
+        passes through as `journals` on pnl, balance-sheet, trial-balance,
+        buckets and search (CONTRACT2 J2); empty = every journal, as before."""
+        _as(OPEN)
+        self.client.get("/accounting/reports/pnl?from=2026-09-01&to=2026-09-25&journals=apj,ARJ,apj")
+        self.assertEqual(self._sent("/reports/pnl")[-1]["journals"], "APJ,ARJ")
+        self.client.get("/accounting/reports/balance-sheet?asof=2026-09-25&journals=GJ")
+        self.assertEqual(self._sent("/reports/balance-sheet")[-1]["journals"], "GJ")
+        self.client.get("/accounting/reports/trial-balance?from=2026-09-01&to=2026-09-25&journals=GJ,PRJ")
+        self.assertEqual(self._sent("/reports/trial-balance")[-1]["journals"], "GJ,PRJ")
+        self.client.get("/accounting/reports/buckets?to=2026-09-28&by=month&journals=STAT")
+        self.assertEqual(self._sent("/reports/buckets")[-1]["journals"], "STAT")
+        self.client.get("/accounting/search?q=amazon&journals=APJ")
+        self.assertEqual(self._sent("/search")[-1]["journals"], "APJ")
+        self.client.get("/accounting/reports/pnl?from=2026-09-01&to=2026-09-25&journals=")
+        self.assertNotIn("journals", self._sent("/reports/pnl")[-1])
+        self.assertEqual(self.client.get("/accounting/reports/pnl?from=2026-09-01&to=2026-09-25&journals=A%20B").status_code, 400)
+
+    def test_journal_list_and_not_available_yet(self):
+        """GET /accounting/journals (CONTRACT2 J1): symbols with their kind, an
+        unknown kind read as user defined; the accounting app's 404 answers
+        {available: false} so the filter can say "Not available yet"."""
+        _as(LIMITED)
+        r = self.client.get("/accounting/journals")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["available"])
+        self.assertEqual([(j["symbol"], j["kind"]) for j in r.json()["journals"]], [("GJ", "general"), ("APJ", "ap"), ("UDJ1", "user"), ("STAT", "statistical")])
+        self.journals = None
+        accounting._ACCT_CACHE.clear()
+        self.assertEqual(self.client.get("/accounting/journals").json(), {"available": False, "journals": []})
 
     # ── search, entry ───────────────────────────────────────────────────────
     def test_search_limit_and_column_filters(self):

@@ -46,6 +46,16 @@ def _upstream_detail(r) -> str:
     return f"Accounting service returned {r.status_code}"
 
 
+class UpstreamError(HTTPException):
+    """The accounting app refused (424 to the screen); `upstream_status` is
+    what it answered, so a route can tell "not built yet" (404) from a
+    failure - the Journals filter says "Not available yet" on a 404 (Oct 2)."""
+
+    def __init__(self, upstream_status: int, detail: str):
+        super().__init__(status_code=424, detail=detail)
+        self.upstream_status = upstream_status
+
+
 def _acct_get_sync(path: str, params: dict) -> dict:
     r = httpx.get(
         f"{_ACCT_BASE}{path}",
@@ -54,8 +64,11 @@ def _acct_get_sync(path: str, params: dict) -> dict:
         timeout=30,
     )
     if r.status_code != 200:
-        raise HTTPException(status_code=424, detail=_upstream_detail(r))
+        raise UpstreamError(r.status_code, _upstream_detail(r))
     data = r.json()
+    # CONTRACT2 J1 shows a bare list; the existing routes answer {ok, ...}.
+    if isinstance(data, list):
+        return {"ok": True, "rows": data}
     if not data.get("ok"):
         raise HTTPException(status_code=424, detail=data.get("error") or "Accounting service error")
     return data
@@ -176,17 +189,67 @@ def _dims(locations, departments, vendor, customer, employee, project, item) -> 
     return {k: v for k, v in zip(_DIM_KEYS, vals) if v}
 
 
+# Journals (Neil, 10/02: "User Defined journals and statistical journals ...
+# AP and AR as well"): a comma-separated list of journal symbols (APJ, ARJ,
+# GJ, PRJ ...) passed through to the five report reads as `journals`
+# (CONTRACT2 J2). Empty = every journal, as before. A statistical journal
+# never adds into money totals - the accounting app leaves it out of sums
+# and the drill-down shows its lines.
+_JOURNAL = re.compile(r"^[A-Za-z0-9_.-]{1,24}$")
+
+
+def _journals(v: str | None) -> str | None:
+    codes = []
+    for c in _csv(v):
+        if not _JOURNAL.fullmatch(c):
+            raise HTTPException(status_code=400, detail=f"journals: {c!r} is not a journal symbol")
+        if c.upper() not in codes:
+            codes.append(c.upper())
+    return ",".join(codes) or None
+
+
+_JOURNAL_KINDS = ("general", "ap", "ar", "payroll", "user", "statistical")
+
+
+@router.get("/journals")
+async def list_journals(scope: dict = Depends(entity_scope)):
+    """Every journal on the ledger, with its kind, for the Journals filter on
+    Reports (CONTRACT2 J1). The accounting app may not have the route yet:
+    its 404 answers {available: false} and the screen says "Not available
+    yet" instead of failing."""
+    try:
+        data = await _acct_get("/api/internal/journals", {})
+    except HTTPException as e:
+        if getattr(e, "upstream_status", None) == 404 or "returned 404" in str(e.detail):
+            return {"available": False, "journals": []}
+        raise
+    raw = data.get("journals") if isinstance(data.get("journals"), list) else data.get("rows") or []
+    out = []
+    seen = set()
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        symbol = str(r.get("symbol") or r.get("code") or "").strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        kind = str(r.get("kind") or "").strip().lower()
+        out.append({"symbol": symbol, "title": str(r.get("title") or r.get("name") or "").strip(), "kind": kind if kind in _JOURNAL_KINDS else "user"})
+    out.sort(key=lambda j: (_JOURNAL_KINDS.index(j["kind"]), j["symbol"]))
+    return {"available": True, "journals": out}
+
+
 @router.get("/reports/pnl")
 async def report_pnl(
     from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None,
     locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
     employee: str | None = None, project: str | None = None, item: str | None = None,
-    book: str | None = None, scope: dict = Depends(entity_scope),
+    book: str | None = None, journals: str | None = None, scope: dict = Depends(entity_scope),
 ):
     """Income statement between two ISO dates, optionally for one Intacct
     location and any mix of dimensions, from the accrual or the cash book."""
     location, locations = await _limit(scope, location, locations)
-    return await _acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location, "book": _book(book), **_dims(locations, departments, vendor, customer, employee, project, item)})
+    return await _acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location, "book": _book(book), "journals": _journals(journals), **_dims(locations, departments, vendor, customer, employee, project, item)})
 
 
 @router.get("/reports/locations")
@@ -214,11 +277,11 @@ async def report_balance_sheet(
     asof: str = Query(...), location: str | None = None,
     locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
     employee: str | None = None, project: str | None = None, item: str | None = None,
-    book: str | None = None, scope: dict = Depends(entity_scope),
+    book: str | None = None, journals: str | None = None, scope: dict = Depends(entity_scope),
 ):
     """Balance sheet as of an ISO date, optionally for one entity and any mix of dimensions."""
     location, locations = await _limit(scope, location, locations)
-    return await _acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location, "book": _book(book), **_dims(locations, departments, vendor, customer, employee, project, item)})
+    return await _acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location, "book": _book(book), "journals": _journals(journals), **_dims(locations, departments, vendor, customer, employee, project, item)})
 
 
 @router.get("/reports/trial-balance")
@@ -226,11 +289,11 @@ async def report_trial_balance(
     from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None,
     locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
     employee: str | None = None, project: str | None = None, item: str | None = None,
-    book: str | None = None, scope: dict = Depends(entity_scope),
+    book: str | None = None, journals: str | None = None, scope: dict = Depends(entity_scope),
 ):
     """Trial balance for a date range, optionally for one entity and any mix of dimensions."""
     location, locations = await _limit(scope, location, locations)
-    return await _acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location, "book": _book(book), **_dims(locations, departments, vendor, customer, employee, project, item)})
+    return await _acct_get("/api/internal/reports/trial-balance", {"from": from_, "to": to, "location": location, "book": _book(book), "journals": _journals(journals), **_dims(locations, departments, vendor, customer, employee, project, item)})
 
 
 @router.get("/reports/cash-position")
@@ -262,7 +325,7 @@ async def report_buckets(
     to: str = Query(...), from_: str | None = Query(default=None, alias="from"), by: str = "total", location: str | None = None,
     locations: str | None = None, departments: str | None = None, vendor: str | None = None, customer: str | None = None,
     employee: str | None = None, project: str | None = None, item: str | None = None,
-    book: str | None = None, scope: dict = Depends(entity_scope),
+    book: str | None = None, journals: str | None = None, scope: dict = Depends(entity_scope),
 ):
     """Sums per account per COLUMN, for the Columns dropdown on Reports (Sep 29:
     the same layouts the accounting app's Reports page offers - By Month, By
@@ -274,7 +337,7 @@ async def report_buckets(
         raise HTTPException(status_code=400, detail=f"by must be one of {', '.join(_BUCKET_BY)}")
     location, locations = await _limit(scope, location, locations)
     return await _acct_get("/api/internal/reports/buckets", {
-        "from": from_, "to": to, "by": by, "location": location, "book": _book(book),
+        "from": from_, "to": to, "by": by, "location": location, "book": _book(book), "journals": _journals(journals),
         **_dims(locations, departments, vendor, customer, employee, project, item),
     })
 
@@ -293,6 +356,7 @@ async def search_ledger(
     party: str | None = None,
     account: str | None = None,
     journal: str | None = None,
+    journals: str | None = None,
     min_: str | None = Query(default=None, alias="min"),
     max_: str | None = Query(default=None, alias="max"),
     book: str | None = None,
@@ -324,7 +388,7 @@ async def search_ledger(
     return await _acct_get("/api/internal/search", {
         "q": (q or "").strip() or None, "location": location, "locations": locations, "from": from_, "to": to,
         "party_kind": party_kind if party else None, "party": party,
-        "account": account, "journal": journal, "min": min_, "max": max_,
+        "account": account, "journal": journal, "journals": _journals(journals), "min": min_, "max": max_,
         "book": book, "cols": col_filters, "offset": max(0, offset), "limit": max(1, min(limit, 1000)),
     })
 

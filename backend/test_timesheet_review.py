@@ -262,6 +262,26 @@ class SigningTests(ReviewCase):
         self.assertEqual(len(PdfReader(io.BytesIO(pdf)).pages), last + 1)
         self.assertTrue(all(f["page"] == last for f in tsr._sig_fields(last)))
 
+    def test_the_employee_attests_above_their_signature(self):
+        """Charmi, Oct 1: the paper time sheet's statement, boxed just above the
+        employee's signature line - and clear of where their signature lands."""
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        pdf, last = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        page = PdfReader(io.BytesIO(pdf)).pages[last]
+        found = []
+        page.extract_text(visitor_text=lambda t, cm, tm, fd, fs: found.append((t.strip(), tm[5])) if t.strip() else None)
+        text = " ".join(t for t, _y in found)
+        self.assertIn("By execution and signature of this time sheet, I agree I have reviewed this", text)
+        self.assertIn("accurate and correct.", text)
+        y_of = {t: y for t, y in found}
+        height = float(page.mediabox.height)
+        sign_top = height - tsr._SIG_TOP * height                 # top edge of the employee's signature field
+        att_y = min(y for t, y in found if "accurate and correct" in t)
+        self.assertGreater(att_y, sign_top)                       # above the field: never under the signature
+        self.assertGreater(att_y, y_of["Employee"])               # and above the Employee row
+
 
 class StateTests(ReviewCase):
     def test_what_each_viewer_may_do(self):

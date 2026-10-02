@@ -272,7 +272,7 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
               <option value="">All Categories</option>
               {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
+            <button className="primary-btn" data-tour="documents-new-template" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
               <Plus size={13} /> New Template
             </button>
             <div style={{ position: 'relative', maxWidth: 320, flex: '1 1 220px' }}>

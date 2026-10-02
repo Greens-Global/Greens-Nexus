@@ -39,6 +39,28 @@ BOOKS = {
     "60100": [("asset", "10100", "Operating Chkg 7546", 1_000_000.00), ("asset", "10120", "Savings 2017", 250_000.50),
               ("liability", "25000", "Loan Payable - F&M Bank", 400_000.00)],
     "15000": [("asset", "10100", "Escondido Chkg", 80_000.00), ("liability", "25100", "Mortgage - Escondido", 2_000_000.00)],
+    # A family entity the way Charmi's screenshot showed it (10/01): bank
+    # accounts without "bank" in their name, a 401k, a brokerage, land and a
+    # building with their mortgage, a line of credit and a credit card.
+    "70000": [("asset", "11301", "NRK & ANK - F&M - 6870", 12_000.00), ("asset", "11352", "ANK Earmarked ETC-7047", 5_000.00),
+              ("asset", "11309", "ANK - 401K - Fidelity - 6165", 327.85), ("asset", "11348", "WeBull Brokerage Account", 101.00),
+              ("asset", "12000", "Accounts Receivable", 900.00), ("asset", "15100", "Land - Escondido", 400_000.00),
+              ("asset", "15200", "Building - Escondido", 1_600_000.00), ("asset", "15900", "Accumulated Depreciation", -200_000.00),
+              ("liability", "25100", "Mortgage - Escondido - F&M", 1_200_000.00), ("liability", "24000", "Line of Credit - Chase", 50_000.00),
+              ("liability", "23000", "Amex Credit Card", 4_000.00), ("liability", "22000", "Accrued Payroll", 7_000.00)],
+}
+# The P&L of the Escondido entity for a year, for Schedule E; of the
+# business for Schedule C.
+PNL = {
+    "70000": {"revenue": [("40000", "Rental Income", 120_000.00)], "cogs": [],
+              "expense": [("60100", "Property Management Fees", 9_600.00), ("60200", "Repairs", 3_100.00), ("60300", "Property Taxes", 14_000.00),
+                          ("60400", "Mortgage Interest", 42_000.00), ("60500", "Gas and Electric", 2_400.00), ("60600", "Depreciation Expense", 30_000.00),
+                          ("60700", "HOA Dues", 1_200.00)],
+              "other_income": [], "other_expense": []},
+    "60100": {"revenue": [("40000", "Service Revenue", 500_000.00)], "cogs": [("50000", "Cost of Services", 150_000.00)],
+              "expense": [("61000", "Salaries and Wages", 120_000.00), ("61100", "Office Supplies", 2_000.00), ("61200", "Rent Expense", 36_000.00),
+                          ("61300", "Legal Fees", 4_000.00), ("61400", "Meals", 1_000.00), ("61500", "Bank Fees", 300.00)],
+              "other_income": [], "other_expense": [("69000", "Interest Expense", 2_500.00)]},
 }
 
 
@@ -75,6 +97,10 @@ class PfsTests(unittest.TestCase):
                 sections = [{"key": key, "accounts": [{"account_no": c, "title": t, "amount": a} for (k, c, t, a) in rows if k == key]}
                             for key in ("asset", "liability", "equity")]
                 return {"ok": True, "sections": sections}
+            if path.endswith("/reports/pnl"):
+                book = PNL.get(params.get("location"), {})
+                return {"ok": True, "sections": [{"key": k, "accounts": [{"account_no": c, "title": t, "amount": a} for (c, t, a) in book.get(k, [])]}
+                                                 for k in ("revenue", "cogs", "expense", "other_income", "other_expense")]}
             return {"ok": True, "entities": [{"code": "60100", "name": "Business - ANK", "parent_code": None}]}
 
         self._get = accounting._acct_get
@@ -257,7 +283,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json=body).json()["added"], 0)
         st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
         self.assertEqual(st["totals"]["assets"], 500000.0 + 250000.5)
-        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json={**body, "section": "real_estate"}).status_code, 400)
+        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json={**body, "section": "equity"}).status_code, 400)
         _as(VIEWER)
         self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json=body).status_code, 403)
 
@@ -280,6 +306,167 @@ class PfsTests(unittest.TestCase):
         self.assertEqual([(a["code"], a["section"], a["amount"]) for a in r["accounts"]],
                          [("10100", "asset", 1000000.0), ("10120", "asset", 250000.5), ("25000", "liability", 400000.0)])
         self.assertEqual(self.client.get("/pfs/ledger/accounts?entity=60100&asof=yesterday").status_code, 400)
+
+    # ── Oct 2: classification, Move to..., bulk liabilities and real estate,
+    #    co-borrower, jewelry, Schedule E and C ─────────────────────────────
+    def test_ledger_accounts_are_classified(self):
+        """Charmi, 10/01: "these are bank accounts" - a cash-range account
+        with no "bank" in its name is a bank account; IRA / 401k titles are
+        retirement; a brokerage is investment; loans, lines of credit and
+        credit cards are their liability categories; land and buildings are
+        real estate; contra and working-capital accounts fall to Other."""
+        _as(EDITOR)
+        r = self.client.get("/pfs/ledger/accounts?entity=70000&asof=2026-09-28").json()
+        got = {a["code"]: (a["suggested"]["section"], a["suggested"]["category"]) for a in r["accounts"]}
+        self.assertEqual(got["11301"], ("asset", "bank"))            # "NRK & ANK - F&M - 6870"
+        self.assertEqual(got["11352"], ("asset", "bank"))            # "ANK Earmarked ETC-7047"
+        self.assertEqual(got["11309"], ("asset", "retirement"))
+        self.assertEqual(got["11348"], ("asset", "investment"))
+        self.assertEqual(got["12000"], ("asset", "other_holding"))
+        self.assertEqual(got["15100"], ("real_estate", "domestic_commercial"))
+        self.assertEqual(got["15200"], ("real_estate", "domestic_commercial"))
+        self.assertEqual(got["15900"], ("asset", "other_holding"))
+        self.assertEqual(got["25100"], ("liability", "business_loan"))
+        self.assertEqual(got["24000"], ("liability", "loc"))
+        self.assertEqual(got["23000"], ("liability", "credit_card"))
+        self.assertEqual(got["22000"], ("liability", "other_liability"))
+        # The account's own type, when the accounting app sends one, wins over the title.
+        self.assertEqual(pfs.classify_account("asset", "19900", "Misc Holding", "cash_bank"), ("asset", "bank"))
+        self.assertEqual(pfs.classify_account("liability", "25000", "Loan Payable", "credit_card"), ("liability", "credit_card"))
+        self.assertEqual(pfs.classify_account("asset", "11400", "Roth IRA - Schwab", ""), ("asset", "retirement"))
+        self.assertEqual(pfs.classify_account("asset", "11410", "HSA - Optum", ""), ("asset", "retirement"))
+        self.assertEqual(pfs.classify_account("asset", "11500", "Vanguard Investments", ""), ("asset", "investment"))
+        self.assertEqual(pfs.classify_account("asset", "13000", "Prepaid Insurance", ""), ("asset", "other_holding"))
+        self.assertEqual(pfs.classify_account("liability", "26000", "Auto Loan - Toyota", ""), ("liability", "auto"))
+        self.assertEqual(pfs.classify_account("liability", "27000", "HDFC Loan - Pune", ""), ("liability", "international"))
+
+    def test_move_a_line_between_categories(self):
+        pid = self._profile()["id"]
+        line = self._line(pid, section="asset", category="other_holding", label="NRK & ANK - F&M - 6870", source="ledger",
+                          ledgerEntity="70000", ledgerAccounts=["11301"])
+        r = self.client.patch(f"/pfs/profiles/{pid}/lines/{line['id']}/move", json={"section": "asset", "category": "bank"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["section"], r.json()["category"], r.json()["ledgerAccounts"]), ("asset", "bank", ["11301"]))
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        self.assertEqual([g["key"] for g in st["assets"]], ["bank"])
+        # Across sections too: into real estate the line gets an empty loan so the schedule can read it.
+        r = self.client.patch(f"/pfs/profiles/{pid}/lines/{line['id']}/move", json={"section": "real_estate", "category": "domestic_residential"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["details"]["loan"], {"source": "manual", "value": 0})
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        self.assertEqual((st["assets"], [g["key"] for g in st["realEstate"]]), ([], ["domestic_residential"]))
+        self.assertEqual(self.client.patch(f"/pfs/profiles/{pid}/lines/{line['id']}/move", json={"section": "asset", "category": "auto"}).status_code, 400)
+        _as(VIEWER)
+        self.assertEqual(self.client.patch(f"/pfs/profiles/{pid}/lines/{line['id']}/move", json={"section": "asset", "category": "bank"}).status_code, 403)
+        db = database.SessionLocal()
+        try:
+            moved = db.query(models.AuditLog).filter(models.AuditLog.resource_type == "pfs", models.AuditLog.action == "pfs_line_moved").all()
+            self.assertEqual(len(moved), 2)
+            self.assertNotIn("12000", "".join(a.details for a in moved))   # never a figure
+        finally:
+            db.close()
+
+    def test_bulk_liabilities_and_real_estate(self):
+        """Charmi, 10/01: "The wiring is not done here and also Real Estate" -
+        liabilities by category, and a land or building account as a property
+        line whose loan is the mortgage account of the same entity."""
+        pid = self._profile()["id"]
+        r = self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json={
+            "section": "liability", "category": "other_liability", "entity": "70000", "entityName": "Escondido", "ownershipPct": 50,
+            "accounts": [{"code": "24000", "label": "Line of Credit - Chase", "category": "loc"}, {"code": "23000", "label": "Amex Credit Card", "category": "credit_card"}]})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(sorted((l["category"], l["ownershipPct"]) for l in r.json()["lines"]), [("credit_card", 50.0), ("loc", 50.0)])
+        r = self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json={
+            "section": "real_estate", "category": "domestic_commercial", "entity": "70000", "entityName": "Greens Escondido, LLC", "ownershipPct": 50,
+            "accounts": [{"code": "15200", "label": "Building - Escondido", "category": "domestic_commercial", "loanAccount": "25100"},
+                         {"code": "15100", "label": "Land - Escondido", "category": "domestic_commercial"}]})
+        self.assertEqual(r.status_code, 201, r.text)
+        by = {l["ledgerAccounts"][0]: l for l in r.json()["lines"]}
+        self.assertEqual(by["15200"]["details"]["loan"], {"source": "ledger", "entity": "70000", "accounts": ["25100"]})
+        self.assertEqual(by["15200"]["details"]["legal_owner"], "Greens Escondido, LLC")
+        self.assertEqual(by["15100"]["details"]["loan"], {"source": "manual", "value": 0})
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        re_ = st["realEstate"][0]
+        rows = {r["label"]: r for r in re_["rows"]}
+        self.assertEqual((rows["Building - Escondido"]["valueAdjusted"], rows["Building - Escondido"]["loanAdjusted"], rows["Building - Escondido"]["equity"]), (800000.0, 600000.0, 200000.0))
+        self.assertEqual((rows["Land - Escondido"]["valueAdjusted"], rows["Land - Escondido"]["loanAdjusted"]), (200000.0, 0.0))
+        self.assertEqual([(g["key"], g["total"]) for g in st["liabilities"]], [("loc", 25000.0), ("credit_card", 2000.0)])
+        self.assertEqual(st["totals"], {"assets": 1000000.0, "liabilities": 627000.0, "netWorth": 373000.0})
+        # Asked again: nothing doubles.
+        self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json={
+            "section": "real_estate", "category": "domestic_commercial", "entity": "70000", "accounts": [{"code": "15100"}]}).json()["added"], 0)
+
+    def test_co_borrower_is_kept_without_a_full_social_security_number(self):
+        """Charmi, 10/01: spouse / co-borrower details. Last four of the SSN
+        only - a longer value is refused, not trimmed."""
+        pid = self._profile()["id"]
+        co = {"name": "Archana Kadakia", "date_of_birth": "1975-05-04", "ssn_last4": "4321", "phone": "(760) 555-0100", "email": "archana@example.com",
+              "address": "1 Main St", "city_state_zip": "Escondido, CA 92025", "employer": "Greens Global", "title": "Director", "marital_status": "Married", "junk": "x"}
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "details": {"coBorrower": co}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["details"]["coBorrower"], {k: v for k, v in co.items() if k != "junk"})
+        self.assertEqual(r.json()["displayName"], "Neil R. Kadakia and Archana Kadakia")
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "details": {"coBorrower": {**co, "ssn_last4": "123-45-6789"}}})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("last four", r.json()["detail"])
+        db = database.SessionLocal()
+        try:
+            self.assertNotIn("6789", str(db.query(models.PfsProfile).filter(models.PfsProfile.id == pid).first().details))
+        finally:
+            db.close()
+
+    def test_jewelry_is_its_own_category(self):
+        pid = self._profile()["id"]
+        keys = [c["key"] for c in self.client.get("/pfs/meta").json()["assetCategories"]]
+        self.assertEqual(keys.index("jewelry"), keys.index("personal") + 1)
+        self.assertEqual(keys.index("other_holding"), keys.index("jewelry") + 1)
+        self._line(pid, section="asset", category="jewelry", label="Diamond necklace", manualValue=25000, manualAsOf="2026-03-15", details={"appraiser": "GIA"})
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        self.assertEqual([(g["label"], g["total"], g["rows"][0]["asOf"]) for g in st["assets"]], [("Jewelry & Personal Property", 25000.0, "2026-03-15")])
+
+    def test_schedule_e_and_c_lines(self):
+        """Charmi, 10/01: "SCH C and Sch E reporting". A real estate line with
+        an entity gets a Schedule E for the statement's calendar year; a
+        business interest with an entity gets a Schedule C. Titles land on
+        the IRS lines."""
+        self.assertEqual(pfs.irs_line("e", "Mortgage Interest"), "mortgage_interest")
+        self.assertEqual(pfs.irs_line("e", "Interest Expense"), "other_interest")
+        self.assertEqual(pfs.irs_line("e", "Property Management Fees"), "management")
+        self.assertEqual(pfs.irs_line("e", "Gas and Electric"), "utilities")
+        self.assertEqual(pfs.irs_line("e", "HOA Dues"), "other")
+        self.assertEqual(pfs.irs_line("c", "Salaries and Wages"), "wages")
+        self.assertEqual(pfs.irs_line("c", "Rent Expense"), "rent_other")
+        self.assertEqual(pfs.irs_line("c", "Bank Fees"), "commissions")
+        self.assertEqual(pfs.irs_line("c", "Meals"), "meals")
+        pid = self._profile()["id"]
+        self._line(pid, section="real_estate", category="domestic_commercial", label="Greens Escondido", manualValue=2_000_000, ownershipPct=50,
+                   details={"address": "1 Storage Way", "loan": {"source": "ledger", "entity": "70000", "accounts": ["25100"]}})
+        self._line(pid, section="asset", category="business", label="Business - ANK", manualValue=1, ownershipPct=7.5, details={"schedule_entity": "60100"})
+        self._line(pid, section="asset", category="business", label="No entity", manualValue=1)
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        sch = st["schedules"]
+        self.assertEqual(sch["year"], "2026")
+        self.assertEqual(len(sch["e"]), 1)
+        e = sch["e"][0]
+        self.assertEqual((e["label"], e["entity"], e["income"], e["expenses"], e["net"], e["netAtShare"]), ("Greens Escondido", "70000", 120000.0, 102300.0, 17700.0, 8850.0))
+        self.assertEqual([(x["key"], x["amount"]) for x in e["lines"]],
+                         [("management", 9600.0), ("mortgage_interest", 42000.0), ("repairs", 3100.0), ("taxes", 14000.0), ("utilities", 2400.0), ("depreciation", 30000.0), ("other", 1200.0)])
+        self.assertEqual(len(sch["c"]), 1)
+        c = sch["c"][0]
+        self.assertEqual((c["entity"], c["income"], c["cogs"], c["expenses"], c["net"]), ("60100", 500000.0, 150000.0, 165800.0, 184200.0))
+        self.assertEqual([(x["key"], x["amount"]) for x in c["lines"]],
+                         [("commissions", 300.0), ("interest_other", 2500.0), ("legal", 4000.0), ("rent_other", 36000.0), ("supplies", 2000.0), ("meals", 1000.0), ("wages", 120000.0)])
+        # The P&L was asked for the calendar year of the statement date, per entity.
+        asked = sorted((p["location"], p["from"], p["to"]) for (path, p) in self.asked if path.endswith("/reports/pnl"))
+        self.assertEqual(asked, [("60100", "2026-01-01", "2026-12-31"), ("70000", "2026-01-01", "2026-12-31")])
+
+    def test_everyone_with_the_grant_sees_every_profile(self):
+        """Charmi, 10/01: "This only shows Neil Kadakia" - a profile is not
+        the creator's; everyone let in sees them all."""
+        pid = self._profile()["id"]
+        for email in (OWNER, VIEWER):
+            _as(email)
+            self.assertIn(pid, [p["id"] for p in self.client.get("/pfs/profiles").json()], email)
 
 
 if __name__ == "__main__":

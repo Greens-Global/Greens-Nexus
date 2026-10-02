@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, csvRows, defaultConfig, isHistorical, presetRange, iso, resolveConfig, runReport, stepAsOf, stepRange, withAdjustments,
+  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, columnsForPicks, csvRows, defaultConfig, fluxRows, isHistorical, presetRange, iso, reportFileName, resolveConfig, runReport, stepAsOf, stepRange, withAdjustments, withFluxNotes,
 } from './reportModel';
 
 // The logic behind Accounting -> Reports (Neil and Charmi, Sep 25): what a
@@ -485,5 +485,103 @@ describe('historical classes', () => {
     expect(isHistorical('Old Program ( h )')).toBe(true);
     expect(isHistorical('Hotel Operations')).toBe(false);
     expect(isHistorical('')).toBe(false);
+  });
+});
+
+// ── 10/02 batch (Charmi, Neil) ──────────────────────────────────────────────
+describe('columns per picked value (R1)', () => {
+  it('names the picks on the layout and switches to it when a filter grows to two', () => {
+    const c = resolveConfig({ report: 'pnl', dims: { employee: ['E1', 'E2'] }, entities: ['15000', '56000'] }, NOW);
+    const labels = Object.fromEntries(columnModes('pnl', c).map((m) => [m.key, m.label]));
+    expect(labels.employee).toBe('By Employee (2 picked)');
+    expect(labels.entity).toBe('By Entity (2 picked)');
+    expect(labels.vendor).toBe('By Vendor');
+    expect(columnModes('pnl').find((m) => m.key === 'employee').label).toBe('By Employee');
+    const total = resolveConfig({ report: 'pnl', dims: { employee: ['E1'] } }, NOW);
+    expect(columnsForPicks(total, { ...total.dims, employee: ['E1', 'E2'] })).toBe('employee');
+    // Already laid out another way, or still one pick: nothing changes.
+    expect(columnsForPicks({ ...total, cols: 'month' }, { ...total.dims, employee: ['E1', 'E2'] })).toBeNull();
+    expect(columnsForPicks(total, { ...total.dims, employee: ['E2'] })).toBeNull();
+    // A balance sheet has no By Vendor, so two vendors stay combined.
+    const bs = resolveConfig({ report: 'balance-sheet' }, NOW);
+    expect(columnsForPicks(bs, { ...bs.dims, vendor: ['V1', 'V2'] })).toBeNull();
+    expect(columnsForPicks(bs, { ...bs.dims, departments: ['D1', 'D2'] })).toBe('department');
+  });
+
+  it('keeps a column per picked value only, and the Total adds those', async () => {
+    const api = fakeApi({ buckets: () => ({ labels: { E1: 'Amy', E2: 'Ashley', E3: 'Stray' }, rows: [
+      line('61000', 'Repairs', 'expense', 'E1', 100, 0), line('61000', 'Repairs', 'expense', 'E2', 250, 0), line('61000', 'Repairs', 'expense', 'E3', 999, 0),
+    ] }) });
+    const r = await runReport(api, resolveConfig({ report: 'pnl', cols: 'employee', dims: { employee: ['E1', 'E2'] } }, NOW));
+    expect(r.columns.map((c) => c.label)).toEqual(['Amy', 'Ashley', 'Total']);
+    expect(r.rows.find((x) => x.code === '61000').values).toEqual([100, 250, 350]);
+    expect(api.getAccountingBuckets.mock.calls[0][0]).toMatchObject({ by: 'employee', dims: { employee: ['E1', 'E2'] } });
+  });
+});
+
+describe('journals filter (R7)', () => {
+  it('travels with the other dimensions and reads as a chip', async () => {
+    const api = fakeApi();
+    const c = resolveConfig({ report: 'pnl', dims: { journals: ['APJ', 'STAT'] } }, NOW);
+    await runReport(api, c);
+    expect(api.getAccountingPnl.mock.calls[0][3]).toMatchObject({ journals: ['APJ', 'STAT'] });
+    expect(resolveConfig({ report: 'pnl' }, NOW).dims.journals).toEqual([]);
+  });
+});
+
+describe('file names (R2)', () => {
+  it('names the file after the statement, its entity and its period', () => {
+    const entities = [{ code: '13000', name: 'Darshana R. Kadakia MD Inc.' }];
+    const pnl = { config: resolveConfig({ report: 'pnl', preset: 'custom', from: '2026-01-01', to: '2026-12-31', entities: ['13000'] }, NOW), def: { key: 'pnl', label: 'Income Statement', period: 'range' } };
+    expect(reportFileName(pnl, entities, 'pdf')).toBe('Income Statement - Darshana R. Kadakia MD Inc. (13000) - 01-01-2026 to 12-31-2026.pdf');
+    expect(reportFileName(pnl, entities, 'excel')).toMatch(/\.xlsx$/);
+    expect(reportFileName(pnl, entities, 'csv')).toMatch(/\.csv$/);
+    const bs = { config: resolveConfig({ report: 'balance-sheet', asof: '2026-09-30', asofToday: false }, NOW), def: { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' } };
+    expect(reportFileName(bs, entities, 'pdf')).toBe('Balance Sheet - All entities - as of 09-30-2026.pdf');
+    // Nothing a file system refuses.
+    expect(reportFileName(pnl, [{ code: '13000', name: 'A/B: "C"' }], 'pdf')).toBe('Income Statement - A B C (13000) - 01-01-2026 to 12-31-2026.pdf');
+  });
+});
+
+describe('flux analysis (R8)', () => {
+  const sec = (key, accounts) => ({ key, accounts });
+  it('computes variance $, variance % and the flag from both thresholds', () => {
+    const cur = [sec('revenue', [{ account_no: '41000', title: 'Rent', amount: 12000 }]), sec('expense', [{ account_no: '61000', title: 'Repairs', amount: 400 }, { account_no: '62000', title: 'New Cost', amount: 7000 }])];
+    const prior = [sec('revenue', [{ account_no: '41000', title: 'Rent', amount: 10000 }]), sec('expense', [{ account_no: '61000', title: 'Repairs', amount: 6000 }, { account_no: '63000', title: 'Gone', amount: 300 }])];
+    const rows = Object.fromEntries(fluxRows(cur, prior).map((r) => [r.code, r]));
+    expect(rows['41000']).toMatchObject({ cur: 12000, prior: 10000, variance: 2000, flag: false });   // 20% but under $5,000
+    expect(rows['41000'].pct).toBeCloseTo(0.2, 6);
+    expect(rows['61000']).toMatchObject({ cur: 400, prior: 6000, variance: -5600, flag: true });     // -93.3% and over $5,000
+    expect(rows['61000'].pct).toBeCloseTo(-5600 / 6000, 6);
+    expect(rows['62000']).toMatchObject({ cur: 7000, prior: 0, variance: 7000, flag: true });        // new account: no %, the amount decides
+    expect(Number.isNaN(rows['62000'].pct)).toBe(true);
+    expect(rows['63000']).toMatchObject({ cur: 0, prior: 300, variance: -300, flag: false });
+    // The thresholds are the report's own.
+    const loose = Object.fromEntries(fluxRows(cur, prior, { fluxPct: 10, fluxAmount: 1000 }).map((r) => [r.code, r]));
+    expect(loose['41000'].flag).toBe(true);
+    const tight = Object.fromEntries(fluxRows(cur, prior, { fluxPct: 95, fluxAmount: 1000 }).map((r) => [r.code, r]));
+    expect(tight['61000'].flag).toBe(false);
+    expect(fluxRows(cur, prior).map((r) => r.code)).toEqual(['41000', '61000', '62000', '63000']);
+  });
+
+  it('runs this period against the prior one as a statement with notes, and prior year on request', async () => {
+    const answers = { '2026-09-01': stmt([{ account_no: '41000', title: 'Rent', amount: 12000 }]), '2026-08-01': stmt([{ account_no: '41000', title: 'Rent', amount: 10000 }]), '2025-09-01': stmt([{ account_no: '41000', title: 'Rent', amount: 9000 }]) };
+    const api = fakeApi({ pnl: ({ from }) => answers[from] || stmt([]) });
+    const c = resolveConfig({ report: 'flux', preset: 'custom', from: '2026-09-01', to: '2026-09-30', fluxAmount: 1000 }, NOW);
+    expect(c.cols).toBe('prior_period');
+    const r = await runReport(api, c);
+    expect(api.getAccountingPnl.mock.calls.map((x) => x.slice(0, 2))).toEqual([['2026-09-01', '2026-09-30'], ['2026-08-01', '2026-08-31']]);
+    expect(r.columns.map((x) => `${x.key}:${x.type}`)).toEqual(['cur:amount', 'prior:amount', 'var:variance', 'pct:pct', 'flag:text', 'note:text']);
+    const rent = r.rows.find((x) => x.code === '41000');
+    expect(rent.values).toEqual([12000, 10000, 2000, '20.0%', 'Review', '']);
+    expect(rent.flag).toBe(true);
+    expect(r.rows.find((x) => x.label === 'Net Income').values.slice(0, 4)).toEqual([12000, 10000, 2000, '20.0%']);
+    expect(r.summary.find((s) => s.label === 'Flagged').value).toBe('1');
+    expect(r.flux.period).toBe('2026-09-01_2026-09-30');
+    const noted = withFluxNotes(r, { 41000: 'Two new tenants.' });
+    expect(noted.rows.find((x) => x.code === '41000').values[5]).toBe('Two new tenants.');
+    expect(csvRows(noted).find((row) => row[1] === '41000').at(-1)).toBe('Two new tenants.');
+    const yr = await runReport(fakeApi({ pnl: ({ from }) => answers[from] || stmt([]) }), { ...c, cols: 'prior_year' });
+    expect(yr.rows.find((x) => x.code === '41000').values.slice(0, 3)).toEqual([12000, 9000, 3000]);
   });
 });

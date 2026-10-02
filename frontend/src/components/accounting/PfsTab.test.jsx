@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { PDFDocument } from 'pdf-lib';
+import JSZip from 'jszip';
 
 // Render-smoke for Accounting -> PFS (Neil, Sep 25): a guarantor's statement
 // for a date, the lines with where each figure comes from, a ledger line set
 // up by picking an entity and its accounts, and the PDF it is produced into.
+// Oct 2 (Charmi + Neil): Move to..., real estate from the ledger with its
+// mortgage, a co-borrower, a guarantor prefilled from People, the Schedules
+// tab, jewelry, and the Excel workbook.
 
 const meta = {
-  assetCategories: [{ key: 'bank', label: 'Bank Accounts' }, { key: 'retirement', label: 'Retirement Accounts' }, { key: 'investment', label: 'Investment Accounts' }],
-  liabilityCategories: [{ key: 'business_loan', label: 'Business Loans' }],
+  assetCategories: [{ key: 'bank', label: 'Bank Accounts' }, { key: 'retirement', label: 'Retirement Accounts' }, { key: 'investment', label: 'Investment Accounts' }, { key: 'business', label: 'Business Interests' }, { key: 'personal', label: 'Personal Holdings' }, { key: 'jewelry', label: 'Jewelry & Personal Property' }, { key: 'other_holding', label: 'Other Holdings' }],
+  liabilityCategories: [{ key: 'business_loan', label: 'Business Loans' }, { key: 'credit_card', label: 'Credit Cards' }],
   realEstateKinds: [{ key: 'residential', label: 'Residential Real Estate' }, { key: 'commercial', label: 'Commercial Real Estate' }],
   historyQuestions: ['Have you ever filed for bankruptcy?'],
 };
@@ -19,7 +23,7 @@ const profile = {
   lines: [
     { id: 'l1', section: 'asset', category: 'bank', label: 'Operating Account', institution: 'Farmers & Merchants Bank', accountRef: '7546', ownershipPct: 7.5, source: 'ledger', ledgerEntity: '60100', ledgerAccounts: ['10100'], manualValue: 0, manualAsOf: '', details: {}, notes: '' },
     { id: 'l2', section: 'asset', category: 'retirement', label: 'Roth IRA', institution: 'Fidelity', accountRef: '', ownershipPct: 100, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 120000, manualAsOf: '2026-08-31', details: {}, notes: '' },
-    { id: 'l3', section: 'real_estate', category: 'commercial', label: 'Storage Property', institution: '', accountRef: '', ownershipPct: 50, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 3000000, manualAsOf: '', details: { address: '1 Storage Way', legal_owner: 'Storage LLC', loan: { source: 'manual', value: 2000000 } }, notes: '' },
+    { id: 'l3', section: 'real_estate', category: 'commercial', label: 'Storage Property', institution: '', accountRef: '', ownershipPct: 50, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 3000000, manualAsOf: '', details: { address: '1 Storage Way', legal_owner: 'Storage LLC', loan: { source: 'ledger', entity: '15000', accounts: ['25100'] } }, notes: '' },
   ],
 };
 const row = (l, balance, extra = {}) => ({ id: l.id, label: l.label, institution: l.institution, accountRef: l.accountRef, ownershipPct: l.ownershipPct, balance, adjusted: Math.round(balance * l.ownershipPct) / 100, source: l.source, asOf: '2026-09-28', notes: '', details: l.details, ...extra });
@@ -31,9 +35,15 @@ const statement = {
     { key: 'retirement', label: 'Retirement Accounts', total: 120000, rows: [row(profile.lines[1], 120000)] },
   ],
   liabilities: [],
-  realEstate: [{ key: 'commercial', label: 'Commercial Real Estate', value: 1500000, loan: 1000000, rows: [row(profile.lines[2], 3000000, { value: 3000000, valueAdjusted: 1500000, loan: 2000000, loanAdjusted: 1000000, loanSource: 'manual', equity: 500000 })] }],
+  realEstate: [{ key: 'commercial', label: 'Commercial Real Estate', value: 1500000, loan: 1000000, rows: [row(profile.lines[2], 3000000, { value: 3000000, valueAdjusted: 1500000, loan: 2000000, loanAdjusted: 1000000, loanSource: 'ledger', equity: 500000 })] }],
   summary: { assets: [{ label: 'Bank Accounts', amount: 75000 }, { label: 'Retirement Accounts', amount: 120000 }, { label: 'Real Estate (fair market value)', amount: 1500000 }], liabilities: [{ label: 'Real Estate Loans', amount: 1000000 }] },
   totals: { assets: 1695000, liabilities: 1000000, netWorth: 695000 },
+  schedules: {
+    year: '2026',
+    e: [{ lineId: 'l3', label: 'Storage Property', entity: '15000', year: '2026', ownershipPct: 50, address: '1 Storage Way', income: 120000, cogs: 0, expenses: 102300, net: 17700, netAtShare: 8850,
+      lines: [{ key: 'management', label: 'Management Fees', amount: 9600, accounts: [{ code: '60100', title: 'Property Management Fees', amount: 9600 }] }, { key: 'mortgage_interest', label: 'Mortgage Interest', amount: 42000, accounts: [{ code: '60400', title: 'Mortgage Interest', amount: 42000 }] }, { key: 'other', label: 'Other', amount: 50700, accounts: [] }] }],
+    c: [],
+  },
   warnings: ['Operating Account: account 19999 has no balance in entity 60100 as of this date.'],
 };
 
@@ -44,23 +54,35 @@ vi.mock('../../api', () => ({
     getPfsProfile: vi.fn(async () => profile),
     getPfsStatement: vi.fn(async () => statement),
     getPfsStatements: vi.fn(async () => [{ id: 's1', asOf: '2026-06-30', generatedBy: 'charmi@greensglobal.com', generatedAt: '2026-07-02T17:00:00Z', netWorth: 650000 }]),
+    getPfsSavedStatement: vi.fn(async () => ({ ...statement, id: 's1', generatedBy: 'charmi@greensglobal.com' })),
+    producePfsStatement: vi.fn(async () => ({ id: 's2', ...statement })),
     getPfsLedgerEntities: vi.fn(async () => ({ entities: [{ code: '60100', name: 'Business - ANK' }] })),
     getPfsLedgerAccounts: vi.fn(async () => ({ accounts: [
-      { code: '10100', title: 'Operating Chkg -7546', section: 'asset', amount: 1000000 }, { code: '11309', title: 'ANK - 401K - Fidelity - 6165', section: 'asset', amount: 327.85 },
-      { code: '11348', title: 'WeBull Brokerage Account', section: 'asset', amount: 101 }, { code: '25000', title: 'Loan Payable', section: 'liability', amount: 400000 },
+      { code: '10100', title: 'Operating Chkg -7546', section: 'asset', amount: 1000000, suggested: { section: 'asset', category: 'bank' } },
+      { code: '11301', title: 'NRK & ANK - F&M - 6870', section: 'asset', amount: 12000, suggested: { section: 'asset', category: 'bank' } },
+      { code: '11309', title: 'ANK - 401K - Fidelity - 6165', section: 'asset', amount: 327.85, suggested: { section: 'asset', category: 'retirement' } },
+      { code: '11348', title: 'WeBull Brokerage Account', section: 'asset', amount: 101, suggested: { section: 'asset', category: 'investment' } },
+      { code: '15200', title: 'Building - Escondido', section: 'asset', amount: 1600000, suggested: { section: 'real_estate', category: 'commercial' } },
+      { code: '25000', title: 'Loan Payable', section: 'liability', amount: 400000, suggested: { section: 'liability', category: 'business_loan' } },
+      { code: '25100', title: 'Mortgage - Escondido', section: 'liability', amount: 1200000, suggested: { section: 'liability', category: 'business_loan' } },
     ] })),
     addPfsLine: vi.fn(async (id, body) => ({ id: 'new', ...body })),
     addPfsLinesBulk: vi.fn(async (id, body) => ({ added: body.accounts.length, lines: [] })),
+    movePfsLine: vi.fn(async (id, lineId, section, category) => ({ id: lineId, section, category })),
     updatePfsProfile: vi.fn(async (id, body) => ({ id, ...body })),
+    createPfsProfile: vi.fn(async (body) => ({ id: 'p2', ...body })),
     getRolesDirectory: vi.fn(async () => []),
-    getPeopleDirectory: vi.fn(async () => [{ email: 'charmi@greensglobal.com', name: 'Charmi Desai' }]),
+    getPeopleDirectory: vi.fn(async () => [{ email: 'charmi@greensglobal.com', name: 'Charmi Desai', companyName: 'Greens Global' }, { email: 'sahil@greensglobal.com', name: 'Sahil Desai', companyName: 'Greens Global' }]),
   },
 }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'me@greensglobal.com' }) }));
+vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
 import PfsTab from './PfsTab';
 import { api } from '../../api';
 import { buildPfsPdf } from './pfsPdf';
+import { buildPfsWorkbook, pfsSheets } from './pfsXlsx';
+import { downloadBlob } from './reportModel';
 
 beforeEach(() => { vi.clearAllMocks(); });
 
@@ -75,6 +97,7 @@ describe('PfsTab', () => {
     const past = screen.getByText('06/30/2026').closest('tr');
     expect(within(past).getByText('Charmi Desai')).toBeTruthy();      // a name, never an email
     expect(within(past).getByText('650,000.00')).toBeTruthy();
+    expect(within(past).getByRole('button', { name: 'Open Excel' })).toBeTruthy();
     expect(api.getPfsStatement).toHaveBeenCalledWith('p1', expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
   });
 
@@ -88,6 +111,9 @@ describe('PfsTab', () => {
     expect(within(line).getByText('1,000,000.00')).toBeTruthy();
     expect(within(line).getByText('75,000.00')).toBeTruthy();
     expect(within(screen.getByText('Roth IRA').closest('tr')).getByText(/Kept by hand · 08\/31\/2026/)).toBeTruthy();
+    // Jewelry & Personal Property sits between Personal Holdings and Other Holdings (Charmi, 10/01).
+    const cards = screen.getAllByText(/^(Personal Holdings|Jewelry & Personal Property|Other Holdings)$/).map((e) => e.textContent);
+    expect(cards).toEqual(['Personal Holdings', 'Jewelry & Personal Property', 'Other Holdings']);
 
     fireEvent.click(screen.getByRole('button', { name: 'Real Estate' }));
     const prop = screen.getByText('Storage Property').closest('tr');
@@ -98,7 +124,7 @@ describe('PfsTab', () => {
     render(<PfsTab canEdit />);
     await screen.findByText('695,000.00');
     fireEvent.click(screen.getByRole('button', { name: 'Liabilities' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[0]);
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Description'), { target: { value: 'F&M Bank Loan' } });
     fireEvent.change(within(dialog).getByLabelText('Share Owned (%)'), { target: { value: '7.5' } });
@@ -113,7 +139,7 @@ describe('PfsTab', () => {
     expect(api.addPfsLine.mock.calls[0][1]).toMatchObject({ section: 'liability', category: 'business_loan', label: 'F&M Bank Loan', ownershipPct: 7.5, source: 'ledger', ledgerEntity: '60100', ledgerAccounts: ['25000'] });
   });
 
-  it('adds a whole GL group from the ledger at once, each account under the category its name suggests', async () => {
+  it('adds a whole GL group from the ledger at once, each account under the category the server suggests', async () => {
     render(<PfsTab canEdit />);
     await screen.findByText('695,000.00');
     fireEvent.click(screen.getByRole('button', { name: 'Assets' }));
@@ -125,14 +151,60 @@ describe('PfsTab', () => {
     await within(dialog).findByText(/GL group 113xx/);
     expect(within(dialog).queryByText('Loan Payable')).toBeNull();
     fireEvent.click(within(dialog).getByLabelText('GL group 113'));
-    expect(within(dialog).getByText(/2 picked/)).toBeTruthy();
+    expect(within(dialog).getByText(/3 picked/)).toBeTruthy();
+    // "NRK & ANK - F&M - 6870" is a bank account (Charmi, 10/01), not an other holding.
+    expect(within(dialog).getByLabelText('Category for 11301').value).toBe('bank');
     expect(within(dialog).getByLabelText('Category for 11309').value).toBe('retirement');
     expect(within(dialog).getByLabelText('Category for 11348').value).toBe('investment');
-    fireEvent.click(within(dialog).getByRole('button', { name: /Add 2 Lines/ }));
+    // A building is flagged as real estate, not silently listed as an asset.
+    expect(within(dialog).getByText('looks like real estate')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Add 3 Lines/ }));
     await waitFor(() => expect(api.addPfsLinesBulk).toHaveBeenCalled());
     expect(api.addPfsLinesBulk.mock.calls[0][1]).toMatchObject({ section: 'asset', entity: '60100', entityName: 'Business - ANK', ownershipPct: 50,
-      accounts: [{ code: '11309', category: 'retirement', ownershipPct: 50 }, { code: '11348', category: 'investment', ownershipPct: 50 }] });
-    await screen.findByText('2 lines added from the ledger.');
+      accounts: [{ code: '11301', category: 'bank', ownershipPct: 50 }, { code: '11309', category: 'retirement', ownershipPct: 50 }, { code: '11348', category: 'investment', ownershipPct: 50 }] });
+    await screen.findByText('3 lines added from the ledger.');
+  });
+
+  it('adds real estate from the ledger with its mortgage account as the loan', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Real Estate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add From the Ledger' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add from the ledger' });
+    expect(within(dialog).getByText('Add Real Estate From the Ledger')).toBeTruthy();
+    fireEvent.change(await within(dialog).findByLabelText('Entity'), { target: { value: '60100' } });
+    await within(dialog).findByText(/GL group 152xx/);
+    const loan = within(dialog).getByLabelText('Mortgage account for 15200');
+    expect(loan.value).toBe('25100');          // the entity's mortgage, picked for it
+    fireEvent.click(within(dialog).getByLabelText('15200 Building - Escondido'));
+    fireEvent.click(within(dialog).getByRole('button', { name: /Add 1 Line/ }));
+    await waitFor(() => expect(api.addPfsLinesBulk).toHaveBeenCalled());
+    expect(api.addPfsLinesBulk.mock.calls[0][1]).toMatchObject({ section: 'real_estate', entity: '60100', accounts: [{ code: '15200', category: 'commercial', loanAccount: '25100' }] });
+  });
+
+  it('moves a line to another category in one click', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Assets' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move Operating Account' }));
+    const pick = screen.getByLabelText('Move Operating Account to');
+    expect(within(pick).getByRole('group', { name: 'Liabilities' })).toBeTruthy();   // every section is offered
+    fireEvent.change(pick, { target: { value: 'asset:retirement' } });
+    await waitFor(() => expect(api.movePfsLine).toHaveBeenCalledWith('p1', 'l1', 'asset', 'retirement'));
+    await screen.findByText('Operating Account moved to Retirement Accounts.');
+  });
+
+  it('shows Schedule E for the calendar year, by IRS line', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Schedules' }));
+    expect(screen.getByText(/Calendar year 2026/)).toBeTruthy();
+    const rents = screen.getByText('Rents Received').closest('tr');
+    expect(within(rents).getByText('120,000.00')).toBeTruthy();
+    expect(within(screen.getByText('Mortgage Interest').closest('tr')).getByText('42,000.00')).toBeTruthy();
+    expect(within(screen.getByText('Total Expenses').closest('tr')).getByText('102,300.00')).toBeTruthy();
+    expect(within(screen.getByText('At 50% owned').closest('tr')).getByText('8,850.00')).toBeTruthy();
+    expect(screen.getByText('No Business Interest line names a ledger entity.')).toBeTruthy();
   });
 
   it('carries a spouse on the statement', async () => {
@@ -145,16 +217,55 @@ describe('PfsTab', () => {
     expect(api.updatePfsProfile.mock.calls[0][1].details.spouse).toBe('Archana Kadakia');
   });
 
+  it('keeps a co-borrower, with four digits of the Social Security number at most', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Borrower' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Archana Kadakia' } });
+    fireEvent.change(screen.getAllByLabelText('Employer')[1], { target: { value: 'Greens Global' } });   // [0] is the borrower's own
+    const ssn = screen.getAllByLabelText('Social Security Number - Last 4 Digits')[1];
+    fireEvent.change(ssn, { target: { value: '987-65-4321' } });
+    expect(ssn.value).toBe('9876');
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
+    expect(api.updatePfsProfile.mock.calls[0][1].details.coBorrower).toEqual({ name: 'Archana Kadakia', employer: 'Greens Global', ssn_last4: '9876' });
+  });
+
   it('keeps only four digits of a Social Security number', async () => {
     render(<PfsTab canEdit />);
     await screen.findByText('695,000.00');
     fireEvent.click(screen.getByRole('button', { name: 'Borrower' }));
-    const ssn = screen.getByLabelText('Social Security Number - Last 4 Digits');
+    const ssn = screen.getAllByLabelText('Social Security Number - Last 4 Digits')[0];
     fireEvent.change(ssn, { target: { value: '123-45-6789' } });
     expect(ssn.value).toBe('1234');
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
     expect(api.updatePfsProfile.mock.calls[0][1].details.ssn_last4).toBe('1234');
+  });
+
+  it('starts a new guarantor from People, joint with both names', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: /New Guarantor/ }));
+    const dialog = screen.getByRole('dialog', { name: 'New guarantor' });
+    fireEvent.change(within(dialog).getByLabelText('Statement Type'), { target: { value: 'joint' } });
+    await within(dialog).findAllByRole('option', { name: /Sahil Desai/ });   // both pickers list People once it has loaded
+    fireEvent.change(within(dialog).getByLabelText('Prefill From People'), { target: { value: 'sahil@greensglobal.com' } });
+    expect(within(dialog).getByLabelText('Name on the Statement').value).toBe('Sahil Desai');
+    fireEvent.change(within(dialog).getByLabelText('Second Person From People'), { target: { value: 'charmi@greensglobal.com' } });
+    expect(within(dialog).getByLabelText('Second Name on the Statement').value).toBe('Charmi Desai');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(api.createPfsProfile).toHaveBeenCalled());
+    expect(api.createPfsProfile.mock.calls[0][0]).toEqual({ name: 'Sahil Desai', kind: 'joint', details: { email: 'sahil@greensglobal.com', spouse: 'Charmi Desai' } });
+  });
+
+  it('produces the statement as an Excel workbook, kept on record', async () => {
+    render(<PfsTab canEdit />);
+    await screen.findByText('695,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Produce Excel' }));
+    await waitFor(() => expect(api.producePfsStatement).toHaveBeenCalledWith('p1', expect.any(String), 'xlsx'));
+    await screen.findByText('Excel workbook produced and the statement kept on record.');
+    expect(downloadBlob).toHaveBeenCalledWith(expect.stringMatching(/^PFS_Test-Guarantor_2026-09-28\.xlsx$/), expect.any(Blob));
   });
 
   it('is read-only without the editor level', async () => {
@@ -164,7 +275,9 @@ describe('PfsTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Assets' }));
     expect(screen.queryByRole('button', { name: /Add/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Change Operating Account/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Move Operating Account/ })).toBeNull();
     expect(screen.getByRole('button', { name: /Produce PDF/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Produce Excel/ })).toBeTruthy();
   });
 });
 
@@ -173,14 +286,40 @@ describe('the PFS PDF', () => {
     const bytes = await buildPfsPdf({ statement, preparedBy: 'Charmi Desai' });
     expect(String.fromCharCode(...bytes.slice(0, 5))).toBe('%PDF-');
     const doc = await PDFDocument.load(bytes);
-    // cover, borrower, assets, real estate, summary, history, executive profile (no liabilities listed)
-    expect(doc.getPageCount()).toBe(7);
+    // cover, borrower, assets, real estate, schedule E, summary, history, executive profile (no liabilities listed)
+    expect(doc.getPageCount()).toBe(8);
     expect(doc.getTitle()).toBe('Personal Financial Statement - Test Guarantor');
   });
 
   it('prints with a photo that cannot be read, and with nothing listed', async () => {
-    const empty = { ...statement, assets: [], liabilities: [], realEstate: [], summary: { assets: [], liabilities: [] }, totals: { assets: 0, liabilities: 0, netWorth: 0 }, profile: { ...statement.profile, history: [], executiveProfile: '', details: {} } };
+    const empty = { ...statement, assets: [], liabilities: [], realEstate: [], schedules: { year: '2026', e: [], c: [] }, summary: { assets: [], liabilities: [] }, totals: { assets: 0, liabilities: 0, netWorth: 0 }, profile: { ...statement.profile, history: [], executiveProfile: '', details: {} } };
     const bytes = await buildPfsPdf({ statement: empty, photo: 'data:image/jpeg;base64,not-an-image' });
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);   // cover, borrower, summary
+  });
+});
+
+describe('the PFS Excel workbook', () => {
+  it('has one sheet per section of the statement, with the schedule when there is one', async () => {
+    const withCo = { ...statement, profile: { ...statement.profile, details: { ...statement.profile.details, coBorrower: { name: 'Archana Kadakia', ssn_last4: '4321' } } } };
+    const sheets = pfsSheets({ statement: withCo, preparedBy: 'Charmi Desai' });
+    expect(sheets.map((s) => s.name)).toEqual(['Summary', 'Borrower', 'Assets', 'Liabilities', 'Real Estate', 'Schedule E', 'History']);
+    const text = (s) => sheets.find((x) => x.name === s).rows.flat().map((c) => c?.text ?? '').join('\n');
+    expect(text('Borrower')).toContain('Co-Borrower');
+    expect(text('Borrower')).toContain('XXX-XX-4321');
+    expect(text('Borrower')).not.toMatch(/(^|\n)\d{4}(\n|$)/);   // never bare digits: both print masked
+    expect(text('Borrower')).toContain('XXX-XX-6789');
+    expect(text('Schedule E')).toContain('Mortgage Interest');
+    // Net worth is a live formula over the two totals.
+    const summary = sheets[0].rows.flat();
+    expect(summary.find((c) => c?.f && /^B\d+-B\d+$/.test(c.f))).toBeTruthy();
+
+    const bytes = await buildPfsWorkbook({ statement: withCo, preparedBy: 'Charmi Desai' });
+    const zip = await JSZip.loadAsync(bytes);
+    const workbook = await zip.file('xl/workbook.xml').async('string');
+    ['Summary', 'Borrower', 'Assets', 'Liabilities', 'Real Estate', 'Schedule E', 'History'].forEach((n) => expect(workbook).toContain(`name="${n}"`));
+    expect(Object.keys(zip.files).filter((f) => /^xl\/worksheets\/sheet\d+\.xml$/.test(f)).length).toBe(7);
+    const assets = await zip.file('xl/worksheets/sheet3.xml').async('string');
+    expect(assets).toContain('Operating Account');
+    expect(assets).toContain('<f>SUM(');
   });
 });

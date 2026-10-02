@@ -385,6 +385,10 @@ def agree(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: st
 # Signature block geometry on the LAST page, normalized from the top-left (the
 # convention Nexus Sign stamps with). Three rows: employee, manager, HR.
 _SIG_TOP, _SIG_ROW = 0.66, 0.095
+# What the employee attests to by signing, printed just above their signature
+# line (Charmi, Oct 1 - the wording from the paper time sheet).
+EMPLOYEE_ATTESTATION = ("By execution and signature of this time sheet, I agree I have reviewed this "
+                        "time card, and agree the hours stated are accurate and correct.")
 
 
 def _sig_fields(last_page: int) -> list:
@@ -534,6 +538,19 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     y -= 16
     text(margin, "By signing, each party attests that the hours on this timesheet are accurate "
                  "for the pay period shown.", 9)
+    # The employee's attestation, boxed just above their signature line. Drawn
+    # in the free space above the first row, so no signature / date field moves
+    # (_sig_fields places them at the same fixed positions).
+    from reportlab.lib.utils import simpleSplit
+    att_lines = simpleSplit(EMPLOYEE_ATTESTATION, "Helvetica-Bold", 9, W - 2 * margin - 16)
+    box_bottom = H - _SIG_TOP * H + 10
+    box_h = 12 * len(att_lines) + 10
+    c.setStrokeColorRGB(0.6, 0.6, 0.65)
+    c.rect(margin, box_bottom, W - 2 * margin, box_h, stroke=1, fill=0)
+    c.setFillColorRGB(0.1, 0.1, 0.12)
+    c.setFont("Helvetica-Bold", 9)
+    for k, ln in enumerate(att_lines):
+        c.drawString(margin + 8, box_bottom + box_h - 14 - 12 * k, ln)
     for i, (role, label) in enumerate(ROLES):
         top = (_SIG_TOP + i * _SIG_ROW) * H
         base = H - top - 0.05 * H

@@ -36,6 +36,11 @@ import { downloadCsv } from './reportModel';
 // "Vendor / Customer" is gone); the description no longer takes every spare
 // pixel - the spare width is shared out over the text columns; the vendor /
 // customer / account / journal chips are dropdowns.
+//
+// Oct 2 (Charmi): the grid scrolls WITH the page - no box of its own with a
+// scrollbar - so a tall window shows that many more lines; only full screen
+// keeps the inner scroller. A total on a report drills here with no account
+// (every line of the period); the report's Journals filter follows the lines.
 
 const PAGE = 100;
 const EXPORT_CAP = 10000;
@@ -115,6 +120,8 @@ const DIM_NAMES = { departments: 'department', vendor: 'vendor', customer: 'cust
 function applyDims(dims, entities) {
   const place = entities.length === 1 ? { location: entities[0] } : entities.length ? { locations: entities.join(',') } : {};
   if (!dims) return { place, party: null, unapplied: [] };
+  // The Journals filter narrows the lines like it narrows the statement.
+  if (dims.journals?.length) place.journals = dims.journals.join(',');
   const unapplied = [];
   let party = null;
   const partyKinds = PARTY_KINDS.filter((k) => dims[k]?.length);
@@ -124,7 +131,7 @@ function applyDims(dims, entities) {
   return { place, party, unapplied };
 }
 
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null }) {
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null, full = false }) {
   const entitiesKey = entities.join(',');
   const applied = useMemo(() => applyDims(dims, entities), [dims, entitiesKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Narrowing picked from the chips. A drill-down arrives with its account set.
@@ -182,7 +189,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // A new drill-down replaces whatever was picked before it.
   useEffect(() => {
     if (!drill) return;
-    setAccount({ code: drill.account, name: drill.accountName });
+    // A total drills with no account: every line of the period (Charmi, 10/02).
+    setAccount(drill.account ? { code: drill.account, name: drill.accountName } : null);
     // A vendor, customer or employee column drills into that party; a
     // department column into that department (the Department filter box).
     setParty(drill.party || applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period');
@@ -205,7 +213,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     cols: cols || undefined,
   }), [term, applied.place, usePeriod, drill, party, account, journal, book, cols]);
 
-  const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal;
+  const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal || !!usePeriod;
 
   useEffect(() => { setPage(0); }, [params]);
 
@@ -264,8 +272,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
   const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
-  const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : null].filter(Boolean).join(' - ') || 'Ledger lines';
+  const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
+  const journalsText = applied.place.journals ? ` · journals ${applied.place.journals}` : '';
   const labelSpan = columns.filter((c) => !c.num).length;
 
   return (
@@ -277,7 +286,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-            {entityName} · {periodText} · {book === 'all' ? 'all books' : `${book} book`}{loading ? (data ? ' · updating' : ' · searching') : ''}
+            {entityName} · {periodText} · {book === 'all' ? 'all books' : `${book} book`}{journalsText}{loading ? (data ? ' · updating' : ' · searching') : ''}
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -354,7 +363,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             )}
           </div>
 
-          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1 }}>
+          {/* No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02). */}
+          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
             <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
               <thead>
