@@ -31,7 +31,11 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const otherZone = zoneDiffers(zone, teamZone);
   const unpaid = unpaidLabel(s);
   const code = s.code || '';
-  const label = s.label && s.label !== code ? s.label : '';
+  // Second line: the shift's own label, else its shift type's name - never
+  // a repeat of the code ("GSV" named "GSV" shows once).
+  const ownLabel = s.label && s.label !== code ? s.label : '';
+  const typeName = s.shiftName && s.shiftName !== code ? s.shiftName : '';
+  const label = ownLabel || typeName;
   const draft = s.published === false && !s.hasChanges && !s.pendingDelete;
   const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, st.title, unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),

@@ -5137,6 +5137,9 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
             # '' = no preset: the team's zone (shift settings) applies.
             "timezone": (p.timezone or "") if p else "",
             "code": (p.code or p.name) if p else "",
+            # The shift type's own name, shown under the time when the shift has
+            # no label of its own (Visesh, 10/02: "the shift name is gone").
+            "shiftName": (p.name or "") if p else "",
             "color": pend.get("color", getattr(row, "color", "") or "") or (p.color if p else "#64748b")}
 
 
