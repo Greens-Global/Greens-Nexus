@@ -10,7 +10,7 @@ import {
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
@@ -746,7 +746,8 @@ function WorkLogsSection({ employee }) {
     return pollWhileVisible(() => load(true), 15000);
   }, [load, start, end]);
 
-  // Group the flat, newest-first list into one card per local_date (BOD + EOD together).
+  // Group the flat, newest-first list into one card per WORKDAY (BOD + EOD together) -
+  // an overnight shift's EOD and clock-out sit on the day the shift began.
   const byDate = [];
   for (const l of logs || []) {
     let group = byDate.find(g => g.date === l.date);
@@ -775,15 +776,16 @@ function WorkLogsSection({ employee }) {
         <div style={{ display: 'grid', gap: 8 }}>
           {byDate.map(g => (
             <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              {/* The WORKDAY - the day the shift began (shift_day.py, Oct 2). */}
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{formatWeekday(`${g.date}T12:00:00`, 'short')}, {formatDate(`${g.date}T12:00:00`)}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
                 {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
                       {slot?.punchAt && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
-                          {punchLabel} {punchTime(slot.punchAt)}
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt, slot.punchTz, g.date)}, on the employee's clock`}>
+                          {punchLabel} {punchTime(slot.punchAt, slot.punchTz, g.date)}
                         </span>
                       )}
                     </div>
