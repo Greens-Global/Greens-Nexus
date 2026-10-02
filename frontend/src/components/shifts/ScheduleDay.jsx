@@ -14,7 +14,7 @@ const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
 const GRID = { display: 'grid', gridTemplateColumns: '180px minmax(560px, 1fr)' };
 const STICKY_LEFT = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: '1px solid var(--line)' };
 
-export default function ScheduleDay({ date, sections, shifts, openCells, notes, canManage, offOn, holOn, copied, prefs, rowEditable, shiftEditable, dragId, on,
+export default function ScheduleDay({ date, sections, shifts, openCells, notes, canManage, offOn, holOn, copied, prefs, rowEditable, shiftEditable, dragId, on, single = false,
   dragProps = () => ({}), dropProps = () => ({}), dropStyle = () => ({}), clickable = (fn) => fn }) {
   const byEmail = {};
   shifts.forEach((s) => { if (s.date === date && s.email) (byEmail[s.email] ||= []).push(s); });
@@ -95,9 +95,11 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
         {openCells.__ungrouped && prefs.open !== false && openRow({ id: '' })}
         {sections.map((g, gi) => (
           <div key={g.id || gi}>
-            <div style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 800, background: 'var(--bg)', borderBottom: '1px solid var(--line)', position: 'sticky', left: 0 }}>
-              {g.name} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {g.members.length} {g.members.length === 1 ? 'person' : 'people'}</span>
-            </div>
+            {!single && (
+              <div style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 800, background: 'var(--bg)', borderBottom: '1px solid var(--line)', position: 'sticky', left: 0 }}>
+                {g.name} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {g.members.length} {g.members.length === 1 ? 'person' : 'people'}</span>
+              </div>
+            )}
             {g.isGroup && prefs.open !== false && openRow(g)}
             {g.members.map((emp) => {
               const off = offOn(emp.email, date);

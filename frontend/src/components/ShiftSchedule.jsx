@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -10,15 +11,17 @@ import { dialog } from '../ui/dialog';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { ShiftTypeWeek, ImportModal, ShiftMenu, PersonMenu, ShiftDetails } from './ShiftScheduleExtras';
 import { printSchedule, DEFAULT_VIEW_PREFS } from './shiftScheduleLib';
-import { AddMembersModal, ReorderTeamsModal } from './ShiftTeams';
-import { ScheduleToolbar, ShareDialog, DayNoteDialog, ViewOptionsDialog } from './shifts/ScheduleToolbar';
+import { AddMembersModal, ReorderTeamsModal, TeamMenu } from './ShiftTeams';
+import { ScheduleToolbar, ShareDialog, DayNoteDialog, ViewOptionsDialog, MODAL_BACK, MODAL_CARD, DialogHead } from './shifts/ScheduleToolbar';
+import TeamPicker, { ALL_TEAMS, NO_TEAM } from './shifts/TeamPicker';
+import { MOTION, useReducedMotion } from './shifts/motion';
 import { CopyModal, ClearModal, BulkModal } from './shifts/ScheduleDialogs';
-import WeekGrid from './shifts/WeekGrid';
+import WeekGrid, { TOOL_BTN } from './shifts/WeekGrid';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel from './shifts/ShiftPanel';
-import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, sectionKey } from './shifts/shiftLib';
+import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
 // This file is the container: it owns the data, the API calls and the
@@ -41,6 +44,22 @@ function loadPrefs() {
   catch { return { ...DEFAULT_VIEW_PREFS }; }
 }
 const LONG_PRESS_MS = 500;
+// The team switcher's memory, per user: a group id, ALL_TEAMS or NO_TEAM.
+const readTeam = (key) => { try { return localStorage.getItem(key) || null; } catch { return null; } };
+// A shift type's days ("1,2,3,4,5", Mon=1) as the bulk API's weekdays (Mon=0).
+const presetWeekdays = (p) => {
+  const d = String(p?.days || '').split(',').map(Number).filter((n) => n >= 1 && n <= 7).map((n) => n - 1);
+  return d.length ? d : [0, 1, 2, 3, 4];
+};
+const presetOnDay = (p, ds) => presetWeekdays(p).includes((parseIso(ds).getDay() + 6) % 7);
+// What it takes to put a shift back exactly as it was (Undo).
+const createPayload = (s) => ({ employee_email: s.email || '', work_date: s.date, shift_id: s.shiftId || '', start_hhmm: s.start, end_hhmm: s.end, label: s.label || '', note: s.note || '',
+  break_min: s.breakMin ?? 0, color: s.ownColor || '', activities: s.activities || [], group_id: s.groupId || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) });
+const SHORTCUTS = [
+  ['Left / Right', 'Previous or next week (outside the grid)'], ['T', 'Today'], ['1 - 9', 'Switch to that team'],
+  ['Arrow keys', 'Move between days in the grid'], ['Enter', 'Open the day or shift'], ['Shift + Click', 'Open the editor on an empty day'],
+  ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + V', 'Copy a shift, paste it on a day'], ['Esc', 'Close a menu or panel'],
+];
 
 export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const { myEmail } = useRole() || {};
@@ -50,7 +69,6 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const [view, setView] = useState('week');
   const [cursor, setCursor] = useState(() => new Date());
   const [query, setQuery] = useState('');
-  const [groupFilter, setGroupFilter] = useState('');
   const [presetFilter, setPresetFilter] = useState('');
   const [groupBy, setGroupBy] = useState('group');   // group | location | shift
   const [prefs, setPrefsState] = useState(loadPrefs);
@@ -75,6 +93,18 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const [open, setOpen] = useState('');            // which dialog: share | copy | clear | fill | import | view | note | reorder
   const [noteDate, setNoteDate] = useState('');
   const [addTo, setAddTo] = useState(null);
+  const [undo, setUndo] = useState(null);          // { msg, fn, key } - the 5-second Undo bar
+  const [leaving, setLeaving] = useState(() => new Set());   // drafts shrinking out
+  const [fresh, setFresh] = useState(() => new Set());       // blocks that just arrived
+  const [slide, setSlide] = useState(0);           // -1 / 1: which way the last week change went
+  const reduce = useReducedMotion();
+  const teamKey = `nexus.shifts.team.${me || 'anon'}`;
+  const [teamPick, setTeamPick] = useState(() => readTeam(teamKey));
+  useEffect(() => { setTeamPick(readTeam(teamKey)); }, [teamKey]);
+  const [frozenDefault, setFrozenDefault] = useState(null);
+  const rootRef = useRef(null);
+  const scrollMem = useRef({});
+  const glowRef = useRef(true);                    // today's column glows once, on the first load
   const suppressClick = useRef(false);
   const hoverRef = useRef({ shift: null, cell: null });
   const pressRef = useRef(null);
@@ -109,12 +139,59 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const empByEmail = useMemo(() => Object.fromEntries((data?.employees || []).map((e) => [e.email, { ...e, name: nameOf(e.email, e.name), availability: data?.availability?.[e.email] || [] }])), [data, nameOf]);
   const groups = useMemo(() => orderGroups(data?.groups || []), [data]);
 
+  // ── The team on screen (10/02): one team at a time ─────────────────────
+  // The remembered choice, else the first team the signed-in person is in,
+  // else the team with the most shifts this week (decided once, so moving
+  // between weeks never switches the team under you). All Teams is the old
+  // stacked view; People Without a Team is what "Everyone Else" was.
+  const liveGroups = useMemo(() => groups.filter((g) => !g.archived), [groups]);
+  const groupIdSet = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
+  const claimedAll = useMemo(() => new Set(liveGroups.flatMap((g) => g.members || [])), [liveGroups]);
+  const noTeamEmails = useMemo(() => (data?.employees || []).map((e) => e.email).filter((e) => !claimedAll.has(e)), [data, claimedAll]);
+  const computedDefault = useMemo(() => {
+    if (!data) return null;
+    if (!liveGroups.length) return ALL_TEAMS;
+    const mine = me && liveGroups.find((g) => (g.members || []).includes(me));
+    if (mine) return mine.id;
+    let best = liveGroups[0], bestN = -1;
+    liveGroups.forEach((g) => {
+      const set = new Set(g.members || []);
+      const n = (data.scheduled || []).filter((x) => (x.email ? set.has(x.email) : x.groupId === g.id)).length;
+      if (n > bestN) { best = g; bestN = n; }
+    });
+    return best.id;
+  }, [data, liveGroups, me]);
+  useEffect(() => { if (computedDefault && !frozenDefault) setFrozenDefault(computedDefault); }, [computedDefault, frozenDefault]);
+  const teamValid = (id) => !!id && (id === ALL_TEAMS || (id === NO_TEAM && noTeamEmails.length > 0) || groupIdSet.has(id));
+  const team = !data ? (teamPick || '') : teamValid(teamPick) ? teamPick : teamValid(frozenDefault) ? frozenDefault : (computedDefault || ALL_TEAMS);
+  const mode = team === ALL_TEAMS || !team ? 'all' : team === NO_TEAM ? 'none' : 'group';
+  const groupFilter = mode === 'group' ? team : '';
+  const pickTeam = (id) => {
+    const grid = rootRef.current?.querySelector('.week-grid');
+    scrollMem.current[team] = { top: grid?.scrollTop || 0, left: grid?.scrollLeft || 0 };
+    setTeamPick(id);
+    try { localStorage.setItem(teamKey, id); } catch { /* private mode */ }
+  };
+  const setGroupFilter = (id) => pickTeam(id || ALL_TEAMS);
+  // Back where you were in that team's list.
+  useLayoutEffect(() => {
+    const grid = rootRef.current?.querySelector('.week-grid');
+    const at = scrollMem.current[team];
+    if (grid) { grid.scrollTop = at?.top || 0; grid.scrollLeft = at?.left || 0; }
+  }, [team]);
+
+  // Conflicts (10/02): the API's per-shift sentences plus what the grid can
+  // see itself - duplicates, overlaps (overnight too), approved time off,
+  // availability - one short line each; the block wears an amber dot.
+  const conflicts = useMemo(() => (data ? conflictMap(data.scheduled, data.timeoff, data.availability) : {}), [data]);
   // index: "email|date" -> [shifts]; open shifts by "groupId|date".
   const byCell = useMemo(() => {
     const map = {};
-    (data?.scheduled || []).forEach((s) => { if (s.email && (!presetFilter || s.shiftId === presetFilter)) (map[`${s.email}|${s.date}`] ||= []).push(s); });
+    (data?.scheduled || []).forEach((s) => {
+      if (s.email && (!presetFilter || s.shiftId === presetFilter)) (map[`${s.email}|${s.date}`] ||= []).push(s.pendingDelete ? s : { ...s, conflicts: conflicts[s.id] || [] });
+    });
     return map;
-  }, [data, presetFilter]);
+  }, [data, presetFilter, conflicts]);
   const openAll = useMemo(() => (data?.scheduled || []).filter((s) => !s.email && (!presetFilter || s.shiftId === presetFilter)), [data, presetFilter]);
   const offOn = useCallback((email, ds) => timeOffOn(data?.timeoff, email, ds), [data]);
   const holOn = useCallback((email, ds) => data?.holidays?.[email]?.[ds], [data]);
@@ -144,6 +221,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       const byLoc = {};
       emps.forEach((e) => (byLoc[e.location || ''] ||= []).push(e));
       out = Object.keys(byLoc).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)).map((k) => ({ id: '', name: k || 'No Location Set', members: byLoc[k] }));
+    } else if (mode === 'none') {
+      out = [{ id: '', name: 'People Without a Team', members: emps }];
     } else {
       groups.forEach((g) => {
         if (g.archived && g.id !== groupFilter) return;
@@ -165,11 +244,14 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       .filter((g) => !picked || !byGroup || g.id === picked.id)
       .map((g) => ({ ...g, members: g.members.filter((m) => (!q || `${m.name || ''} ${m.email}`.toLowerCase().includes(q))
         && (!picked || byGroup || (picked.members || []).includes(m.email))
+        && (mode !== 'none' || !claimedAll.has(m.email))
         && (!prefs.mine || m.email === me)
         && (!prefs.hideEmpty || days.some((d) => (byCell[`${m.email}|${isoDate(d)}`] || []).length))) }))
       .filter((g) => g.members.length || (g.id && g.canEdit && !q && !prefs.mine))
       .map((g) => ({ ...g, members: [...g.members].sort((a, b) => (b.email === me) - (a.email === me)) }));
-  }, [data, empByEmail, groups, query, groupFilter, groupBy, me, prefs.teams, prefs.mine, prefs.hideEmpty, days, byCell]);
+  }, [data, empByEmail, groups, query, groupFilter, groupBy, me, prefs.teams, prefs.mine, prefs.hideEmpty, days, byCell, mode, claimedAll]);
+  // One team on screen: no group header row (the switcher names it).
+  const single = mode !== 'all' && groupBy !== 'location';
   const visibleEmails = useMemo(() => new Set(sections.flatMap((g) => g.members.map((m) => m.email))), [sections]);
   const visibleGroupIds = useMemo(() => new Set(sections.filter((g) => g.isGroup).map((g) => g.id)), [sections]);
   const showOpen = !prefs.mine && prefs.open !== false;
@@ -179,6 +261,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     const map = {};
     if (!showOpen) return map;
     openAll.forEach((s) => {
+      if (mode === 'none') {
+        if (s.groupId && groupIdSet.has(s.groupId)) return;
+        (map[`|${s.date}`] ||= []).push(s);
+        map.__ungrouped = true;
+        return;
+      }
       const gid = s.groupId && visibleGroupIds.has(s.groupId) ? s.groupId : (s.groupId && groupFilter ? null : '');
       if (gid === null) return;
       if (gid === '' && groupFilter) return;
@@ -186,7 +274,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       if (gid === '') map.__ungrouped = true;
     });
     return map;
-  }, [openAll, showOpen, visibleGroupIds, groupFilter]);
+  }, [openAll, showOpen, visibleGroupIds, groupFilter, mode, groupIdSet]);
   const shown = useMemo(() => [
     ...(data?.scheduled || []).filter((s) => s.email && visibleEmails.has(s.email) && (!presetFilter || s.shiftId === presetFilter)),
     ...Object.entries(openCells).filter(([k]) => k !== '__ungrouped').flatMap(([, v]) => v),
@@ -196,6 +284,30 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     (data?.dayNotes || []).forEach((n) => { if (!n.groupId || visibleGroupIds.has(n.groupId) || !groups.length) m[n.date] = m[n.date] ? `${m[n.date]} · ${n.note}` : n.note; });
     return m;
   }, [data, visibleGroupIds, groups.length]);
+
+  // Each team's people, hours, drafts and open shifts in view - the switcher's numbers.
+  const teamNumbers = useMemo(() => {
+    if (!data) return { list: [], all: null, none: null };
+    const inView = new Set(days.map(isoDate));
+    const sched = (data.scheduled || []).filter((x) => inView.has(x.date));
+    const known = new Set(Object.keys(empByEmail));
+    const statFor = (emails, openOf) => {
+      const set = new Set(emails.filter((e) => known.has(e)));
+      let min = 0, drafts = 0, open = 0;
+      sched.forEach((x) => {
+        if (!(x.email ? set.has(x.email) : openOf(x))) return;
+        if (x.email && counts(x)) min += paidMinutes(x);
+        if (isUnshared(x)) drafts += 1;
+        if (!x.email && counts(x)) open += x.openSlots || 1;
+      });
+      return { people: set.size, min, drafts, open };
+    };
+    return {
+      list: groups.map((g, i) => ({ id: g.id, name: g.name, archived: !!g.archived, color: teamColor(g.id, i), ...statFor(g.members || [], (x) => x.groupId === g.id) })),
+      all: statFor([...known], () => true),
+      none: statFor(noTeamEmails, (x) => !x.groupId || !groupIdSet.has(x.groupId)),
+    };
+  }, [data, days, groups, empByEmail, noTeamEmails, groupIdSet]);
 
   // Paid minutes per person per week, from everything loaded.
   const weekLoad = useMemo(() => {
@@ -224,17 +336,38 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const discardCount = (data?.scheduled || []).filter((s) => s.hasChanges || s.pendingDelete).length;
 
   // ── API actions ────────────────────────────────────────────────────────
-  async function run(fn, { ok, fail, after } = {}) {
+  // Undo (10/02): after a delete, move, paste, place or fill, a bar with
+  // Undo for five seconds; Undo puts it back through the same API calls.
+  const undoTimer = useRef(null);
+  const offerUndo = (msg, fn) => {
+    clearTimeout(undoTimer.current);
+    if (!fn) { setUndo(null); toastOk?.(msg); return; }
+    const key = Date.now();
+    setUndo({ msg, fn, key });
+    undoTimer.current = setTimeout(() => setUndo((u) => (u?.key === key ? null : u)), MOTION.undoMs);
+  };
+  useEffect(() => () => clearTimeout(undoTimer.current), []);
+  async function run(fn, { ok, fail, after, undo: undoOf } = {}) {
     setBusy(true);
     try {
       const r = await fn();
-      if (ok) toastOk?.(typeof ok === 'function' ? ok(r) : ok);
+      const msg = ok ? (typeof ok === 'function' ? ok(r) : ok) : '';
+      const back = undoOf?.(r) || null;
+      if (back) offerUndo(msg || 'Done.', back);
+      else if (msg) toastOk?.(msg);
       after?.(r);
       load();
       return r;
-    } catch (e) { toastErr?.(e?.message || fail || 'Something went wrong.'); return null; }
-    finally { setBusy(false); }
+    } catch (e) {
+      setLeaving(new Set());
+      toastErr?.(e?.message || fail || 'Something went wrong.'); return null;
+    } finally { setBusy(false); }
   }
+  const undoNow = () => {
+    const u = undo; if (!u) return;
+    clearTimeout(undoTimer.current); setUndo(null);
+    run(u.fn, { ok: 'Undone.', fail: 'Could not undo that.' });
+  };
   const publish = (payload) => run(() => api.timeSchedPublish(payload), {
     ok: (r) => {
       const bits = [];
@@ -247,20 +380,61 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const pasteInto = (email, date, groupId = '') => copied && run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
     start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note, break_min: copied.breakMin ?? 0, color: copied.ownColor || '',
     activities: copied.activities || [], group_id: email ? (copied.groupId || '') : (groupId || copied.groupId || ''), ...(email ? {} : { open_slots: 1 }) }),
-  { ok: 'Shift copied here.', fail: 'Could not paste the shift.' });
+  { ok: 'Shift copied here.', fail: 'Could not paste the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
   const saveCell = (payload) => run(() => (payload.id ? api.timeSchedUpdate(payload.id, payload) : api.timeSchedCreate(payload)),
     { ok: (r) => (r?.hasChanges ? 'Change saved. The team sees it once you share.' : 'Shift saved.'), fail: 'Could not save.', after: () => setPanel(null) });
-  const delCell = (id) => run(() => api.timeSchedDelete(id), { ok: (r) => (r?.pending ? "Marked for removal. It stays on the team's schedule until you share." : 'Shift removed.'), fail: 'Could not remove.', after: () => setPanel(null) });
+  const delCell = (id) => {
+    const s = (data?.scheduled || []).find((x) => x.id === id);
+    if (s && s.published === false && !reduce) setLeaving((l) => new Set([...l, id]));   // a draft shrinks out while it goes
+    return run(() => api.timeSchedDelete(id), {
+      ok: (r) => (r?.pending ? "Marked for removal. It stays on the team's schedule until you share." : 'Shift removed.'), fail: 'Could not remove.', after: () => setPanel(null),
+      undo: (r) => (!s ? null : r?.pending ? (s.hasChanges ? null : () => api.timeSchedDiscard(id)) : () => api.timeSchedCreate(createPayload(s))),
+    });
+  };
   const discardCell = (id) => run(() => api.timeSchedDiscard(id), { ok: 'Changes discarded.', fail: 'Could not discard the changes.', after: () => setPanel(null) });
   const assignOpen = (id, email) => run(() => api.timeSchedAssign(id, email), { ok: 'Shift assigned.', fail: 'Could not assign.', after: () => setPanel(null) });
   const moveShift = (s, email, date, duplicate) => {
     if (!duplicate && s.email === email && s.date === date) return;
     run(() => api.timeSchedMove(s.id, { employee_email: email, work_date: date, duplicate }), {
       ok: (r) => (duplicate ? 'Shift copied here as a draft.' : !email ? 'Moved to open shifts.' : r?.sourcePending ? 'Shift moved. The team keeps the original until you share.' : 'Shift moved.'),
-      fail: 'Could not move the shift.', after: () => setPanel(null) });
+      fail: 'Could not move the shift.', after: () => setPanel(null),
+      undo: (r) => (!r?.shift?.id || (!duplicate && s.hasChanges) ? null : async () => {
+        await api.timeSchedDelete(r.shift.id);
+        if (duplicate) return;
+        if (r.sourcePending) await api.timeSchedDiscard(s.id);
+        else await api.timeSchedCreate(createPayload(s));
+      }) });
   };
   const placePreset = (p, email, date, groupId = '') => run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: p.id, group_id: groupId, ...(email ? {} : { open_slots: 1 }) }),
-    { ok: `${p.code || p.name} placed as a draft.`, fail: 'Could not place the shift.' });
+    { ok: `${p.code || p.name} placed as a draft.`, fail: 'Could not place the shift.', undo: (r) => (r?.id ? () => api.timeSchedDelete(r.id) : null) });
+  // Fill usual hours for some people across the visible dates (one bulk call
+  // per shift type); Undo removes exactly the drafts it made.
+  async function fillUsual(emails, who) {
+    const byPreset = {};
+    emails.forEach((e) => { const p = usualOf(e); if (p) (byPreset[p.id] ||= { p, emails: [] }).emails.push(e); });
+    const batches = Object.values(byPreset);
+    if (!batches.length) { toastErr?.(`${who} ${emails.length === 1 ? 'has' : 'have'} no usual hours yet. Set them from a person's ⋯ menu.`); return; }
+    const before = new Set((data?.scheduled || []).map((x) => x.id));
+    setBusy(true);
+    try {
+      let made = 0;
+      for (const b of batches) {
+        const r = await api.timeSchedBulk({ shift_id: b.p.id, emails: b.emails, start_date: start, end_date: end, weekdays: presetWeekdays(b.p), skip_timeoff: true, overwrite: false });
+        made += Number(r?.created) || 0;
+      }
+      const next = await api.timeSchedule(start, end);
+      if (next) setData(next);
+      const set = new Set(emails);
+      const ids = (next?.scheduled || []).filter((x) => !before.has(x.id) && set.has(x.email) && x.published === false).map((x) => x.id);
+      const msg = made ? `Placed ${made} shift${made === 1 ? '' : 's'} from usual hours for ${who}.` : `Nothing to fill - every usual day for ${who} already has a shift or time off.`;
+      offerUndo(msg, ids.length ? async () => { for (const id of ids) await api.timeSchedDelete(id); } : null);
+    } catch (e) { toastErr?.(e?.message || 'Could not fill the usual hours.'); }
+    finally { setBusy(false); }
+  }
+  const copyLastWeek = (g) => run(() => api.timeSchedCopy({ source_start: addDaysIso(start, -7), source_end: addDaysIso(start, -1), target_start: start, weeks: 1,
+    include_open: !g?.id, include_notes: true, include_activities: true, skip_timeoff: true, overwrite: false, include_timeoff: false, ...(g?.id ? { group_id: g.id } : {}) }), {
+    ok: (r) => (r?.created ? `Copied ${r.created} shift${r.created === 1 ? '' : 's'} from last week as drafts. Share to send them.` : 'Last week had no shifts to copy.'),
+    fail: 'Could not copy last week.' });
   const recolor = (s, color) => run(() => api.timeSchedUpdate(s.id, { employee_email: s.email, work_date: s.date, shift_id: s.shiftId, start_hhmm: s.start, end_hhmm: s.end,
     label: s.label, note: s.note, break_min: s.breakMin ?? 0, activities: s.activities || [], color, group_id: s.groupId || '', ...(s.email ? {} : { open_slots: s.openSlots || 1 }) }),
   { ok: 'Color changed.', fail: 'Could not change the color.' });
@@ -303,12 +477,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       if (name && name.trim() && name.trim() !== group.name) run(() => api.timeShiftGroupMeta(group.id, { name: name.trim() }), { ok: 'Group renamed.', fail: 'Could not update the group.' });
     } else if (action === 'archive') {
       run(() => api.timeShiftGroupMeta(group.id, { archived: !group.archived }), { ok: group.archived ? `${group.name} restored.` : `${group.name} archived. Find it under Archived Groups.`, fail: 'Could not update the group.' });
-      if (!group.archived && groupFilter === group.id) setGroupFilter('');
+      if (!group.archived && groupFilter === group.id) { setTeamPick(null); try { localStorage.removeItem(teamKey); } catch { /* */ } }
     } else if (action === 'reorder') setOpen('reorder');
     else if (action === 'manage') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-shifts' } }));
     else if (action === 'delete') {
       const ok = await dialog.confirm(`Delete the group ${group.name}? Its people stay on the schedule; only the group goes.`, { title: 'Delete Group', confirmText: 'Delete', danger: true });
-      if (ok) { if (groupFilter === group.id) setGroupFilter(''); run(() => api.timeShiftGroupDelete(group.id), { ok: 'Group deleted.', fail: 'Could not delete the group.' }); }
+      if (ok) { if (groupFilter === group.id) { setTeamPick(null); setFrozenDefault(null); try { localStorage.removeItem(teamKey); } catch { /* */ } } run(() => api.timeShiftGroupDelete(group.id), { ok: 'Group deleted.', fail: 'Could not delete the group.' }); }
     }
   }
   const saveOrder = async (ids) => {
@@ -344,6 +518,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     if (action === 'add') setPanel({ cell: { email: m.emp.email, date: start, groupId: m.group?.id || '' }, mode: 'shift' });
     else if (action === 'timeoff') setPanel({ cell: { email: m.emp.email, date: start }, mode: 'timeoff' });
     else if (action === 'usual') setUsual(m.emp.email, arg);
+    else if (action === 'fill') fillUsual([m.emp.email], m.emp.name);
   }
   const openMenu = (e, ctx) => {
     if (!canManage) return;
@@ -508,15 +683,15 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   }
 
   // ── Navigation ─────────────────────────────────────────────────────────
-  const shiftRange = (n) => setCursor((c) => {
+  const shiftRange = (n) => { setSlide(n > 0 ? 1 : -1); setCursor((c) => {
     const d = new Date(c);
     if (view === 'month') return new Date(d.getFullYear(), d.getMonth() + n, 1);
     d.setDate(d.getDate() + n * (view === 'day' ? 1 : view === 'twoweeks' ? 14 : 7));
     return d;
-  });
-  const rangeLabel = view === 'day' ? `${formatWeekday(days[0])}, ${formatDate(days[0])}`
-    : view === 'month' ? formatMonthYear(days[0])
-      : `${formatDate(days[0])} - ${formatDate(days[days.length - 1])}`;
+  }); };
+  const jumpTo = (ds) => { setSlide(ds < start ? -1 : ds > end ? 1 : 0); setCursor(parseIso(ds)); };
+  const goToday = () => jumpTo(isoDate(new Date()));
+  const showToday = !(isoDate(new Date()) >= start && isoDate(new Date()) <= end);
   const openDay = (ds) => { const [y, m, d] = ds.split('-').map(Number); setCursor(new Date(y, m - 1, d)); setView('day'); };
   const pickView = (k) => setView(k === 'week' && prefs.twoWeeks ? 'twoweeks' : k);
   // Folded groups: what the user chose, else a group (when there are
@@ -535,7 +710,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const toggleCollapse = (key) => setFold({ ...fold, [key]: !collapsed.has(key) });
 
   const gridOn = {
-    cellClick: (email, ds, groupId) => (copied ? pasteInto(email, ds, groupId) : setPanel({ cell: { email, date: ds, groupId }, mode: 'shift' })),
+    cellClick: (email, ds, groupId, e) => {
+      if (copied) { pasteInto(email, ds, groupId); return; }
+      const usual = !e?.shiftKey && ghostOf(email, ds);
+      if (usual) placePreset(usual, email, ds, groupId);
+      else setPanel({ cell: { email, date: ds, groupId }, mode: 'shift' });
+    },
     enterCell: (key) => { const [email, ds] = key.split('|'); if (!rowEditable(email)) return; if (copied) pasteInto(email, ds); else setPanel({ cell: { email, date: ds }, mode: 'shift' }); },
     deleteKey: (id) => { const s = (data?.scheduled || []).find((x) => x.id === id); if (s && shiftEditable(s) && s.published === false && !s.pendingDelete) delCell(s.id); },
     menuAt: ({ x, y, cell, shift }) => { const [email, ds] = cell.split('|'); const s = shift ? (data?.scheduled || []).find((q) => q.id === shift) : null; openMenu({ preventDefault() {}, stopPropagation() {}, clientX: x, clientY: y }, { email, date: ds, shift: s, groupId: s?.groupId || '' }); },
@@ -550,14 +730,145 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     paste: (email, ds, groupId) => pasteInto(email, ds, groupId),
   };
   const ready = !!data;
+  // The usual shift an empty day would get on a click (none on a whole day
+  // off, a holiday, or a day outside the shift type's days).
+  function ghostOf(email, ds) {
+    if (!email || !managing || copied) return null;
+    const p = usualOf(email);
+    if (!p || !presetOnDay(p, ds) || dayFullyOff(offOn(email, ds)) || holOn(email, ds)) return null;
+    return p;
+  }
+  // Blocks that just arrived pop in; a draft being removed shrinks out.
+  const seenRef = useRef(null);
+  useEffect(() => {
+    if (!data) { seenRef.current = null; return undefined; }
+    const ids = new Set((data.scheduled || []).map((x) => x.id));
+    const prev = seenRef.current;
+    seenRef.current = { start, ids };
+    setLeaving((l) => (l.size ? new Set() : l));
+    if (reduce || !prev || prev.start !== start) return undefined;
+    const added = [...ids].filter((id) => !prev.ids.has(id));
+    if (!added.length) return undefined;
+    setFresh(new Set(added));
+    const t = setTimeout(() => setFresh(new Set()), MOTION.pop + 240);
+    return () => clearTimeout(t);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const blockClass = (x) => (reduce ? '' : leaving.has(x.id) ? 'm-leave' : fresh.has(x.id) ? 'm-pop' : '');
+  useEffect(() => { if (data) { const t = setTimeout(() => { glowRef.current = false; }, MOTION.glow); return () => clearTimeout(t); } return undefined; }, [data]);
+
+  // Keyboard: Left / Right move a week (outside the grid and any field), T
+  // is today, 1-9 pick a team while the schedule has focus.
+  const [keysOpen, setKeysOpen] = useState(false);
+  const navRef = useRef(null);
+  useEffect(() => { navRef.current = { shiftRange, goToday, pickTeam, liveGroups, blocked: !!panel || !!open || !!menu || !!personMenu || keysOpen }; });
+  useEffect(() => {
+    const onKey = (e) => {
+      const k = navRef.current;
+      if (!k || k.blocked || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"], [role="menu"], [role="listbox"], [role="dialog"], [data-cell], [data-shift]')) return;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (t?.closest?.('button') && !t.closest('[data-sched-root]')) return;
+        e.preventDefault(); k.shiftRange(e.key === 'ArrowRight' ? 1 : -1);
+      } else if (e.key === 't' || e.key === 'T') { e.preventDefault(); k.goToday(); }
+      else if (/^[1-9]$/.test(e.key) && (t === document.body || t?.closest?.('[data-sched-root]'))) {
+        const g = k.liveGroups[Number(e.key) - 1];
+        if (g) { e.preventDefault(); k.pickTeam(g.id); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // A team with nothing in view: one friendly row, Fill Usual Hours and Copy
+  // Last Week a click away.
+  const soleSection = single && sections.length === 1 ? sections[0] : null;
+  const teamIsEmpty = !!soleSection && !!data && view !== 'month' && view !== 'day'
+    && !soleSection.members.some((m) => days.some((d) => (byCell[`${m.email}|${isoDate(d)}`] || []).length))
+    && !Object.keys(openCells).some((k) => k !== '__ungrouped' && (openCells[k] || []).length);
+  const teamName = mode === 'none' ? 'People Without a Team' : soleSection?.name || '';
+  const emptyNote = teamIsEmpty ? (
+    <div style={{ position: 'sticky', left: 0, display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', flexWrap: 'wrap', maxWidth: 'min(100%, 92vw)' }}>
+      <span aria-hidden="true" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <CalendarPlus size={17} />
+      </span>
+      <span style={{ minWidth: 0, flex: '1 1 260px' }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700 }}>No shifts yet for {teamName} {days.length > 7 ? 'in these two weeks' : 'this week'}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+          {managing ? "Place everyone's usual hours in one go, or bring last week forward. Both land as drafts until you share." : 'Nothing is scheduled here yet.'}
+        </div>
+      </span>
+      {managing && (
+        <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="primary-btn" disabled={busy} onClick={() => fillUsual(soleSection.members.filter((m) => rowEditable(m.email)).map((m) => m.email), teamName)}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Fill Usual Hours</button>
+          <button type="button" className="secondary-btn" disabled={busy} onClick={() => copyLastWeek(soleSection.isGroup ? soleSection : null)}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CopyIcon size={13} /> Copy Last Week</button>
+        </span>
+      )}
+    </div>
+  ) : null;
+  // In one team's view the team's tools (Add Members, Rename, Archive...)
+  // sit in the grid's corner cell, where the group header used to carry them.
+  const cornerTools = managing && soleSection?.isGroup && soleSection.canEdit ? (
+    <TeamMenu team={soleSection} canReorder={soleSection.canReorder} withAdd trigger={{ ...TOOL_BTN, fontSize: 13, lineHeight: 1, fontWeight: 800 }}
+      onAction={(a) => (a === 'add' ? setAddTo(groups.find((x) => x.id === soleSection.id)) : teamAction(soleSection, a))} />
+  ) : null;
+  const personFill = (emp) => fillUsual([emp.email], emp.name);
+
+  // Coverage (10/02): per team and day, expected vs on. A manager sees it by
+  // default, a viewer turns it on under ⋯; the choice is remembered.
+  const showCoverage = prefs.coverage ?? managing;
+  const dayIsos = useMemo(() => days.map(isoDate), [days]);
+  const coverageOf = showCoverage && groupBy === 'group' ? (g) => coverageFor(g.members, dayIsos, { byCell, offOn, usualOf }) : null;
+  const [pulseCells, setPulseCells] = useState(null);
+  // Bring a cell or block into view by scrolling the grid itself (and the
+  // page only up or down) - scrollIntoView also slid the whole app sideways.
+  const reveal = (el) => {
+    if (!el) return;
+    const behavior = reduce ? 'auto' : 'smooth';
+    const grid = el.closest('.week-grid');
+    const r = el.getBoundingClientRect();
+    if (grid) {
+      const g = grid.getBoundingClientRect();
+      const dx = r.left < g.left + 200 ? r.left - g.left - 200 : r.right > g.right ? r.right - g.right + 12 : 0;
+      const dy = r.top < g.top + 60 ? r.top - g.top - 60 : r.bottom > g.bottom ? r.bottom - g.bottom + 12 : 0;
+      if (dx || dy) grid.scrollBy?.({ left: dx, top: dy, behavior });
+    }
+    const vh = window.innerHeight || 800;
+    if (r.top < 80 || r.bottom > vh - 20) window.scrollBy?.({ top: r.top - vh / 2, behavior });
+  };
+  const pulseTimer = useRef(null);
+  const onCoverage = (c) => {
+    const keys = new Set(c.missing.map((m) => `${m.email}|${c.date}`));
+    clearTimeout(pulseTimer.current);
+    setPulseCells(keys);
+    reveal(c.missing[0] && rootRef.current?.querySelector(`[data-cell="${c.missing[0].email}|${c.date}"]`));
+    pulseTimer.current = setTimeout(() => setPulseCells(null), 1500);
+  };
+  useEffect(() => () => clearTimeout(pulseTimer.current), []);
+  const conflictCount = prefs.conflicts === false ? 0 : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length).length;
+  const goToConflict = () => {
+    const el = rootRef.current?.querySelector('.week-grid [data-conflict]');
+    if (!el) return;
+    reveal(el);
+    el.focus?.({ preventScroll: true });
+    el.classList.add('m-pulse');
+    setTimeout(() => el.classList.remove('m-pulse'), 2600);
+  };
   // The manager controls stay on the toolbar while loading or after a failed
   // load (disabled), so the row never jumps - the grid itself says what happened.
   const toolbarManage = data ? canManage : true;
 
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif' }}>
-      <ScheduleToolbar view={view} onView={pickView} onPrev={() => shiftRange(-1)} onNext={() => shiftRange(1)} onToday={() => setCursor(new Date())}
-        rangeLabel={rangeLabel} groups={groups} groupFilter={groupFilter} onGroupFilter={setGroupFilter} canManage={toolbarManage} busy={busy} ready={ready}
+    <div ref={rootRef} data-sched-root="" style={{ fontFamily: 'Inter,sans-serif' }}>
+      <ScheduleToolbar view={view} onView={pickView} onPrev={() => shiftRange(-1)} onNext={() => shiftRange(1)} onToday={goToday}
+        range={{ first: start, last: isoDate(days[days.length - 1] || allDays[allDays.length - 1]), weekStart }} onJump={jumpTo} showToday={showToday} slide={reduce ? 0 : slide}
+        teamSwitcher={groups.length > 0 ? (
+          <TeamPicker teams={teamNumbers.list} value={mode === 'all' ? ALL_TEAMS : team} onChange={pickTeam} all={teamNumbers.all} none={teamNumbers.none}
+            compact={phone} shortcuts={!phone} style={phone ? { flex: 1 } : undefined} />
+        ) : null}
+        canManage={toolbarManage} busy={busy} ready={ready}
         unsharedCount={managing ? unsharedCount : 0} phone={phone}
         onAdd={(kind) => {
           if (kind === 'note') { setNoteDate(view === 'day' ? start : isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start); setOpen('note'); return; }
@@ -568,7 +879,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
         }}
         onShare={() => setOpen('share')}
         actions={{ canTimeOff, hideEmpty: !!prefs.hideEmpty, toggleHideEmpty: () => setPrefs({ ...prefs, hideEmpty: !prefs.hideEmpty }), copy: () => setOpen('copy'), fill: () => setOpen('fill'), clear: () => setOpen('clear'), importFile: () => setOpen('import'),
-          exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, discardCount,
+          exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, discardCount, shortcuts: () => setKeysOpen(true),
+          coverage: showCoverage, toggleCoverage: () => setPrefs({ ...prefs, coverage: !showCoverage }),
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
 
       {(query.trim() || presetFilter || prefs.mine) && (
@@ -590,12 +902,14 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
         <ErrorBanner message={`The schedule could not be loaded - ${error}`} onRetry={load} />
       ) : data === null ? (
         <SkeletonBlocks count={6} height={60} borderRadius={10} />
-      ) : phone && view !== 'month' && groupBy !== 'shift' ? (
-        <SchedulePhone days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
+      ) : (
+      <div key={`${start}|${view}|${team}`} className={`${reduce ? '' : slide > 0 ? 'm-slide-next' : slide < 0 ? 'm-slide-prev' : 'm-fade'} ${panel ? 'm-dim' : 'm-undim'}`}>
+      {phone && view !== 'month' && groupBy !== 'shift' ? (
+        <SchedulePhone single={single} emptyNote={emptyNote} days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
           notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn} />
       ) : view === 'day' ? (
-        <ScheduleDay date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} canManage={managing} offOn={offOn} holOn={holOn}
+        <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
           dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} />
       ) : view === 'month' ? (
@@ -609,12 +923,17 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
           copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={gridOn}
-          dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable} />
+          dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
+          single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
+          personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
+          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict} />
+      )}
+      </div>
       )}
       {data && teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
 
       {ghost && (
-        <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 11.5, fontWeight: 800,
+        <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 11.5, fontWeight: 800, transform: reduce ? 'none' : 'rotate(-2deg)',
           background: 'var(--card)', border: '1px solid var(--wk-brand)', borderRadius: 6, padding: '4px 9px', boxShadow: '0 6px 18px rgba(0,0,0,0.18)' }}>
           {ghost.copy ? `Copy ${ghost.label}` : ghost.label}
         </div>
@@ -636,6 +955,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       )}
       {open === 'share' && (
         <ShareDialog defaultStart={start} defaultEnd={end} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
+          totalCount={unsharedCount} thisWeek={{ start: isoDate(weekStartOf(new Date(), weekStart)) }}
           busy={busy} onPublish={publish} onClose={() => setOpen('')} />
       )}
       {open === 'note' && (
@@ -662,7 +982,32 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           onAdd={async (emails) => { const r = await run(() => api.timeShiftGroupMembers(addTo.id, { add: emails }), { ok: `Added ${emails.length} ${emails.length === 1 ? 'person' : 'people'} to ${addTo.name}.`, fail: 'Could not add them.' }); if (r) setAddTo(null); }} />
       )}
 
+      {undo && (
+        <div role="status" className="m-bar" style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 1450, display: 'flex', alignItems: 'center', gap: 14,
+          background: 'var(--ink)', color: 'var(--card)', borderRadius: 12, padding: '10px 10px 10px 16px', fontSize: 13, fontWeight: 600, boxShadow: '0 12px 32px rgba(15,23,42,0.28)', maxWidth: 'min(560px, 92vw)' }}>
+          <span style={{ minWidth: 0 }}>{undo.msg}</span>
+          <button type="button" onClick={undoNow} style={{ border: 'none', background: 'color-mix(in srgb, var(--card) 16%, transparent)', color: 'inherit', borderRadius: 8, padding: '6px 12px',
+            fontFamily: 'inherit', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><Undo2 size={13} /> Undo</button>
+          <button type="button" aria-label="Dismiss" onClick={() => { clearTimeout(undoTimer.current); setUndo(null); }}
+            style={{ border: 'none', background: 'none', color: 'inherit', opacity: 0.7, cursor: 'pointer', display: 'inline-flex', padding: 4 }}><XIcon size={14} /></button>
+        </div>
+      )}
+      {keysOpen && (
+        <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && setKeysOpen(false)} onKeyDown={(e) => { if (e.key === 'Escape') setKeysOpen(false); }}>
+          <div role="dialog" aria-label="Keyboard Shortcuts" className="m-menu" style={{ ...MODAL_CARD, maxWidth: 440 }}>
+            <DialogHead title="Keyboard Shortcuts" onClose={() => setKeysOpen(false)} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 14px', marginTop: 10, alignItems: 'center' }}>
+              {SHORTCUTS.map(([k, what]) => [
+                <span key={`k${k}`} style={{ justifySelf: 'start', fontSize: 11.5, fontWeight: 700, padding: '2px 7px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--bg)', whiteSpace: 'nowrap' }}>{k}</span>,
+                <span key={`w${k}`} style={{ fontSize: 12.5, color: 'var(--muted)' }}>{what}</span>,
+              ])}
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`.sched-cell:hover .sched-add, .sched-cell:focus-visible .sched-add { opacity: 1 !important; }
+        .sched-cell .sched-add { transition: opacity var(--m-fast) ease-out; }
         .sched-cell:focus-visible { outline: 2px solid var(--wk-brand) !important; outline-offset: -2px; }
         .sched-chip:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
         .sched-person:hover .person-tools, .sched-person:focus-within .person-tools { opacity: 1 !important; }

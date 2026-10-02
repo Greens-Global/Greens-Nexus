@@ -3,7 +3,7 @@
 // ShiftSchedule.jsx, which is the container; the grid itself is
 // components/shifts/WeekGrid.jsx (Oct 2026 rebuild, redesigned 10/02).
 import { useEffect, useState } from 'react';
-import { X, Upload, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock } from 'lucide-react';
+import { X, Upload, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays } from 'lucide-react';
 import { parseScheduleSheet } from './shiftScheduleLib';
 import { formatDate, formatWeekday } from '../lib/datetime';
 import { Spinner } from './AsyncState';
@@ -205,6 +205,7 @@ export function PersonMenu({ menu, presets = [], usualId = '', canTimeOff, onAct
   return (
     <ContextMenu x={menu.x} y={menu.y} label={`Options for ${menu.emp.name}`} onClose={onClose} width={250}>
       <MenuItem Icon={Plus} label="Add Shift" onClick={() => onAction('add')} />
+      <MenuItem Icon={CalendarDays} label="Fill Usual Hours" disabled={!usualId} onClick={() => onAction('fill')} />
       {canTimeOff && <MenuItem Icon={CalendarOff} label="Add Time Off" onClick={() => onAction('timeoff')} />}
       <MenuSep />
       <MenuHead>Usual Hours</MenuHead>
