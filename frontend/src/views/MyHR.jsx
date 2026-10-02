@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
+  User, Phone, Mail, Heart, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Pencil, Check, X, BadgeCheck,
   Clock, Banknote, MessageSquarePlus, Package, ArrowRight, Hourglass,
   HardDrive, Folder, FolderOpen, ChevronRight, ChevronLeft, Eye,
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
-import { formatDate, formatDateLong, formatTime } from '../lib/datetime';
+import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
+import { reasonLook } from '../lib/timeOffReasons';
+import { timeOffLabel } from '../components/shiftScheduleLib';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
 
@@ -17,12 +19,17 @@ import { canPreview } from '../egnyte/lib';
 // e-sign documents, paystubs, and an "Ask HR" request channel. The HR module
 // remains the HR team's admin console; this screen is baseline.
 //
-// Rendered as the "Overview" tab of the merged My HR / Time Clock module
-// (Visesh, Sep 3 - "anything to do with time and HR should be together").
-// Time-off REQUESTING and its full history live on the Time Off tab
-// (TimeClock.jsx) - one surface, not two; this screen only shows a summary
-// with a link over. Punch/hours detail lives on the Clock and Time Sheet
-// tabs the same way, hence "Full detail lives in Time Clock" below.
+// Rendered as the "Overview" tab of Workday (TimeClock.jsx). Since Oct 2
+// (Neil, Oct 1: "is there a need for the clock to be its own screen? ...
+// it should be a widget and it should have the entire time clock in it")
+// the Time Clock is the first thing on this page - TimeClock.jsx owns the
+// punch state and hands the widget in as `clock` (a function of the first
+// name, for its greeting). The hours - today, this week, the pay period -
+// sit in that widget; the Hours tile and the My Hours chart below cover any
+// range you pick. Time-off
+// REQUESTING and its full history live on the Time Off tab; this screen shows
+// what is coming up with a link over. Paystubs are a folder inside My
+// Documents (Neil, Oct 1: "keep everything in my documents").
 const STATUS_META = {
   pending:   { label: 'Pending',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   approved:  { label: 'Approved',  bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))' },
@@ -42,17 +49,9 @@ const EMP_TYPE_LABEL = { full_time: 'Full-Time', part_time: 'Part-Time', contrac
 
 const fmtD = (iso) => formatDateLong(iso, '-');
 const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
-const fmtT = (v) => !v ? '-' : (String(v).includes('T') ? formatTime(v, '-') : v);
 
 // Hours range filter - start/end in local time, ISO date keys.
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const HOUR_RANGES = [
-  ['week',     'This week'],
-  ['lastweek', 'Last week'],
-  ['14d',      'Last 14 days'],
-  ['month',    'This month'],
-  ['30d',      'Last 30 days'],
-];
 function rangeBounds(range) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
@@ -63,97 +62,46 @@ function rangeBounds(range) {
   const s = new Date(today); s.setDate(today.getDate() - 13); return { start: s, end: today };
 }
 
+
 function Row({ Icon, label, value }) {
   if (!value) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
       <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       <span style={{ fontSize: 12.5, color: 'var(--muted)', width: 118, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</span>
+      <span style={{ fontSize: 13.5, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={typeof value === 'string' ? value : undefined}>{value}</span>
     </div>
   );
 }
 
 // Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
 // numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
-function Stat({ label, value, hint, color, Icon, hero, title }) {
-  return (
-    <div className={`dk-stat${hero ? ' dk-stat--hero' : ''}`} style={{ cursor: 'default' }} title={title}>
-      <span className="dk-stat-top">
-        <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
+// Stat tile - the shared dk-stat anatomy (tinted icon chip, big tabular
+// numeral) so My HR reads like Home/People. `hero` = the one solid brand tile.
+// With onClick it opens what it counts (the Time Sheet, Time Off, documents).
+function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
+  const cls = `dk-stat wd-stat${hero ? ' dk-stat--hero' : ''}`;
+  const body = (
+    <>
+      <span className={`dk-chip dk-chip--${color}`}><Icon /></span>
+      <span className="wd-stat-text">
+        <span className="dk-stat-num">{value}</span>
+        <span className="dk-stat-label">{label}</span>
+        <span className="dk-stat-sub">{hint}</span>
       </span>
-      <span className="dk-stat-num">{value}</span>
-      <span className="dk-stat-label">{label}</span>
-      <span className="dk-stat-sub">{hint}</span>
-    </div>
+      {onClick && <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />}
+    </>
   );
+  return onClick
+    ? <button type="button" className={cls} title={title} onClick={onClick}>{body}</button>
+    : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-// Worked-hours bar chart over any date range (same dependency-free SVG idiom
-// as the dashboard's occupancy chart).
-function HoursChart({ days, start, end }) {
-  const ref = useRef(null);
-  const [w, setW] = useState(420);
-  const [hov, setHov] = useState(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => { const x = e.contentRect.width; if (x > 0) setW(Math.floor(x)); });
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-
-  // Continuous day series across the selected range.
-  const series = [];
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const key = iso(d);
-    series.push({ key, date: new Date(d), min: days?.[key]?.workedMin || 0 });
-  }
-  const n = series.length || 1;
-  // Short ranges label every day by weekday; long ones label every k-th day of month.
-  const labelEvery = n <= 9 ? 1 : Math.ceil(n / 10);
-  const label = (s, i) => (i % labelEvery !== 0) ? '' : (n <= 9
-    ? s.date.toLocaleDateString('en-US', { weekday: 'short' })
-    : String(s.date.getDate()));
-  const h = 150, padB = 20, padT = 26;
-  const max = Math.max(60 * 8, ...series.map(s => s.min));
-  const bw = Math.max(6, Math.min(34, (w - 20) / n - 6));
-  const gap = (w - n * bw) / (n + 1);
-  return (
-    <div ref={ref} style={{ width: '100%' }}>
-      <svg width={w} height={h} style={{ display: 'block' }}>
-        {series.map((s, i) => {
-          const x = gap + i * (bw + gap);
-          const bh = Math.max(s.min > 0 ? 3 : 0, ((h - padB - padT) * s.min) / max);
-          const y = h - padB - bh;
-          const active = hov === i;
-          return (
-            <g key={s.key} onMouseEnter={() => setHov(i)} onMouseLeave={() => setHov(null)}>
-              <rect x={x} y={padT} width={bw} height={h - padB - padT} fill="transparent" />
-              <rect x={x} y={y} width={bw} height={bh} rx={Math.min(bw / 2, 99)}
-                fill={active ? 'var(--wk-brand)' : '#b9c4f4'}
-                style={{ transition: 'fill 0.15s' }} />
-              <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize="9.5" fontFamily="Inter,sans-serif"
-                style={{ fill: active ? 'var(--ink)' : 'var(--muted)' }}>{label(s, i)}</text>
-              {active && (
-                <text x={Math.min(Math.max(x + bw / 2, 40), w - 40)} y={14} textAnchor="middle" fontSize="11" fontWeight="700"
-                  fontFamily="Inter,sans-serif" style={{ fill: 'var(--ink)' }}>
-                  {s.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {hm(s.min)}
-                </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
-export function MyHROverview({ onOpenTimeOff }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const [profile, setProfile] = useState(null);
   const [profErr, setProfErr] = useState('');
   const [docs, setDocs] = useState(null);     // null = loading, false = failed
   const [leave, setLeave] = useState(null);   // null = loading, false = failed
-  const [sheet, setSheet] = useState(null);
   const [stubs, setStubs] = useState([]);
   const [assets, setAssets] = useState(null);
   const [asks, setAsks] = useState([]);
@@ -168,12 +116,10 @@ export function MyHROverview({ onOpenTimeOff }) {
   const [askBusy, setAskBusy] = useState(false);
 
   // ── Card filters ──
-  const [range, setRange] = useState('week');         // hours card + tile
   const [docQuery, setDocQuery] = useState('');
   const [openDocSections, setOpenDocSections] = useState({});   // { [sectionKey]: true } - collapsed by default, click a folder to list its files
   const [docPage, setDocPage] = useState({});                   // { [sectionKey]: pageNumber } - a folder with >10 files paginates
   const [previewFile, setPreviewFile] = useState(null);         // file object for the in-app viewer, or null
-  const [stubQuery, setStubQuery] = useState('');
   // { rootFiles, folders: [{ name, files }] } - my own Egnyte person folder,
   // in the SAME folder shape as Egnyte (Neil/Visesh, Sep 10: "I want the
   // folder also same they are in Egnyte"), minus subfolders wired as hidden
@@ -182,16 +128,24 @@ export function MyHROverview({ onOpenTimeOff }) {
   const [egnyteDocs, setEgnyteDocs] = useState(null);
   const [assetFilter, setAssetFilter] = useState('all');
   const [askFilter, setAskFilter] = useState('all');
+  const [askOpen, setAskOpen] = useState(false);
+  const [sheet, setSheet] = useState(null);
+  // The Hours tile counts this week; the clock card above switches between
+  // Today / This Week / Pay Period.
+  const range = 'week';       // the Ask HR form opens on New Request
 
   const flash = (t, ok = true) => { setToast({ t, ok }); setTimeout(() => setToast(null), 4000); };
 
   useEffect(() => {
     api.myHrProfile().then(setProfile).catch(e => setProfErr(e?.message || 'Could not load your profile'));
-    api.myHrDocs().then(d => setDocs(d || [])).catch(() => setDocs(false));
-    api.timeOffMine().then(l => setLeave(l || [])).catch(() => setLeave(false));
-    api.myPaystubs().then(setStubs).catch(() => {});
-    api.myAssets().then(setAssets).catch(() => setAssets({ assignments: [], checkouts: [] }));
-    api.myHrRequests().then(setAsks).catch(() => {});
+    api.myHrDocs().then(d => setDocs(Array.isArray(d) ? d : [])).catch(() => setDocs(false));
+    api.timeOffMine().then(l => setLeave(Array.isArray(l) ? l : [])).catch(() => setLeave(false));
+    api.myPaystubs().then(r => setStubs(Array.isArray(r) ? r : [])).catch(() => {});
+    // Normalized: Overview now carries the Time Clock, so a malformed answer
+    // here must never take the punch buttons down with it.
+    api.myAssets().then(a => setAssets({ assignments: a?.assignments || [], checkouts: a?.checkouts || [] }))
+      .catch(() => setAssets({ assignments: [], checkouts: [] }));
+    api.myHrRequests().then(r => setAsks(Array.isArray(r) ? r : [])).catch(() => {});
     api.myhrEgnyteDocs().then(d => setEgnyteDocs(d?.available ? { rootFiles: d.rootFiles || [], folders: d.folders || [] } : null)).catch(() => {});
   }, []);
 
@@ -201,7 +155,7 @@ export function MyHROverview({ onOpenTimeOff }) {
     setSheet(null);
     const { start, end } = rangeBounds(range);
     api.timeMy(iso(start), iso(end)).then(setSheet).catch(() => setSheet({ days: {} }));
-  }, [range]);
+  }, []);
 
   const startEdit = () => {
     const em = profile?.personal?.emergency || {};
@@ -283,12 +237,21 @@ export function MyHROverview({ onOpenTimeOff }) {
     return sections;
   }, [egnyteDocs]);
 
+  // Paystubs HR uploads (Neil, Oct 1: no separate My Paystubs card - "keep
+  // everything in my documents"), newest first, as their own folder.
+  const stubRows = useMemo(() => (stubs || []).map(s => ({
+    key: 's:' + s.id, kind: 'stub', title: s.name,
+    meta: `Added ${fmtD(s.createdAt?.slice(0, 10))}`, sortKey: s.createdAt || '',
+    busyKey: 'stub' + s.id, onDownload: () => downloadStub(s.id),
+  })).sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || '')), [stubs]);
+
   const docSections = useMemo(() => {
     const sections = [];
     if (esignRows.length) sections.push({ key: 'esign', name: 'Signed Documents', rows: esignRows });
+    if (stubRows.length) sections.push({ key: 'stubs', name: 'Paystubs', rows: stubRows });
     sections.push(...egnyteSections);
     return sections;
-  }, [esignRows, egnyteSections]);
+  }, [esignRows, stubRows, egnyteSections]);
   const totalDocCount = docSections.reduce((n, s) => n + s.rows.length, 0);
 
   const DOCS_PAGE_SIZE = 10;
@@ -297,7 +260,9 @@ export function MyHROverview({ onOpenTimeOff }) {
     <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
       {d.kind === 'egnyte'
         ? <HardDrive size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
-        : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
+        : d.kind === 'stub'
+          ? <Banknote size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
+          : <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.meta}</div>
@@ -355,11 +320,13 @@ export function MyHROverview({ onOpenTimeOff }) {
       setAskForm({ type: 'document', message: '' });
       setAskFile(null);
       if (askFileRef.current) askFileRef.current.value = '';
+      setAskOpen(false);
       flash('Sent to HR - you’ll hear back here');
     } catch (e) { flash(e?.message || 'Could not send', false); }
     finally { setAskBusy(false); }
   };
 
+  const goMyShifts = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
   const goInventory = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } }));
 
   // ── Derived stats ──
@@ -397,6 +364,20 @@ export function MyHROverview({ onOpenTimeOff }) {
     </div>
   );
 
+  // What is coming up: pending or approved requests that have not ended yet,
+  // soonest first - the Time Off card's list (the full history is the tab).
+  const upcoming = Array.isArray(leave)
+    ? leave.filter(r => (r.status === 'pending' || r.status === 'approved') && (r.endDate || '') >= todayKey)
+      .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''))
+    : [];
+  const pendingCount = Array.isArray(leave) ? leave.filter(r => r.status === 'pending').length : 0;
+  const toLabel = (t) => timeOffLabel(t) || 'Time Off';
+  const dayOf = (d) => formatDate(d + 'T12:00:00');
+  const spanLabel = (r) => r.startDate === r.endDate ? dayOf(r.startDate) : `${dayOf(r.startDate)} - ${dayOf(r.endDate)}`;
+  const clockParts = typeof clock === 'function' ? clock(profile?.firstName || '') : null;
+  // undefined = no clock handed in (no shift data at all); null = loading.
+  const shiftInfo = clockParts ? clockParts.shift : undefined;
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
       {toast && (
@@ -405,37 +386,71 @@ export function MyHROverview({ onOpenTimeOff }) {
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
+      {/* Top of the page, in reading order (Oct 2): the greeting, the summary
+          tiles, then the clock card. The clock never waits on the HR profile -
+          only the tiles do, and they hold their place with a skeleton. */}
+      {clockParts?.intro}
+      {profile ? (
+        <>
+          {/* ── Stat tiles ── each opens what it counts. Hours hidden for
+              salaried/exempt people (Charmi, Aug 21). */}
+          <div className="wd-statgrid">
+            {/* Hours this week beside today's shift - the two things someone
+                opening Workday wants first (Oct 2). Exempt people have no hours
+                tile, so their shift gets a tile of its own. */}
+            {!sheet?.timeTrackingExempt ? (
+              /* Two targets in one tile (Oct 2): the hours open the Time
+                 Sheet, today's shift opens Shifts > My Shifts. */
+              <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
+                <button type="button" className="wd-hero-part" onClick={onOpenTimeSheet} disabled={!onOpenTimeSheet}
+                  title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>
+                  <span className="dk-chip dk-chip--blue"><Clock /></span>
+                  <span className="wd-stat-text">
+                    <span className="dk-stat-num">{sheet ? hm(hoursTotal) : '…'}</span>
+                    <span className="dk-stat-label">Hours · This Week</span>
+                    <span className="dk-stat-sub">{`${formatDate(rStart)} - ${formatDate(rEnd)} · ${daysWorkedLive} day${daysWorkedLive === 1 ? '' : 's'} worked`}</span>
+                  </span>
+                </button>
+                {shiftInfo !== undefined && (
+                  <button type="button" className="wd-hero-part wd-hero-shift" onClick={goMyShifts} title="Open My Shifts">
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span className="wd-hero-shift-l"><CalendarDays size={12} /> Today&apos;s Shift</span>
+                      <span className="wd-hero-shift-v" style={{ display: 'block' }}>{shiftInfo === null ? '…' : shiftInfo.time || 'No Shift Today'}</span>
+                      <span className="wd-hero-shift-s" style={{ display: 'block' }}>{shiftInfo === null ? '' : shiftInfo.time ? (shiftInfo.label || 'Scheduled in Shifts') : 'Nothing on your schedule'}</span>
+                    </span>
+                    <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            ) : shiftInfo !== undefined && (
+              <Stat label="Today's Shift" value={shiftInfo === null ? '…' : shiftInfo.time || 'None'}
+                hint={shiftInfo?.time ? (shiftInfo.label || 'Scheduled in Shifts') : 'Nothing on your schedule'}
+                color="blue" Icon={CalendarDays} onClick={goMyShifts} />
+            )}
+            <Stat label="Time Off This Year" value={leaveLabel}
+              hint={pendingCount ? `Approved working days · ${pendingCount} pending` : `Approved working days in ${yr}`}
+              title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Opens Time Off.`}
+              color="green" Icon={CalendarOff} onClick={onOpenTimeOff} />
+            <Stat label="Time With Us" value={tenure}
+              hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
+              title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
+              color="orange" Icon={Hourglass} />
+          </div>
+        </>
+      ) : !profErr && <SkeletonBlocks count={1} height={74} />}
+      {clockParts ? clockParts.card : clock}
+
       {profErr ? (
         <div className="dash-card" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: 40 }}>{profErr}</div>
       ) : !profile ? (
         <SkeletonBlocks count={3} height={110} />
       ) : (
         <>
-          {/* ── Stat tiles ── (hours hidden for salaried/exempt people - Charmi, Aug 21) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-            {!sheet?.timeTrackingExempt && (
-              <Stat hero label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`}
-                value={sheet ? hm(hoursTotal) : '…'}
-                hint={`${formatDate(rStart)} - ${formatDate(rEnd)} · ${daysWorkedLive} day${daysWorkedLive === 1 ? '' : 's'} worked${openMin ? ' · shift in progress' : ''}`}
-                title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Change the range on the Hours card below.`}
-                color="blue" Icon={Clock} />
-            )}
-            <Stat label="Leave this year" value={leaveLabel} hint={`Approved working days in ${yr}`}
-              title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Pending and declined requests are not included.`}
-              color="green" Icon={CalendarOff} />
-            <Stat label="My documents" value={docs === null ? '…' : (docs === false && !egnyteDocs) ? '-' : totalDocCount} hint="Signed & filed for you"
-              title="Completed e-sign documents you were a party to, plus the files HR keeps in your personal folder"
-              color="purple" Icon={FileText} />
-            <Stat label="Time with us" value={tenure}
-              hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
-              title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
-              color="orange" Icon={Hourglass} />
-          </div>
-
           <div className="myhr-grid">
 
-            {/* ── Left rail: profile + equipment ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* ── Left rail: profile + equipment ── (minWidth 0: a long work
+                email must ellipsize, not widen the column past a phone) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
               <div className="dash-card">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
                   {profile.photoUrl
@@ -451,7 +466,9 @@ export function MyHROverview({ onOpenTimeOff }) {
                     </span>
                   )}
                 </div>
-                <Row Icon={Briefcase} label="Employee code" value={profile.employeeCode} />
+                {/* No employee code here (Neil, Oct 1): it is only used for
+                    Intacct reporting, so it stays in People for HR and
+                    accounting and means nothing to the employee. */}
                 <Row Icon={Mail} label="Work email" value={profile.workEmail} />
                 <Row Icon={CalendarDays} label="Start date" value={fmtD(profile.startDate)} />
                 <Row Icon={Network} label="Reports to" value={profile.manager} />
@@ -459,7 +476,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                 <Row Icon={Building2} label="Employment" value={EMP_TYPE_LABEL[profile.employmentType] || (profile.employmentType || '').replace(/_/g, ' ')} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '16px 0 2px' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & emergency</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Contact & Emergency</span>
                   {!editing && (
                     <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
                       <Pencil size={12} /> Edit
@@ -507,11 +524,11 @@ export function MyHROverview({ onOpenTimeOff }) {
                 )}
               </div>
 
-              {/* ── My equipment ── */}
+              {/* ── My Equipment ── */}
               <div className="dash-card">
-                {cardHead('My equipment', 'Assigned to you or checked out',
+                {cardHead('My Equipment', 'Assigned to you or checked out',
                   assets && assets.assignments.length > 0 && assets.checkouts.length > 0 ? (
-                    <select className="form-input" value={assetFilter} onChange={e => setAssetFilter(e.target.value)}
+                    <select className="form-input" value={assetFilter} onChange={e => setAssetFilter(e.target.value)} aria-label="Filter my equipment"
                       style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
                       <option value="all">All</option>
                       <option value="assigned">Assigned</option>
@@ -544,54 +561,12 @@ export function MyHROverview({ onOpenTimeOff }) {
               </div>
             </div>
 
-            {/* ── Main grid: hours spans both columns, then paired rows whose
-                cards stretch to equal heights (aligned edges by construction) ── */}
+            {/* ── Main grid: documents beside time off, then Ask HR ── */}
             <div className="myhr-main">
-              {!sheet?.timeTrackingExempt && (
-              <div className="dash-card myhr-span2">
-                {cardHead('My hours', 'Full detail lives on the Clock tab',
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{sheet ? hm(workedTotal) : '…'}</strong> total</span>
-                    <select className="form-input" value={range} onChange={e => setRange(e.target.value)}
-                      style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
-                      {HOUR_RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </span>)}
-                {!sheet ? (
-                  <LoadingState compact />
-                ) : (
-                  <>
-                    {workedTotal === 0 ? (
-                      <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 16px' }}>
-                        No hours in this range yet - punch in from the Clock tab and they chart here.
-                      </div>
-                    ) : (
-                      <HoursChart days={sheet.days} start={rStart} end={rEnd} />
-                    )}
-                    {dayEntries.length > 0 && (
-                      <div style={{ marginTop: 8 }}>
-                        {dayEntries.sort((a, b) => b[0].localeCompare(a[0])).slice(0, 5).map(([date, d]) => (
-                          <div key={date} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', width: 100, flexShrink: 0 }}>
-                              {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                            </span>
-                            <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>
-                              {fmtT(d.firstIn)} → {fmtT(d.lastOut)}{d.breakMin ? ` · ${hm(d.breakMin)} break` : ''}
-                            </span>
-                            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{hm(d.workedMin)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-              )}
-
               <div className="dash-card">
-                {cardHead('My documents', 'Signed copies and files HR filed for you, by folder',
+                {cardHead('My Documents', 'Signed copies, files HR filed for you and your paystubs',
                   totalDocCount > 3 ? (
-                    <input className="form-input" placeholder="Search…" value={docQuery} onChange={e => setDocQuery(e.target.value)}
+                    <input className="form-input" placeholder="Search…" aria-label="Search my documents" value={docQuery} onChange={e => setDocQuery(e.target.value)}
                       style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
                   ) : <FileText size={15} style={{ color: 'var(--muted)' }} />)}
                 {totalDocCount === 0 ? (
@@ -605,14 +580,14 @@ export function MyHROverview({ onOpenTimeOff }) {
                   if (!filtered.length) {
                     return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No documents match your search.</div>;
                   }
-                  // No Egnyte folder data at all (not wired/connected, or nothing filed there yet) -
-                  // just e-sign docs, so there is nothing to browse by folder: list flat as before.
-                  // NOT the same as "exactly one Egnyte folder" - an employee whose real Egnyte
-                  // folder isn't broken into subfolders (everything sits loose at the root) still
-                  // gets ONE labeled, collapsible section rather than being silently flattened -
-                  // that flattening is what made prod look "missing" the folder view dev had
-                  // (Pranshu, Sep 11: dev's test tenant has 5 subfolders, prod's real one had 1).
-                  if (egnyteSections.length === 0) {
+                  // ONE section and no Egnyte folder data (not wired/connected, or
+                  // nothing filed there yet) - nothing to browse by folder: list
+                  // flat. NOT the same as "exactly one Egnyte folder" - an employee
+                  // whose real Egnyte folder isn't broken into subfolders still
+                  // gets ONE labeled, collapsible section rather than being
+                  // silently flattened (Pranshu, Sep 11: dev's test tenant has 5
+                  // subfolders, prod's real one had 1).
+                  if (egnyteSections.length === 0 && filtered.length === 1) {
                     const { page, totalPages, rows } = docPageFor(filtered[0]);
                     return (
                       <>
@@ -629,16 +604,18 @@ export function MyHROverview({ onOpenTimeOff }) {
                     return (
                       <div key={s.key}>
                         <button type="button" onClick={() => setOpenDocSections(p => ({ ...p, [s.key]: !p[s.key] }))}
-                          disabled={searching}
+                          disabled={searching} aria-expanded={open}
                           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0', margin: 0,
                             border: 'none', background: 'none', cursor: searching ? 'default' : 'pointer', width: '100%', textAlign: 'left' }}>
                           <ChevronRight size={13} style={{ color: 'var(--muted)', flexShrink: 0,
                             transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
                           {s.key === 'esign'
                             ? <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                            : open
-                              ? <FolderOpen size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
-                              : <Folder size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />}
+                            : s.key === 'stubs'
+                              ? <Banknote size={13} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
+                              : open
+                                ? <FolderOpen size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+                                : <Folder size={13} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />}
                           <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{s.name}</span>
                           <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.rows.length}</span>
                         </button>
@@ -658,93 +635,108 @@ export function MyHROverview({ onOpenTimeOff }) {
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
               )}
 
-              <div className="dash-card">
-                {cardHead('My paystubs', 'Uploaded by HR each pay period',
-                  stubs.length > 3 ? (
-                    <input className="form-input" placeholder="Search…" value={stubQuery} onChange={e => setStubQuery(e.target.value)}
-                      style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
-                  ) : <Banknote size={15} style={{ color: 'var(--muted)' }} />)}
-                {stubs.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No paystubs yet - they'll appear here when HR uploads them.</div>
-                ) : stubs.filter(s => !stubQuery || (s.name || '').toLowerCase().includes(stubQuery.toLowerCase())).map(s => (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                    <Banknote size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Added {fmtD(s.createdAt?.slice(0, 10))}</div>
-                    </div>
-                    <button className="secondary-btn" onClick={() => downloadStub(s.id)} disabled={!!busy['stub' + s.id]}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
-                      {busy['stub' + s.id] ? <Spinner size={12} /> : <Download size={12} />} PDF
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              {/* My leave: a summary only - requesting time off and its full
-                  history live on the Time Off tab now (one surface, not two;
-                  see the file-top note). */}
-              <div className="dash-card">
-                {cardHead('My leave', 'Time off, requested and tracked on the Time Off tab', <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
-                {!Array.isArray(leave) || leave.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 14px' }}>{leave === null ? 'Loading…' : leave === false ? 'Could not load your time off.' : 'No time-off requests yet.'}</div>
+              {/* Time Off: what is coming up. Requesting and the full history
+                  live on the Time Off tab (one surface, not two). */}
+              <div className="dash-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                {cardHead('Time Off', 'Coming up - pending and approved',
+                  pendingCount > 0
+                    ? <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: STATUS_META.pending.bg, color: STATUS_META.pending.fg }}>{pendingCount} Pending</span>
+                    : <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
+                {leave === null ? (
+                  <LoadingState compact />
+                ) : leave === false ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Could not load your time off.</div>
+                ) : upcoming.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing coming up.</div>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, padding: '6px 0 14px' }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)', fontSize: 15 }}>{leaveLabel}</strong> approved this year (working days)</span>
-                    {leave.some(r => r.status === 'pending') && (
-                      <span style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', fontWeight: 600 }}>
-                        {leave.filter(r => r.status === 'pending').length} pending
-                      </span>
+                  <div>
+                    {upcoming.slice(0, 4).map(r => {
+                      const { Icon: TIcon, color } = reasonLook(r.type, toLabel(r.type));
+                      return (
+                        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+                          <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--mist)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <TIcon size={14} color={color} />
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{toLabel(r.type)}</div>
+                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{spanLabel(r)}</div>
+                          </div>
+                          {chip(r.status)}
+                        </div>
+                      );
+                    })}
+                    {upcoming.length > 4 && (
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', paddingTop: 8 }}>+{upcoming.length - 4} more on the Time Off tab</div>
                     )}
                   </div>
                 )}
-                <button className="primary-btn" onClick={onOpenTimeOff} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                  Open Time Off <ArrowRight size={12} />
-                </button>
+                <div style={{ flex: 1 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+                  <button className="primary-btn" onClick={onOpenTimeOff} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
+                    <CalendarDays size={13} /> Request Time Off
+                  </button>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{leaveLabel}</strong> approved in {yr}</span>
+                </div>
               </div>
 
-              {/* ── Ask HR ── */}
-              <div className="dash-card">
-                {cardHead('Ask HR', 'Request a document update, profile change or anything else', <MessageSquarePlus size={15} style={{ color: 'var(--muted)' }} />)}
-                <label style={lbl}>What do you need?</label>
-                <select className="form-input" style={input} value={askForm.type} onChange={e => setAskForm(f => ({ ...f, type: e.target.value }))}>
-                  {ASK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-                <label style={lbl}>Details</label>
-                <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message}
-                  placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
-                  onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
-                {/* Optional attachment - the new/updated document itself */}
-                <input ref={askFileRef} type="file" style={{ display: 'none' }}
-                  onChange={e => setAskFile(e.target.files?.[0] || null)} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                  <button className="secondary-btn" onClick={() => askFileRef.current?.click()}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
-                    <FileText size={13} /> {askFile ? 'Change file' : 'Attach the document'}
-                  </button>
-                  {askFile && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '4px 10px', maxWidth: 220 }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{askFile.name}</span>
-                      <X size={12} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => { setAskFile(null); if (askFileRef.current) askFileRef.current.value = ''; }} />
-                    </span>
-                  )}
-                  <div style={{ flex: 1 }} />
-                  <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
-                    {askBusy ? <><Spinner size={13} /> Sending…</> : 'Send to HR'}
-                  </button>
-                </div>
-
-                {asks.length > 0 && (
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My requests</span>
-                      <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
-                        <option value="all">All</option>
-                        <option value="open">Open</option>
-                        <option value="resolved">Resolved</option>
-                      </select>
+              {/* ── Ask HR ── the requests already sent; New Request opens the
+                  form in place (a full form on an overview read as heavy). */}
+              <div className="dash-card myhr-span2">
+                {cardHead('Ask HR', 'A document update, a profile change or anything else',
+                  !askOpen && (
+                    <button className="primary-btn" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                      <MessageSquarePlus size={13} /> New Request
+                    </button>
+                  ))}
+                <div style={{ display: 'grid', gap: 16, alignItems: 'start' }}>
+                  {askOpen && (
+                  <div>
+                    <label style={{ ...lbl, marginTop: 0 }}>What do you need?</label>
+                    <select className="form-input" style={input} value={askForm.type} onChange={e => setAskForm(f => ({ ...f, type: e.target.value }))}>
+                      {ASK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    <label style={lbl}>Details</label>
+                    <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message} autoFocus
+                      placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
+                      onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
+                    {/* Optional attachment - the new/updated document itself */}
+                    <input ref={askFileRef} type="file" style={{ display: 'none' }}
+                      onChange={e => setAskFile(e.target.files?.[0] || null)} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                      <button className="secondary-btn" onClick={() => askFileRef.current?.click()}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                        <FileText size={13} /> {askFile ? 'Change File' : 'Attach Document'}
+                      </button>
+                      {askFile && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '4px 10px', maxWidth: 220 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{askFile.name}</span>
+                          <X size={12} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => { setAskFile(null); if (askFileRef.current) askFileRef.current.value = ''; }} />
+                        </span>
+                      )}
+                      <div style={{ flex: 1 }} />
+                      <button className="secondary-btn" onClick={() => setAskOpen(false)} disabled={askBusy}>Cancel</button>
+                      <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
+                        {askBusy ? <><Spinner size={13} /> Sending…</> : 'Send to HR'}
+                      </button>
                     </div>
+                  </div>
+                  )}
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
+                      {asks.length > 0 && (
+                        <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)} aria-label="Filter my requests"
+                          style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
+                          <option value="all">All</option>
+                          <option value="open">Open</option>
+                          <option value="resolved">Resolved</option>
+                        </select>
+                      )}
+                    </div>
+                    {asks.length === 0 && (
+                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
+                    )}
                     {asks.filter(a => askFilter === 'all' || a.status === askFilter).map(a => (
                       <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -767,7 +759,7 @@ export function MyHROverview({ onOpenTimeOff }) {
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </div>

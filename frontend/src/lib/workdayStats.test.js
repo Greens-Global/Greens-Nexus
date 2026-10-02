@@ -89,6 +89,10 @@ describe('openShiftMinutes', () => {
     expect(openShiftMinutes(days, now)).toBe(0);
     expect(openShiftMinutes({}, now)).toBe(0);
   });
+  it('reads a zone-less punch time as UTC, the way the server sends it', () => {
+    const inAt = new Date(now - 90 * 60000).toISOString().slice(0, 19);   // no 'Z'
+    expect(openShiftMinutes({ d: { punches: [{ kind: 'in', at: inAt }] } }, now)).toBe(90);
+  });
   it('ignores a shift open past the 16-hour guard (missed clock-out)', () => {
     const days = { '2026-09-29': { punches: [{ kind: 'in', at: new Date(2026, 8, 29, 6).toISOString() }] } };
     expect(openShiftMinutes(days, now)).toBe(0);
