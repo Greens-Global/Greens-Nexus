@@ -137,7 +137,7 @@ Open:
 - ✅ A4. Custom dates picker cannot move to the current month (59:23). With
   08/01/2026 - 08/31/2026 selected, the calendar's next-month arrow does
   nothing. Likely the From input is capped at the To date.
-- ☐ A5. Time Clock shifts: assigning "Accounting - VSB" put the shift under
+- ✅ A5 (resolved 09/25 on data, confirmed 10/02: Vinod's assignment is "Accounting - VSB" set by Charmi at 19:11 that day; since 10/02 a shift type is also set per person from the Schedule row menu). Time Clock shifts: assigning "Accounting - VSB" put the shift under
   the wrong team ("Why is it coming as in the admin team? Didn't I select
   accounting?", 56:22). Vinod's week showed shift "001 / India Admin Team"
   on 4 of 5 days.
@@ -292,7 +292,7 @@ get to the report, half your screen is already gone."
   has not. Pranshu routed these to the employee's own manager plus Global
   Admins on 09/26 (dev); this batch adds the HR contact of the employee's
   company (People - Companies).
-- ☐ F3 (already in Nexus since Aug 21: People - profile - Compensation -
+- ✅ F3 (DONE on PRODUCTION 10/02: the eight set to Exempt in payroll_rates, Shivani given a rate row; Vinod untouched; undo = time_tracking_exempt back to 0 for those emails) (already in Nexus since Aug 21: People - profile - Compensation -
   Time Tracking - "Exempt"). Nothing to build; the eight people below have to
   be set to Exempt on production. Exempt from time tracking (50:15). A per-person switch on the
   profile; when on, no time card. Time off is still logged by the day. Named:
@@ -301,11 +301,13 @@ get to the report, half your screen is already gone."
 - ✅ F4. Remove the California / India toggle and the rounding controls from
   the payroll view (51:44) - previously agreed. Built as: the whole row of
   switches sits behind one Options button. Pay is computed exactly as before.
-  OPEN QUESTION for Neil: did "turn it off" mean the rounding ITSELF (pay
-  computed from raw punch times)? That changes paychecks, so it was not done.
+  ANSWERED 09/30 (Charmi): rounding is a company setting, off by default, an
+  admin turns it on. Built 10/02: Settings > Global Settings > Time Clock > Pay
+  Rules; the controls are off the timecard; Greens' saved value (on, 5 min) is
+  kept.
 - ☐ F5. Desktop agents not reporting (52:09). 12-13 people listed, Arnav
   called out. Owner: Sagar or Pranshu.
-- ☐ F6. Shifts: assign a shift to one person directly (55:01 - 56:22). Today
+- ✅ F6 (10/02 Shifts rebuild: Add Shift / Usual Hours from a person's row menu in Schedule; no group of one needed). Shifts: assign a shift to one person directly (55:01 - 56:22). Before:
   it needs a group of one. With Sagar (shifts were given to him on the call),
   together with A5. Not touched in this batch.
 
