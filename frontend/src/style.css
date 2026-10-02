@@ -5182,3 +5182,16 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .m-dim, .m-undim, .sched-chip, .sched-arrow, .date-block, .team-picker-btn { transition: none !important; }
   .sched-chip[role="button"]:hover, .sched-arrow:active { transform: none; }
 }
+
+/* Accounting header (10/02): one layout on every tab so the search never
+   moves - title | centered fixed-width search | actions. */
+.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 440px) minmax(0, 1fr); align-items: center; gap: 16px; min-height: 44px; margin-bottom: 8px; }
+.acct-header-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.acct-header-title h2 { margin: 0; font-size: 1.15rem; line-height: 1.3; white-space: nowrap; }
+.acct-header-title p { margin: 0; font-size: 0.8rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.acct-header-search { min-width: 0; }
+.acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
+@media (max-width: 900px) {
+  .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+}
