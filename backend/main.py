@@ -2879,3 +2879,6 @@ from routers import accounting_budgets, accounting_partners, accounting_allocati
 app.include_router(accounting_budgets.router)      # Accounting > Budget: the budget grid through the accounting app (Oct 2)
 app.include_router(accounting_partners.router)     # Accounting > Vendors & Customers: records + change requests for approval (Oct 2)
 app.include_router(accounting_allocations.router)  # Accounting > Allocations: monthly payroll allocation entry from Time Clock hours (Oct 2)
+from routers import accounting_loans, accounting_leasing  # noqa: E402
+app.include_router(accounting_loans.router)        # Accounting > Loans & Financing: loans set up from the ledger, DSCR review (Oct 2)
+app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)

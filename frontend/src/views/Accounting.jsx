@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Search, ShieldCheck, TrendingUp, Wallet, X } from 'lucide-react';
+import { Banknote, CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Search, ShieldCheck, TrendingUp, Wallet, X } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -9,6 +9,7 @@ import PackagesTab from '../components/accounting/PackagesTab';
 import AccessTab from '../components/accounting/AccessTab';
 import PfsTab from '../components/accounting/PfsTab';
 import MriTab from '../components/accounting/MriTab';
+import LoansTab from '../components/accounting/LoansTab';
 import { control } from '../components/accounting/reportControls';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
@@ -55,6 +56,10 @@ const TABS = [
   { key: 'reports', label: 'Reports', Icon: FileText },
   { key: 'packages', label: 'Packages', Icon: FileStack },
   { key: 'mri', label: 'MRI', Icon: KeyRound },
+  // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
+  // month - balances, principal and interest paid, NOI, DSCR against the
+  // covenant. Per entity, so a limited person gets it too.
+  { key: 'loans', label: 'Loans & Financing', Icon: Banknote },
   { key: 'pfs', label: 'PFS', Icon: Landmark },
   { key: 'data', label: 'Data', Icon: Database },
   { key: 'access', label: 'Access', Icon: ShieldCheck },
@@ -65,7 +70,7 @@ const TABS = [
   { key: 'partners', label: 'Vendors & Customers', Icon: Users },
   { key: 'allocations', label: 'Allocations', Icon: Split },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'mri', 'budget', 'partners'];
+const LIMITED_TABS = ['reports', 'packages', 'mri', 'loans', 'budget', 'partners'];
 // Links made before the rename still land.
 const ALIAS = { leasing: 'mri' };
 
@@ -150,6 +155,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     reports: 'Financial reports from the Nexus Accounting ledger',
     packages: 'Sets of memorized reports, built into one PDF for a lender',
     mri: 'Monthly recurring income - leases, and the interest and loan payments coming in',
+    loans: 'Every loan from the ledger - balances, principal and interest paid, NOI and DSCR against the covenant',
     pfs: 'Personal financial statements of the guarantors, for any date',
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
@@ -162,7 +168,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   // Reports it is slimmer still (Charmi, 10/02: "adjust the top width a
   // little bit so we can get more data") - "Accounting · Financial reports
   // ..." on one line with almost no margin, so about six more rows fit.
-  const slim = ['reports', 'packages', 'access', 'pfs', 'mri'].includes(sub);
+  const slim = ['reports', 'packages', 'access', 'pfs', 'mri', 'loans'].includes(sub);
   const slimmer = sub === 'reports';
 
   return (
@@ -208,6 +214,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'reports' && <ReportsTab search={search} />}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
+          {sub === 'loans' && <LoansTab canEdit={canEdit} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
           {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
           {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
@@ -223,6 +230,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'reports' && <ReportsTab search={search} />}
               {sub === 'packages' && <PackagesTab />}
               {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
+              {sub === 'loans' && <LoansTab canEdit={canEdit} />}
               {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
               {sub === 'data' && canEdit && <DataTab />}
               {sub === 'access' && canManage && <AccessTab />}

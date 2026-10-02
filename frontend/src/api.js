@@ -1829,6 +1829,19 @@ export const api = {
   // QuickBooks IIF on the team timecard.
   timeExportIntacct:    (start, end, { journal = 'PYRJ', expense = '', clearing = '', location = '' } = {}) =>
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
+  // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
+  // liability accounts, the ledger-driven review (balances, principal and
+  // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
+  // maturity, covenant) saved to the same fin_loans row Data > Loans edits.
+  getLoanProposals:      (month) => req(`/accounting/loans/proposals?month=${encodeURIComponent(month)}`),
+  createLoansFromLedger: (body) => req('/accounting/loans/create', { method: 'POST', body: JSON.stringify(body) }),
+  getLoanReview:         (month) => req(`/accounting/loans/review?month=${encodeURIComponent(month)}`),
+  updateLoan:            (id, month, body) => req(`/accounting/loans/${encodeURIComponent(id)}?month=${encodeURIComponent(month)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // MRI > Leasing > Set Up From the Ledger: one lease per (entity, customer)
+  // with rent postings in the last twelve months, created through the same
+  // path as New Lease.
+  getLeaseProposals:      () => req('/accounting/leasing/from-ledger/proposals'),
+  createLeasesFromLedger: (body) => req('/accounting/leasing/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
