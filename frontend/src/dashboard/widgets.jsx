@@ -94,7 +94,6 @@ export const SHORTCUT_TARGETS = [
   { view: 'hr',               label: 'HR' },
   { view: 'accounting',       label: 'Accounting' },
   { view: 'operations',       label: 'Operations' },
-  { view: 'development',      label: 'Development' },
   { view: 'ops',              label: 'Construction' },
   { view: 'external-links',   label: 'Links' },
   { view: 'support',          label: 'Support' },
