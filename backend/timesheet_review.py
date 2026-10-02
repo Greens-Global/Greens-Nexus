@@ -303,6 +303,11 @@ def queue_row(db: Session, r: TimesheetReview) -> dict:
 def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> TimesheetReview:
     """Employee: first submission, or a resubmission after it was sent back."""
     email = employee_email.lower()
+    # Exempt from time tracking = no timesheet at all (Visesh, 10/02).
+    from models import PayrollRate
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
+    if rate is not None and getattr(rate, "time_tracking_exempt", 0):
+        raise HTTPException(400, "You are exempt from time tracking, so there is no timesheet to submit.")
     start, end, pay_type = period_for(db, email, anchor)
     r = active_review(db, email, start)
     if r and r.status == "with_manager":

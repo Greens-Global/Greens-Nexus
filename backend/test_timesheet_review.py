@@ -163,6 +163,15 @@ class ReviewLoopTests(ReviewCase):
             tsr.submit(self.db, EMP, ANCHOR)
         self.assertEqual(e.exception.status_code, 409)
 
+    def test_exempt_from_time_tracking_has_no_timesheet(self):
+        # Exempt = no clock and no timesheet (Visesh, 10/02).
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="USD", monthly_salary=1,
+                                       full_day_hours=8, overtime_rule="none", time_tracking_exempt=1))
+        self.db.commit()
+        with self.assertRaises(HTTPException) as e:
+            tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(e.exception.status_code, 400)
+
     def test_agreeing_needs_an_hr_contact(self):
         self.db.query(models.HrEntity).update({"hr_contact_email": ""})
         self.db.commit()
