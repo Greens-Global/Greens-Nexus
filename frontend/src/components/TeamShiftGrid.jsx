@@ -11,7 +11,8 @@ import { Avatar } from './ShiftScheduleExtras';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import WeekGrid from './shifts/WeekGrid';
 import { DayStrip, PhoneRow, firstDay } from './shifts/SchedulePhone';
-import { paidMinutes, fmtHrs, todayIso, shiftShortText } from './shifts/shiftLib';
+import { paidMinutes, fmtHrs, todayIso, shiftShortText, teamColor } from './shifts/shiftLib';
+import TeamPicker from './shifts/TeamPicker';
 
 const MUTED = { fontSize: 11, color: 'var(--muted)' };
 
@@ -56,9 +57,9 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
       <span className="wkc-chip"><Users size={14} /></span>
       <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Group Shifts</span>
       {teams.length > 1 ? (
-        <select className="form-select" value={team.id} onChange={(e) => onPickTeam(e.target.value)} aria-label="Group" style={{ width: 'auto', fontSize: 12.5, padding: '4px 28px 4px 10px' }}>
-          {teams.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.members.length}){t.isMember === false ? ' - you manage' : ''}</option>)}
-        </select>
+        <TeamPicker ariaLabel="Group" compact={phone} value={team.id} onChange={onPickTeam}
+          teams={teams.map((t, i) => ({ id: t.id, name: t.name, color: teamColor(t.id, i), people: t.members.length, hint: t.isMember === false ? 'You manage' : '',
+            ...(t.id === team.id ? { min: weekMin, open: openShifts.reduce((a, s) => a + (s.openSlots || 1), 0) } : {}) }))} />
       ) : (
         <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{team.name} · {team.members.length} member{team.members.length === 1 ? '' : 's'}{team.isMember === false ? ' · you manage this group' : ''}</span>
       )}
@@ -122,7 +123,7 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
         offOn={(email, ds) => offBy[`${email}|${ds}`] || []} usualOf={(email) => rowOf[email]?.shift || null} notes={notes} holidayDates={holidayDates}
         me={meRow?.email || ''} teamZone={teamZone} empWeekMin={(email) => (rowOf[email] ? rowMin(rowOf[email]) : 0)}
         dayStats={(date) => { const d = days.find((x) => x.date === date); return { shifts: dayShifts(d), people: working(d).length, min: dayMin(d) }; }}
-        weekMin={weekMin} overWeeks={(email) => { const m = rowOf[email] ? rowMin(rowOf[email]) : 0; return m > 40 * 60 ? [m] : []; }} onNowOf={(email) => !!rowOf[email] && isOn(rowOf[email])} notesRow maxHeight="none"
+        weekMin={weekMin} overWeeks={(email) => { const m = rowOf[email] ? rowMin(rowOf[email]) : 0; return m > 40 * 60 ? [m] : []; }} onNowOf={(email) => !!rowOf[email] && isOn(rowOf[email])} notesRow maxHeight="none" single
         blockChildren={(s, { email, ds }) => (!email ? openExtra(s, ds) : null)} />
       {zoneLine}
     </div>
