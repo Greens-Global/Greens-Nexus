@@ -3,6 +3,7 @@
 // press or Escape, trap Tab, and move with the arrow keys - the old shift
 // menu was mouse-only (Shifts QA 24).
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
 export const POP = { position: 'absolute', zIndex: 1300, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
@@ -43,18 +44,22 @@ export function menuKeys(e) {
 export function MenuButton({ label, Icon, items, className = 'secondary-btn', align = 'left', ariaLabel, badge, primary = false, disabled = false, style, width = 220, children }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
-  const ref = useDismiss(open, close);
+  const ref = useRef(null);
+  const btnRef = useRef(null);
   const listRef = useRef(null);
-  useEffect(() => { if (open) listRef.current?.querySelector('[role^="menuitem"]:not(:disabled)')?.focus(); }, [open]);
+  useDismissBoth(open, [ref, listRef], close);
+  // Drawn in a portal at the button, so no clipped container cuts it off.
+  const pos = useAnchor(open, btnRef, width, align);
+  useEffect(() => { if (open && pos) listRef.current?.querySelector('[role^="menuitem"]:not(:disabled)')?.focus(); }, [open, !!pos]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
-      <button type="button" className={primary ? 'primary-btn' : className} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} disabled={disabled}
+      <button ref={btnRef} type="button" className={primary ? 'primary-btn' : className} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} disabled={disabled}
         style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, ...style }}>
         {Icon && <Icon size={14} />}{label}{badge}{children}{label && <ChevronDown size={13} />}
       </button>
-      {open && (
-        <div ref={listRef} role="menu" aria-label={ariaLabel || label} onKeyDown={menuKeys}
-          style={{ ...POP, top: 'calc(100% + 6px)', [align]: 0, minWidth: width }}>
+      {open && pos && createPortal(
+        <div ref={listRef} role="menu" aria-label={ariaLabel || label} onKeyDown={menuKeys} className={align === 'right' ? 'm-menu-r' : 'm-menu'}
+          style={{ ...POP, ...pos, zIndex: 1350, maxHeight: `calc(100vh - ${Math.round(pos.top) + 12}px)`, overflowY: 'auto' }}>
           {items.map((it, i) => (it === 'sep' ? <div key={`sep${i}`} style={{ height: 1, background: 'var(--line)', margin: '4px 0' }} />
             : it.head ? <div key={`h${i}`} style={HEAD}>{it.head}</div>
               : (
@@ -67,7 +72,8 @@ export function MenuButton({ label, Icon, items, className = 'secondary-btn', al
                   {typeof it.checked === 'boolean' && <Switch on={it.checked} />}
                 </button>
               )))}
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );
@@ -87,7 +93,7 @@ export function ContextMenu({ x, y, label, onClose, children, width = 230 }) {
   const top = Math.max(8, Math.min(y, (window.innerHeight || 800) - 380));
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1500 }} onPointerDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }}>
-      <div ref={ref} role="menu" aria-label={label} onPointerDown={(e) => e.stopPropagation()} onKeyDown={menuKeys}
+      <div ref={ref} role="menu" aria-label={label} onPointerDown={(e) => e.stopPropagation()} onKeyDown={menuKeys} className="m-menu"
         style={{ ...POP, position: 'fixed', left, top, width, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}>
         {children}
       </div>
@@ -114,3 +120,42 @@ export const Switch = ({ on }) => (
     <span style={{ position: 'absolute', top: 2, left: on ? 13 : 2, width: 11, height: 11, borderRadius: '50%', background: '#fff', transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.2)' }} />
   </span>
 );
+
+// A popover drawn in a portal at the anchor's position (10/02): a menu
+// inside the page's clipped containers was cut off at the content's edge.
+// Returns the fixed position under `anchorRef`, kept in place on scroll and
+// resize, flipped left to stay on screen. `width` is the popover's width.
+export function useAnchor(open, anchorRef, width = 320, align = 'left') {
+  const [pos, setPos] = useState(null);
+  useEffect(() => {
+    if (!open) { setPos(null); return undefined; }
+    const place = () => {
+      const r = anchorRef.current?.getBoundingClientRect?.();
+      if (!r) return;
+      const vw = window.innerWidth || 1024;
+      const w = Math.min(width, vw - 16);
+      let left = align === 'right' ? r.right - w : r.left;
+      left = Math.max(8, Math.min(left, vw - w - 8));
+      setPos({ position: 'fixed', top: r.bottom + 6, left, width: w });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open, anchorRef, width, align]);
+  return pos;
+}
+
+// Outside press or Escape closes a popover made of an anchor and a portal.
+export function useDismissBoth(open, refs, onClose) {
+  const cb = useRef(onClose);
+  useEffect(() => { cb.current = onClose; });
+  useEffect(() => {
+    if (!open) return undefined;
+    const down = (e) => { if (!refs.some((r) => r.current?.contains(e.target))) cb.current(); };
+    const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); cb.current(); } };
+    document.addEventListener('pointerdown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key); };
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+}
