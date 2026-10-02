@@ -44,3 +44,17 @@ export function reasonLook(key, label = '') {
   for (const ch of text) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return { Icon: CalendarOff, color: REASON_FALLBACK[h % REASON_FALLBACK.length] };
 }
+
+// The request form's whole list, in this order (Neil, Oct 1: "it should start
+// with Personal, then Sick, then Vacation, then Unpaid ... add in Medical
+// Appointment and that's it" - no Other, Holiday, Parental Leave, Off...).
+// Other and Parental Leave are Personal; a holiday is Vacation. Stored keys
+// are what the server already accepts; older requests keep whatever type
+// they were filed under and still display it.
+export const REQUEST_TIMEOFF_TYPES = [
+  ['personal', 'Personal'],
+  ['sick', 'Sick'],
+  ['vacation', 'Vacation'],
+  ['unpaid', 'Unpaid'],
+  ['Medical Appointment', 'Medical Appointment'],
+];

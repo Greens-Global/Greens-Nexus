@@ -355,7 +355,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
-    case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
+    case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
@@ -430,7 +430,7 @@ const DEFAULT_SUBS = {
   // click, not just after switching tabs once (see TimeClock.jsx's own
   // activeSub sync for that half).
   myhr:              "overview",
-  timeclock:         "clock",
+  timeclock:         "overview",   // the Clock tab is a widget on Overview (Oct 2)
   "admin-console":   "global",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;

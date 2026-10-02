@@ -93,7 +93,7 @@ export function TimeClockWidget() {
   const tone = onBreak ? 'orange' : clockedIn ? 'green' : 'muted';
   const stateColor = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
   const since = last?.at ? `${{ in: 'In', out: 'Out', break_start: 'Break', break_end: 'Back' }[last.kind] || last.kind} at ${formatTime(utc(last.at))}` : '';
-  const go = () => navigate('timeclock', 'clock');
+  const go = () => navigate('timeclock', 'overview');
 
   if (status?.timeTrackingExempt) {
     return (

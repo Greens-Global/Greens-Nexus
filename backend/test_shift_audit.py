@@ -329,6 +329,17 @@ class ShiftAuditTests(unittest.TestCase):
         self.assertEqual(self.client.put("/timeclock/timeoff/types", json={"custom": []}).json()["custom"], [])
         self.assertEqual(self.client.get("/timeclock/timeoff/types").json()["custom"], [])
 
+    def test_the_request_form_list_survives_an_emptied_reason_list(self):
+        # Workday's request form offers exactly Personal, Sick, Vacation, Unpaid
+        # and Medical Appointment (Neil, Oct 1) - every one must still go through
+        # after an admin saves an empty custom list.
+        self.assertEqual(self.client.put("/timeclock/timeoff/types", json={"custom": []}).json()["custom"], [])
+        self._as(A)
+        r = self.client.post("/timeclock/timeoff", json={"type": "Medical Appointment", "start_date": DAY2, "end_date": DAY2})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.post("/timeclock/timeoff", json={"type": "Holiday", "start_date": DAY2,
+                                                                     "end_date": DAY2}).status_code, 400)
+
     # ── The reason for a leave ───────────────────────────────────────────
     def _bells(self, recipient):
         db = database.SessionLocal()
