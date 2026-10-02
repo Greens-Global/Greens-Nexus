@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Info, StickyNote, ArrowLeftRight } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, zoneClock, formatHHMM, formatMonthDay } from '../lib/datetime';
+import { zoneClock, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { zoneOptionLabel } from '../lib/worldClockZones';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -10,7 +10,8 @@ import { shiftPhase } from './shiftScheduleLib';
 import TeamShiftGrid from './TeamShiftGrid';
 import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
-import { isoDate, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText } from './shifts/shiftLib';
+import DateBlock from './shifts/DateBlock';
+import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 
@@ -136,7 +137,6 @@ export default function MyShifts() {
   const canAsk = (reqs?.teammates || []).length > 0 && (cfg.swaps !== false || cfg.offers !== false);
   const pendingIds = new Set((reqs?.mine || []).filter((r) => PENDING.includes(r.status)).map((r) => r.shift?.id));
   const openList = cfg.openShifts ? reqs?.openShifts || [] : [];
-  const rangeText = `${formatDate(start)} - ${formatDate(end)}`;
   const whenText = (x) => (x.d.isToday ? 'today' : x.d.key === isoDate(addDays(now, 1)) ? 'tomorrow' : dayShort(x.d.date));
 
   return (
@@ -152,7 +152,9 @@ export default function MyShifts() {
           <button type="button" onClick={() => setCursor((c) => addDays(c, 7))} title="Next Week" aria-label="Next week"
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronRight size={16} /></button>
         </div>
-        <span style={{ fontSize: 17, fontWeight: 800, whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>{rangeText}</span>
+        {/* The decorated date, same as the Schedule's: calendar tile, "Sep 28 - Oct 4",
+            the year and week under it; a click picks a week from a month calendar. */}
+        <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
       </div>
 
       {glance && !error && (
