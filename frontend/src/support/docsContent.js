@@ -184,19 +184,19 @@ export const DOCS = [
     tagline: 'Clock in and out, check your hours and request time off.',
     where: 'Left menu > Workday',
     access: 'Everyone (employees)',
-    purpose: 'Workday is everything about your own time and HR record in one place. Punch in and out (with breaks), check your time sheet for the pay period (your schedule is in Shifts), request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
+    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. Check your time sheet for the pay period (your schedule is in Shifts), request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
     gains: [
       'Get paid correctly. Every punch is timestamped and tagged with where it happened.',
       'See your hours for this pay period, day by day, before payroll does.',
       'Request time off in a few clicks and see when it is approved.',
-      'Find your signed documents and paystubs in one place.',
+      'Find your signed documents, HR files and paystubs in one place: My Documents.',
     ],
     shot: 'clock',
     walkthroughs: [
       {
         title: 'Punch In for the Day',
         steps: [
-          'Open Workday from the left menu, then click the Clock tab.',
+          'Open Workday from the left menu. The Time Clock is the first card on Overview.',
           'Click Punch In. The first time, read the monitoring notice and acknowledge it.',
           'Allow location if your browser asks. On a phone this gives the most accurate location check.',
         ],
@@ -213,8 +213,8 @@ export const DOCS = [
         title: 'Request Time Off',
         steps: [
           'Click the Time Off tab.',
-          'Pick the type (Vacation, Sick, Personal, Unpaid or Other) and the start and end dates.',
-          'Add a short note and send the request. It shows as Pending until your approver decides.',
+          'Pick the Reason (Personal, Sick, Vacation, Unpaid or Medical Appointment) and the From and To dates. Turn All day off to take part of one day.',
+          'Add a note if your approver should know more (optional), then click Request. It shows as Pending until your approver decides.',
         ],
       },
       {
@@ -227,10 +227,10 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Overview', desc: 'Your profile, contact and emergency details, assigned equipment, checkouts, signed documents, paystubs and leave. Only you see this page. The tiles on top: Hours this week (Monday to today, including a shift still in progress), Leave this year (approved working days, Monday to Friday, with a partial day counted as its share of 8 hours), My documents (signed and filed) and Time with us (from the start date on your HR record - ask HR if it is wrong).' },
-      { name: 'Clock', desc: 'Punch In, Start Break, End Break and Punch Out, with today\'s punches and location tags.' },
+      { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
+      { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick and vacation hours show on their own lines.' },
-      { name: 'Time Off', desc: 'Request time off and see what is coming up. Approved, Pending, Rejected and Cancelled requests are all listed.' },
+      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation, Unpaid or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
     ],
     manager: {
