@@ -53,7 +53,39 @@ DEFAULT_COVENANT = 1.35
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
 _SCAN_TTL = 300.0
 _SCAN: dict[tuple, tuple[float, Any]] = {}
-_SEM = asyncio.Semaphore(6)   # ledger reads in flight at once
+# Ledger reads in flight at once - one semaphore PER EVENT LOOP. A module-level
+# asyncio.Semaphore binds to the first loop that waits on it and then raises
+# "bound to a different event loop" from any other (TestClient runs each
+# request on its own loop; a worker restart does the same).
+_SEMS: dict[int, asyncio.Semaphore] = {}
+
+
+def _sem() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    sem = _SEMS.get(id(loop))
+    if sem is None:
+        _SEMS.clear()
+        sem = _SEMS[id(loop)] = asyncio.Semaphore(4)
+    return sem
+
+
+async def gather_tolerant(makers: list, what: str, empty):
+    """Run the reads together. `makers` are zero-argument callables that
+    build the coroutine, so a read that fails can be retried once; one that
+    fails twice is answered with `empty` and a note. One entity the
+    accounting app drops (10/02: it closed a connection mid-scan of 317
+    entities) must not take the whole screen down with it."""
+    results = await asyncio.gather(*[m() for m in makers], return_exceptions=True)
+    out, notes = [], []
+    for i, r in enumerate(results):
+        if isinstance(r, BaseException):
+            try:
+                r = await makers[i]()
+            except Exception as e:  # noqa: BLE001 - the note carries the reason
+                notes.append(f"{what[i] if i < len(what) else 'a read'}: {getattr(e, 'detail', None) or e.__class__.__name__}")
+                r = empty() if callable(empty) else empty
+        out.append(r)
+    return out, notes
 
 
 def _r2(v) -> float:
@@ -151,7 +183,7 @@ async def _entities(scope: dict) -> list[dict]:
 async def _balance_sheet(scope: dict, entity: str, asof: str) -> dict[str, dict]:
     """GL code -> {title, section, amount} of one entity as of a date."""
     location, _ = await _limit(scope, entity, None)
-    async with _SEM:
+    async with _sem():
         data = await accounting._acct_get("/api/internal/reports/balance-sheet", {"asof": asof, "location": location})
     out: dict[str, dict] = {}
     for s in data.get("sections") or []:
@@ -166,7 +198,7 @@ async def _balance_sheet(scope: dict, entity: str, asof: str) -> dict[str, dict]
 async def _pnl(scope: dict, entity: str, from_: str, to: str) -> list[dict]:
     """[{section, account_no, title, amount}] of one entity between two dates."""
     location, _ = await _limit(scope, entity, None)
-    async with _SEM:
+    async with _sem():
         data = await accounting._acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location})
     out = []
     for s in data.get("sections") or []:
@@ -248,7 +280,8 @@ async def _scan(scope: dict, month: str) -> dict:
     entities = await _entities(scope)
     names = {e["code"]: e.get("name") or "" for e in entities}
     _, asof = month_bounds(month)
-    sheets = await asyncio.gather(*[_balance_sheet(scope, e["code"], asof) for e in entities])
+    sheets, notes = await gather_tolerant([(lambda e=e: _balance_sheet(scope, e["code"], asof)) for e in entities],
+                                          [f"{e.get('name') or e['code']} ({e['code']}) balance sheet" for e in entities], dict)
     proposals, liabilities = [], 0
     for e, sheet in zip(entities, sheets):
         for code, a in sorted(sheet.items()):
@@ -260,7 +293,10 @@ async def _scan(scope: dict, month: str) -> dict:
                 continue
             proposals.append({"entityCode": e["code"], "entityName": names.get(e["code"]) or e["code"], "glAccount": code, "title": a["title"],
                               "balance": a["amount"], "lender": hit_["lender"], "kind": hit_["kind"], "balanceSource": "ledger"})
-    out = {"month": month, "asOf": asof, "entitiesScanned": len(entities), "liabilityAccounts": liabilities, "proposals": proposals, "lookedFor": LOOKED_FOR}
+    out = {"month": month, "asOf": asof, "entitiesScanned": len(entities), "liabilityAccounts": liabilities, "proposals": proposals, "lookedFor": LOOKED_FOR,
+           "notes": [f"Not read this time - {n}" for n in notes]}
+    if notes:
+        return out   # a partial scan is shown, never cached as the answer
     _SCAN[key] = (now, out)
     return out
 
@@ -452,10 +488,14 @@ async def review(month: Optional[str] = None, scope: dict = Depends(entity_scope
     _, m12 = month_bounds(shift_month(month, 12))
     t12_from, _ = month_bounds(shift_month(month, 11))
     m_from, m_to = month_bounds(month)
-    reads = []
+    reads, labels = [], []
     for c in codes:
-        reads += [_balance_sheet(scope, c, asof), _balance_sheet(scope, c, m1), _balance_sheet(scope, c, m12), _pnl(scope, c, m_from, m_to), _pnl(scope, c, t12_from, asof)]
-    results = await asyncio.gather(*reads)
+        reads += [lambda c=c: _balance_sheet(scope, c, asof), lambda c=c: _balance_sheet(scope, c, m1), lambda c=c: _balance_sheet(scope, c, m12),
+                  lambda c=c: _pnl(scope, c, m_from, m_to), lambda c=c: _pnl(scope, c, t12_from, asof)]
+        labels += [f"{names.get(c) or c} balance sheet {asof}", f"{names.get(c) or c} balance sheet {m1}", f"{names.get(c) or c} balance sheet {m12}",
+                   f"{names.get(c) or c} P&L {month}", f"{names.get(c) or c} P&L trailing 12"]
+    results, notes = await gather_tolerant(reads, labels, lambda: None)
+    results = [r if r is not None else ({} if i % 5 < 3 else []) for i, r in enumerate(results)]
     sheets, pnls = {}, {}
     for i, c in enumerate(codes):
         sheets[(c, "now")], sheets[(c, "m1")], sheets[(c, "m12")] = results[i * 5], results[i * 5 + 1], results[i * 5 + 2]
@@ -464,10 +504,13 @@ async def review(month: Optional[str] = None, scope: dict = Depends(entity_scope
     out = {
         "month": month, "asOf": asof, "monthAgo": m1, "yearAgo": m12, "trailingFrom": t12_from, "defaultCovenant": DEFAULT_COVENANT,
         "loans": rows, "byLender": _totals(rows, "lender", ""), "byEntity": _totals(rows, "entityCode", "entityName"), "maturities": maturities(rows, month),
+        "notes": [f"Not read this time - {n}" for n in notes],
         "summary": {"loans": len(rows), "balance": _r2(sum(r["balance"] for r in rows)), "debtServiceT12": _r2(sum(r["debtServiceT12"] for r in rows)),
                     "belowCovenant": sum(1 for r in rows if r["belowCovenant"]), "entities": len(codes)},
         "lookedFor": LOOKED_FOR,
     }
+    if notes:
+        return out   # a partial review is shown, never cached as the answer
     _SCAN[key] = (now, out)
     return out
 

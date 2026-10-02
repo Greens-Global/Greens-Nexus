@@ -67,6 +67,7 @@ export default function LeasingFromLedger({ onClose, onCreated }) {
           {error && (notAvailable(error)
             ? <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read tenants from. Use New Lease.</div>
             : <div style={bad}>{error.message || 'Could not read the ledger.'}</div>)}
+          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
           {data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'lease' : 'leases'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>

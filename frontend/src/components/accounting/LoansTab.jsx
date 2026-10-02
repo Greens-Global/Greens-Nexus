@@ -112,6 +112,7 @@ export default function LoansTab({ canEdit = false }) {
             <button type="button" style={icon} aria-label="Next month" disabled={month >= thisMonth()} onClick={() => setMonth((m) => shiftMonth(m, 1))}><ChevronRight size={16} /></button>
           </div>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Balances as of {review?.asOf ? formatDate(review.asOf) : 'the month end'}; trailing twelve months from {review?.trailingFrom ? formatDate(review.trailingFrom) : ''}.</span>
+          {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{review.notes.join(' · ')} - open again to retry.</div>}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>
             <span>Loans <strong>{sum.loans || 0}</strong></span>
             <span>Balance <strong><Amount value={sum.balance} /></strong></span>
@@ -288,6 +289,7 @@ export function SetupDialog({ month, onClose, onCreated }) {
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
           {error && <div style={bad}>{error}</div>}
+          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
           {data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'loan' : 'loans'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>

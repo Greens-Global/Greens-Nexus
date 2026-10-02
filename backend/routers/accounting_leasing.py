@@ -33,7 +33,7 @@ from auth import require_module_grant
 from database import SessionLocal
 from routers import accounting, leasing
 from routers.accounting import _limit, entity_scope
-from routers.accounting_loans import _SEM, _entities, month_bounds, shift_month
+from routers.accounting_loans import _entities, _sem, gather_tolerant, month_bounds, shift_month
 
 router = APIRouter(prefix="/accounting/leasing", tags=["Accounting"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
 _edit = require_module_grant("accounting", "editor")
@@ -94,13 +94,13 @@ def propose(entity: dict, accounts: list[dict], by_customer: dict[str, dict[str,
 # ── Ledger reads (every one through _limit) ──────────────────────────────────
 async def _buckets(scope: dict, entity: str, by: str, from_: str, to: str, customer: Optional[str] = None) -> dict:
     location, _ = await _limit(scope, entity, None)
-    async with _SEM:
+    async with _sem():
         return await accounting._acct_get("/api/internal/reports/buckets", {"from": from_, "to": to, "by": by, "location": location, "customer": customer})
 
 
 async def _pnl_accounts(scope: dict, entity: str, from_: str, to: str) -> list[dict]:
     location, _ = await _limit(scope, entity, None)
-    async with _SEM:
+    async with _sem():
         data = await accounting._acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location})
     out = []
     for s in data.get("sections") or []:
@@ -150,13 +150,18 @@ async def _scan(scope: dict) -> dict:
     if hit and now - hit[0] < _TTL:
         return hit[1]
     entities = await _entities(scope)
-    parts = await asyncio.gather(*[_scan_entity(scope, e, from_, to) for e in entities])
+    parts, notes = await gather_tolerant([(lambda e=e: _scan_entity(scope, e, from_, to)) for e in entities],
+                                         [f"{e.get('name') or e['code']} ({e['code']})" for e in entities],
+                                         lambda: {"entity": {"code": "", "name": ""}, "accounts": [], "proposals": []})
+    parts = [p for p in parts if p["entity"].get("code")]
     out = {
+        "notes": [f"Not read this time - {n}" for n in notes],
         "from": from_, "to": to, "entitiesScanned": len(entities), "entitiesWithRentAccounts": sum(1 for p in parts if p["accounts"]),
         "rentAccounts": [{"entityCode": p["entity"]["code"], "entityName": p["entity"].get("name") or p["entity"]["code"], "code": a["account_no"], "title": a["title"]} for p in parts for a in p["accounts"]],
         "proposals": [x for p in parts for x in p["proposals"]], "lookedFor": LOOKED_FOR,
     }
-    _CACHE[key] = (now, out)
+    if not notes:
+        _CACHE[key] = (now, out)   # a partial scan is shown, never cached as the answer
     return out
 
 
