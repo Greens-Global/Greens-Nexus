@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckSquare, Database, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Search, ShieldCheck, TrendingUp, Wallet, X } from 'lucide-react';
+import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Search, ShieldCheck, TrendingUp, Wallet, X } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -128,6 +128,20 @@ export default function Accounting({ activeSub, onSubChange }) {
     return () => clearTimeout(searchTimer.current);
   }, [headerSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Open Nexus Accounting: the sign-in handoff answers with the app's URL;
+  // the tab is opened first (synchronously, so the browser allows it) and
+  // then pointed there.
+  const [launching, setLaunching] = useState(false);
+  const openAccountingApp = () => {
+    if (launching) return;
+    const tab = window.open('', '_blank');
+    setLaunching(true);
+    api.launchAccounting()
+      .then(({ url }) => { if (tab) tab.location.href = url; else window.open(url, '_blank'); })
+      .catch(() => { if (tab) tab.close(); })
+      .finally(() => setLaunching(false));
+  };
+
   const subtitle = {
     overview: 'Your dashboard view of the ledger - arrange the widgets that matter to your role',
     cash: 'Consolidated cash position, monthly cash plan by category, and the near-term forecast',
@@ -170,6 +184,16 @@ export default function Accounting({ activeSub, onSubChange }) {
               </button>
             )}
           </form>
+        )}
+        {/* The way into the accounting app itself. It came off the tabs on
+            09/30 (Charmi: "remove it everywhere") and then nobody could find
+            it (Charmi, 10/02: "I am not able to find the open Nexus
+            Accounting tab?") - so it is one quiet link up here, in a new tab. */}
+        {access && (
+          <button type="button" onClick={openAccountingApp} disabled={launching} title="Open the Nexus Accounting app in a new tab"
+            style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', cursor: launching ? 'wait' : 'pointer', fontWeight: 600 }}>
+            <ExternalLink size={14} /> {launching ? 'Opening...' : 'Open Nexus Accounting'}
+          </button>
         )}
       </div>
 

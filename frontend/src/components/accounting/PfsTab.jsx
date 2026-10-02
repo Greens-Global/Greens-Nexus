@@ -333,8 +333,21 @@ function Borrower({ profile, canEdit, onSave }) {
   const [photo, setPhoto] = useState(profile.photo || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { setName(profile.name); setKind(profile.kind); setDetails(profile.details || {}); setPhoto(profile.photo || ''); setError(''); }, [profile]);
+  const [saved, setSaved] = useState(false);
   const dirty = JSON.stringify([name, kind, details, photo]) !== JSON.stringify([profile.name, profile.kind, profile.details || {}, profile.photo || '']);
+  // The form follows the profile it shows - but never over what is being
+  // typed. A statement refresh behind this form (the date, a line, a second
+  // tab) used to hand back a new profile object and reset every field
+  // (Charmi, 10/02: "I have added information twice here and it is not
+  // taking it"). Now only a DIFFERENT guarantor, or a clean form, reloads.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const shownId = useRef(profile.id);
+  useEffect(() => {
+    if (shownId.current === profile.id && dirtyRef.current) return;
+    shownId.current = profile.id;
+    setName(profile.name); setKind(profile.kind); setDetails(profile.details || {}); setPhoto(profile.photo || ''); setError('');
+  }, [profile]);
   const members = details.members || [];
   const set = (k, v) => setDetails((d) => ({ ...d, [k]: v }));
   // The photo is drawn small on the cover, so it is kept small: at most 320
@@ -360,7 +373,11 @@ function Borrower({ profile, canEdit, onSave }) {
   const save = () => {
     setBusy(true);
     setError('');
-    onSave({ name, kind, details, photo }).catch((e) => setError(e?.message || 'Could not save.')).finally(() => setBusy(false));
+    setSaved(false);
+    onSave({ name, kind, details, photo })
+      .then(() => { dirtyRef.current = false; setSaved(true); })
+      .catch((e) => setError(e?.message || 'Could not save.'))
+      .finally(() => setBusy(false));
   };
   return (
     <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }} onPaste={onPaste}>
@@ -442,6 +459,7 @@ function Borrower({ profile, canEdit, onSave }) {
         </div>
       </div>
       {error && <div style={bad}>{error}</div>}
+      {saved && !dirty && !error && <div style={{ fontSize: '0.78rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved. The statement reads these details now.</div>}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy || !name.trim()} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>

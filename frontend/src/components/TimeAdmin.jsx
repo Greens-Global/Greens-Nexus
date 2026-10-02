@@ -138,6 +138,20 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     setPayrollTarget(t => ({ start: start || '', payType: payType || '', key: t.key + 1 }));
     setView('payroll');
   }, []);
+  // The punch-fix request a notice named: the list opens on it (see the
+  // Punch requests view). Read once on mount for a bell click made while this
+  // screen was still loading, then live through nexus:open-punch-request.
+  const [focusReq, setFocusReq] = useState(() => takePendingOpen('punchRequest') || '');
+  const focusPunchRequest = useCallback((id) => {
+    if (!id) return;
+    setFocusReq(id);
+    setView('requests');
+  }, []);
+  useEffect(() => {
+    if (!focusReq || view !== 'requests') return undefined;
+    const t = setTimeout(() => document.getElementById(`punch-req-${focusReq}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+    return () => clearTimeout(t);
+  }, [focusReq, view]);
   useEffect(() => {
     // Drop the link's parameters once used, so a reload doesn't reopen it.
     const q = new URLSearchParams(window.location.search);
@@ -149,8 +163,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     // A bell click while this screen is already open.
     const onOpen = (e) => { takePendingOpen('timecard'); openTimecard(e.detail?.email, e.detail?.start, e.detail?.payType); };
     window.addEventListener('nexus:open-timecard', onOpen);
-    return () => window.removeEventListener('nexus:open-timecard', onOpen);
-  }, [openTimecard]);
+    // "Timesheet fix requested" names its request (Neil, 10/02: the notice
+    // "doesn't take me to Amy's approval"): the Punch requests list, that row
+    // highlighted and scrolled to.
+    const onOpenReq = (e) => { takePendingOpen('punchRequest'); focusPunchRequest(e.detail?.id); };
+    window.addEventListener('nexus:open-punch-request', onOpenReq);
+    return () => { window.removeEventListener('nexus:open-timecard', onOpen); window.removeEventListener('nexus:open-punch-request', onOpenReq); };
+  }, [openTimecard, focusPunchRequest]);
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -923,7 +942,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   </div>
                   <div>
                     {g.items.map((r, i) => (
-                      <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap', background: selReqs.has(r.id) ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent' }}>
+                      <div key={r.id} id={`punch-req-${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
+                        background: selReqs.has(r.id) || focusReq === r.id ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
+                        boxShadow: focusReq === r.id ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
                         {cb(selReqs.has(r.id), on => toggle([r.id], on), `Select request from ${g.name}`)}
                         <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
