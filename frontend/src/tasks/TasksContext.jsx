@@ -82,7 +82,15 @@ export function TasksProvider({ children }) {
   const [projects, setProjects] = useState(seed?.projects || []);
   const [portfolios, setPortfolios] = useState(seed?.portfolios || []);
   const [teams, setTeams] = useState(seed?.teams || []);
-  const [tickets, setTickets] = useState(seed?.tickets || []);
+  const [tickets, setTicketsState] = useState(seed?.tickets || []);
+  // Every local write to the ticket list (create / update / delete / link /
+  // escalate, the first load) goes through this and bumps the generation, so
+  // a background refresh that was already on the wire when one of them landed
+  // knows its answer may predate that write and drops it (refreshTickets).
+  const ticketGenRef = useRef(0);
+  const ticketsRef = useRef(tickets);
+  ticketsRef.current = tickets;
+  const setTickets = useCallback((u) => { ticketGenRef.current += 1; setTicketsState(u); }, []);
   const [ticketComponents, setTicketComponents] = useState(seed?.ticketComponents || []);
   const [savedViews, setSavedViews] = useState(seed?.savedViews || []);
   const [ticketViews, setTicketViews] = useState(seed?.ticketViews || []);
@@ -101,6 +109,8 @@ export function TasksProvider({ children }) {
   // THIS - a fresh list has landed - before deciding the ticket is not there
   // (TicketDrawer shows its "Opening your ticket" screen until then).
   const [ticketsLoaded, setTicketsLoaded] = useState(false);
+  const ticketsLoadedRef = useRef(false);
+  ticketsLoadedRef.current = ticketsLoaded;
   const commentCache = useRef({});   // taskId -> comment[]
   // Last server timestamp a task fetch is known-good as of - see refetchTasks.
   // A ref, not state: read inside a stable useCallback, must not itself
@@ -195,6 +205,59 @@ export function TasksProvider({ children }) {
     }
     return () => { stopPoll(); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
   }, [refetchTasks, loadNotifications]);
+
+  // Tickets: they used to load once per session, so a desk agent's list went
+  // stale until a reload. Tickets do not write task_events rows (only task
+  // routes ping), so there is no realtime hook to share - poll every 60s while
+  // the tab is visible, and refresh straight away when the tab comes back
+  // from being hidden. Quiet by design: a failed fetch keeps the list on
+  // screen, and ticketsLoaded only ever moves to true.
+  //  - A fetch that was in flight when a local ticket write landed is dropped
+  //    (generation check) - its answer may predate that write.
+  //  - An open drawer's held edits live in the drawer (its `pending` state,
+  //    layered over the ticket), so replacing the list never touches them.
+  //  - A ticket whose data did not change keeps its object, so the drawer and
+  //    rows showing it do not re-render for nothing.
+  const ticketsFetching = useRef(false);
+  const refreshTickets = useCallback(async () => {
+    if (ticketsFetching.current) return;
+    ticketsFetching.current = true;
+    const gen = ticketGenRef.current;
+    try {
+      const rows = await api.getTaskTickets();
+      if (!Array.isArray(rows) || gen !== ticketGenRef.current) return;
+      // Read from the rendered list (ticketsRef), not a state updater: the
+      // generation check above already rules out a write still waiting to
+      // render, and deciding here lets an unchanged answer skip setState.
+      const prev = ticketsRef.current;
+      const byId = new Map(prev.map((x) => [x.id, x]));
+      let same = prev.length === rows.length;
+      const next = rows.map((r, i) => {
+        const old = byId.get(r.id);
+        const keep = old && JSON.stringify(old) === JSON.stringify(r) ? old : r;
+        if (keep !== prev[i]) same = false;
+        return keep;
+      });
+      if (!same) setTicketsState(next);
+      // Already true after the first load; skipping the no-op set keeps an
+      // unchanged refresh from re-rendering the module.
+      if (!ticketsLoadedRef.current) setTicketsLoaded(true);
+    } catch {
+      // keep the list we have; the next tick tries again
+    } finally {
+      ticketsFetching.current = false;
+    }
+  }, []);
+  useEffect(() => {
+    const stopPoll = pollWhileVisible(() => { refreshTickets(); }, 60000);
+    let wasHidden = document.visibilityState === 'hidden';
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') { wasHidden = true; return; }
+      if (wasHidden) { wasHidden = false; refreshTickets(); }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { stopPoll(); document.removeEventListener('visibilitychange', onVisibility); };
+  }, [refreshTickets]);
 
   // ── Lookups ────────────────────────────────────────────────────────────────
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
@@ -476,7 +539,7 @@ export function TasksProvider({ children }) {
     deleteChangelog: mkDel(api.deleteTaskChangelog, setChangelog),
     getChangelogComments: (id) => api.getTaskChangelogComments(id),
     addChangelogComment: (id, body) => api.addTaskChangelogComment(id, { body }),
-  }), [loadCore]);
+  }), [loadCore, setTickets]);
 
   const markNotificationRead = useCallback(async (id) => {
     setNotifications((p) => p.map((n) => (n.id === id ? { ...n, read: true } : n)));
