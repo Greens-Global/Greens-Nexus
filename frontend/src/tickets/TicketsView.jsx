@@ -323,7 +323,7 @@ function TicketMobileFilters({
   // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
   // chrome (same contract as the task module's MobileFilters).
   return (
-    <BottomSheet title="Filter & Group" onClose={onClose}>
+    <BottomSheet title="Filter, Sort & Group" onClose={onClose}>
       {/* Phones have no column headers to tap, so the sort the desktop list
           takes from its headers lives here - the same `sort` state. Only the
           list is sorted (Board and Reports get the unsorted set), so like
@@ -1066,8 +1066,11 @@ export default function TicketsView() {
         );
       })()}
 
-      {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
-      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : 76 }}>
+      {/* Body. Desktop: paddingBottom leaves room under the last row. Phones:
+          a small paddingBottom only - the ticket-bar-spacer at the end of the
+          body clears the floating MobileTaskBar, so a larger value here would
+          stack on top of it. */}
+      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
@@ -1184,8 +1187,13 @@ export default function TicketsView() {
           </div>
         )}
         {/* Phones: room to scroll the last card clear of the floating
-            MobileTaskBar. A spacer, not paddingBottom - .nx-gutter's phone rule
-            (style.css) resets this body's padding with !important. */}
+            MobileTaskBar (52px tall). A spacer rather than paddingBottom, so it
+            works whether or not .nx-gutter's phone rule (style.css) overrides
+            this body's bottom padding. Where .main-content reserves 64px + the
+            safe-area inset at the bottom, the bar sits 18px above that and
+            overlaps the body by 70px; where it does not (no module nav), the
+            bar sits 16px + the inset above the screen edge, 68px + the inset
+            of overlap. 96px + the inset clears both with 26-28px to spare. */}
         {isMobile && <div aria-hidden="true" data-testid="ticket-bar-spacer" style={{ height: 'calc(96px + env(safe-area-inset-bottom))', flexShrink: 0 }} />}
       </div>
 

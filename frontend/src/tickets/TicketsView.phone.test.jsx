@@ -152,6 +152,7 @@ describe('Tickets on a phone', () => {
     await screen.findByText('Printer jam');
     expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);
     fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
+    expect(screen.getByText('Filter, Sort & Group')).toBeTruthy();
     expect(screen.getByText('Sort By')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Newest First/ }));
     fireEvent.click(screen.getByText('Oldest First'));
@@ -211,6 +212,9 @@ describe('Tickets on a phone', () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
     expect(screen.getByTestId('ticket-bar-spacer')).toBeTruthy();
+    // The spacer does the clearing; the body's own phone padding stays small
+    // so the two never stack once .nx-gutter stops overriding it.
+    expect(document.querySelector('[data-tour="ticket-body"]').style.paddingBottom).toBe('8px');
   });
 
   it('empty state points at the + button the phone actually shows', async () => {
