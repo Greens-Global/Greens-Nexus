@@ -278,6 +278,32 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// The phone's Sort By choices - the keys the desktop column headers sort on
+// (TICKET_COLUMNS[].sort), each in the direction someone usually wants it.
+// Newest First (created, desc) is the list's default.
+const MOBILE_SORTS = [
+  ['created:desc', 'Newest First'],
+  ['created:asc', 'Oldest First'],
+  ['due:asc', 'Due Date'],
+  ['priority:asc', 'Priority'],
+  ['state:asc', 'Status'],
+  ['latestComment:desc', 'Latest Comment'],
+  ['title:asc', 'Title (A-Z)'],
+  ['company:asc', 'Company (A-Z)'],
+  ['requester:asc', 'Requester (A-Z)'],
+  ['assignee:asc', 'Assigned To (A-Z)'],
+];
+const sortValueOf = (sort) => `${sort?.key || 'created'}:${sort?.dir === 'asc' ? 'asc' : 'desc'}`;
+// A sort picked from a desktop header (say Title, descending) and carried over
+// by a rotate still reads as itself instead of a blank picker.
+function mobileSortOptions(sort) {
+  const cur = sortValueOf(sort);
+  if (MOBILE_SORTS.some(([v]) => v === cur)) return MOBILE_SORTS;
+  const col = TICKET_COLUMNS.find((c) => c.key === sort?.key);
+  if (!col?.sort) return MOBILE_SORTS;
+  return [...MOBILE_SORTS, [cur, `${col.label} (${sort.dir === 'asc' ? 'Ascending' : 'Descending'})`]];
+}
+
 // Every filter the desktop toolbar shows, stacked into the mobile bar's sheet.
 // Changes apply immediately - the sheet is a view onto the same state, so there
 // is nothing to "save" and no way to lose a selection by dismissing it.
@@ -285,15 +311,31 @@ function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
   typeFilter, setTypeFilter, slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
   serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
-  groupBy, setGroupBy, showGroup,
+  groupBy, setGroupBy, showGroup, showSort = true, sort, setSort, onClearAll,
 }) {
   const row = { width: '100%', fontSize: 15, padding: '10px 12px' };
+  // Clear All only when there is something to clear - the same seven filters
+  // TicketFilterMenu counts on desktop.
+  const anyFilter = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter]
+    .some((v) => v !== 'all');
   const wrap = { marginBottom: 14 };
   const lab = { ...label, fontSize: 12.5 };
   // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
   // chrome (same contract as the task module's MobileFilters).
   return (
-    <BottomSheet title="Filter & Group" onClose={onClose}>
+    <BottomSheet title="Filter, Sort & Group" onClose={onClose}>
+      {/* Phones have no column headers to tap, so the sort the desktop list
+          takes from its headers lives here - the same `sort` state. Only the
+          list is sorted (Board and Reports get the unsorted set), so like
+          Group By it is hidden on the other views. */}
+      {showSort && sort && setSort && (
+        <div style={wrap}>
+          <label style={lab}>Sort By</label>
+          <TicketSelect value={sortValueOf(sort)} style={row}
+            options={mobileSortOptions(sort)}
+            onChange={(v) => { const [key, dir] = String(v).split(':'); setSort({ key, dir: dir === 'asc' ? 'asc' : 'desc' }); }} />
+        </div>
+      )}
       <div style={wrap}>
         <label style={lab}>Status</label>
         <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={row} />
@@ -337,7 +379,25 @@ function TicketMobileFilters({
           <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={row} />
         </div>
       )}
-      <button onClick={onClose} style={{ ...btn('primary'), width: '100%', justifyContent: 'center', padding: '11px 0', fontSize: 15 }}>Done</button>
+      {/* Pinned to the bottom of the sheet's scroll area (the phone create
+          form's technique): with every filter showing, the sheet is taller than
+          the screen and Done used to sit below the fold. Negative margins let
+          the bar span the sheet's full width over its padding - the bottom
+          padding is 16px PLUS the safe-area inset (BottomSheet), so the bar
+          cancels both and pads itself back out, reaching the sheet's edge on
+          Face ID iPhones with nothing scrolling visibly underneath. */}
+      <div style={{
+        position: 'sticky', bottom: 'calc(-16px - env(safe-area-inset-bottom))', zIndex: 2, background: NX.surface,
+        borderTop: `1px solid ${NX.border2}`, marginTop: 6,
+        marginLeft: -16, marginRight: -16, marginBottom: 'calc(-16px - env(safe-area-inset-bottom))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        {anyFilter && onClearAll && (
+          <button type="button" onClick={onClearAll}
+            style={{ ...btn('outline'), flex: '0 0 auto', justifyContent: 'center', padding: '11px 14px', fontSize: 15 }}>Clear All</button>
+        )}
+        <button type="button" onClick={onClose} style={{ ...btn('primary'), flex: 1, justifyContent: 'center', padding: '11px 0', fontSize: 15 }}>Done</button>
+      </div>
     </BottomSheet>
   );
 }
@@ -565,6 +625,16 @@ export default function TicketsView() {
   const [openTab, setOpenTab] = useState(null);
   const openTicket = (id, tab = null) => { setOpenTab(tab); setOpenId(id); };
   const [selected, setSelected] = useState(() => new Set());
+  // Phones have no row checkboxes, so a selection made on desktop must not
+  // survive a rotate into the phone layout - the bulk pill would float over a
+  // list with nothing ticked and no way to untick it. Adjusted during render
+  // (React's "storing information from previous renders" pattern) so the pill
+  // never paints even for one frame.
+  const [selLayoutMobile, setSelLayoutMobile] = useState(isMobile);
+  if (selLayoutMobile !== isMobile) {
+    setSelLayoutMobile(isMobile);
+    if (isMobile && selected.size) setSelected(new Set());
+  }
 
   // A screen recording that ended while the user was on ANOTHER view navigates
   // the app back here (recordingDraft.finishRecording) - reopen the create
@@ -681,6 +751,12 @@ export default function TicketsView() {
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
   };
+  // The phone filter sheet's Clear All - every filter back to 'all'. Scope,
+  // search, sort and grouping are not filters and stay as they are.
+  const clearFilters = () => {
+    setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all');
+    setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all');
+  };
   const saveTicketView = () => {
     const name = window.prompt('Name this view');
     if (!name || !name.trim()) return;
@@ -729,14 +805,19 @@ export default function TicketsView() {
     if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
+    // Phones sort by due date from a picker with no "reverse" - undated
+    // tickets (still awaiting approval, no SLA) go last either way, so the
+    // ones actually due soonest lead. Desktop keeps its header behavior.
+    const undatedLast = isMobile && col.key === 'due';
     return [...list].sort((a, b) => {
       const av = col.sort(a, ctx); const bv = col.sort(b, ctx);
+      if (undatedLast && (!av || !bv)) return av === bv ? 0 : (!av ? 1 : -1);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, nameOf, companies]);
+  }, [sort, nameOf, companies, isMobile]);
 
   // Completed (resolved/closed) tickets never sit inline with the ones still in
   // flight - they collapse into their own section at the bottom (see
@@ -842,12 +923,31 @@ export default function TicketsView() {
       {/* Phones keep a scope strip under the title (the desktop scope pills
           moved into the toolbar row, which doesn't render on mobile). */}
       {isMobile && (
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
+        <div data-tour="ticket-scope" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
           {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
             ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
             ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
             <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
           ))}
+        </div>
+      )}
+      {/* Phone search - the same `search` state as the desktop toolbar's box,
+          which does not render here. 16px so iOS does not zoom the page on
+          focus; the clear button is a full 32px target. type="text" (with
+          inputMode="search") rather than type="search", whose native cancel
+          button would sit beside our own X on Chrome/Android. */}
+      {isMobile && (
+        <div style={{ position: 'relative', margin: '0 12px 8px' }}>
+          <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
+          <input type="text" inputMode="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
+            aria-label="Search tickets" enterKeyHint="search"
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} aria-label="Clear search"
+              style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0 }}>
+              <X size={16} />
+            </button>
+          )}
         </div>
       )}
 
@@ -966,15 +1066,21 @@ export default function TicketsView() {
         );
       })()}
 
-      {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
-      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : 76 }}>
+      {/* Body. Desktop: paddingBottom leaves room under the last row. Phones:
+          a small paddingBottom only - the ticket-bar-spacer at the end of the
+          body clears the floating MobileTaskBar, so a larger value here would
+          stack on top of it. */}
+      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas,
+        // Longhands only: React warns when a shorthand and its longhand
+        // both change on one re-render (rotating the phone, List <-> Board).
+        paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
-          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => guardedUpdate(id, { status }).catch(() => {})} />
+          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => guardedUpdate(id, { status }).catch(() => {})} mobile={isMobile} />
         ) : visible.length === 0 ? (
           <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
-            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. Choose ${isMobile ? 'Create' : 'New Ticket'} to report a problem or ask for help.`} />
+            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.`} />
         ) : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {groups.map((g) => (
@@ -988,7 +1094,7 @@ export default function TicketsView() {
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
                     onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
@@ -1009,7 +1115,7 @@ export default function TicketsView() {
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
                     myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
                     onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
               </div>
@@ -1083,9 +1189,18 @@ export default function TicketsView() {
             </div>
           </div>
         )}
+        {/* Phones: room to scroll the last card clear of the floating
+            MobileTaskBar (52px tall). A spacer rather than paddingBottom, so it
+            works whether or not .nx-gutter's phone rule (style.css) overrides
+            this body's bottom padding. Where .main-content reserves 64px + the
+            safe-area inset at the bottom, the bar sits 18px above that and
+            overlaps the body by 70px; where it does not (no module nav), the
+            bar sits 16px + the inset above the screen edge, 68px + the inset
+            of overlap. 96px + the inset clears both with 26-28px to spare. */}
+        {isMobile && <div aria-hidden="true" data-testid="ticket-bar-spacer" style={{ height: 'calc(96px + env(safe-area-inset-bottom))', flexShrink: 0 }} />}
       </div>
 
-      {view === 'list' && selIds.length > 0 && (
+      {!isMobile && view === 'list' && selIds.length > 0 && (
         // Floating pill, centered at the bottom of the panel - doesn't push the
         // list's layout (position:absolute against the panel's position:relative
         // above) and stays compact instead of stretching edge to edge.
@@ -1113,6 +1228,7 @@ export default function TicketsView() {
         <MobileTaskBar
           views={TICKET_VIEW_TABS} view={view} setView={setView}
           onCreate={() => setCreating(true)}
+          hasModuleNav={false} createLabel="Create Ticket"
           filterSheet={(onClose) => (
             <TicketMobileFilters
               onClose={onClose}
@@ -1124,6 +1240,7 @@ export default function TicketsView() {
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
               assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
+              showSort={view === 'list'} sort={sort} setSort={setSort} onClearAll={clearFilters}
             />
           )}
         />
@@ -1294,8 +1411,13 @@ function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryCo
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false }) {
-  const isMobile = useIsMobile();
+// `mobile` comes from TicketsView, never from a useIsMobile() of the row's own:
+// two hooks listening to the same media query flip on separate renders, so on a
+// rotate across 640px a row could switch to the desktop grid while its parent
+// was still rendering the phone list (which passes no `cols`) and crash the
+// whole view on cols.map.
+function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
+  const isMobile = !!mobile || !Array.isArray(cols);
   const [assigning, setAssigning] = useState(false);
   // Resting background: selection wins, then the zebra band. Hover is the
   // .nx-row-hover class (style.css) - the Accounting ledger's whole-row
@@ -1370,11 +1492,22 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
           <TicketStatusChip status={t.status} />
           {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
           <PriorityChip priority={t.priority} />
-          <SlaBadge t={t} compact />
+          {/* Words, not icon-only chips with a hover title - a phone has no
+              hover. The SLA due date reads as a date (red once breached, amber
+              when due soon) and a quiet ticket says it needs a comment. */}
+          {t.slaDueOn && !CLOSED_STATES.includes(t.status) && (
+            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : `SLA due ${fmtDate(t.slaDueOn)}`}
+              style={slaM
+                ? { ...chip(slaM.color, slaM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
+                : { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.dim }}>
+              {slaM ? <slaM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
+              Due {fmtDate(t.slaDueOn)}
+            </span>
+          )}
           {staleM && (
             <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
               style={{ ...chip(staleM.color, staleM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
-              <staleM.Icon size={11} />
+              <staleM.Icon size={11} /> {staleM.label}
             </span>
           )}
           {/* Tap to assign right from the card (Neil, Oct 1: assigning "is
@@ -3842,11 +3975,17 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
 }
 
 // ── Kanban board - columns by status, drag a card to change its status ────────
-function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
+// `mobile` (from TicketsView): HTML5 drag-and-drop does not exist on touch
+// screens, so on a phone the cards are not draggable and each carries a Move To
+// picker instead - routed through the same onMove (TicketsView's guardedUpdate)
+// a drop uses, so moving to Resolved/Closed still asks for the resolution.
+// Columns narrow to leave the next one peeking in and snap as they scroll.
+function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
   const [dragId, setDragId] = useState(null);
   const [over, setOver] = useState(null);
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 8 }}>
+    <div data-testid="ticket-board" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 8,
+      ...(mobile ? { scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' } : null) }}>
       {TICKET_STATUS_ORDER.map((s) => {
         const m = TICKET_STATUS_META[s];
         const col = tickets.filter((t) => t.status === s);
@@ -3855,15 +3994,16 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
             onDragOver={(e) => { e.preventDefault(); setOver(s); }}
             onDragLeave={() => setOver((o) => (o === s ? null : o))}
             onDrop={() => { if (dragId) onMove(dragId, s); setDragId(null); setOver(null); }}
-            style={{ width: 260, flexShrink: 0, background: over === s ? `${m.color}12` : NX.surface2, border: `1px solid ${over === s ? m.color : NX.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            style={{ width: mobile ? 'min(260px, 82vw)' : 260, flexShrink: 0, background: over === s ? `${m.color}12` : NX.surface2, border: `1px solid ${over === s ? m.color : NX.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 8,
+              ...(mobile ? { scrollSnapAlign: 'start', boxSizing: 'border-box' } : null) }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color }} />
               <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{m.label}</span>
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{col.length}</span>
             </div>
             {col.slice(0, 100).map((t) => (
-              <div key={t.id} draggable onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
-                style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+              <div key={t.id} draggable={!mobile} onDragStart={mobile ? undefined : () => setDragId(t.id)} onDragEnd={mobile ? undefined : () => setDragId(null)} onClick={() => onOpen(t.id)}
+                style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: mobile ? 'pointer' : 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <TicketTypeIcon type={t.type} size={14} />
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
@@ -3876,6 +4016,18 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
                   </span>
                   {t.assigneeId && <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />}
                 </div>
+                {mobile && (
+                  // A native select: the phone's own picker, which no column or
+                  // scroller can clip. Clicks stop here so they never open the card.
+                  <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Move To</span>
+                    <select value={t.status} aria-label={`Move ${ticketNoShort(t.code) || 'ticket'} To`}
+                      onChange={(e) => { const next = e.target.value; if (next && next !== t.status) onMove(t.id, next); }}
+                      style={{ ...inputStyle, flex: 1, minWidth: 0, width: 'auto', fontSize: 16, padding: '6px 8px', minHeight: 36, cursor: 'pointer', appearance: 'auto' }}>
+                      {TICKET_STATUS_ORDER.map((st) => <option key={st} value={st}>{TICKET_STATUS_META[st].label}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             ))}
             {col.length > 100 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
