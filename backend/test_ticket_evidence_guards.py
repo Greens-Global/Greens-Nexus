@@ -112,6 +112,28 @@ class TicketEvidenceGuardTests(unittest.TestCase):
         self._done(comment=f'<p>fixed</p><img src="{GOOD_URL}">')
         self.assertEqual(len(self._comments()), 1)
 
+    def test_text_quoting_a_data_uri_is_not_refused(self):
+        """A pasted log or HTML snippet arrives escaped - text, not a tag."""
+        for html in ("<p>the bad row had data:image/png;base64,iVBORw0KGgo in it</p>",
+                     "<pre><code>&lt;img src=\"data:image/png;base64,AAAA\"&gt;</code></pre>",
+                     "<p>it was sent as src=data:image/png</p>"):
+            self._comment(html)
+        self.assertEqual(len(self._comments()), 3)
+
+    def test_done_accepts_escaped_data_uri_text(self):
+        """Mark Resolved's note goes through textToHtml (escapes < and >)."""
+        self._done(comment="<p>log: &lt;img src=&quot;data:image/png;base64,AAAA&quot;&gt;</p>")
+        self.assertEqual(len(self._comments()), 1)
+
+    def test_photo_only_reply_on_done_is_kept(self):
+        """A reply that is just a picture is content, not an empty document."""
+        self._done(comment=f'<p></p><img src="{GOOD_URL}"><p></p>')
+        self.assertEqual(len(self._comments()), 1)
+
+    def test_empty_document_on_done_is_still_dropped(self):
+        self._done(comment="<p></p><p>&nbsp;</p>", priority="high")
+        self.assertEqual(self._comments(), [])
+
     # ── comments: what is refused ────────────────────────────────────────────
     def test_inline_data_picture_is_refused_on_comment(self):
         code, msg = self._status(self._comment, DATA_IMG)
@@ -128,7 +150,9 @@ class TicketEvidenceGuardTests(unittest.TestCase):
 
     def test_single_quoted_or_bare_data_src_is_refused(self):
         for html in ("<img src='data:image/jpeg;base64,/9j/4AAQ'>", "<img src=data:image/gif;base64,R0lGOD>",
-                     '<a href="data:image/png;base64,AAAA">x</a>'):
+                     '<a href="data:image/png;base64,AAAA">x</a>',
+                     '<img alt="x" srcset="data:image/png;base64,AAAA 2x">',
+                     '<IMG SRC = "DATA:image/png;base64,AAAA">'):
             code, _ = self._status(self._comment, html)
             self.assertEqual(code, 422, html)
 

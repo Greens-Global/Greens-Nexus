@@ -1350,7 +1350,10 @@ def _tattachment(a) -> dict:
 # message that says what to do instead. The length cap is a flood backstop far
 # above any real reply (a long paste of a log is a few tens of thousands).
 COMMENT_MAX_CHARS = 200_000
-_DATA_URI_RE = re.compile(r"""\bsrc\s*=\s*["']?\s*data:|data:image/[^;,\s"']*;base64,""", re.IGNORECASE)
+# Only a data: URI in a tag's src/href/srcset counts - a reply that merely
+# MENTIONS one (a pasted log, an HTML snippet in a code block) arrives with its
+# "<" escaped as "&lt;", so it never matches a real tag here.
+_DATA_URI_RE = re.compile(r"""<[a-z][^>]*?\b(?:src|href|srcset)\s*=\s*["']?\s*data:""", re.IGNORECASE)
 
 
 def _check_evidence_url(url, field: str) -> None:
@@ -1412,7 +1415,11 @@ def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
 
 def _blank_comment(text: str) -> bool:
     """True for a reply with no words in it - the rich editor's empty
-    document is `<p></p>`, which is not something to post."""
+    document is `<p></p>`, which is not something to post. A picture is
+    content: a reply that is only a photo (the natural reply from a phone) is
+    kept, not dropped as empty."""
+    if re.search(r"<img\b[^>]*\bsrc\s*=", text or "", re.IGNORECASE):
+        return False
     return not re.sub(r"<[^>]*>|&nbsp;|\s", "", text or "")
 
 
