@@ -1069,6 +1069,9 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   // where it sits beside the field and adding three people in a row is the
   // point of a multi-select.
   const isMobile = useIsMobile();
+  // Any touch screen: no autofocus (the keyboard would cover the list) and a
+  // 16px search box (iOS zooms on anything smaller) - same rule as PersonSelect.
+  const touch = useTouchUi();
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const queryRef = useRef(null);
@@ -1090,7 +1093,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
     // clear it (and take focus back) so the next name can just be typed.
     setQ('');
     if (isMobile) setOpen(false);
-    else queryRef.current?.focus();
+    else if (!touch) queryRef.current?.focus();
   };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -1135,13 +1138,13 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+          <input ref={queryRef} autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
             onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+            style={menuSearchStyle(touch)} />
           {filtered.map((p) => {
             const on = emails.includes(p.email);
             return (
-              <div key={p.email} className="nx-menu-row" onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+              <div key={p.email} className="nx-menu-row" onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {/* Externals are offered here, so say which they are - putting a
@@ -1250,6 +1253,8 @@ export function SearchSelect({
 // `options` is [{ id, label }]; `value`/`onChange` are arrays of ids.
 export function ChipMultiSelect({ value, onChange, options, placeholder = 'Select…', searchPlaceholder = 'Search…', emptyText = 'Nothing to choose from.' }) {
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const touch = useTouchUi();
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const ids = Array.isArray(value) ? value : [];
@@ -1278,11 +1283,11 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} style={menuSearchStyle(touch)} />
           {filtered.map((o) => {
             const on = ids.includes(o.id);
             return (
-              <div key={o.id} className="nx-menu-row" onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+              <div key={o.id} className="nx-menu-row" onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
                 {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
               </div>

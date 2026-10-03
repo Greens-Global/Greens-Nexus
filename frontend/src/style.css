@@ -1872,9 +1872,15 @@ html { overflow-x: hidden; }
      dead strip at the foot of those. The <nav> is an earlier sibling of
      <main> in App.jsx's .app-container, so a sibling selector sees it.
      A screen with a floating round + button (.fab - Purchase's request log)
-     keeps the room too, or its last rows end under the button. */
+     keeps the room too, or its last rows end under the button. So does the
+     Time Clock capsule (.tc-capsule, components/TimeclockWidget.jsx: fixed
+     18px off the bottom-right corner while someone is clocked in), which
+     otherwise sits on the right end of the last row of Tickets, Support...
+     It renders outside .app-container (an earlier sibling in App.jsx), so
+     body:has() is what sees it. */
   .mobile-nav ~ .main-content,
-  .main-content:has(.fab) { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .main-content:has(.fab),
+  body:has(.tc-capsule) .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
 
 /* ── adidas-style mobile chrome ──────────────────────────────────────────────

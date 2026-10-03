@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
-import { Modal, PersonSelect, SearchSelect, DateField } from './components';
+import { Modal, PersonSelect, PersonMultiSelect, ChipMultiSelect, SearchSelect, DateField } from './components';
 import MobileTaskBar, { BottomSheet } from './MobileTaskBar';
 import { scrollLockCount } from '../lib/useScrollLock';
 import { __resetBackToClose } from '../lib/useBackToClose';
@@ -93,6 +93,62 @@ describe('dropdowns on a phone', () => {
     expect(menu.style.transform).toBe('translateY(-100%)');
     expect(parseFloat(menu.style.top)).toBe(336);               // its bottom edge sits on the field
     expect(parseFloat(menu.style.maxHeight)).toBeLessThanOrEqual(340);
+  });
+
+  it('PersonMultiSelect: 16px, no autofocus, 40px rows on a phone', () => {
+    setViewport(true);
+    render(<PersonMultiSelect value={[]} onChange={() => {}} people={people} />);
+    fireEvent.click(screen.getByText('Select people'));
+    const search = screen.getByPlaceholderText('Search people…');
+    expect(search.style.fontSize).toBe('16px');
+    expect(document.activeElement).not.toBe(search);
+    expect(screen.getByText('Pranshu Pandey').parentElement.style.minHeight).toBe('40px');
+  });
+
+  it('PersonMultiSelect on a landscape phone: no autofocus, and a pick does not pull the keyboard up', () => {
+    setViewport(false, { coarse: true });
+    const onChange = vi.fn();
+    render(<PersonMultiSelect value={[]} onChange={onChange} people={people} />);
+    fireEvent.click(screen.getByText('Select people'));
+    const search = screen.getByPlaceholderText('Search people…');
+    expect(search.style.fontSize).toBe('16px');
+    expect(document.activeElement).not.toBe(search);
+    fireEvent.click(screen.getByText('Pragya Nautiyal'));
+    expect(onChange).toHaveBeenCalledWith(['pragya@greensglobal.com']);
+    expect(document.activeElement).not.toBe(screen.getByPlaceholderText('Search people…'));
+  });
+
+  it('PersonMultiSelect on desktop is unchanged: 13px, focused, refocused after a pick', () => {
+    setViewport(false);
+    render(<PersonMultiSelect value={[]} onChange={() => {}} people={people} />);
+    fireEvent.click(screen.getByText('Select people'));
+    const search = screen.getByPlaceholderText('Search people…');
+    expect(search.style.fontSize).toBe('13px');
+    expect(document.activeElement).toBe(search);
+    expect(screen.getByText('Pranshu Pandey').parentElement.style.minHeight).toBe('');
+    search.blur();
+    fireEvent.click(screen.getByText('Pragya Nautiyal'));
+    expect(document.activeElement).toBe(search);
+  });
+
+  it('ChipMultiSelect: 16px, no autofocus, 40px rows on a phone', () => {
+    setViewport(true);
+    render(<ChipMultiSelect value={[]} onChange={() => {}} options={[{ id: 'a', label: 'Alpha' }]} placeholder="Pick Tags" />);
+    fireEvent.click(screen.getByText('Pick Tags'));
+    const search = screen.getByPlaceholderText('Search…');
+    expect(search.style.fontSize).toBe('16px');
+    expect(document.activeElement).not.toBe(search);
+    expect(screen.getByText('Alpha').parentElement.style.minHeight).toBe('40px');
+  });
+
+  it('ChipMultiSelect on desktop is unchanged: 13px and focused on open', () => {
+    setViewport(false);
+    render(<ChipMultiSelect value={[]} onChange={() => {}} options={[{ id: 'a', label: 'Alpha' }]} placeholder="Pick Tags" />);
+    fireEvent.click(screen.getByText('Pick Tags'));
+    const search = screen.getByPlaceholderText('Search…');
+    expect(search.style.fontSize).toBe('13px');
+    expect(document.activeElement).toBe(search);
+    expect(screen.getByText('Alpha').parentElement.style.minHeight).toBe('');
   });
 });
 

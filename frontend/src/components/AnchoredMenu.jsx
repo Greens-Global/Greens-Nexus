@@ -61,16 +61,25 @@ export default function AnchoredMenu({
     // see rootZoom. Work in outer pixels, divide once at the end.
     const z = rootZoom();
     const r = a.getBoundingClientRect();
-    const vw = window.visualViewport?.width ?? window.innerWidth;
-    const vh = window.visualViewport?.height ?? window.innerHeight;
+    // The VISIBLE band. Trigger rects and position:fixed both live in the
+    // layout viewport, but on iOS the part you can see (the visual viewport)
+    // pans inside it - keyboard up, pinch zoom - by offsetTop/offsetLeft. So
+    // the band is [offsetTop, offsetTop + height] x [offsetLeft, offsetLeft +
+    // width] in layout coordinates. A desktop never pans (offsets 0), so this
+    // is the plain [0, innerHeight] x [0, innerWidth] it always was.
+    const vv = window.visualViewport;
+    const vw = vv?.width ?? window.innerWidth;
+    const vh = vv?.height ?? window.innerHeight;
+    const vTop = vv?.offsetTop || 0;
+    const vLeft = vv?.offsetLeft || 0;
     const w = Math.min(m.offsetWidth * z, vw - EDGE * 2);
     const h = m.scrollHeight * z;
-    const below = vh - r.bottom - GAP - EDGE;
-    const above = r.top - GAP - EDGE;
+    const below = vTop + vh - r.bottom - GAP - EDGE;
+    const above = r.top - vTop - GAP - EDGE;
     const up = h > below && above > below;
     const room = Math.max(120, up ? above : below);
-    const left = Math.max(EDGE, Math.min(align === 'end' ? r.right - w : r.left, vw - EDGE - w));
-    const top = up ? Math.max(EDGE, r.top - GAP - Math.min(h, room)) : r.bottom + GAP;
+    const left = Math.max(vLeft + EDGE, Math.min(align === 'end' ? r.right - w : r.left, vLeft + vw - EDGE - w));
+    const top = up ? Math.max(vTop + EDGE, r.top - GAP - Math.min(h, room)) : r.bottom + GAP;
     setPos({ left: left / z, top: top / z, maxHeight: room / z, maxWidth: (vw - EDGE * 2) / z });
   }, [anchorRef, align, close]);
 
