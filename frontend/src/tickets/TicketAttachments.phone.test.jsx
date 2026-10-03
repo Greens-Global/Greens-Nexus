@@ -7,9 +7,9 @@ import { render, screen, fireEvent, cleanup, act, waitFor } from '@testing-libra
 // viewport itself, so both the phone path and the unchanged desktop path are
 // pinned.
 
-function setViewport(isMobile) {
+function setViewport(isMobile, { coarse = false } = {}) {
   window.matchMedia = (q) => ({
-    matches: isMobile && q.includes('max-width: 640px'),
+    matches: (isMobile && q.includes('max-width: 640px')) || (coarse && q.includes('pointer: coarse')),
     media: q, onchange: null,
     addEventListener() {}, removeEventListener() {},
     addListener() {}, removeListener() {}, dispatchEvent() { return false; },
@@ -289,5 +289,91 @@ describe('Conversation on a phone', () => {
     setViewport(false);
     render(<TicketConversation ticketId="t1" nameOf={(e) => e} reply={withText} onReplyChange={() => {}} onDone={() => {}} />);
     expect(await screen.findByText(/Ctrl\+Enter/)).toBeInTheDocument();
+  });
+});
+
+// ── Review fixes ────────────────────────────────────────────────────────────
+describe('touch devices wider than a phone (iPad, phone in landscape)', () => {
+  const pdf = { name: 'lease.pdf', size: '300 KB', kind: 'doc', url: `${STORE}doc-1.pdf` };
+  afterEach(() => { delete navigator.mediaDevices; });
+
+  it('no Record Screen where touch is primary and getDisplayMedia is missing', () => {
+    setViewport(false, { coarse: true });
+    render(<TicketAttachments ticketId="t1" ticketType="incident" />);
+    expect(screen.queryByRole('button', { name: /Record Screen/ })).toBeNull();
+  });
+
+  it('a touch device that can record keeps the button', () => {
+    setViewport(false, { coarse: true });
+    Object.defineProperty(navigator, 'mediaDevices', { value: { getDisplayMedia: () => {} }, configurable: true });
+    render(<TicketAttachments ticketId="t1" ticketType="incident" />);
+    expect(screen.getByRole('button', { name: /Record Screen/ })).toBeInTheDocument();
+  });
+
+  it('a PDF gets the card, not the iframe', () => {
+    setViewport(false, { coarse: true });
+    const { baseElement } = render(<AttachmentViewer att={pdf} onClose={() => {}} />);
+    expect(baseElement.querySelector('iframe')).toBeNull();
+    expect(screen.getByRole('link', { name: /Open/ })).toBeInTheDocument();
+  });
+});
+
+describe('Remove confirmation and the drawer behind it', () => {
+  it('Escape while the confirm is open does not reach the drawer\'s window listener', async () => {
+    setViewport(true);   // actions always shown; the bug is the same on a desktop
+    const { dialog } = await import('../ui/dialog');
+    let answer;
+    dialog.confirm.mockImplementationOnce(() => new Promise((r) => { answer = r; }));
+    apiMock.getTicketAttachments.mockImplementation(async () => [ATT]);
+    const drawerEscape = vi.fn();
+    const onKey = (e) => { if (e.key === 'Escape') drawerEscape(); };
+    window.addEventListener('keydown', onKey);
+    try {
+      render(<TicketAttachments ticketId="t1" ticketType="incident" />);
+      const remove = await screen.findByRole('button', { name: 'Remove keypad.jpg' });
+      await act(async () => { fireEvent.click(remove); });
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(drawerEscape).not.toHaveBeenCalled();
+      await act(async () => { answer(false); });
+      // Once the confirm is gone, Escape reaches the drawer again.
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(drawerEscape).toHaveBeenCalledTimes(1);
+      expect(apiMock.deleteTicketAttachment).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', onKey);
+    }
+  });
+});
+
+describe('a reply with a picture still uploading', () => {
+  it('rides on reply.uploading, says to wait, and holds Cmd/Ctrl+Enter until it lands', async () => {
+    setViewport(false);
+    apiMock.getTicketComments.mockImplementation(async () => []);
+    let release;
+    uploads.hold = new Promise((r) => { release = r; });
+    const onDone = vi.fn();
+    let latest = null;
+    function Harness() {
+      const [reply, setReply] = useState({ body: '', internal: false });
+      latest = reply;
+      return <TicketConversation ticketId="t1" nameOf={(e) => e} reply={reply} onReplyChange={setReply} onDone={onDone} />;
+    }
+    const { container } = render(<Harness />);
+    const input = await waitFor(() => {
+      const el = container.querySelector('input[type="file"][accept="image/*"]');
+      expect(el).not.toBeNull();
+      return el;
+    });
+    await act(async () => { fireEvent.change(input, { target: { files: [png('photo.png')] } }); });
+    await waitFor(() => expect(latest.uploading).toBe(1));
+    expect(screen.getByText(/Wait for the upload to finish/)).toBeInTheDocument();
+    const pm = container.querySelector('.ProseMirror');
+    fireEvent.keyDown(pm, { key: 'Enter', ctrlKey: true });
+    expect(onDone).not.toHaveBeenCalled();
+    await act(async () => { release(); });
+    await waitFor(() => expect(latest.uploading).toBe(0));
+    await waitFor(() => expect(latest.body).toMatch(/<img/));
+    fireEvent.keyDown(container.querySelector('.ProseMirror'), { key: 'Enter', ctrlKey: true });
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 });

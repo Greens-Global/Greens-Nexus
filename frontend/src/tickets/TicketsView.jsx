@@ -13,6 +13,7 @@ import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import LiveView from '../components/LiveView';
 import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
+import { absolutizeViewUrls } from '../lib/richViewUrls';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
@@ -52,7 +53,7 @@ import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 import { prepareImageForUpload, isHeic } from '../lib/imagePrep';
-import { canRecordScreen } from '../lib/screenCapability';
+import { canRecordScreen, isCoarsePointer } from '../lib/screenCapability';
 import { dialog } from '../ui/dialog';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
@@ -1621,7 +1622,10 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
   // supported. A desktop browser keeps the button either way - one without
   // getDisplayMedia (an insecure http origin) still gets told why on press.
   const isMobile = useIsMobile();
-  const recordable = showRecord && !isMobile;
+  // A touch-first device with no getDisplayMedia (an iPad, a phone turned
+  // landscape past the 640px breakpoint) can only fail too, so it is not
+  // offered there either; a mouse-driven desktop keeps the button as before.
+  const recordable = showRecord && !isMobile && !(isCoarsePointer() && !canRecordScreen(false));
   const setRec = (v) => { setRecording(v); onRecordingChange?.(v); };
   // The submenu used to close itself via a position:fixed full-viewport
   // backdrop div. That div sits above everything else in the modal
@@ -3550,6 +3554,15 @@ export function TicketConversation({ ticketId, nameOf, canInternal = true, newSi
     const stored = await storeTicketEvidence(file, attachmentKindOf(file));
     return { url: stored.url, name: stored.file.name, kind: attachmentKindOf(stored.file) };
   }, []);
+  // Pictures still uploading into the reply ride on the drawer's reply state
+  // (`reply.uploading`), so the drawer can hold Done until they land - a reply
+  // sent mid-upload would go out without its picture. Cmd/Ctrl+Enter is held
+  // here for the same reason.
+  const uploading = reply.uploading || 0;
+  const onUploadingChange = useCallback((n) => {
+    onReplyChange((r) => ((r.uploading || 0) === n ? r : { ...r, uploading: n }));
+  }, [onReplyChange]);
+  const submitReply = useCallback(() => { if (!uploading) onDone?.(); }, [uploading, onDone]);
 
   return (
     <div>
@@ -3598,7 +3611,9 @@ export function TicketConversation({ ticketId, nameOf, canInternal = true, newSi
                       comment written before this change) in paragraphs - so old
                       and new comments render the same way. */}
                   <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim, marginTop: 2 }} onClick={zoomImage}
-                    dangerouslySetInnerHTML={{ __html: richBodyHtml(c.body, nameOf) }} />
+                    // absolutizeViewUrls: on the hosted app an uploaded picture's
+                    // viewer URL is relative, which the sanitizer would strip.
+                    dangerouslySetInnerHTML={{ __html: richBodyHtml(absolutizeViewUrls(c.body), nameOf) }} />
                 </div>
               </div>
             ))}
@@ -3619,16 +3634,19 @@ export function TicketConversation({ ticketId, nameOf, canInternal = true, newSi
         <RichDescription
           value={body}
           onChange={setBody}
-          onSubmit={onDone}
+          onSubmit={submitReply}
           mentionPeople={people}
           minHeight={64}
           onAttachFile={attachToReply}
+          onUploadingChange={onUploadingChange}
           allowInlineData={false}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
       </div>
       <div style={{ fontSize: isMobile ? 12 : 11, color: NX.faint, marginTop: 8 }}>
-        {isEmptyDoc(body) ? (
+        {uploading > 0 ? (
+          <span role="status" style={{ color: NX.amber, fontWeight: 600 }}>Wait for the upload to finish before clicking Done.</span>
+        ) : isEmptyDoc(body) ? (
           <>Type <b>@</b> to mention someone - they'll be added to the ticket and told.</>
         ) : (
           <span style={{ color: NX.amber, fontWeight: 600 }}>
@@ -3664,18 +3682,21 @@ export function AttachmentViewer({ att, onClose }) {
   if (!att) return null;
   const isPdf = /\.pdf($|\?)/i.test(att.name || '') || /\.pdf($|\?)/i.test(att.url || '');
   const maxH = isMobile ? '78dvh' : '78vh';
+  // Touch-first devices at ANY width (a phone in landscape, an iPad) get the
+  // card too: it is the WebKit iframe that shows only page 1, not the width.
+  const pdfFrame = !isMobile && !(isCoarsePointer());
   const iconBtn = isMobile ? { width: 40, height: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center', flexShrink: 0 } : null;
   const body = att.kind === 'image' ? (
     <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: maxH, objectFit: 'contain', borderRadius: 8 }} />
   ) : att.kind === 'video' ? (
     <video src={att.url} controls autoPlay playsInline style={{ maxWidth: '92vw', maxHeight: maxH, borderRadius: 8, background: '#000' }} />
-  ) : isPdf && !isMobile ? (
+  ) : isPdf && pdfFrame ? (
     <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
   ) : (
     <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: isMobile ? '28px 22px' : '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw', boxSizing: 'border-box' }}>
       <Paperclip size={30} style={{ color: NX.faint }} />
       <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: isMobile ? '100%' : 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>{isPdf ? 'Open it in your phone\'s viewer, or download it.' : 'No inline preview for this file type.'}</div>
+      <div style={{ fontSize: 12.5, color: NX.dim }}>{isPdf ? 'Open it in your device\'s viewer, or download it.' : 'No inline preview for this file type.'}</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
         {isPdf && (
           <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ ...btn('outline'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 40 }}>
@@ -3746,9 +3767,20 @@ export function TicketAttachments({ ticketId, ticketType }) {
   };
   const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => {
-    // Evidence: one stray tap must not delete it (Oct 2026).
-    const ok = await dialog.confirm(`Remove "${a.name}" from this ticket? This can't be undone.`,
-      { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    // Evidence: one stray tap must not delete it (Oct 2026). The confirm
+    // handles Escape itself (React, at the root); this keeps that same
+    // keypress from going on to the drawer Modal's window listener, which
+    // would close the drawer behind the dialog. Document, bubble phase: after
+    // React has let the dialog cancel, before the window listener.
+    const holdEscape = (e) => { if (e.key === 'Escape') e.stopPropagation(); };
+    document.addEventListener('keydown', holdEscape);
+    let ok;
+    try {
+      ok = await dialog.confirm(`Remove "${a.name}" from this ticket? This can't be undone.`,
+        { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    } finally {
+      document.removeEventListener('keydown', holdEscape);
+    }
     if (!ok) return;
     try {
       await api.deleteTicketAttachment(a.id);

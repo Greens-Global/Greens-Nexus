@@ -138,3 +138,45 @@ describe('allowInlineData={false} (ticket replies)', () => {
     await waitFor(() => expect(container.querySelector('.ProseMirror img')?.getAttribute('src')).toMatch(/^data:image\/png/));
   });
 });
+
+describe('phone editor details', () => {
+  it('uses 16px in the editable area on a phone (no iOS focus-zoom), nothing on a desktop', () => {
+    setViewport(true);
+    const { container, unmount } = render(<RichDescription value="" onChange={() => {}} />);
+    expect(container.querySelector('.ProseMirror').style.fontSize).toBe('16px');
+    unmount();
+    setViewport(false);
+    const { container: c2 } = render(<RichDescription value="" onChange={() => {}} />);
+    expect(c2.querySelector('.ProseMirror').style.fontSize).toBe('');
+  });
+
+  it('anchors the mention list at the "@", so it does not move while the name is typed', async () => {
+    setViewport(true);
+    const { container } = render(<RichDescription value="" onChange={() => {}} mentionPeople={PEOPLE} />);
+    const ed = editorOf(container);
+    const seen = [];
+    const orig = ed.view.coordsAtPos.bind(ed.view);
+    ed.view.coordsAtPos = (pos) => { seen.push(pos); return { left: pos * 7, right: pos * 7, top: 0, bottom: 18 }; };
+    await act(async () => { ed.commands.insertContent('hi @n'); });
+    await act(async () => { ed.commands.insertContent('ei'); });
+    await screen.findByRole('listbox', { name: 'Mention someone' });
+    // Every scan measured the same position - the "@" - not the moving caret.
+    expect(seen.length).toBeGreaterThan(1);
+    expect(new Set(seen).size).toBe(1);
+    ed.view.coordsAtPos = orig;
+  });
+
+  it('reports uploads in flight to the parent, back to 0 when they land', async () => {
+    setViewport(false);
+    let release;
+    const hold = new Promise((r) => { release = r; });
+    const upload = vi.fn(async (f) => { await hold; return { url: `https://x.supabase.co/storage/v1/object/public/ticket-evidence/${f.name}`, name: f.name, kind: 'image' }; });
+    const counts = [];
+    const { container } = render(<RichDescription value="" onChange={() => {}} onAttachFile={upload} allowInlineData={false}
+      onUploadingChange={(n) => counts.push(n)} />);
+    await act(async () => { fireEvent.change(container.querySelector('input[type="file"][accept="image/*"]'), { target: { files: [png('a.png')] } }); });
+    expect(counts.at(-1)).toBe(1);
+    await act(async () => { release(); });
+    await waitFor(() => expect(counts.at(-1)).toBe(0));
+  });
+});

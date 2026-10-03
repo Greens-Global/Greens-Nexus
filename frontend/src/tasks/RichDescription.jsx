@@ -95,6 +95,10 @@ export default function RichDescription({
   // 2026) - a phone photo inlined as base64 made a multi-MB comment, and the
   // server now refuses one. Default true: Tasks behave exactly as before.
   allowInlineData = true,
+  // Told the number of uploads still in flight whenever it changes (0 when
+  // they have all landed), so a parent can hold its own Send/Done until the
+  // pictures are in the document.
+  onUploadingChange,
 }) {
   const isMobile = useIsMobile();
   const [addOpen, setAddOpen] = useState(false);
@@ -102,6 +106,9 @@ export default function RichDescription({
   // editor that uploads (allowInlineData false).
   const [uploading, setUploading] = useState(0);
   const [notice, setNotice] = useState('');
+  const uploadingCbRef = useRef(onUploadingChange);
+  useEffect(() => { uploadingCbRef.current = onUploadingChange; }, [onUploadingChange]);
+  useEffect(() => { uploadingCbRef.current?.(uploading); }, [uploading]);
   const frameRef = useRef(null);
   const caretRef = useRef(null);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }
@@ -244,13 +251,16 @@ export default function RichDescription({
     const before = state.doc.textBetween(Math.max(0, from - 60), from, '\n', '\ufffc');
     const m = /(^|[\s(])@([\w.\-']*)$/.exec(before);
     if (!m) { setMention(null); return; }
-    // Phone: where the caret is, relative to the editor frame - the popup is
+    // Phone: where the "@" is, relative to the editor frame - the popup is
     // anchored there (AnchoredMenu), so it can flip above the line when the
-    // on-screen keyboard leaves no room below.
+    // on-screen keyboard leaves no room below. The "@", not the caret: it
+    // stays put while the name is typed, and AnchoredMenu only places itself
+    // when it opens (the menu is re-keyed below if the "@" itself moves).
+    const at = from - m[2].length - 1;
     let caret = null;
     if (isMobile && frameRef.current) {
       try {
-        const c = ed.view.coordsAtPos(from);
+        const c = ed.view.coordsAtPos(at);
         const r = frameRef.current.getBoundingClientRect();
         const z = rootZoom();
         caret = { left: (c.left - r.left) / z, top: (c.top - r.top) / z, height: Math.max(16, (c.bottom - c.top) / z) };
@@ -258,7 +268,7 @@ export default function RichDescription({
         caret = { left: 12, top: 10, height: 18 };
       }
     }
-    setMention((prev) => ({ query: m[2], from: from - m[2].length - 1, index: prev ? prev.index : 0, caret }));
+    setMention((prev) => ({ query: m[2], from: at, index: prev ? prev.index : 0, caret }));
   }, [mentionPeople, isMobile]);
 
   useEffect(() => { mentionScanRef.current = scanForMention; }, [scanForMention]);
@@ -329,6 +339,19 @@ export default function RichDescription({
     setAi(null);
   }, [ai, editor, onChange, onCommit]);
 
+  // Phone: 16px in the editable area. iOS Safari zooms the page into any
+  // focused editable under 16px (contenteditable included - style.css's 16px
+  // phone rule covers only inputs), and that zoom also shifts the visual
+  // viewport the mention popup is placed against. Desktop keeps style.css's
+  // 13.5px.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view?.dom;
+    if (!dom) return;
+    if (isMobile) dom.style.setProperty('font-size', '16px');
+    else dom.style.removeProperty('font-size');
+  }, [editor, isMobile]);
+
   const can = useMemo(() => editor?.can().chain().focus(), [editor]);
   if (!editor) return null;
 
@@ -349,7 +372,8 @@ export default function RichDescription({
           <span ref={caretRef} aria-hidden="true" style={{ position: 'absolute', left: mention.caret?.left ?? 12, top: mention.caret?.top ?? 10,
             width: 1, height: mention.caret?.height ?? 18, pointerEvents: 'none' }} />
         )}
-        <AnchoredMenu anchorRef={caretRef} open={!!(isMobile && mention && matches.length > 0)} onClose={() => setMention(null)}
+        <AnchoredMenu key={mention?.caret ? `${Math.round(mention.caret.left)}:${Math.round(mention.caret.top)}` : 'at'}
+          anchorRef={caretRef} open={!!(isMobile && mention && matches.length > 0)} onClose={() => setMention(null)}
           role="listbox" aria-label="Mention someone"
           style={{ minWidth: 240, maxWidth: 320, maxHeight: 260, background: NX.surface, border: `1px solid ${NX.border}`,
                    borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>

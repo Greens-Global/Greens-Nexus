@@ -1231,18 +1231,21 @@ export function AttachmentViewer({ att, onClose }) {
   const isVideo = att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe);
   const isImage = att.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)($|\?)/i.test(probe);
   const maxH = isMobile ? '78dvh' : '78vh';
+  // Touch-first devices at ANY width (a phone in landscape, an iPad) get the
+  // card too: it is the WebKit iframe that shows only page 1, not the width.
+  const pdfFrame = !isMobile && !(typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)')?.matches);
   const iconBtn = isMobile ? { width: 40, height: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center', flexShrink: 0 } : null;
   const body = isImage ? (
     <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: maxH, objectFit: 'contain', borderRadius: 8 }} />
   ) : isVideo ? (
     <video src={att.url} controls autoPlay playsInline style={{ maxWidth: '92vw', maxHeight: maxH, borderRadius: 8, background: '#000' }} />
-  ) : isPdf && !isMobile ? (
+  ) : isPdf && pdfFrame ? (
     <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
   ) : (
     <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: isMobile ? '28px 22px' : '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw', boxSizing: 'border-box' }}>
       <Paperclip size={30} style={{ color: NX.faint }} />
       <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: isMobile ? '100%' : 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>{isPdf ? 'Open it in your phone\'s viewer, or download it.' : 'No inline preview for this file type.'}</div>
+      <div style={{ fontSize: 12.5, color: NX.dim }}>{isPdf ? 'Open it in your device\'s viewer, or download it.' : 'No inline preview for this file type.'}</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
         {isPdf && (
           <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ ...btn('outline'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 40 }}>

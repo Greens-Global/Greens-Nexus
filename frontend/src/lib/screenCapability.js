@@ -13,3 +13,11 @@ export function canRecordScreen(isMobile) {
   if (phone) return false;
   return typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 }
+
+/** Touch is the main input (phone, iPad, Android tablet) - true at any width,
+ * so a phone turned landscape or a tablet still counts. A touchscreen laptop
+ * has a mouse/trackpad as its primary pointer and does not. */
+export const COARSE_QUERY = '(pointer: coarse)';
+export function isCoarsePointer() {
+  return typeof window !== 'undefined' && !!window.matchMedia?.(COARSE_QUERY)?.matches;
+}
