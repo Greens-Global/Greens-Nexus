@@ -82,6 +82,30 @@ describe('GuidedTour on small screens', () => {
     expect(screen.getByRole('button', { name: /Done/ })).toBeTruthy();
   });
 
+  it('puts the card at the top, over the floating bars, when a tall target leaves no room', async () => {
+    screenSize(390, 700);
+    target({ top: 200, left: 0, width: 390, height: 480 });   // a whole list body
+    render(<GuidedTour steps={STEPS} onClose={() => {}} />);
+    const card = screen.getByTestId('guided-tour-card');
+    // Compact centers the card (245px) until the target is measured, so wait
+    // for the measured placement itself rather than for "not centered".
+    await waitFor(() => expect(px(card.style.top)).toBe(12));
+    // Above MobileTaskBar (2500), so the bar is dimmed and cannot cover the card.
+    expect(Number(screen.getByRole('dialog', { name: 'Guided walkthrough' }).style.zIndex)).toBeGreaterThan(2500);
+  });
+
+  it('survives its step list shrinking under it (a rotate rebuilds the steps)', () => {
+    screenSize(1400, 900);
+    const many = [1, 2, 3, 4, 5].map((n) => ({ target: null, title: `Step ${n}`, body: 'x' }));
+    const { rerender } = render(<GuidedTour steps={many} onClose={() => {}} />);
+    for (let n = 0; n < 4; n += 1) fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    expect(screen.getByText('Step 5')).toBeTruthy();
+    rerender(<GuidedTour steps={many.slice(0, 2)} onClose={() => {}} />);
+    expect(screen.getByText('Step 2')).toBeTruthy();
+    expect(screen.getByText(/step 2 of 2/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Done/ })).toBeTruthy();
+  });
+
   it('leaves desktop placement as it was', async () => {
     screenSize(1400, 900);
     target({ top: 100, left: 200, width: 300, height: 40 });
@@ -91,5 +115,6 @@ describe('GuidedTour on small screens', () => {
     expect(card.style.left).toBe('200px');
     expect(card.style.maxHeight).toBe('');
     expect(screen.getByTestId('guided-tour-body').style.overflowY).toBe('');
+    expect(screen.getByRole('dialog', { name: 'Guided walkthrough' }).style.zIndex).toBe('1400');
   });
 });

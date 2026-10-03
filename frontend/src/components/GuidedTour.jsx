@@ -21,8 +21,12 @@ const EDGE = 12;
 //   before  - run before locating the element (switch tab, select a row, …)
 
 export default function GuidedTour({ steps, onClose }) {
-  const [i, setI] = useState(0);
+  const [rawI, setI] = useState(0);
   const [rect, setRect] = useState(null);
+  // A caller may hand over a SHORTER step list mid-tour (Tickets rebuilds its
+  // steps when a rotate flips the phone layout: 7 steps -> 3). Clamp so a
+  // stale index can never read past the end and crash on step.title.
+  const i = Math.max(0, Math.min(rawI, steps.length - 1));
   const step = steps[i];
   const findTries = useRef(0);
   const compact = useIsMobile(COMPACT_QUERY);
@@ -116,7 +120,9 @@ export default function GuidedTour({ steps, onClose }) {
     if (rect) {
       const below = rect.top + rect.height + EDGE;
       const above = rect.top - EDGE - h;
-      top = below <= hi ? below : above >= lo ? above : hi;
+      // Neither fits (a tall target such as a whole list): the top edge, as
+      // the original placement did - the bottom is where the floating bars sit.
+      top = below <= hi ? below : above >= lo ? above : lo;
     } else {
       top = vTop + (vh - h) / 2;
     }
@@ -142,7 +148,9 @@ export default function GuidedTour({ steps, onClose }) {
   return (
     // .guided-tour - lets phone-wide [role=dialog] sheet styling (style.css)
     // exclude this overlay, which is a spotlight, not a sheet.
-    <div className="guided-tour" style={{ position: 'fixed', inset: 0, zIndex: 1400 }} role="dialog" aria-label="Guided walkthrough">
+    // Compact screens also lift it over the phone's floating bars
+    // (MobileTaskBar is zIndex 2500) so they are dimmed and blocked too.
+    <div className="guided-tour" style={{ position: 'fixed', inset: 0, zIndex: compact ? 2600 : 1400 }} role="dialog" aria-label="Guided walkthrough">
       {/* click shield - the whole point of Simulate: nothing underneath is clickable */}
       <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', inset: 0 }} />
       {rect ? (

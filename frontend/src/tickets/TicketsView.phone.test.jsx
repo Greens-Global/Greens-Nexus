@@ -67,6 +67,8 @@ async function flip(phone) {
   }
 }
 
+// jsdom has no scrollIntoView; GuidedTour calls it on every step it finds.
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 beforeEach(() => { PHONE = true; TICKETS = BASE_TICKETS; TOURS_SEEN = true; installMatchMedia(); });
 afterEach(() => { cleanup(); updateTicket.mockClear(); window.matchMedia = realMatchMedia; });
 
@@ -111,6 +113,21 @@ describe('Tickets - rotating across the phone breakpoint', () => {
     await flip(false);
     expect(screen.queryByText('1 selected')).toBeNull();
   });
+  it('rotates mid-tour (7 desktop steps -> 3 phone steps) without throwing', async () => {
+    PHONE = false;
+    TOURS_SEEN = false;
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    const tour = await screen.findByRole('dialog', { name: 'Guided walkthrough' });
+    for (let n = 0; n < 5; n += 1) {
+      await act(async () => { fireEvent.click(within(tour).getByRole('button', { name: /Next/ })); });
+    }
+    expect(within(tour).getByText(/step 6 of 7/)).toBeTruthy();
+    await flip(true);
+    const after = screen.getByRole('dialog', { name: 'Guided walkthrough' });
+    expect(within(after).getByText(/step 3 of 3/)).toBeTruthy();
+    expect(within(after).getByRole('button', { name: /Done/ })).toBeTruthy();
+  });
 });
 
 describe('Tickets on a phone', () => {
@@ -119,6 +136,9 @@ describe('Tickets on a phone', () => {
     await screen.findByText('Printer jam');
     const box = screen.getByLabelText('Search tickets');
     expect(box.style.fontSize).toBe('16px');   // no iOS focus zoom
+    // Not type=search: its native cancel X would double up with ours.
+    expect(box.getAttribute('type')).toBe('text');
+    expect(box.getAttribute('inputmode')).toBe('search');
     fireEvent.change(box, { target: { value: 'vpn' } });
     expect(screen.queryByText('Printer jam')).toBeNull();
     expect(screen.getByText('VPN down')).toBeTruthy();
@@ -137,6 +157,29 @@ describe('Tickets on a phone', () => {
     fireEvent.click(screen.getByText('Oldest First'));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
+  });
+
+  it('sorting by Due Date puts tickets with no SLA date last', async () => {
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    expect(rowOrder()).toEqual(['VPN down', 'Printer jam']);   // newest first
+    fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
+    fireEvent.click(screen.getByRole('button', { name: /Newest First/ }));
+    fireEvent.click(screen.getByText('Due Date'));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    // VPN down has no slaDueOn - it no longer leads the list.
+    expect(rowOrder()).toEqual(['Printer jam', 'VPN down']);
+  });
+
+  it('hides Sort By outside the list, where nothing is sorted', async () => {
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    fireEvent.click(screen.getByRole('button', { name: /^List/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Board/ }));
+    await screen.findByTestId('ticket-board');
+    fireEvent.click(screen.getByRole('button', { name: 'Filters & sort' }));
+    expect(screen.queryByText('Sort By')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy();
   });
 
   it('pins Done in a sticky footer and offers Clear All once a filter is on', async () => {

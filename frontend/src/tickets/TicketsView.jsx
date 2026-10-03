@@ -311,7 +311,7 @@ function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
   typeFilter, setTypeFilter, slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
   serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
-  groupBy, setGroupBy, showGroup, sort, setSort, onClearAll,
+  groupBy, setGroupBy, showGroup, showSort = true, sort, setSort, onClearAll,
 }) {
   const row = { width: '100%', fontSize: 15, padding: '10px 12px' };
   // Clear All only when there is something to clear - the same seven filters
@@ -325,8 +325,10 @@ function TicketMobileFilters({
   return (
     <BottomSheet title="Filter & Group" onClose={onClose}>
       {/* Phones have no column headers to tap, so the sort the desktop list
-          takes from its headers lives here - the same `sort` state. */}
-      {sort && setSort && (
+          takes from its headers lives here - the same `sort` state. Only the
+          list is sorted (Board and Reports get the unsorted set), so like
+          Group By it is hidden on the other views. */}
+      {showSort && sort && setSort && (
         <div style={wrap}>
           <label style={lab}>Sort By</label>
           <TicketSelect value={sortValueOf(sort)} style={row}
@@ -380,12 +382,15 @@ function TicketMobileFilters({
       {/* Pinned to the bottom of the sheet's scroll area (the phone create
           form's technique): with every filter showing, the sheet is taller than
           the screen and Done used to sit below the fold. Negative margins let
-          the bar span the sheet's full width over its 16px padding. */}
+          the bar span the sheet's full width over its padding - the bottom
+          padding is 16px PLUS the safe-area inset (BottomSheet), so the bar
+          cancels both and pads itself back out, reaching the sheet's edge on
+          Face ID iPhones with nothing scrolling visibly underneath. */}
       <div style={{
-        position: 'sticky', bottom: -16, zIndex: 2, background: NX.surface,
+        position: 'sticky', bottom: 'calc(-16px - env(safe-area-inset-bottom))', zIndex: 2, background: NX.surface,
         borderTop: `1px solid ${NX.border2}`, marginTop: 6,
-        marginLeft: -16, marginRight: -16, marginBottom: -16,
-        padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 8,
+        marginLeft: -16, marginRight: -16, marginBottom: 'calc(-16px - env(safe-area-inset-bottom))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8,
       }}>
         {anyFilter && onClearAll && (
           <button type="button" onClick={onClearAll}
@@ -800,14 +805,19 @@ export default function TicketsView() {
     if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
+    // Phones sort by due date from a picker with no "reverse" - undated
+    // tickets (still awaiting approval, no SLA) go last either way, so the
+    // ones actually due soonest lead. Desktop keeps its header behavior.
+    const undatedLast = isMobile && col.key === 'due';
     return [...list].sort((a, b) => {
       const av = col.sort(a, ctx); const bv = col.sort(b, ctx);
+      if (undatedLast && (!av || !bv)) return av === bv ? 0 : (!av ? 1 : -1);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, nameOf, companies]);
+  }, [sort, nameOf, companies, isMobile]);
 
   // Completed (resolved/closed) tickets never sit inline with the ones still in
   // flight - they collapse into their own section at the bottom (see
@@ -923,11 +933,13 @@ export default function TicketsView() {
       )}
       {/* Phone search - the same `search` state as the desktop toolbar's box,
           which does not render here. 16px so iOS does not zoom the page on
-          focus; the clear button is a full 32px target. */}
+          focus; the clear button is a full 32px target. type="text" (with
+          inputMode="search") rather than type="search", whose native cancel
+          button would sit beside our own X on Chrome/Android. */}
       {isMobile && (
         <div style={{ position: 'relative', margin: '0 12px 8px' }}>
           <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
-          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
+          <input type="text" inputMode="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
             aria-label="Search tickets" enterKeyHint="search"
             style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} />
           {search && (
@@ -1217,7 +1229,7 @@ export default function TicketsView() {
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
               assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
-              sort={sort} setSort={setSort} onClearAll={clearFilters}
+              showSort={view === 'list'} sort={sort} setSort={setSort} onClearAll={clearFilters}
             />
           )}
         />
