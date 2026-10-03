@@ -1070,7 +1070,10 @@ export default function TicketsView() {
           a small paddingBottom only - the ticket-bar-spacer at the end of the
           body clears the floating MobileTaskBar, so a larger value here would
           stack on top of it. */}
-      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
+      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas,
+        // Longhands only: React warns when a shorthand and its longhand
+        // both change on one re-render (rotating the phone, List <-> Board).
+        paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
