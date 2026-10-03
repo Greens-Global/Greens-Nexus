@@ -1699,6 +1699,16 @@ export function CreateTicketModal({ onClose }) {
   // The curated Nexus People list (/myhr/directory) - never M365/GAL.
   const people = usePeople();
   const isMobile = useIsMobile();
+  // A touch screen of any width. A phone turned sideways is wider than 640px,
+  // so it gets the desktop Modal - but it still has a camera, and the photo /
+  // attach / scan row is what it needs to raise a ticket from the floor.
+  const coarse = useIsMobile('(pointer: coarse)');
+  const showCapture = isMobile || coarse;
+  // Sheet or Modal is decided ONCE, when the form opens: rotating the phone
+  // mid-entry would otherwise swap the shell, remount every field and drop
+  // the keyboard (the inputs keep their state, but the focus and the scroll
+  // position go). Everything else may still follow the live width.
+  const [asSheet] = useState(isMobile);
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
@@ -1960,26 +1970,33 @@ export function CreateTicketModal({ onClose }) {
       {text}
     </span>
   );
-  const shell = (text, { footer, extras, children }) => { const title = heading(text); return (isMobile ? (
+  const shell = (text, { footer, extras, children }) => { const title = heading(text); return (asSheet ? (
     <BottomSheet title={title} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>
       {/* Pinned to the bottom of the sheet's scroll area: the ticket form is long,
           and Create Ticket must not scroll out of reach. Negative margins + padding
           let the bar span the sheet's full width over BottomSheet's 16px padding. */}
       <div style={{
-        position: 'sticky', bottom: -16, zIndex: 2, background: NX.surface,
+        // The sheet's own bottom padding includes the safe-area inset (the
+        // iPhone home indicator), so the bar reaches past both and pads them
+        // back in - otherwise the indicator sat over Create Ticket.
+        position: 'sticky', bottom: 'calc(-16px - env(safe-area-inset-bottom))', zIndex: 2, background: NX.surface,
         borderTop: `1px solid ${NX.border2}`, marginTop: 14,
-        marginLeft: -16, marginRight: -16, marginBottom: -16,
-        padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+        marginLeft: -16, marginRight: -16, marginBottom: 'calc(-16px - env(safe-area-inset-bottom))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 10,
       }}>
         {extras}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{footer}</div>
       </div>
     </BottomSheet>
   ) : (
-    <Modal title={title} onClose={onClose} footer={footer}>{children}</Modal>
+    // A touch screen in the Modal (a phone on its side, a tablet) still gets
+    // the capture row, at the start of the footer. A desktop's extras are
+    // empty, so its footer is exactly what it was.
+    <Modal title={title} onClose={onClose} footer={showCapture ? <>{extras}{footer}</> : footer}>{children}</Modal>
   )); };
 
+  const captureBtn = { padding: 8, minWidth: 40, minHeight: 40, justifyContent: 'center', color: NX.dim };
   const req = <span style={{ color: NX.red }}>*</span>;
   const sub = (text) => <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{text}</div>;
   const err = (k) => showErrors && missing.has(k);
@@ -1992,14 +2009,15 @@ export function CreateTicketModal({ onClose }) {
     // Phone only - same trio as Create a Task, so raising a ticket from a phone
     // can capture a photo of the problem without leaving the form.
     extras: (<>
-      {isMobile && (
+      {showCapture && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
+          {/* 40px targets - a thumb, not a cursor. */}
           <button ref={photoBtnRef} type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
-            style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
+            style={{ ...btn('ghost'), ...captureBtn }}><ImageIcon size={20} /></button>
           <button type="button" title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()}
-            style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
+            style={{ ...btn('ghost'), ...captureBtn }}><Paperclip size={20} /></button>
           <button type="button" title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
-            style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
+            style={{ ...btn('ghost'), ...captureBtn, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
           {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
           {attachments.length > 0 && <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>}
           {/* Flips upward on its own - the footer is pinned to the bottom of the modal. */}
@@ -2060,7 +2078,8 @@ export function CreateTicketModal({ onClose }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           <RecordUploadButtons compact showRecord={!NO_RECORDING_TYPES.includes(form.type)}
             onFile={addFile} onRecordingChange={onRecChange} />
-          <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+          {/* No keyboard on a phone to press Ctrl+V with. */}
+          {!isMobile && <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
         </div>
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -2214,6 +2233,12 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
+  // No autofocus on a phone: the keyboard would open over the dialog's own
+  // Cancel / Save buttons before the person has read what it is asking.
+  // A phone held sideways is wider than 640px, so a touch screen counts too.
+  const isMobile = useIsMobile();
+  const touch = useIsMobile('(pointer: coarse)');
+  const noAutoFocus = isMobile || touch;
   const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1
     : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
@@ -2251,7 +2276,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'resolve' && (<>
         <div style={field}>
           <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
-          <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
+          <textarea autoFocus={!noAutoFocus} value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
           {showErr && invalid && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
@@ -2265,7 +2290,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'self_resolve' && (
         <div style={field}>
           <label style={label}>What fixed it? (optional)</label>
-          <textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+          <textarea autoFocus={!noAutoFocus} value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. A colleague showed me how to reconnect the printer."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
@@ -2276,10 +2301,13 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'confirm' && (<>
         <div style={field}>
           <label style={label}>How satisfied are you with how your ticket was handled? <span style={{ color: NX.red }}>*</span></label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onMouseLeave={() => setHover(0)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...(isMobile ? { gap: 2, flexWrap: 'wrap' } : null) }} onMouseLeave={() => setHover(0)}>
             {[1, 2, 3, 4, 5].map((n) => (
-              <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={() => setHover(n)}
-                style={{ border: 'none', background: 'none', padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+              // A tap fires a synthetic mouseenter that never leaves - on a
+              // phone the stars follow the rating alone.
+              <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={noAutoFocus ? undefined : () => setHover(n)}
+                style={{ border: 'none', background: 'none', padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center',
+                  ...(isMobile ? { minWidth: 44, minHeight: 44 } : null) }}>
                 <Star size={28} style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
               </button>
             ))}
@@ -2301,7 +2329,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'reopen' && (
         <div style={field}>
           <label style={label}>Why are you reopening it? <span style={{ color: NX.red }}>*</span></label>
-          <textarea autoFocus value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
+          <textarea autoFocus={!noAutoFocus} value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. The light went out again this morning."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
           {showErr && invalid && <div style={requiredHint}>Required</div>}
@@ -2422,6 +2450,28 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const [pending, setPending] = useState({});
   const [reply, setReply] = useState({ body: '', internal: false });
   const [saving, setSaving] = useState(false);
+  // Phone-only pieces, up here with the other hooks (see requestingControl):
+  // the footer's More menu (Delete lives there, not leading the row), an
+  // intake screenshot open in the in-app viewer, and the tab strip, which
+  // scrolls sideways on a phone and keeps the open tab in view.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreBtnRef = useRef(null);
+  const [viewImage, setViewImage] = useState(null);
+  // A landscape phone or a tablet is wider than 640px but still leaves the
+  // app on a new tab - any touch screen opens screenshots in-app.
+  const touch = useIsMobile('(pointer: coarse)');
+  const tabStripRef = useRef(null);
+  const hasTicket = tickets.some((x) => x.id === ticketId);
+  useEffect(() => {
+    const strip = tabStripRef.current;
+    const on = strip?.querySelector('[data-tab-active="true"]');
+    if (!isMobile || !strip || !on) return;
+    // Sideways only - scrollIntoView would also scroll the sheet vertically.
+    const sr = strip.getBoundingClientRect();
+    const br = on.getBoundingClientRect();
+    if (br.left < sr.left) strip.scrollLeft -= sr.left - br.left + 8;
+    else if (br.right > sr.right) strip.scrollLeft += br.right - sr.right + 8;
+  }, [tab, isMobile, hasTicket]);
   useEffect(() => {
     api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([]));
     // Every company's departments, not just the viewer's own: a ticket is
@@ -2599,11 +2649,20 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     }
     return next;
   });
-  const hasReply = !isEmptyDoc(reply.body);
+  // A reply that is only a picture is still a reply - isEmptyDoc reads text.
+  const hasReply = !isEmptyDoc(reply.body) || /<img\b/i.test(reply.body || '');
+  // Pictures still uploading into the reply (the Conversation tab counts them
+  // on the reply state). Done waits for them - a reply sent mid-upload would
+  // go out without its picture.
+  const replyUploading = (reply.uploading || 0) > 0;
   const dirty = Object.keys(pending).length > 0 || hasReply;
   // Done: everything held, plus the reply, in one save. `extra` is a dialog's
   // own change (Confirm / Reopen) that goes out with the rest.
   const commit = async (extra = {}) => {
+    // Every save path (Done, and the Reopen / Mark Resolved / Confirm dialogs
+    // that call this directly) waits for reply pictures: sending mid-upload
+    // would post the reply without its picture and then clear the composer.
+    if (replyUploading) throw new Error('Wait for the picture to finish uploading, then try again.');
     const body = { ...pending, ...extra };
     if (hasReply) {
       // A reply being written AND a dialog's own comment (Mark Resolved's
@@ -2621,7 +2680,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // rating with everything else and closes the ticket.
   const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
-    if (saving) return;
+    if (saving || replyUploading) return;
     if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
@@ -2641,6 +2700,18 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // Title and description are the requester's while the ticket is still Open
   // (and the desk's always) - the same rule as every other Overview field.
   const canEditText = fullAccess;
+  // The description takes pictures only. Other files belong on the
+  // Attachments tab, where they get a row - a link written into the
+  // description would be a file the Attachments tab never lists.
+  const attachToDescription = async (file) => {
+    if (!(file?.type || '').startsWith('image/')) {
+      alert(`"${file?.name || 'This file'}" is not a picture. Add files from the Attachments tab.`);
+      return null;
+    }
+    const kind = attachmentKindOf(file);
+    const url = await uploadTicketEvidence(file, kind);
+    return { url, name: file.name, kind };
+  };
   const startEdit = () => { setDraft({ subject: v.subject || '', description: v.description || '' }); setEditing(true); };
   const saveEdit = () => {
     const d = draft || {};
@@ -2679,6 +2750,93 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   };
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
+  // ── Footer ──
+  // The same actions on every screen. On a phone (Oct 3) they stack instead of
+  // wrapping into one ragged row led by Delete: "Unsaved changes" as a line on
+  // top, the ticket's moves in one row, and Done on its own, full width, where
+  // the thumb is. Delete goes into More - a destructive action should not be
+  // the first thing under the thumb. `ph` only exists on a phone, so the
+  // desktop buttons are exactly what they were.
+  // Text width first, then share the spare room: a label never breaks inside
+  // its button - a button that does not fit moves to its own row instead.
+  const ph = isMobile ? { flex: '1 1 auto', whiteSpace: 'nowrap', minHeight: 44, justifyContent: 'center' } : null;
+  const escalateBtn = canEscalate && (
+    <button style={{ ...btn('outline'), color: NX.amber, ...ph }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
+  );
+  const statusActions = !CLOSED_STATES.includes(t.status) ? (
+    // canEditStatus, not canWorking - Mark Resolved is the same "raw
+    // status jump" the requester is carved out of above; their only
+    // status moves are Confirm Resolution / Reopen below, once there
+    // actually is a resolution to confirm or reopen.
+    // The one exception (Neil, Oct 1): the requester may mark their own
+    // ticket Resolved - "a colleague helped me" - with an optional
+    // comment instead of the desk's written resolution.
+    (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
+      <button style={{ ...btn('outline'), color: NX.green, ...ph }}
+        onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
+        <CheckCircle2 size={14} /> Mark Resolved
+      </button>
+    )
+  ) : (
+    <>
+      {/* The requester confirms with a rating; the desk just closes it
+          out (the resolution was written when it was resolved). */}
+      {t.status === 'resolved' && (
+        <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }), ...ph }}
+          aria-pressed={v.status === 'closed'}
+          onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
+          title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
+            : 'Close this ticket now instead of waiting for it to auto-close'}>
+          <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
+        </button>
+      )}
+      {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
+          for the requester - the desk can still reopen one. */}
+      {(t.status === 'resolved' || canEditStatus) ? (
+        <button style={{ ...btn('outline'), ...ph }} onClick={reopen}>Reopen</button>
+      ) : (
+        <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
+      )}
+    </>
+  );
+  const unsavedNote = dirty && (
+    <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
+      Unsaved changes
+    </span>
+  );
+  const doneBtn = (
+    <button style={{ ...btn('primary'), opacity: saving || replyUploading ? 0.6 : 1, ...(isMobile ? { width: '100%', minHeight: 46, justifyContent: 'center' } : null) }}
+      onClick={done} disabled={saving || replyUploading}
+      title={replyUploading ? 'Wait for the picture to finish uploading' : dirty ? 'Save every change and send one update to the requester' : undefined}>
+      {saving ? 'Saving…' : replyUploading ? 'Uploading...' : 'Done'}
+    </button>
+  );
+  const phoneFooter = isMobile && (
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {dirty && <div style={{ display: 'flex' }}>{unsavedNote}</div>}
+      {(escalateBtn || statusActions || canDelete) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {escalateBtn}
+          {statusActions}
+          {canDelete && (<>
+            <button ref={moreBtnRef} type="button" aria-haspopup="menu" aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((o) => !o)}
+              style={{ ...btn('outline'), minHeight: 44, minWidth: 44, justifyContent: 'center', gap: 4, color: NX.dim }}>
+              More <ChevronDown size={14} />
+            </button>
+            <AnchoredMenu anchorRef={moreBtnRef} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={180}
+              style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
+              <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); remove(); }}
+                style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, minHeight: 44, color: NX.red }}>
+                <Trash2 size={15} /> Delete Ticket
+              </button>
+            </AnchoredMenu>
+          </>)}
+        </div>
+      )}
+      {doneBtn}
+    </div>
+  );
   return (
     <>
     {/* No width override - the Modal default (clamp(520px, 60vw, 980px)) is
@@ -2687,59 +2845,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     {/* While a linked task is open on top, Escape (which Modal also listens
         for) closes the task first rather than the ticket underneath it. */}
     <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : closeDrawer())} footer={
+      isMobile ? phoneFooter : (
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
         )}
-        {canEscalate && (
-          <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
-        )}
-        {!CLOSED_STATES.includes(t.status) ? (
-          // canEditStatus, not canWorking - Mark Resolved is the same "raw
-          // status jump" the requester is carved out of above; their only
-          // status moves are Confirm Resolution / Reopen below, once there
-          // actually is a resolution to confirm or reopen.
-          // The one exception (Neil, Oct 1): the requester may mark their own
-          // ticket Resolved - "a colleague helped me" - with an optional
-          // comment instead of the desk's written resolution.
-          (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
-            <button style={{ ...btn('outline'), color: NX.green }}
-              onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
-              <CheckCircle2 size={14} /> Mark Resolved
-            </button>
-          )
-        ) : (
-          <>
-            {/* The requester confirms with a rating; the desk just closes it
-                out (the resolution was written when it was resolved). */}
-            {t.status === 'resolved' && (
-              <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }) }}
-                aria-pressed={v.status === 'closed'}
-                onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
-                title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
-                  : 'Close this ticket now instead of waiting for it to auto-close'}>
-                <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
-              </button>
-            )}
-            {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
-                for the requester - the desk can still reopen one. */}
-            {(t.status === 'resolved' || canEditStatus) ? (
-              <button style={btn('outline')} onClick={reopen}>Reopen</button>
-            ) : (
-              <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
-            )}
-          </>
-        )}
-        {dirty && (
-          <span style={{ fontSize: 12, color: NX.amber, fontWeight: 600 }} title="Nothing is saved or sent to the requester until you click Done">
-            Unsaved changes
-          </span>
-        )}
-        <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={done} disabled={saving}
-          title={dirty ? 'Save every change and send one update to the requester' : undefined}>
-          {saving ? 'Saving…' : 'Done'}
-        </button>
+        {escalateBtn}
+        {statusActions}
+        {unsavedNote}
+        {doneBtn}
       </>
+      )
     }>
       <div style={{ marginBottom: 6 }}>
         {editing && canEditText ? (
@@ -2749,8 +2865,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
             {/* The same rich editor the Create a Ticket form uses (Oct 1) - a
                 plain-text description written before then opens as one paragraph. */}
+            {/* A picture added here goes to ticket storage and is embedded by
+                URL - never held in the description as a data: image. */}
             <RichDescription value={(draft ?? { description: v.description }).description ?? ''} minHeight={90}
               placeholder="Describe the issue"
+              onAttachFile={attachToDescription} allowInlineData={false}
               onChange={(html) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: html }))} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
@@ -2762,7 +2881,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>{v.subject}</div>
             {canEditText && (
               <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
-                style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
+                style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0,
+                  ...(isMobile ? { minWidth: 36, minHeight: 36, justifyContent: 'center' } : null) }}><Pencil size={15} /></button>
             )}
           </div>
           {/* Rich text since Oct 1: richBodyHtml sanitizes it, and wraps an
@@ -2778,11 +2898,19 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </>)}
         {(t.images || []).length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            {t.images.map((url, i) => (
+            {t.images.map((url, i) => ((isMobile || touch) ? (
+              // On a phone a new tab leaves the app (and, installed as a home
+              // screen app, has no way back) - the in-app viewer instead.
+              <button key={i} type="button" title="Open full size" aria-label={`Open screenshot ${i + 1}`}
+                onClick={() => setViewImage({ url, name: `Screenshot ${i + 1}`, kind: 'image', size: '' })}
+                style={{ display: 'block', width: 72, height: 72, padding: 0, borderRadius: 8, overflow: 'hidden', border: `1px solid ${NX.border}`, background: 'none', cursor: 'pointer' }}>
+                <img src={url} alt={`Screenshot ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </button>
+            ) : (
               <a key={i} href={url} target="_blank" rel="noreferrer" title="Open full size" style={{ display: 'block', width: 72, height: 72, borderRadius: 8, overflow: 'hidden', border: `1px solid ${NX.border}` }}>
                 <img src={url} alt={`Screenshot ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               </a>
-            ))}
+            )))}
           </div>
         )}
       </div>
@@ -2808,12 +2936,18 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           buried under the whole field list (people kept missing them). */}
       <div style={{ borderTop: `1px solid ${NX.border}`, marginTop: 12, paddingTop: 12 }}>
         {/* Segmented control - same mode-switch grammar as the rest of the module */}
-        <div style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, flexWrap: 'wrap' }}>
+        {/* On a phone the four tabs wrapped onto two rows; there it is one
+            row that swipes sideways (.scroll-tabs), with 40px targets. */}
+        <div ref={tabStripRef} className={isMobile ? 'scroll-tabs' : undefined} style={{
+          display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, flexWrap: 'wrap',
+          ...(isMobile ? { display: 'flex', flexWrap: 'nowrap', maxWidth: '100%', width: 'fit-content' } : null),
+        }}>
           {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
-            <button key={k} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
+            <button key={k} data-tab-active={tab === k ? 'true' : undefined} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
               ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7,
               background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
               boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+              ...(isMobile ? { flexShrink: 0, minHeight: 40, padding: '8px 12px', whiteSpace: 'nowrap' } : null),
             }}><Icon size={14} />{lab}
               {k === 'conversation' && newReplies > 0 && (
                 <span title={`${newReplies} new repl${newReplies === 1 ? 'y' : 'ies'}`}
@@ -3055,6 +3189,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       </div>
     </Modal>
     {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} zIndex={4100} />}
+    {viewImage && <AttachmentViewer att={viewImage} onClose={() => setViewImage(null)} />}
     {dialog && (
       <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}
         // Resolving is a status change like any other - held for Done. Confirm
@@ -3095,6 +3230,7 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
   const [approver, setApprover] = useState(null);
   const [itAdmin, setItAdmin] = useState(false);
   const people = usePeople();
+  const isMobile = useIsMobile();
   useEffect(() => {
     let alive = true;
     // canAct here, not onDesk - an administrator must be able to unstick a
@@ -3130,7 +3266,9 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
 
   return (
     <div style={{ border: `1px solid ${meta.color}`, background: meta.tint, borderRadius: 10, padding: 14, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: status === 'pending' ? 10 : 6 }}>
+      {/* On a phone the header wraps rather than squeezing "waiting on <name>"
+          and the date into one line; the decision buttons stack full width. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: status === 'pending' ? 10 : 6, ...(isMobile ? { flexWrap: 'wrap', rowGap: 4 } : null) }}>
         <ShieldAlert size={15} style={{ color: meta.color }} />
         <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{meta.label}</span>
         {t.approverId && (
@@ -3154,7 +3292,7 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
             <input value={note} onChange={(e) => setNote(e.target.value)}
               placeholder="Note for the approver (optional)"
               style={{ ...inputStyle, marginBottom: 8 }} />
-            <button onClick={sendForApproval} disabled={!!busy} style={btn('primary')}>
+            <button onClick={sendForApproval} disabled={!!busy} style={{ ...btn('primary'), ...(isMobile ? { width: '100%', minHeight: 44, justifyContent: 'center' } : null) }}>
               <Send size={14} /> {busy === 'send' ? 'Sending…' : 'Send for Approval'}
             </button>
           </>
@@ -3172,11 +3310,11 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
             <input value={note} onChange={(e) => setNote(e.target.value)}
               placeholder="Reason (required to reject, optional to approve)"
               style={{ ...inputStyle, marginBottom: 8 }} />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={() => decide('approve')} disabled={!!busy} style={btn('primary')}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', ...(isMobile ? { flexDirection: 'column', alignItems: 'stretch' } : null) }}>
+              <button onClick={() => decide('approve')} disabled={!!busy} style={{ ...btn('primary'), ...(isMobile ? { minHeight: 44, justifyContent: 'center' } : null) }}>
                 <CheckCircle2 size={14} /> {busy === 'approve' ? 'Approving…' : 'Approve'}
               </button>
-              <button onClick={() => decide('reject')} disabled={!!busy} style={{ ...btn('outline'), color: NX.red, borderColor: NX.red }}>
+              <button onClick={() => decide('reject')} disabled={!!busy} style={{ ...btn('outline'), color: NX.red, borderColor: NX.red, ...(isMobile ? { minHeight: 44, justifyContent: 'center' } : null) }}>
                 <X size={14} /> {busy === 'reject' ? 'Rejecting…' : 'Reject'}
               </button>
             </div>
@@ -3201,6 +3339,7 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
 // still gets a row - hiding it made the link look like it had never been made.
 function TicketTasks({ taskIds, tasks, tasksLoading = false, onOpen, onSpawn, onLink, onUnlink, readOnly }) {
   const [linking, setLinking] = useState(false);
+  const isMobile = useIsMobile();
   const linked = taskIds.map((id) => tasks.find((x) => x.id === id) || { id, missing: true });
   // Still fetching (Support mounts its own store lazily): a link is not
   // "missing" until the list it would be found in has actually arrived.
@@ -3225,7 +3364,7 @@ function TicketTasks({ taskIds, tasks, tasksLoading = false, onOpen, onSpawn, on
                   <span style={{ flexShrink: 0 }}><StatusChip status={task.completed ? 'completed' : task.status} /></span>
                 </>
               )}
-              {!readOnly && <button onClick={() => onUnlink(task.id)} title="Unlink task" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>}
+              {!readOnly && <button onClick={() => onUnlink(task.id)} title="Unlink task" aria-label="Unlink task" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint, ...(isMobile ? unlinkTap : null) }}><X size={13} /></button>}
             </div>
           ))}
         </div>
@@ -3247,11 +3386,15 @@ function TicketTasks({ taskIds, tasks, tasksLoading = false, onOpen, onSpawn, on
   );
 }
 
+// A 36px tap target for the small X that unlinks a task or a ticket (phones).
+const unlinkTap = { minWidth: 36, minHeight: 36, justifyContent: 'center', flexShrink: 0 };
+
 // ── Ticket ↔ ticket links (relates / duplicate / blocks / blocked by) ─────────
 function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
   const [adding, setAdding] = useState(false);
   const [target, setTarget] = useState('');
   const [type, setType] = useState('relates');
+  const isMobile = useIsMobile();
   const links = ticket.links || [];
   const byId = (id) => tickets.find((x) => x.id === id);
   const options = tickets.filter((x) => x.id !== ticket.id && !links.some((l) => l.ticketId === x.id));
@@ -3269,10 +3412,12 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
               <div key={l.ticketId} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                 <span style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>{linkTypeLabel(l.type)}</span>
                 <Link2 size={13} style={{ color: NX.faint, flexShrink: 0 }} />
-                <span style={{ color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {/* minWidth 0 + flex 1 on a phone: a long subject ellipsizes
+                    instead of pushing the remove button off the screen. */}
+                <span style={{ color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(isMobile ? { minWidth: 0, flex: 1 } : null) }}>
                   {lt ? `${ticketNoShort(lt.code) ? ticketNoShort(lt.code) + ' · ' : ''}${lt.subject}` : l.ticketId}
                 </span>
-                {!readOnly && <button onClick={() => onRemove(l.ticketId)} title="Remove link" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>}
+                {!readOnly && <button onClick={() => onRemove(l.ticketId)} title="Remove link" aria-label="Remove link" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint, ...(isMobile ? unlinkTap : null) }}><X size={13} /></button>}
               </div>
             );
           })}
@@ -3334,12 +3479,22 @@ function CsatWidget({ ticket, canRate, onRate, onComment }) {
   const rating = ticket.csatRating || 0;
   const [comment, setComment] = useState(ticket.csatComment || '');
   useEffect(() => setComment(ticket.csatComment || ''), [ticket.csatComment]);
+  // Real buttons, so a star can be reached by keyboard and named by a screen
+  // reader. A phone gets 40px targets; a touch screen gets no hover preview
+  // (a tap's synthetic mouseenter would otherwise leave stars lit).
+  const isMobile = useIsMobile();
+  const touch = useIsMobile('(pointer: coarse)');
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 4 }}>
         {[1, 2, 3, 4, 5].map((n) => (
-          <Star key={n} size={22} onClick={() => canRate && onRate(n)} onMouseEnter={() => canRate && setHover(n)} onMouseLeave={() => setHover(0)}
-            style={{ cursor: canRate ? 'pointer' : 'default', color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
+          <button key={n} type="button" aria-label={`Rate ${n} of 5`} aria-pressed={rating === n} disabled={!canRate}
+            onClick={() => canRate && onRate(n)}
+            onMouseEnter={touch ? undefined : () => canRate && setHover(n)} onMouseLeave={touch ? undefined : () => setHover(0)}
+            style={{ border: 'none', background: 'none', padding: 0, margin: 0, display: 'grid', placeItems: 'center', color: 'inherit',
+              cursor: canRate ? 'pointer' : 'default', ...(isMobile ? { minWidth: 40, minHeight: 40 } : null) }}>
+            <Star size={22} aria-hidden style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
+          </button>
         ))}
         {rating > 0 && <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
       </div>
@@ -3744,6 +3899,9 @@ function auditFieldDef(type, key) {
 // any of these gets corrected later, this card is the proof of what the
 // ticket originally said (Pranshu, Sept 8 2026).
 function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
+  // One column on a phone - two halves of ~150px split every label and value
+  // mid-word - and a long unbroken value (an email, a URL) wraps anywhere.
+  const isMobile = useIsMobile();
   const rows = [
     ['Type', TICKET_TYPE_META[snapshot.type]?.label || snapshot.type || '-'],
     ['Priority', PRIORITY_META[snapshot.priority]?.label || snapshot.priority || '-'],
@@ -3756,7 +3914,7 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
   return (
     <div style={{ border: `1px dashed ${NX.border}`, borderRadius: 10, padding: 12, background: NX.surface2 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ClipboardList size={13} /> Original request (unedited)
+        <ClipboardList size={13} /> Original Request (Unedited)
       </div>
       <div style={{ marginBottom: snapshot.description ? 8 : 4 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>
@@ -3769,7 +3927,8 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
             dangerouslySetInnerHTML={{ __html: richBodyHtml(snapshot.description, nameOf) }} />
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5,
+        ...(isMobile ? { gridTemplateColumns: 'minmax(0, 1fr)', overflowWrap: 'anywhere' } : null) }}>
         {rows.map(([k, v]) => (
           <div key={k}><span style={{ color: NX.faint }}>{k}: </span><span style={{ color: NX.ink }}>{v}</span></div>
         ))}
@@ -3795,6 +3954,10 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
 // audit card above, not a one-line "created this ticket".
 function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
   const [rows, setRows] = useState(null);
+  // On a phone the name and the time share the top line and what happened
+  // reads underneath at full width - beside them it was squeezed into a
+  // column a few words wide. Timestamps are 12px there, not 11.
+  const isMobile = useIsMobile();
   useEffect(() => { api.getTicketActivity(ticketId).then(setRows).catch(() => setRows([])); }, [ticketId]);
   if (rows === null) return <div style={{ padding: '6px 0' }}><SkeletonBlocks count={4} height={44} /></div>;
   if (rows.length === 0) return <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No activity yet.</div>;
@@ -3817,6 +3980,17 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {isMobile ? (<>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, minWidth: 0 }}>
+                <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
+                <span style={{ color: NX.ink, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
+                <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDateTime(a.at)}</span>
+              </div>
+              <div style={{ marginLeft: 30, fontSize: 13, color: NX.dim, overflowWrap: 'anywhere', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <span>{snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : a.detail}</span>
+                {comment?.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
+              </div>
+            </>) : (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
               <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
@@ -3826,6 +4000,7 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
               {comment?.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
               <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
             </div>
+            )}
             {snapshot && <CreatedSnapshotCard snapshot={snapshot} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
             {comment && (
               <div style={{
