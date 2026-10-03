@@ -112,6 +112,39 @@ for (const phone of [true, false]) {
       expect(getTaskTickets).toHaveBeenCalledTimes(1);
     });
 
+    it('skips the interval tick that lands right after a tab-return refresh', async () => {
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Changed' }]);
+      await mount();
+      // Hidden 50s into the first cycle, back 8s later: the return refreshes.
+      await act(async () => { await vi.advanceTimersByTimeAsync(50000); });
+      act(() => setVisibility('hidden'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+      act(() => setVisibility('visible'));
+      await flush();
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+      // The 60s tick 2s later is not a second download...
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+      // ...but the one after that runs as usual.
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(getTaskTickets).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries on the next tick after a failure (a failed fetch does not count as fresh)', async () => {
+      getTaskTickets.mockRejectedValueOnce(new Error('offline'));
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Back' }]);
+      await mount();
+      act(() => setVisibility('hidden'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(55000); });
+      act(() => setVisibility('visible'));
+      await flush();
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+      expect(list()).toBe('First');
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(getTaskTickets).toHaveBeenCalledTimes(2);
+      expect(list()).toBe('Back');
+    });
+
     it('keeps the old list, and ticketsLoaded, when a refresh fails', async () => {
       getTaskTickets.mockRejectedValue(new Error('offline'));
       await mount();

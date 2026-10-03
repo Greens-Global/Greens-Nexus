@@ -218,14 +218,22 @@ export function TasksProvider({ children }) {
   //    layered over the ticket), so replacing the list never touches them.
   //  - A ticket whose data did not change keeps its object, so the drawer and
   //    rows showing it do not re-render for nothing.
+  //  - The 60s interval keeps its own timing and does not hear about the
+  //    tab-return refresh, so a tick can land seconds after one. A refresh
+  //    within 15s of the last good answer is skipped (on a phone hopping
+  //    between apps that was the whole list downloaded twice in a row).
   const ticketsFetching = useRef(false);
+  const lastTicketFetchRef = useRef(0);
   const refreshTickets = useCallback(async () => {
     if (ticketsFetching.current) return;
+    if (Date.now() - lastTicketFetchRef.current < 15000) return;
     ticketsFetching.current = true;
     const gen = ticketGenRef.current;
     try {
       const rows = await api.getTaskTickets();
-      if (!Array.isArray(rows) || gen !== ticketGenRef.current) return;
+      if (!Array.isArray(rows)) return;
+      lastTicketFetchRef.current = Date.now();
+      if (gen !== ticketGenRef.current) return;
       // Read from the rendered list (ticketsRef), not a state updater: the
       // generation check above already rules out a write still waiting to
       // render, and deciding here lets an unchanged answer skip setState.
