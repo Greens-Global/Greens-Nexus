@@ -72,14 +72,27 @@ function onPop(e) {
     return;
   }
 
+  const top = live[live.length - 1];
   if (m && !isLive(m.id)) {
-    // A stale sheet entry (see the header). Coming from another screen App
-    // must still switch views, so it is let through; then step over it.
+    // A stale sheet entry on the screen a sheet is open on: Back was pressed
+    // over that open sheet and only landed here because a stale entry was
+    // left under it. It is the sheet's Back, not a screen change - App must
+    // not hear it (its fromPopstate flag would stick and the next in-app
+    // move would never reach the address bar). Close the top sheet; the
+    // reconcile after it re-adds entries for whatever stays open.
+    if (top && m.path === path && top.path === path) {
+      e.stopImmediatePropagation();
+      try { top.handler.current?.(); } catch { /* a throwing close must not wedge Back */ }
+      setTimeout(reconcile, 0);
+      return;
+    }
+    // Otherwise (see the header) it is a screen left by in-app navigation.
+    // Coming from another screen App must still switch views, so it is let
+    // through; then step over it.
     traverse(1);
     return;
   }
 
-  const top = live[live.length - 1];
   if (!m && !top) return;                                // not ours
   if (path !== (m ? m.path : top.path)) return;          // a jump across screens: App's
   e.stopImmediatePropagation();
@@ -117,10 +130,16 @@ export function useBackToClose(enabled, onBack) {
     const sheet = { id: `${uid}#${seq}`, uid, path: window.location.pathname, handler };
     live.push(sheet);
     const top = markerOf(window.history.state);
-    // Re-mounted with its own entry still on top (React StrictMode runs
-    // effects twice in development): take that entry over rather than
-    // pushing a second one.
-    if (top && top.uid === uid && !isLive(top.id)) push(sheet, live.length, true);
+    // The entry on top belongs to a sheet that has just unmounted and has not
+    // taken its entry back yet (its cleanup is a microtask away): take that
+    // entry over rather than pushing a second one over it, which would leave
+    // the old one stale underneath and cost a Back. Two ways to get here:
+    // React StrictMode re-running this effect (same component), and one sheet
+    // swapped for another in a single commit (Quick Create's "Full Details"
+    // closing its BottomSheet and opening CreateTaskModal) - every unmount
+    // cleanup runs before any mount effect, so the old entry is still on top.
+    const stale = top && !isLive(top.id) && top.path === sheet.path;
+    if (stale && (pending === 0 || top.uid === uid)) push(sheet, live.length, true);
     // Mid-traversal (a sheet just closed): pushing now would race it, so the
     // entry is added once it lands (reconcile).
     else if (pending === 0) push(sheet, live.length);

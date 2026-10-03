@@ -9,7 +9,7 @@
 //   opened the dialog), unless it has since moved somewhere else on purpose.
 // - Tab / Shift+Tab cycle inside the panel. Focus that sits in a portaled
 //   child (a SelectMenu, a date popover) is left alone.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 const FOCUSABLE = [
   'a[href]', 'area[href]', 'button:not([disabled])', 'input:not([disabled]):not([type="hidden"])',
@@ -25,9 +25,14 @@ function focusables(panel) {
 }
 
 export function useDialogFocus(panelRef) {
+  // The opener, read on the FIRST render - before this commit applies any
+  // autoFocus inside the dialog. Read in the effect it would already be that
+  // field, gone with the dialog on close, and focus would fall to <body>.
+  const opener = useRef(undefined);
+  if (opener.current === undefined) opener.current = typeof document !== 'undefined' ? document.activeElement : null;
   useEffect(() => {
     const panel = panelRef.current;
-    const prev = document.activeElement;
+    const prev = opener.current;
     if (panel && !panel.contains(document.activeElement)) {
       try { panel.focus({ preventScroll: true }); } catch { panel.focus(); }
     }

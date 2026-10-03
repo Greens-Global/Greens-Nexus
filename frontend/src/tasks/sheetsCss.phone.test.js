@@ -22,8 +22,8 @@ describe('phone CSS for sheets and the floating bar', () => {
     });
   });
 
-  it('reserves room for the bottom nav only when the nav is rendered', () => {
-    expect(css).toMatch(/\.mobile-nav ~ \.main-content \{ padding-bottom: calc\(64px \+ env\(safe-area-inset-bottom\)\); \}/);
+  it('reserves room for the bottom nav only when the nav (or a round + button) is there', () => {
+    expect(css).toMatch(/\.mobile-nav ~ \.main-content,\s*\.main-content:has\(\.fab\) \{ padding-bottom: calc\(64px \+ env\(safe-area-inset-bottom\)\); \}/);
     expect(css).not.toMatch(/^\s*\.main-content \{ padding-bottom: calc\(64px/m);
   });
 

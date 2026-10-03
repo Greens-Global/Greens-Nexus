@@ -1870,8 +1870,11 @@ html { overflow-x: hidden; }
      actually there. MobileNav renders nothing on screens without bottom
      actions (Tickets, Dashboard...), and the old unconditional padding left a
      dead strip at the foot of those. The <nav> is an earlier sibling of
-     <main> in App.jsx's .app-container, so a sibling selector sees it. */
-  .mobile-nav ~ .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+     <main> in App.jsx's .app-container, so a sibling selector sees it.
+     A screen with a floating round + button (.fab - Purchase's request log)
+     keeps the room too, or its last rows end under the button. */
+  .mobile-nav ~ .main-content,
+  .main-content:has(.fab) { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
 
 /* ── adidas-style mobile chrome ──────────────────────────────────────────────

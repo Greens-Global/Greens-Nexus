@@ -13,9 +13,9 @@ import { __resetBackToClose } from '../lib/useBackToClose';
 
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
 
-function setViewport(isMobile) {
+function setViewport(isMobile, { coarse = false } = {}) {
   window.matchMedia = (q) => ({
-    matches: isMobile && q.includes('max-width: 640px'),
+    matches: (isMobile && q.includes('max-width: 640px')) || (coarse && q.includes('pointer: coarse')),
     media: q, onchange: null,
     addEventListener() {}, removeEventListener() {},
     addListener() {}, removeListener() {}, dispatchEvent() { return false; },
@@ -364,6 +364,89 @@ describe('Back closes the top sheet on a phone', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  // Quick Create's "Full Details": the BottomSheet closes and a Modal opens
+  // in ONE commit. The Modal must take over the sheet's entry, not stack on
+  // it, or the first Back lands on a stale entry, leaks to App, and wedges
+  // App's fromPopstate flag (the next in-app move then never reaches the URL).
+  function SwapApp() {
+    const [view, setView] = useState(() => window.location.pathname.slice(1));
+    const fromPop = React.useRef(false);
+    const [quick, setQuick] = useState(false);
+    const [full, setFull] = useState(false);
+    React.useEffect(() => {
+      const onPop = (e) => { appPop(e); fromPop.current = true; setView(window.location.pathname.slice(1)); };
+      window.addEventListener('popstate', onPop);
+      return () => window.removeEventListener('popstate', onPop);
+    }, []);
+    React.useEffect(() => {
+      if (fromPop.current) { fromPop.current = false; return; }
+      if (window.location.pathname !== `/${view}`) {
+        window.history.pushState({ depth: (window.history.state?.depth || 0) + 1 }, '', `/${view}`);
+      }
+    }, [view]);
+    return (
+      <div>
+        <span data-testid="view">{view}</span>
+        <button onClick={() => setView('tasks')}>Go Tasks</button>
+        <button onClick={() => setQuick(true)}>Quick Create</button>
+        {quick && (
+          <BottomSheet title="Quick" onClose={() => setQuick(false)}>
+            <button onClick={() => { setQuick(false); setFull(true); }}>Full Details</button>
+          </BottomSheet>
+        )}
+        {full && <Modal title="Full" onClose={() => setFull(false)}><p>full</p></Modal>}
+      </div>
+    );
+  }
+
+  it('a sheet swapped for another in one commit: one Back closes the new one', async () => {
+    setViewport(true);
+    render(<SwapApp />);
+    fireEvent.click(screen.getByText('Quick Create'));
+    fireEvent.click(screen.getByText('Full Details'));
+    await settle();
+    expect(screen.getByRole('dialog', { name: 'Full' })).toBeInTheDocument();
+    // One entry, not two: the Modal replaced the BottomSheet's.
+    expect(window.history.state.nxSheet.idx).toBe(1);
+
+    await act(async () => { window.history.back(); });
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.history.state).toEqual({ depth: 3, fromLabel: 'Home' });
+    expect(appPop).not.toHaveBeenCalled();
+    // App's next move still reaches the address bar.
+    fireEvent.click(screen.getByText('Go Tasks'));
+    expect(screen.getByTestId('view').textContent).toBe('tasks');
+    expect(window.location.pathname).toBe('/tasks');
+  });
+
+  it('a stale same-screen entry under an open sheet is its Back, never App\'s', async () => {
+    setViewport(true);
+    render(<Stack />);
+    fireEvent.click(screen.getByText('Open Drawer'));
+    const liveEntry = window.history.state;
+    // However one got there: a stale sheet entry right under the open sheet's.
+    window.history.pushState({ depth: 3, fromLabel: 'Home', nxSheet: { id: 'gone#1', uid: 'gone', idx: 1, path: '/tickets' } }, '');
+    window.history.pushState(liveEntry, '');
+    await act(async () => { window.history.back(); });
+    await settle();
+    await settle();
+    expect(screen.queryByRole('dialog', { name: 'Drawer' })).toBeNull();
+    expect(appPop).not.toHaveBeenCalled();
+    expect(window.history.state).toEqual({ depth: 3, fromLabel: 'Home' });
+  });
+
+  it('a landscape phone (touch, wider than 640px) also closes the Modal on Back', async () => {
+    setViewport(false, { coarse: true });
+    render(<Stack />);
+    fireEvent.click(screen.getByText('Open Drawer'));
+    expect(window.history.state.nxSheet).toBeTruthy();
+    await act(async () => { window.history.back(); });
+    await settle();
+    expect(screen.queryByRole('dialog', { name: 'Drawer' })).toBeNull();
+    expect(appPop).not.toHaveBeenCalled();
+  });
+
   it('desktop pushes nothing', () => {
     setViewport(false);
     const start = window.history.length;
@@ -371,6 +454,53 @@ describe('Back closes the top sheet on a phone', () => {
     fireEvent.click(screen.getByText('Open Drawer'));
     expect(window.history.length).toBe(start);
     expect(window.history.state.nxSheet).toBeUndefined();
+  });
+});
+
+describe('focus and landscape touch screens', () => {
+  it('gives focus back to the opener even when the dialog autofocused a field', () => {
+    setViewport(true);
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open It</button>
+          {open && (
+            <Modal title="Edit" onClose={() => setOpen(false)} footer={<button onClick={() => setOpen(false)}>Done</button>}>
+              <input aria-label="Field" autoFocus />
+            </Modal>
+          )}
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByText('Open It');
+    opener.focus();
+    fireEvent.click(opener);
+    expect(document.activeElement).toBe(screen.getByLabelText('Field'));
+    fireEvent.click(screen.getByText('Done'));
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('PersonSelect on a landscape phone: 16px search box, no autofocus', () => {
+    setViewport(false, { coarse: true });
+    render(<PersonSelect value={null} onChange={() => {}} people={people} />);
+    fireEvent.click(screen.getByText('Unassigned'));
+    const search = screen.getByPlaceholderText('Search people…');
+    expect(search.style.fontSize).toBe('16px');
+    expect(document.activeElement).not.toBe(search);
+  });
+
+  it('Modal on a landscape phone with the keyboard up: no vh padding, card fits the visible strip', () => {
+    setViewport(false, { coarse: true });
+    const vv = fakeVisualViewport(700, 0, 900);
+    render(<Modal title="Ticket" onClose={() => {}} footer={<button>Done</button>}><input /></Modal>);
+    const overlay = document.querySelector('.nx-tasks-portal');
+    expect(overlay.style.padding).toBe('24px 16px');
+    act(() => { vv.height = 140; vv.fire('resize'); });
+    expect(overlay.style.height).toBe('140px');
+    expect(overlay.style.padding).toBe('0px 16px');
+    expect(screen.getByRole('dialog').style.maxHeight).toBe('100%');
   });
 });
 

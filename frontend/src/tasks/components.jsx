@@ -110,8 +110,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   // tablet) keeps the centered card, but sized to what is visible: the
   // keyboard and the browser bars come out of the visual viewport, not `vh`.
   // A mouse-driven desktop is exactly as before.
-  const isTouch = useIsMobile('(pointer: coarse)');
-  const followViewport = isMobile || isTouch;
+  const followViewport = useTouchUi();
   // Pinned to the visual viewport like BottomSheet, so with the keyboard up
   // the footer (Done, Mark Resolved) sits above it instead of behind it.
   const vv = useVisualViewport(followViewport);
@@ -132,7 +131,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   useDialogFocus(panelRef);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
-  useBackToClose(isMobile, () => {
+  useBackToClose(followViewport, () => {
     if (confirmClose) { setConfirmClose(false); return; }
     if (isDirty && !isBypassing()) { setConfirmClose(true); return; }
     if (overlayRef.current?.hasAttribute('data-nx-dirty')) {
@@ -151,7 +150,11 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
       position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-      padding: isMobile ? 0 : '7vh 16px',
+      // Following the visual viewport (a landscape phone, a tablet) the
+      // vertical padding comes out of what is visible, not 7 large-viewport
+      // vh: with the keyboard up a landscape phone shows ~120-150px, and 7vh
+      // a side would leave the card too short for its header and footer.
+      padding: isMobile ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
       fontFamily: FONT, animation: 'fadeIn 0.13s ease',
     }}>
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
@@ -239,6 +242,19 @@ export function useClickOutside(refs, onOutside, active) {
 // re-exported, because every existing caller imports it from here.
 export { useIsMobile };
 
+// Any touch screen: a phone (the 640px breakpoint) OR one wider than it with a
+// coarse pointer - a phone in landscape, a tablet. These still get an
+// on-screen keyboard that hides what sits under it and an iOS zoom on any
+// field under 16px, so the keyboard-facing fixes (16px search boxes, no
+// autofocus, visual-viewport placement, Back closing the sheet) follow this.
+// The full-screen sheet LAYOUT stays on the 640px breakpoint. A mouse-driven
+// desktop is false on both, so it is unchanged.
+function useTouchUi() {
+  const isMobile = useIsMobile();
+  const coarse = useIsMobile('(pointer: coarse)');
+  return isMobile || coarse;
+}
+
 // A date field that always READS as mm/dd/yyyy.
 //
 // A bare <input type="date"> renders in the browser/OS locale (dd-mm-yyyy here),
@@ -287,8 +303,8 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   // years in two clicks instead of paging a month at a time.
   const [zoom, setZoom] = useState('days');
   const ref = useRef(null);
-  // Phones only; null on desktop, which keeps measuring the window as before.
-  const vv = useVisualViewport(useIsMobile());
+  // Touch screens only; null on desktop, which keeps measuring the window as before.
+  const vv = useVisualViewport(useTouchUi());
   useEffect(() => {
     const onDoc = (e) => {
       if (ref.current && ref.current.contains(e.target)) return;
@@ -890,8 +906,9 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
   const [pos, setPos] = useState(null);
   // Phones place the menu inside the VISUAL viewport (the part above the
   // keyboard), the way components/AnchoredMenu.jsx does - measured against
-  // window.innerHeight it could open straight down behind the keyboard.
-  const isMobile = useIsMobile();
+  // window.innerHeight it could open straight down behind the keyboard. Any
+  // touch screen (useTouchUi), so a landscape phone gets it too.
+  const isMobile = useTouchUi();
   useLayoutEffect(() => {
     const place = () => {
       const a = anchorRef.current?.getBoundingClientRect();
@@ -1002,6 +1019,7 @@ const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'borde
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  const touch = useTouchUi();
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const sel = people.find((p) => p.email === value);
@@ -1024,9 +1042,9 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           {/* Desktop focuses the search box on open; a phone waits for a tap
               (see SelectMenu) rather than covering the list with the keyboard. */}
-          <input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
             onKeyDown={onEnterPickFirst(filtered, (p) => { onChange(p.email); setOpen(false); })}
-            style={menuSearchStyle(isMobile)} />
+            style={menuSearchStyle(touch)} />
           <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
           {filtered.map((p) => (
             <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
@@ -1164,6 +1182,7 @@ export function SearchSelect({
 }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
+  const touch = useTouchUi();
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const query = q.trim().toLowerCase();
@@ -1195,8 +1214,8 @@ export function SearchSelect({
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={close} minWidth={menuMinWidth}>
-          <input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
-            style={menuSearchStyle(isMobile)} />
+          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            style={menuSearchStyle(touch)} />
           {shown.map((o) => (o.header ? (
             <div key={o.id} style={{
               padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
