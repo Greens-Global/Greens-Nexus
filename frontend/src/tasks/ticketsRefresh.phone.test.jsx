@@ -216,9 +216,34 @@ for (const phone of [true, false]) {
       await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
       expect(getTaskTickets).not.toHaveBeenCalled();
       window.history.pushState(null, '', '/tickets');
-      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      // Arriving refreshes within a second, not at the next minute tick.
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
       expect(getTaskTickets).toHaveBeenCalledTimes(1);
       expect(list()).toBe('Changed');
+    });
+
+    it('refreshes at once when the page moves from Tasks to Tickets, and only on arrival', async () => {
+      window.history.replaceState(null, '', '/tasks');
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Changed' }]);
+      await mount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(getTaskTickets).not.toHaveBeenCalled();
+      window.history.pushState(null, '', '/tickets');
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+      // Staying on Tickets does not refresh again every second.
+      await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not refresh on arrival while the tab is hidden', async () => {
+      window.history.replaceState(null, '', '/tasks');
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Changed' }]);
+      await mount();
+      act(() => setVisibility('hidden'));
+      window.history.pushState(null, '', '/tickets');
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      expect(getTaskTickets).not.toHaveBeenCalled();
     });
 
     for (const path of ['/support', '/support/tickets', '/tasks/tickets']) {

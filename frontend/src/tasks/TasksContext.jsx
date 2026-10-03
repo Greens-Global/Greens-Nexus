@@ -289,7 +289,23 @@ export function TasksProvider({ children }) {
       if (wasHidden) { wasHidden = false; refreshIfShowing(); }
     };
     document.addEventListener('visibilitychange', onVisibility);
-    return () => { stopPoll(); document.removeEventListener('visibilitychange', onVisibility); };
+    // Arriving on a ticket surface from elsewhere (Tasks -> Tickets share this
+    // provider) refreshes at once instead of showing a list up to a minute
+    // old. App moves between views with pushState, which fires no event, so
+    // the address is compared once a second - a string check, no request.
+    let wasOnSurface = onTicketSurface();
+    const onArrive = () => {
+      const now = onTicketSurface();
+      if (now && !wasOnSurface && document.visibilityState === 'visible') refreshTickets();
+      wasOnSurface = now;
+    };
+    const arriveTimer = setInterval(onArrive, 1000);
+    window.addEventListener('popstate', onArrive);
+    return () => {
+      stopPoll(); clearInterval(arriveTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('popstate', onArrive);
+    };
   }, [refreshTickets]);
 
   // ── Lookups ────────────────────────────────────────────────────────────────
