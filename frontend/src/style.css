@@ -1881,6 +1881,10 @@ html { overflow-x: hidden; }
   .mobile-nav ~ .main-content,
   .main-content:has(.fab),
   body:has(.tc-capsule) .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* A floating module bar with no nav under it (Tickets) sits at the screen
+     edge; with the capsule in the corner it lifts above it instead of
+     covering it (tasks/MobileTaskBar.jsx reads this). */
+  body:has(.tc-capsule) { --nx-float-lift: 56px; }
 }
 
 /* ── adidas-style mobile chrome ──────────────────────────────────────────────

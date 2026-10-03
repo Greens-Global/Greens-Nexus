@@ -99,7 +99,10 @@ export default function MobileTaskBar({ views, view, setView, onCreate, filterSh
         // - MobileNav.jsx's TASK_ACTIONS), which reserves 64px + the safe-area
         // inset at the true screen bottom (see .main-content in style.css).
         position: 'fixed', left: '50%', transform: 'translateX(-50%)',
-        bottom: hasModuleNav ? 'calc(64px + env(safe-area-inset-bottom) + 18px)' : 'calc(env(safe-area-inset-bottom) + 16px)',
+        // Without a module nav the bar drops to the screen edge, unless the Time
+        // Clock capsule is showing in that corner: style.css then sets
+        // --nx-float-lift so the bar sits just above it rather than on it.
+        bottom: hasModuleNav ? 'calc(64px + env(safe-area-inset-bottom) + 18px)' : 'calc(env(safe-area-inset-bottom) + 16px + var(--nx-float-lift, 0px))',
         width: 'min(58vw, 320px)', height: 52,
         background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 16,
         boxShadow: '0 10px 30px rgba(0,0,0,0.22)', display: 'flex', alignItems: 'stretch', zIndex: 2500, overflow: 'hidden',

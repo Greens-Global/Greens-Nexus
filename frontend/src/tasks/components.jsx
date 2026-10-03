@@ -658,6 +658,9 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
+  // Touch screens: no autofocus (the keyboard would cover the list) and a
+  // 16px search box so iOS does not zoom - same rule as PersonSelect.
+  const touch = useTouchUi();
   const chosen = teams.find((t) => t.id === value) || null;
   const shown = q ? teams.filter((t) => (t.name || '').toLowerCase().includes(q.toLowerCase())) : teams;
   return (
@@ -673,8 +676,8 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
           {shown.map((t) => (
             <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}

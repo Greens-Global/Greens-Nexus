@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import React, { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
@@ -573,8 +575,14 @@ describe('MobileTaskBar', () => {
   it('sits just above the home indicator without one, with its own label', () => {
     render(<MobileTaskBar views={views} view="list" setView={() => {}} onCreate={() => {}} filterSheet={() => null}
       hasModuleNav={false} createLabel="Create Ticket" />);
-    expect(bar().style.bottom).toMatch(/^calc\((16px \+ env\(safe-area-inset-bottom\)|env\(safe-area-inset-bottom\) \+ 16px)\)$/);
+    // At the screen edge, plus the Time Clock capsule lift when style.css sets it.
+    expect(bar().style.bottom).toBe('calc(env(safe-area-inset-bottom) + 16px + var(--nx-float-lift, 0px))');
     expect(screen.getByTitle('Create Ticket')).toBeInTheDocument();
+  });
+
+  it('lifts above the Time Clock capsule only when one is on screen (style.css)', () => {
+    const css = readFileSync(resolve(__dirname, '../style.css'), 'utf8');
+    expect(css).toMatch(/body:has\(\.tc-capsule\)\s*\{\s*--nx-float-lift:\s*56px;\s*\}/);
   });
 });
 
