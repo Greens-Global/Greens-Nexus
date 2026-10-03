@@ -64,6 +64,14 @@ function setPhone(isPhone) {
     addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
   });
 }
+// A phone on its side (or a tablet): wider than 640px, but a touch screen.
+function setLandscapeTouch() {
+  window.matchMedia = (q) => ({
+    matches: q.includes('pointer: coarse'),
+    media: q, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+  });
+}
 const realMatchMedia = window.matchMedia;
 beforeEach(() => setPhone(true));
 afterEach(() => {
@@ -99,6 +107,10 @@ describe('TicketDrawer on a phone', () => {
     // The ticket's moves share the row above Done.
     const resolve = screen.getByRole('button', { name: /Mark Resolved/ });
     expect(resolve.parentElement).toBe(more.parentElement);
+    // Labels keep their width and never break inside the button - a button
+    // that does not fit wraps to the next row instead.
+    expect(resolve.style.whiteSpace).toBe('nowrap');
+    expect(resolve.style.flex).toBe('1 1 auto');
     expect(done.parentElement).not.toBe(more.parentElement);
 
     fireEvent.click(more);
@@ -135,6 +147,13 @@ describe('TicketDrawer on a phone', () => {
     expect(screen.getByRole('button', { name: 'Close viewer' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close viewer' }));
     expect(screen.queryByRole('button', { name: 'Close viewer' })).toBeNull();
+  });
+
+  it('opens an intake screenshot in-app on a landscape touch screen too', () => {
+    setLandscapeTouch();
+    render(<TicketDrawer ticketId="t1" onClose={vi.fn()} />);
+    expect(document.querySelector('a[target="_blank"] img')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Open screenshot 1' })).toBeTruthy();
   });
 
   it('keeps the link and task remove buttons on screen at 36px', () => {
@@ -190,6 +209,12 @@ describe('TicketDrawer on a phone', () => {
 
 describe('TicketActionDialog on a phone', () => {
   it('does not autofocus the textarea (the keyboard would cover the buttons)', () => {
+    render(<TicketActionDialog mode="reopen" ticket={OPEN} onSubmit={vi.fn()} onClose={vi.fn()} />);
+    expect(document.activeElement?.tagName).not.toBe('TEXTAREA');
+  });
+
+  it('does not autofocus on a landscape touch screen either', () => {
+    setLandscapeTouch();
     render(<TicketActionDialog mode="reopen" ticket={OPEN} onSubmit={vi.fn()} onClose={vi.fn()} />);
     expect(document.activeElement?.tagName).not.toBe('TEXTAREA');
   });

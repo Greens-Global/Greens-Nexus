@@ -2235,7 +2235,10 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   const [showErr, setShowErr] = useState(false);
   // No autofocus on a phone: the keyboard would open over the dialog's own
   // Cancel / Save buttons before the person has read what it is asking.
+  // A phone held sideways is wider than 640px, so a touch screen counts too.
   const isMobile = useIsMobile();
+  const touch = useIsMobile('(pointer: coarse)');
+  const noAutoFocus = isMobile || touch;
   const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1
     : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
@@ -2273,7 +2276,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'resolve' && (<>
         <div style={field}>
           <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
-          <textarea autoFocus={!isMobile} value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
+          <textarea autoFocus={!noAutoFocus} value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
           {showErr && invalid && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
@@ -2287,7 +2290,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'self_resolve' && (
         <div style={field}>
           <label style={label}>What fixed it? (optional)</label>
-          <textarea autoFocus={!isMobile} value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+          <textarea autoFocus={!noAutoFocus} value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. A colleague showed me how to reconnect the printer."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
@@ -2302,7 +2305,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
             {[1, 2, 3, 4, 5].map((n) => (
               // A tap fires a synthetic mouseenter that never leaves - on a
               // phone the stars follow the rating alone.
-              <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={isMobile ? undefined : () => setHover(n)}
+              <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={noAutoFocus ? undefined : () => setHover(n)}
                 style={{ border: 'none', background: 'none', padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center',
                   ...(isMobile ? { minWidth: 44, minHeight: 44 } : null) }}>
                 <Star size={28} style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
@@ -2326,7 +2329,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       {mode === 'reopen' && (
         <div style={field}>
           <label style={label}>Why are you reopening it? <span style={{ color: NX.red }}>*</span></label>
-          <textarea autoFocus={!isMobile} value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
+          <textarea autoFocus={!noAutoFocus} value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. The light went out again this morning."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
           {showErr && invalid && <div style={requiredHint}>Required</div>}
@@ -2454,6 +2457,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtnRef = useRef(null);
   const [viewImage, setViewImage] = useState(null);
+  // A landscape phone or a tablet is wider than 640px but still leaves the
+  // app on a new tab - any touch screen opens screenshots in-app.
+  const touch = useIsMobile('(pointer: coarse)');
   const tabStripRef = useRef(null);
   const hasTicket = tickets.some((x) => x.id === ticketId);
   useEffect(() => {
@@ -2730,7 +2736,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // the thumb is. Delete goes into More - a destructive action should not be
   // the first thing under the thumb. `ph` only exists on a phone, so the
   // desktop buttons are exactly what they were.
-  const ph = isMobile ? { flex: '1 1 0', minWidth: 0, minHeight: 44, justifyContent: 'center' } : null;
+  // Text width first, then share the spare room: a label never breaks inside
+  // its button - a button that does not fit moves to its own row instead.
+  const ph = isMobile ? { flex: '1 1 auto', whiteSpace: 'nowrap', minHeight: 44, justifyContent: 'center' } : null;
   const escalateBtn = canEscalate && (
     <button style={{ ...btn('outline'), color: NX.amber, ...ph }} onClick={escalate} title="Alert the department head this ticket needs instant care"><ArrowUp size={14} /> Escalate</button>
   );
@@ -2776,7 +2784,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     </span>
   );
   const doneBtn = (
-    <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, ...(isMobile ? { width: '100%', minHeight: 46, justifyContent: 'center', fontSize: 14 } : null) }}
+    <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, ...(isMobile ? { width: '100%', minHeight: 46, justifyContent: 'center' } : null) }}
       onClick={done} disabled={saving}
       title={dirty ? 'Save every change and send one update to the requester' : undefined}>
       {saving ? 'Saving…' : 'Done'}
@@ -2866,7 +2874,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         </>)}
         {(t.images || []).length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-            {t.images.map((url, i) => (isMobile ? (
+            {t.images.map((url, i) => ((isMobile || touch) ? (
               // On a phone a new tab leaves the app (and, installed as a home
               // screen app, has no way back) - the in-app viewer instead.
               <button key={i} type="button" title="Open full size" aria-label={`Open screenshot ${i + 1}`}
