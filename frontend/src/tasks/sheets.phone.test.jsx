@@ -264,6 +264,30 @@ describe('Back closes the top sheet on a phone', () => {
   });
   afterEach(() => window.removeEventListener('popstate', appPop));
 
+  // The browser stores the screen's scroll offset when an entry is pushed and
+  // puts it back when that entry is popped. Pushed while the scroll lock has
+  // pinned the body, the stored offset is 0 and closing the sheet jumps the
+  // page to the top. So each sheet's entry must go in before its lock.
+  for (const [name, el] of [
+    ['Modal', (close) => <Modal title="M" onClose={close}><p>m</p></Modal>],
+    ['BottomSheet', (close) => <BottomSheet title="B" onClose={close}><p>b</p></BottomSheet>],
+  ]) {
+    it(`${name}: pushes its history entry before locking page scroll`, () => {
+      setViewport(true);
+      const seen = [];
+      const push = vi.spyOn(window.history, 'pushState').mockImplementation(function (...args) {
+        seen.push(document.body.style.position);
+        return History.prototype.pushState.apply(this, args);
+      });
+      const { unmount } = render(el(() => {}));
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen[0]).not.toBe('fixed');
+      expect(document.body.style.position).toBe('fixed');
+      push.mockRestore();
+      unmount();
+    });
+  }
+
   function Stack({ dirty = false }) {
     const [drawer, setDrawer] = useState(false);
     const [dialog, setDialog] = useState(false);

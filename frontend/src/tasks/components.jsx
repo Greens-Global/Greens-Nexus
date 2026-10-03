@@ -127,7 +127,6 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, isDirty]);
-  useScrollLock(isMobile);
   useDialogFocus(panelRef);
   // The phone's Back button closes this sheet, not the screen behind it -
   // asking the same unsaved-work questions the X button asks.
@@ -140,6 +139,12 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
     }
     onClose();
   });
+  // AFTER useBackToClose on purpose: its history entry must be pushed while
+  // the page is still at its real scroll offset. Pushed under the lock, the
+  // browser records 0 for the screen behind and restores 0 when the entry
+  // is popped, undoing the lock's own restore (Support's table jumped to
+  // the top on close).
+  useScrollLock(isMobile);
   const saveAndClose = async () => {
     if (!onSave) { setConfirmClose(false); onClose(); return; }
     setSaving(true);

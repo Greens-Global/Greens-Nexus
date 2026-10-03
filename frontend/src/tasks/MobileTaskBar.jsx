@@ -32,7 +32,6 @@ export function BottomSheet({ title, onClose, onBack, children }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, onBack]);
-  useScrollLock(isMobile);
   useDialogFocus(panelRef);
   // The phone's Back button does what Escape does: steps out of a drill-in
   // level when there is one, otherwise closes the sheet - asking first if
@@ -45,6 +44,12 @@ export function BottomSheet({ title, onClose, onBack, children }) {
     }
     onClose();
   });
+  // AFTER useBackToClose on purpose: its history entry must be pushed while
+  // the page is still at its real scroll offset. Pushed under the lock, the
+  // browser records 0 for the screen behind and restores 0 when the entry
+  // is popped, undoing the lock's own restore (Support's table jumped to
+  // the top on close).
+  useScrollLock(isMobile);
   return createPortal(
     <div ref={overlayRef} className="nx-tasks-portal" onClick={onClose} style={{
       position: 'fixed', left: 0, right: 0,
