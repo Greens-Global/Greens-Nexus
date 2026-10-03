@@ -2,18 +2,24 @@
 // session; TasksProvider now refetches them every 60s while the tab is
 // visible and straight away when the tab comes back from hidden. The refresh
 // is not phone-gated - a phone that sits in a pocket is the case that needed
-// it most - so every case runs at phone width and at desktop width.
+// it most - so every case runs at phone width and at desktop width. It only
+// runs while a ticket surface (Tickets, Support) is the page on screen, so
+// most cases sit at /tickets.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useEffect } from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 
 const getTaskTickets = vi.hoisted(() => vi.fn());
 const updateTaskTicket = vi.hoisted(() => vi.fn());
+const addTicketLink = vi.hoisted(() => vi.fn());
+const removeTicketLink = vi.hoisted(() => vi.fn());
 vi.mock('../api', () => ({
   api: new Proxy({}, {
     get: (_, k) => {
       if (k === 'getTaskTickets') return getTaskTickets;
       if (k === 'updateTaskTicket') return updateTaskTicket;
+      if (k === 'addTicketLink') return addTicketLink;
+      if (k === 'removeTicketLink') return removeTicketLink;
       if (k === 'getTasksDelta') return () => Promise.resolve({ tasks: [], deletedIds: [], serverTime: 't' });
       return () => Promise.resolve([]);
     },
@@ -45,7 +51,7 @@ function setViewport(isMobile) {
 // purity rules): every commit counts, and the first ticket object is kept.
 const seen = { renders: 0, first: null };
 function Probe() {
-  const { tickets, ticketsLoaded, updateTicket } = useTasks();
+  const { tickets, ticketsLoaded, updateTicket, addTicketLink: link, removeTicketLink: unlink } = useTasks();
   useEffect(() => {
     seen.renders += 1;
     if (!seen.first && tickets[0]) seen.first = tickets[0];
@@ -56,6 +62,8 @@ function Probe() {
       <div data-testid="list">{tickets.map((t) => t.subject).join(',')}</div>
       <div data-testid="same">{tickets[0] && (!seen.first || tickets[0] === seen.first) ? 'same' : 'new'}</div>
       <button onClick={() => updateTicket('a', { subject: 'Mine' })}>Save</button>
+      <button onClick={() => link('a', 'b', 'relates')}>Link</button>
+      <button onClick={() => unlink('a', 'b')}>Unlink</button>
     </div>
   );
 }
@@ -83,8 +91,11 @@ for (const phone of [true, false]) {
       seen.renders = 0; seen.first = null;
       getTaskTickets.mockReset();
       updateTaskTicket.mockReset();
+      addTicketLink.mockReset();
+      removeTicketLink.mockReset();
+      window.history.replaceState(null, '', '/tickets');
     });
-    afterEach(() => { vi.useRealTimers(); });
+    afterEach(() => { vi.useRealTimers(); window.history.replaceState(null, '', '/'); });
 
     it('refetches the list every 60 seconds while the tab is visible', async () => {
       getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'First' }, { id: 'b', subject: 'New one' }]);
@@ -183,6 +194,75 @@ for (const phone of [true, false]) {
       await act(async () => { answer([{ id: 'a', subject: 'First' }]); });
       await flush();
       expect(list()).toBe('Mine');
+    });
+
+    it('does not poll, or refresh on tab return, when no ticket surface is showing (Tasks view)', async () => {
+      window.history.replaceState(null, '', '/tasks');
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Changed' }]);
+      await mount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(180000); });
+      act(() => setVisibility('hidden'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+      act(() => setVisibility('visible'));
+      await flush();
+      expect(getTaskTickets).not.toHaveBeenCalled();
+      expect(list()).toBe('First');
+    });
+
+    it('does not poll on the dashboard either, and picks up once the page moves to Tickets', async () => {
+      window.history.replaceState(null, '', '/');
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Changed' }]);
+      await mount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(getTaskTickets).not.toHaveBeenCalled();
+      window.history.pushState(null, '', '/tickets');
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+      expect(list()).toBe('Changed');
+    });
+
+    for (const path of ['/support', '/support/tickets', '/tasks/tickets']) {
+      it(`polls and refreshes on tab return on ${path}`, async () => {
+        window.history.replaceState(null, '', path);
+        getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'Changed' }]);
+        await mount();
+        await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+        expect(getTaskTickets).toHaveBeenCalledTimes(1);
+        expect(list()).toBe('Changed');
+        // Past the 15s freshness window, a tab return refreshes again.
+        await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+        act(() => setVisibility('hidden'));
+        act(() => setVisibility('visible'));
+        await flush();
+        expect(getTaskTickets).toHaveBeenCalledTimes(2);
+      });
+    }
+
+    it('keeps the list when the refetch after adding or removing a link fails', async () => {
+      addTicketLink.mockResolvedValue({ id: 'a' });
+      removeTicketLink.mockResolvedValue({ ok: true });
+      getTaskTickets.mockRejectedValue(new Error('offline'));
+      window.history.replaceState(null, '', '/tasks');
+      await mount();
+      fireEvent.click(screen.getByText('Link'));
+      await flush();
+      expect(addTicketLink).toHaveBeenCalledTimes(1);
+      expect(getTaskTickets).toHaveBeenCalledTimes(1);
+      expect(list()).toBe('First');
+      fireEvent.click(screen.getByText('Unlink'));
+      await flush();
+      expect(removeTicketLink).toHaveBeenCalledTimes(1);
+      expect(getTaskTickets).toHaveBeenCalledTimes(2);
+      expect(list()).toBe('First');
+    });
+
+    it('takes the refetched list after a link change when it succeeds', async () => {
+      addTicketLink.mockResolvedValue({ id: 'a' });
+      getTaskTickets.mockResolvedValue([{ id: 'a', subject: 'First' }, { id: 'b', subject: 'Linked' }]);
+      await mount();
+      fireEvent.click(screen.getByText('Link'));
+      await flush();
+      expect(list()).toBe('First,Linked');
     });
   });
 }

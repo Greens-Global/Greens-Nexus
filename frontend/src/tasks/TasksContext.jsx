@@ -70,6 +70,24 @@ function toBody(patch) {
   return out;
 }
 
+// The screens that show the ticket list kept fresh by the background refresh
+// (see TasksProvider): the Tickets module (/tickets, and the old
+// /tasks/tickets address) and Support (/support), whose ticket drawer reads
+// it. Read from the address bar, which App keeps in step with the view.
+function onTicketSurface(pathname = window.location.pathname) {
+  const segs = String(pathname || '').split('/').filter(Boolean);
+  return segs[0] === 'tickets' || segs[0] === 'support'
+    || (segs[0] === 'tasks' && segs[1] === 'tickets');
+}
+
+// Refetch the whole ticket list after a link change. A failed or odd answer
+// keeps the list on screen rather than replacing it with nothing.
+async function reloadTicketsInto(setTickets) {
+  let rows;
+  try { rows = await api.getTaskTickets(); } catch { return; }
+  if (Array.isArray(rows)) setTickets(rows);
+}
+
 export function TasksProvider({ children }) {
   const { myEmail } = useRole();
   const nameOf = useNameResolver();
@@ -256,12 +274,19 @@ export function TasksProvider({ children }) {
       ticketsFetching.current = false;
     }
   }, []);
+  // Only while a ticket surface is on screen: the Tickets module, or Support
+  // (its ticket drawer reads this list). Every other host of a TasksProvider
+  // (the Tasks view, the dashboard quick actions, the help menu's new-ticket
+  // form, admin settings) leaves the list alone - otherwise the Tasks view
+  // alone downloaded every ticket once a minute. The path is read at each
+  // tick, not at mount, so a provider that outlives a view change follows it.
   useEffect(() => {
-    const stopPoll = pollWhileVisible(() => { refreshTickets(); }, 60000);
+    const refreshIfShowing = () => { if (onTicketSurface()) refreshTickets(); };
+    const stopPoll = pollWhileVisible(refreshIfShowing, 60000);
     let wasHidden = document.visibilityState === 'hidden';
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') { wasHidden = true; return; }
-      if (wasHidden) { wasHidden = false; refreshTickets(); }
+      if (wasHidden) { wasHidden = false; refreshIfShowing(); }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => { stopPoll(); document.removeEventListener('visibilitychange', onVisibility); };
@@ -485,8 +510,10 @@ export function TasksProvider({ children }) {
     deleteTicketComponent: mkDel(api.deleteTicketComponent, setTicketComponents),
     // link/escalate return the updated ticket(s); refresh the whole list so the
     // inverse link on the other ticket (and any priority bump) is reflected too.
-    addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
-    removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
+    // The link itself is saved; a failed refetch keeps the list we have
+    // (it used to replace it with [], blanking every ticket on screen).
+    addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); await reloadTicketsInto(setTickets); return r; },
+    removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); await reloadTicketsInto(setTickets); return r; },
     escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
