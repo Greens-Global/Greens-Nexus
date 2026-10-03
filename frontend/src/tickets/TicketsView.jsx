@@ -13,7 +13,6 @@ import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import LiveView from '../components/LiveView';
 import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
-import { absolutizeViewUrls } from '../lib/richViewUrls';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
 import { supabase } from '../lib/supabase';
@@ -1706,18 +1705,18 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
           rear camera. */}
       {photoInputs && isMobile && (<>
         <button type="button" disabled={disabled} onClick={() => camRef.current?.click()}
-          style={{ ...btn('outline'), fontSize: 12.5, minHeight: 36, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          style={{ ...btn('outline'), fontSize: 12.5, minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Camera size={14} /> Take Photo
         </button>
         <button type="button" disabled={disabled} onClick={() => libRef.current?.click()}
-          style={{ ...btn('outline'), fontSize: 12.5, minHeight: 36, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          style={{ ...btn('outline'), fontSize: 12.5, minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <ImagePlus size={14} /> Photo Library
         </button>
         <input ref={camRef} type="file" accept="image/*" capture="environment" data-testid="ticket-camera-input" style={{ display: 'none' }} onChange={pick} />
         <input ref={libRef} type="file" accept="image/*" multiple data-testid="ticket-library-input" style={{ display: 'none' }} onChange={pick} />
       </>)}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
-        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6, ...(isMobile ? { minHeight: 36 } : null) }}>
+        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6, ...(isMobile ? { minHeight: 40 } : null) }}>
         <UploadIcon size={13} /> {compact ? 'Upload Attachment' : 'Upload'}
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={pick} />
@@ -3611,9 +3610,7 @@ export function TicketConversation({ ticketId, nameOf, canInternal = true, newSi
                       comment written before this change) in paragraphs - so old
                       and new comments render the same way. */}
                   <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim, marginTop: 2 }} onClick={zoomImage}
-                    // absolutizeViewUrls: on the hosted app an uploaded picture's
-                    // viewer URL is relative, which the sanitizer would strip.
-                    dangerouslySetInnerHTML={{ __html: richBodyHtml(absolutizeViewUrls(c.body), nameOf) }} />
+                    dangerouslySetInnerHTML={{ __html: richBodyHtml(c.body, nameOf) }} />
                 </div>
               </div>
             ))}

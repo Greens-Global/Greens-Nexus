@@ -103,6 +103,20 @@ describe('Attachments tab on a phone', () => {
     expect(screen.queryByText(/Ctrl\+V/)).toBeNull();
   });
 
+  it('Upload, Take Photo and Photo Library are at least 40px tall on a phone', () => {
+    setViewport(true);
+    render(<TicketAttachments ticketId="t1" ticketType="incident" />);
+    for (const name of [/Take Photo/, /Photo Library/, /Upload/]) {
+      expect(screen.getByRole('button', { name }).style.minHeight).toBe('40px');
+    }
+  });
+
+  it('desktop Upload keeps its natural height', () => {
+    setViewport(false);
+    render(<TicketAttachments ticketId="t1" ticketType="incident" />);
+    expect(screen.getByRole('button', { name: /Upload/ }).style.minHeight).toBe('');
+  });
+
   it('desktop is unchanged: Record Screen and the Ctrl+V hint, no camera buttons', () => {
     setViewport(false);
     render(<TicketAttachments ticketId="t1" ticketType="incident" />);
@@ -243,6 +257,15 @@ describe('Conversation on a phone', () => {
     expect(name.style.minWidth).toMatch(/^0(px)?$/);
     const time = head.lastChild;
     expect(time.style.fontSize).toBe('12px');
+  });
+
+  it('a reply picture behind the hosted (relative) file viewer keeps its src', async () => {
+    setViewport(true);
+    const src = `/api/files/view?u=${encodeURIComponent(`${STORE}image-9.jpg`)}`;
+    apiMock.getTicketComments.mockImplementation(async () => [{ ...COMMENT, body: `<p>see</p><img src="${src}">` }]);
+    const { container } = render(<Conversation />);
+    await waitFor(() => expect(container.querySelector('.nx-rich-body img')).not.toBeNull());
+    expect(container.querySelector('.nx-rich-body img').getAttribute('src')).toBe(src);
   });
 
   it('a picture picked into the reply is uploaded and embedded by URL - never base64', async () => {
