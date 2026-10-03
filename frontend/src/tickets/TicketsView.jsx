@@ -1709,10 +1709,6 @@ export function CreateTicketModal({ onClose }) {
   // the keyboard (the inputs keep their state, but the focus and the scroll
   // position go). Everything else may still follow the live width.
   const [asSheet] = useState(isMobile);
-  // Screen recording needs getDisplayMedia, which no phone browser has; the
-  // button only promised a picker that never opened there.
-  const [hasDisplayMedia] = useState(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia);
-  const canRecordScreen = !isMobile && hasDisplayMedia;
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
   useEffect(() => {
@@ -1938,7 +1934,7 @@ export function CreateTicketModal({ onClose }) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
         if (failed.length) {
-          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
+          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's were' : ' was'} not attached (${failed.map((f) => f.name).join(', ')}). You can add ${failed.length > 1 ? 'them' : 'it'} again from the Attachments tab.`);
         }
       }
       onClose();
@@ -1981,10 +1977,13 @@ export function CreateTicketModal({ onClose }) {
           and Create Ticket must not scroll out of reach. Negative margins + padding
           let the bar span the sheet's full width over BottomSheet's 16px padding. */}
       <div style={{
-        position: 'sticky', bottom: -16, zIndex: 2, background: NX.surface,
+        // The sheet's own bottom padding includes the safe-area inset (the
+        // iPhone home indicator), so the bar reaches past both and pads them
+        // back in - otherwise the indicator sat over Create Ticket.
+        position: 'sticky', bottom: 'calc(-16px - env(safe-area-inset-bottom))', zIndex: 2, background: NX.surface,
         borderTop: `1px solid ${NX.border2}`, marginTop: 14,
-        marginLeft: -16, marginRight: -16, marginBottom: -16,
-        padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+        marginLeft: -16, marginRight: -16, marginBottom: 'calc(-16px - env(safe-area-inset-bottom))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 10,
       }}>
         {extras}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{footer}</div>
@@ -2077,9 +2076,10 @@ export function CreateTicketModal({ onClose }) {
         <RichDescription value={form.description} onChange={(html) => set('description', html)} minHeight={isMobile ? 90 : 110}
           placeholder="What is happening? What were you doing, and what did you expect?" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          <RecordUploadButtons compact showRecord={canRecordScreen && !NO_RECORDING_TYPES.includes(form.type)}
+          <RecordUploadButtons compact showRecord={!NO_RECORDING_TYPES.includes(form.type)}
             onFile={addFile} onRecordingChange={onRecChange} />
-          <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+          {/* No keyboard on a phone to press Ctrl+V with. */}
+          {!isMobile && <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
         </div>
         {attachments.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -2649,7 +2649,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     }
     return next;
   });
-  const hasReply = !isEmptyDoc(reply.body);
+  // A reply that is only a picture is still a reply - isEmptyDoc reads text.
+  const hasReply = !isEmptyDoc(reply.body) || /<img\b/i.test(reply.body || '');
+  // Pictures still uploading into the reply (the Conversation tab counts them
+  // on the reply state). Done waits for them - a reply sent mid-upload would
+  // go out without its picture.
+  const replyUploading = (reply.uploading || 0) > 0;
   const dirty = Object.keys(pending).length > 0 || hasReply;
   // Done: everything held, plus the reply, in one save. `extra` is a dialog's
   // own change (Confirm / Reopen) that goes out with the rest.
@@ -2671,7 +2676,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // rating with everything else and closes the ticket.
   const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
-    if (saving) return;
+    if (saving || replyUploading) return;
     if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
@@ -2691,6 +2696,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // Title and description are the requester's while the ticket is still Open
   // (and the desk's always) - the same rule as every other Overview field.
   const canEditText = fullAccess;
+  const attachToDescription = async (file) => {
+    const kind = attachmentKindOf(file);
+    const url = await uploadTicketEvidence(file, kind);
+    return { url, name: file.name, kind };
+  };
   const startEdit = () => { setDraft({ subject: v.subject || '', description: v.description || '' }); setEditing(true); };
   const saveEdit = () => {
     const d = draft || {};
@@ -2784,10 +2794,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     </span>
   );
   const doneBtn = (
-    <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, ...(isMobile ? { width: '100%', minHeight: 46, justifyContent: 'center' } : null) }}
-      onClick={done} disabled={saving}
-      title={dirty ? 'Save every change and send one update to the requester' : undefined}>
-      {saving ? 'Saving…' : 'Done'}
+    <button style={{ ...btn('primary'), opacity: saving || replyUploading ? 0.6 : 1, ...(isMobile ? { width: '100%', minHeight: 46, justifyContent: 'center' } : null) }}
+      onClick={done} disabled={saving || replyUploading}
+      title={replyUploading ? 'Wait for the picture to finish uploading' : dirty ? 'Save every change and send one update to the requester' : undefined}>
+      {saving ? 'Saving…' : replyUploading ? 'Uploading...' : 'Done'}
     </button>
   );
   const phoneFooter = isMobile && (
@@ -2844,8 +2854,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
             {/* The same rich editor the Create a Ticket form uses (Oct 1) - a
                 plain-text description written before then opens as one paragraph. */}
+            {/* A picture added here goes to ticket storage and is embedded by
+                URL - never held in the description as a data: image. */}
             <RichDescription value={(draft ?? { description: v.description }).description ?? ''} minHeight={90}
               placeholder="Describe the issue"
+              onAttachFile={attachToDescription} allowInlineData={false}
               onChange={(html) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: html }))} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
@@ -3890,7 +3903,7 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
   return (
     <div style={{ border: `1px dashed ${NX.border}`, borderRadius: 10, padding: 12, background: NX.surface2 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <ClipboardList size={13} /> Original request (unedited)
+        <ClipboardList size={13} /> Original Request (Unedited)
       </div>
       <div style={{ marginBottom: snapshot.description ? 8 : 4 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>

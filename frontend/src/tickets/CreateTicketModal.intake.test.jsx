@@ -92,20 +92,12 @@ describe('CreateTicketModal intake (Oct 1)', () => {
   });
 
   it('puts Record Screen and Upload Attachment under the description, with the paste hint', async () => {
-    // Record Screen is only offered where the browser can record a screen
-    // (getDisplayMedia) - jsdom has no mediaDevices, so a desktop one is faked.
-    const had = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
-    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getDisplayMedia: () => {} } });
-    try {
-      await open();
-      expect(screen.getByRole('button', { name: /Record Screen/ })).toBeTruthy();
-      expect(screen.getByRole('button', { name: /Upload Attachment/ })).toBeTruthy();
-      expect(screen.getByText(/or press Ctrl\+V to paste a screenshot/)).toBeTruthy();
-      // The rich editor's toolbar, the same one the Task module uses.
-      expect(screen.getByRole('button', { name: 'Bold' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Bulleted list' })).toBeTruthy();
-    } finally {
-      if (had) Object.defineProperty(navigator, 'mediaDevices', had); else delete navigator.mediaDevices;
-    }
+    await open();
+    expect(screen.getByRole('button', { name: /Record Screen/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Upload Attachment/ })).toBeTruthy();
+    expect(screen.getByText(/or press Ctrl\+V to paste a screenshot/)).toBeTruthy();
+    // The rich editor's toolbar, the same one the Task module uses.
+    expect(screen.getByRole('button', { name: 'Bold' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Bulleted list' })).toBeTruthy();
   });
 });

@@ -200,7 +200,7 @@ describe('TicketDrawer on a phone', () => {
     const nameLine = screen.getByText('agent@example.com', { selector: 'span' }).parentElement;
     expect(nameLine.contains(detail)).toBe(false);
     // The original-request card is one column.
-    const card = screen.getByText(/Original request/).parentElement;
+    const card = screen.getByText(/Original Request \(Unedited\)/).parentElement;
     const grid = [...card.children].find((el) => el.style.display === 'grid');
     expect(grid.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
     expect(grid.style.overflowWrap).toBe('anywhere');

@@ -6,7 +6,8 @@ import { render, screen, cleanup, act } from '@testing-library/react';
 //   - a phone on its side (wider than 640px) gets the desktop Modal, but a
 //     touch screen keeps the capture row there too;
 //   - sheet vs Modal is decided once, so rotating mid-entry does not remount;
-//   - Record Screen only where the browser can record a screen, never on a phone.
+//   - no Ctrl+V hint on a phone (no keyboard), and the sticky footer clears
+//     the home indicator.
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
@@ -42,10 +43,8 @@ function screenOf(state) {
 }
 
 const realMatchMedia = window.matchMedia;
-const hadMedia = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
 afterEach(() => {
   cleanup(); window.matchMedia = realMatchMedia;
-  if (hadMedia) Object.defineProperty(navigator, 'mediaDevices', hadMedia); else delete navigator.mediaDevices;
 });
 
 const panel = () => document.querySelector('.nx-tasks-portal > div');
@@ -91,26 +90,25 @@ describe('CreateTicketModal on a touch screen', () => {
     expect(screen.getByPlaceholderText(/What is the issue\?/)).toBe(title);
   });
 
-  it('offers Record Screen on a desktop that can record, never on a phone', async () => {
-    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getDisplayMedia: () => {} } });
+  it('drops the Ctrl+V paste hint on a phone and keeps it on a desktop', async () => {
     screenOf({ narrow: true, coarse: true });
     render(<CreateTicketModal onClose={vi.fn()} />);
     await screen.findByPlaceholderText(/What is the issue\?/);
-    expect(screen.queryByRole('button', { name: /Record Screen/ })).toBeNull();
-    expect(screen.getByRole('button', { name: /Upload Attachment/ })).toBeTruthy();
+    expect(screen.queryByText(/or press Ctrl\+V to paste a screenshot/)).toBeNull();
     cleanup();
 
     screenOf({ narrow: false, coarse: false });
     render(<CreateTicketModal onClose={vi.fn()} />);
     await screen.findByPlaceholderText(/What is the issue\?/);
-    expect(screen.getByRole('button', { name: /Record Screen/ })).toBeTruthy();
+    expect(screen.getByText(/or press Ctrl\+V to paste a screenshot/)).toBeTruthy();
   });
 
-  it('hides Record Screen where the browser cannot record a screen', async () => {
-    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
-    screenOf({ narrow: false, coarse: false });
+  it('keeps the sheet footer clear of the iPhone home indicator', async () => {
+    screenOf({ narrow: true, coarse: true });
     render(<CreateTicketModal onClose={vi.fn()} />);
     await screen.findByPlaceholderText(/What is the issue\?/);
-    expect(screen.queryByRole('button', { name: /Record Screen/ })).toBeNull();
+    const bar = screen.getByRole('button', { name: 'Create Ticket' }).parentElement.parentElement;
+    expect(bar.style.position).toBe('sticky');
+    expect(bar.getAttribute('style')).toContain('safe-area-inset-bottom');
   });
 });
