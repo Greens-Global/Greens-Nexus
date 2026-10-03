@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import { PersonSelect, PersonMultiSelect, DateField, SearchSelect } from '../tasks/components';
+import { useIsMobile } from '../lib/useIsMobile';
 import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
 } from './ticketMeta';
@@ -90,6 +91,10 @@ function DebouncedTextarea({ value, onChange, ...props }) {
 export function TypeFieldInput({ field: f, value, onChange, people, projects, invalid }) {
   // `invalid` only tints the border - the "Required" text is rendered by the caller.
   const iStyle = invalid ? { ...inputStyle, borderColor: NX.red } : inputStyle;
+  // Phones: answer chips at least 36px tall and checklist rows a thumb can
+  // hit - the 26px pills and the browser's 13px checkbox were fingertip-sized.
+  const isMobile = useIsMobile();
+  const chipTap = isMobile ? { minHeight: 36, padding: '7px 13px' } : null;
   if (f.type === 'textarea') return <DebouncedTextarea value={value} onChange={onChange} rows={3} placeholder={f.placeholder || ''} style={{ ...iStyle, resize: 'vertical', fontFamily: FONT }} />;
   if (f.type === 'select') return (
     <TicketSelect value={value ?? ''} onChange={onChange} invalid={invalid}
@@ -102,6 +107,7 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
         return <button type="button" key={o} onClick={() => onChange(on ? '' : o)} style={{
           ...btn('ghost'), padding: '5px 11px', fontSize: 12.5, borderRadius: 20, border: `1px solid ${on ? NX.blue : NX.border}`,
           background: on ? 'rgba(37,99,235,0.10)' : 'transparent', color: on ? NX.blue : NX.dim, fontWeight: on ? 700 : 600,
+          ...chipTap,
         }}>{o}</button>;
       })}
     </div>
@@ -109,7 +115,9 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
   if (f.type === 'number') return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       {f.prefix && <span style={{ color: NX.dim, fontWeight: 600 }}>{f.prefix}</span>}
-      <DebouncedTextInput type="number" value={value} onChange={onChange} placeholder={f.placeholder || ''} style={{ ...iStyle, flex: 1, minWidth: 0 }} />
+      {/* inputMode: the phone's number pad with a decimal point (an amount
+          like 12.50) - some keyboards' plain number pad has none. */}
+      <DebouncedTextInput type="number" inputMode="decimal" value={value} onChange={onChange} placeholder={f.placeholder || ''} style={{ ...iStyle, flex: 1, minWidth: 0 }} />
     </div>
   );
   if (f.type === 'date') return <DateField value={value || ''} onChange={(v) => onChange(v || '')} placeholder="Pick a date" style={iStyle} />;
@@ -136,6 +144,7 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
           return <button type="button" key={o} onClick={() => onChange(on ? arr.filter((x) => x !== o) : [...arr, o])} style={{
             ...btn('ghost'), padding: '5px 11px', fontSize: 12.5, borderRadius: 20, border: `1px solid ${on ? NX.blue : NX.border}`,
             background: on ? 'rgba(37,99,235,0.10)' : 'transparent', color: on ? NX.blue : NX.dim, fontWeight: on ? 700 : 600,
+            ...chipTap,
           }}>{o}</button>;
         })}
       </div>
@@ -147,8 +156,10 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         {items.map((it, i) => (
-          <label key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={!!it.done} onChange={(e) => setItem(i, e.target.checked)} />
+          <label key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer',
+            ...(isMobile ? { gap: 10, minHeight: 40, padding: '4px 0' } : null) }}>
+            <input type="checkbox" checked={!!it.done} onChange={(e) => setItem(i, e.target.checked)}
+              style={isMobile ? { width: 20, height: 20, flexShrink: 0, margin: 0 } : undefined} />
             <span style={{ color: it.done ? NX.faint : NX.ink, textDecoration: it.done ? 'line-through' : 'none' }}>{it.label}</span>
           </label>
         ))}
