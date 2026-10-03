@@ -1934,7 +1934,7 @@ export function CreateTicketModal({ onClose }) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
         if (failed.length) {
-          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's were' : ' was'} not attached (${failed.map((f) => f.name).join(', ')}). You can add ${failed.length > 1 ? 'them' : 'it'} again from the Attachments tab.`);
+          alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
       }
       onClose();
@@ -2659,6 +2659,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // Done: everything held, plus the reply, in one save. `extra` is a dialog's
   // own change (Confirm / Reopen) that goes out with the rest.
   const commit = async (extra = {}) => {
+    // Every save path (Done, and the Reopen / Mark Resolved / Confirm dialogs
+    // that call this directly) waits for reply pictures: sending mid-upload
+    // would post the reply without its picture and then clear the composer.
+    if (replyUploading) throw new Error('Wait for the picture to finish uploading, then try again.');
     const body = { ...pending, ...extra };
     if (hasReply) {
       // A reply being written AND a dialog's own comment (Mark Resolved's
@@ -2696,7 +2700,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // Title and description are the requester's while the ticket is still Open
   // (and the desk's always) - the same rule as every other Overview field.
   const canEditText = fullAccess;
+  // The description takes pictures only. Other files belong on the
+  // Attachments tab, where they get a row - a link written into the
+  // description would be a file the Attachments tab never lists.
   const attachToDescription = async (file) => {
+    if (!(file?.type || '').startsWith('image/')) {
+      alert(`"${file?.name || 'This file'}" is not a picture. Add files from the Attachments tab.`);
+      return null;
+    }
     const kind = attachmentKindOf(file);
     const url = await uploadTicketEvidence(file, kind);
     return { url, name: file.name, kind };

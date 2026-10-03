@@ -106,4 +106,15 @@ describe('TicketDrawer description editor', () => {
     expect(saved.url).toMatch(/ticket-evidence/);
     expect(saved.url.startsWith('data:')).toBe(false);
   });
+
+  it('turns away a file that is not a picture (files go on the Attachments tab)', async () => {
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(<TicketDrawer ticketId="t1" onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit title and description' }));
+    const desc = editors.filter((p) => p.placeholder === 'Describe the issue').at(-1);
+    const saved = await desc.onAttachFile(new File(['x'], 'report.pdf', { type: 'application/pdf' }));
+    expect(saved).toBeNull();
+    expect(upload).not.toHaveBeenCalled();
+    expect(alert.mock.calls[0][0]).toMatch(/Attachments tab/);
+  });
 });
