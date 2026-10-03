@@ -70,6 +70,24 @@ function toBody(patch) {
   return out;
 }
 
+// The screens that show the ticket list kept fresh by the background refresh
+// (see TasksProvider): the Tickets module (/tickets, and the old
+// /tasks/tickets address) and Support (/support), whose ticket drawer reads
+// it. Read from the address bar, which App keeps in step with the view.
+function onTicketSurface(pathname = window.location.pathname) {
+  const segs = String(pathname || '').split('/').filter(Boolean);
+  return segs[0] === 'tickets' || segs[0] === 'support'
+    || (segs[0] === 'tasks' && segs[1] === 'tickets');
+}
+
+// Refetch the whole ticket list after a link change. A failed or odd answer
+// keeps the list on screen rather than replacing it with nothing.
+async function reloadTicketsInto(setTickets) {
+  let rows;
+  try { rows = await api.getTaskTickets(); } catch { return; }
+  if (Array.isArray(rows)) setTickets(rows);
+}
+
 export function TasksProvider({ children }) {
   const { myEmail } = useRole();
   const nameOf = useNameResolver();
@@ -82,7 +100,15 @@ export function TasksProvider({ children }) {
   const [projects, setProjects] = useState(seed?.projects || []);
   const [portfolios, setPortfolios] = useState(seed?.portfolios || []);
   const [teams, setTeams] = useState(seed?.teams || []);
-  const [tickets, setTickets] = useState(seed?.tickets || []);
+  const [tickets, setTicketsState] = useState(seed?.tickets || []);
+  // Every local write to the ticket list (create / update / delete / link /
+  // escalate, the first load) goes through this and bumps the generation, so
+  // a background refresh that was already on the wire when one of them landed
+  // knows its answer may predate that write and drops it (refreshTickets).
+  const ticketGenRef = useRef(0);
+  const ticketsRef = useRef(tickets);
+  ticketsRef.current = tickets;
+  const setTickets = useCallback((u) => { ticketGenRef.current += 1; setTicketsState(u); }, []);
   const [ticketComponents, setTicketComponents] = useState(seed?.ticketComponents || []);
   const [savedViews, setSavedViews] = useState(seed?.savedViews || []);
   const [ticketViews, setTicketViews] = useState(seed?.ticketViews || []);
@@ -101,6 +127,8 @@ export function TasksProvider({ children }) {
   // THIS - a fresh list has landed - before deciding the ticket is not there
   // (TicketDrawer shows its "Opening your ticket" screen until then).
   const [ticketsLoaded, setTicketsLoaded] = useState(false);
+  const ticketsLoadedRef = useRef(false);
+  ticketsLoadedRef.current = ticketsLoaded;
   const commentCache = useRef({});   // taskId -> comment[]
   // Last server timestamp a task fetch is known-good as of - see refetchTasks.
   // A ref, not state: read inside a stable useCallback, must not itself
@@ -195,6 +223,90 @@ export function TasksProvider({ children }) {
     }
     return () => { stopPoll(); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
   }, [refetchTasks, loadNotifications]);
+
+  // Tickets: they used to load once per session, so a desk agent's list went
+  // stale until a reload. Tickets do not write task_events rows (only task
+  // routes ping), so there is no realtime hook to share - poll every 60s while
+  // the tab is visible, and refresh straight away when the tab comes back
+  // from being hidden. Quiet by design: a failed fetch keeps the list on
+  // screen, and ticketsLoaded only ever moves to true.
+  //  - A fetch that was in flight when a local ticket write landed is dropped
+  //    (generation check) - its answer may predate that write.
+  //  - An open drawer's held edits live in the drawer (its `pending` state,
+  //    layered over the ticket), so replacing the list never touches them.
+  //  - A ticket whose data did not change keeps its object, so the drawer and
+  //    rows showing it do not re-render for nothing.
+  //  - The 60s interval keeps its own timing and does not hear about the
+  //    tab-return refresh, so a tick can land seconds after one. A refresh
+  //    within 15s of the last good answer is skipped (on a phone hopping
+  //    between apps that was the whole list downloaded twice in a row).
+  const ticketsFetching = useRef(false);
+  const lastTicketFetchRef = useRef(0);
+  const refreshTickets = useCallback(async () => {
+    if (ticketsFetching.current) return;
+    if (Date.now() - lastTicketFetchRef.current < 15000) return;
+    ticketsFetching.current = true;
+    const gen = ticketGenRef.current;
+    try {
+      const rows = await api.getTaskTickets();
+      if (!Array.isArray(rows)) return;
+      lastTicketFetchRef.current = Date.now();
+      if (gen !== ticketGenRef.current) return;
+      // Read from the rendered list (ticketsRef), not a state updater: the
+      // generation check above already rules out a write still waiting to
+      // render, and deciding here lets an unchanged answer skip setState.
+      const prev = ticketsRef.current;
+      const byId = new Map(prev.map((x) => [x.id, x]));
+      let same = prev.length === rows.length;
+      const next = rows.map((r, i) => {
+        const old = byId.get(r.id);
+        const keep = old && JSON.stringify(old) === JSON.stringify(r) ? old : r;
+        if (keep !== prev[i]) same = false;
+        return keep;
+      });
+      if (!same) setTicketsState(next);
+      // Already true after the first load; skipping the no-op set keeps an
+      // unchanged refresh from re-rendering the module.
+      if (!ticketsLoadedRef.current) setTicketsLoaded(true);
+    } catch {
+      // keep the list we have; the next tick tries again
+    } finally {
+      ticketsFetching.current = false;
+    }
+  }, []);
+  // Only while a ticket surface is on screen: the Tickets module, or Support
+  // (its ticket drawer reads this list). Every other host of a TasksProvider
+  // (the Tasks view, the dashboard quick actions, the help menu's new-ticket
+  // form, admin settings) leaves the list alone - otherwise the Tasks view
+  // alone downloaded every ticket once a minute. The path is read at each
+  // tick, not at mount, so a provider that outlives a view change follows it.
+  useEffect(() => {
+    const refreshIfShowing = () => { if (onTicketSurface()) refreshTickets(); };
+    const stopPoll = pollWhileVisible(refreshIfShowing, 60000);
+    let wasHidden = document.visibilityState === 'hidden';
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') { wasHidden = true; return; }
+      if (wasHidden) { wasHidden = false; refreshIfShowing(); }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    // Arriving on a ticket surface from elsewhere (Tasks -> Tickets share this
+    // provider) refreshes at once instead of showing a list up to a minute
+    // old. App moves between views with pushState, which fires no event, so
+    // the address is compared once a second - a string check, no request.
+    let wasOnSurface = onTicketSurface();
+    const onArrive = () => {
+      const now = onTicketSurface();
+      if (now && !wasOnSurface && document.visibilityState === 'visible') refreshTickets();
+      wasOnSurface = now;
+    };
+    const arriveTimer = setInterval(onArrive, 1000);
+    window.addEventListener('popstate', onArrive);
+    return () => {
+      stopPoll(); clearInterval(arriveTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('popstate', onArrive);
+    };
+  }, [refreshTickets]);
 
   // ── Lookups ────────────────────────────────────────────────────────────────
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
@@ -414,8 +526,10 @@ export function TasksProvider({ children }) {
     deleteTicketComponent: mkDel(api.deleteTicketComponent, setTicketComponents),
     // link/escalate return the updated ticket(s); refresh the whole list so the
     // inverse link on the other ticket (and any priority bump) is reflected too.
-    addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
-    removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
+    // The link itself is saved; a failed refetch keeps the list we have
+    // (it used to replace it with [], blanking every ticket on screen).
+    addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); await reloadTicketsInto(setTickets); return r; },
+    removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); await reloadTicketsInto(setTickets); return r; },
     escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
@@ -476,7 +590,7 @@ export function TasksProvider({ children }) {
     deleteChangelog: mkDel(api.deleteTaskChangelog, setChangelog),
     getChangelogComments: (id) => api.getTaskChangelogComments(id),
     addChangelogComment: (id, body) => api.addTaskChangelogComment(id, { body }),
-  }), [loadCore]);
+  }), [loadCore, setTickets]);
 
   const markNotificationRead = useCallback(async (id) => {
     setNotifications((p) => p.map((n) => (n.id === id ? { ...n, read: true } : n)));
