@@ -1,6 +1,6 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
-import { useEffect, useLayoutEffect, useState, useRef } from 'react';
-import { isBypassing } from '../lib/dialogGuard';
+import { useEffect, useLayoutEffect, useState, useRef, useId } from 'react';
+import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
@@ -16,6 +16,10 @@ import PersonHover from '../components/PersonHoverCard';
 // Photos live in lib/peoplePhotos so the header avatar shares this one cache.
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useVisualViewport, readVisualViewport } from '../lib/useVisualViewport';
+import { useScrollLock } from '../lib/useScrollLock';
+import { useDialogFocus, trapTab } from '../lib/useDialogFocus';
+import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
@@ -102,8 +106,20 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   // can't access the action buttons"). Landscape hid the bug because Safari's
   // chrome is thin there, so large and visible viewport nearly agree.
   const isMobile = useIsMobile();
+  // A touch screen wider than the phone breakpoint (a phone in landscape, a
+  // tablet) keeps the centered card, but sized to what is visible: the
+  // keyboard and the browser bars come out of the visual viewport, not `vh`.
+  // A mouse-driven desktop is exactly as before.
+  const isTouch = useIsMobile('(pointer: coarse)');
+  const followViewport = isMobile || isTouch;
+  // Pinned to the visual viewport like BottomSheet, so with the keyboard up
+  // the footer (Done, Mark Resolved) sits above it instead of behind it.
+  const vv = useVisualViewport(followViewport);
   const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
+  const overlayRef = useRef(null);
+  const panelRef = useRef(null);
+  const titleId = useId();
   // isBypassing(): a Discard already confirmed by the app-wide guard
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else onClose(); };
@@ -112,37 +128,59 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, isDirty]);
+  useScrollLock(isMobile);
+  useDialogFocus(panelRef);
+  // The phone's Back button closes this sheet, not the screen behind it -
+  // asking the same unsaved-work questions the X button asks.
+  useBackToClose(isMobile, () => {
+    if (confirmClose) { setConfirmClose(false); return; }
+    if (isDirty && !isBypassing()) { setConfirmClose(true); return; }
+    if (overlayRef.current?.hasAttribute('data-nx-dirty')) {
+      confirmDiscard().then((ok) => { if (ok) onClose(); });
+      return;
+    }
+    onClose();
+  });
   const saveAndClose = async () => {
     if (!onSave) { setConfirmClose(false); onClose(); return; }
     setSaving(true);
     try { await onSave(); } finally { setSaving(false); setConfirmClose(false); }
   };
   return createPortal(
-    <div className="nx-tasks-portal" onClick={requestClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 4000,
+    <div ref={overlayRef} className="nx-tasks-portal" onClick={requestClose} style={{
+      position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
+      ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
       padding: isMobile ? 0 : '7vh 16px',
       fontFamily: FONT, animation: 'fadeIn 0.13s ease',
     }}>
-      <div onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-modal-sheet' : undefined} style={{
-        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
+          style.css skip it via .nx-sheet - this one is shaped here. */}
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
+        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet'} style={{
+        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden', outline: 'none',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
         // `height:100vh` followed by `height:100dvh`, and one inline style object
         // cannot hold the same property twice. dvh is the part of the page
         // actually on screen, so the sheet ends where the browser's bottom bar
         // begins; the vh line before it is what a browser without dvh keeps.
+        // Where the visual viewport is known it wins: dvh does not shrink for
+        // the keyboard, the visual viewport does.
         ...(isMobile
-          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none' }
-          : { width, maxWidth: '100%', maxHeight: '86vh', borderRadius: 16 }),
+          ? { width: '100%', maxWidth: '100%', borderRadius: 0, border: 'none', ...(vv ? { height: vv.height } : null) }
+          // 100% of the overlay's padded box. On a desktop that is the same
+          // 86vh as before; pinned to the visual viewport it is what fits.
+          : { width, maxWidth: '100%', maxHeight: vv ? '100%' : '86vh', borderRadius: 16 }),
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
+          <div id={titleId} style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
           <button onClick={requestClose} style={{ ...btn('ghost'), padding: 6, borderRadius: 8 }} aria-label="Close"><X size={18} /></button>
         </div>
         {/* flex:1 + minHeight:0 is what makes THIS the part that scrolls; without
-            it a tall body pushes the footer past the panel's clipped edge. */}
-        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>{children}</div>
+            it a tall body pushes the footer past the panel's clipped edge.
+            overscrollBehavior: a swipe past its end stays in the sheet. */}
+        <div className="nx-scroll" style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0, ...(followViewport ? { overscrollBehavior: 'contain' } : null) }}>{children}</div>
         {/* The action row never scrolls away, and clears the home indicator. */}
         {footer && <div style={{
           padding: isMobile ? '12px 16px calc(12px + env(safe-area-inset-bottom))' : '12px 20px',
@@ -249,6 +287,8 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   // years in two clicks instead of paging a month at a time.
   const [zoom, setZoom] = useState('days');
   const ref = useRef(null);
+  // Phones only; null on desktop, which keeps measuring the window as before.
+  const vv = useVisualViewport(useIsMobile());
   useEffect(() => {
     const onDoc = (e) => {
       if (ref.current && ref.current.contains(e.target)) return;
@@ -268,11 +308,26 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   // anchorRect / innerWidth are in the OUTER space, W and H are CSS lengths in
   // the INNER one - see rootZoom. Scale up to compare, divide the result back.
   const z = rootZoom();
-  const left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - W * z - 8)) / z;
-  const flipUp = anchorRect.bottom + 6 + H * z > window.innerHeight && anchorRect.top > H * z;
-  const vpos = flipUp
-    ? { bottom: (window.innerHeight - anchorRect.top + 6) / z }
-    : { top: (anchorRect.bottom + 6) / z };
+  let left, vpos;
+  if (vv) {
+    // Phones: clamp to the VISUAL viewport, the part above the keyboard - the
+    // window's size still counts the area the keyboard covers. Opening upward
+    // pins the bottom edge with translateY(-100%) rather than a `bottom`
+    // measured from a layout-viewport height iOS reports inconsistently.
+    const vBottom = vv.top + vv.height;
+    left = Math.max(vv.left + 8, Math.min(anchorRect.left, vv.left + vv.width - W * z - 8)) / z;
+    if (anchorRect.bottom + 6 + H * z <= vBottom - 8) vpos = { top: (anchorRect.bottom + 6) / z };
+    else if (anchorRect.top - 6 - H * z >= vv.top + 8) vpos = { top: (anchorRect.top - 6) / z, transform: 'translateY(-100%)' };
+    // Fits neither way (short screen, keyboard up): as low as it can sit
+    // while staying wholly visible.
+    else vpos = { top: Math.max(vv.top + 8, vBottom - H * z - 8) / z };
+  } else {
+    left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - W * z - 8)) / z;
+    const flipUp = anchorRect.bottom + 6 + H * z > window.innerHeight && anchorRect.top > H * z;
+    vpos = flipUp
+      ? { bottom: (window.innerHeight - anchorRect.top + 6) / z }
+      : { top: (anchorRect.bottom + 6) / z };
+  }
   const navBtn = { ...btn('ghost'), padding: 5, color: NX.dim };
   const linkBtn = { background: 'transparent', border: 'none', cursor: 'pointer', color: NX.blue, fontWeight: 600, fontSize: 13, fontFamily: FONT, padding: '4px 6px' };
   // The title reads as text until hovered - it is a zoom-out control, but a
@@ -833,6 +888,10 @@ export function ProjectAccessButton({ project, teams, people }) {
 export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
+  // Phones place the menu inside the VISUAL viewport (the part above the
+  // keyboard), the way components/AnchoredMenu.jsx does - measured against
+  // window.innerHeight it could open straight down behind the keyboard.
+  const isMobile = useIsMobile();
   useLayoutEffect(() => {
     const place = () => {
       const a = anchorRef.current?.getBoundingClientRect();
@@ -841,6 +900,26 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
       // INNER one - see rootZoom (same dance as CalendarPopover).
       const z = rootZoom();
       const GAP = 4, EDGE = 8, MAX = 280;
+      const v = isMobile ? readVisualViewport() : null;
+      if (v) {
+        const vBottom = v.top + v.height;
+        const below = vBottom - a.bottom - GAP - EDGE;
+        const above = a.top - v.top - GAP - EDGE;
+        const up = below < above && below < MAX * z;
+        const room = v.width / z - EDGE * 2;
+        const width = Math.min(Math.max(a.width / z, minWidth), room);
+        const left = Math.max((v.left + EDGE) / z, Math.min(a.left / z, (v.left + v.width - EDGE) / z - width));
+        setPos({
+          left, width,
+          maxHeight: Math.min(MAX, Math.max(96, (up ? above : below) / z)),
+          // Opening upward, the menu's bottom edge sits on the trigger's top:
+          // `top` + translateY(-100%), so no layout-viewport height is needed
+          // (iOS reports that one differently with the keyboard up).
+          top: (up ? a.top - GAP : a.bottom + GAP) / z,
+          lift: up,
+        });
+        return;
+      }
       const below = window.innerHeight - a.bottom - GAP - EDGE;
       const above = a.top - GAP - EDGE;
       const up = below < above && below < MAX * z;
@@ -862,8 +941,28 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
     // Capture phase so the modal's own scroll container re-places it too.
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
-    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
-  }, [anchorRef, minWidth]);
+    // Phones: the keyboard opening (tapping the search box) resizes only the
+    // visual viewport.
+    const vv = isMobile ? window.visualViewport : null;
+    vv?.addEventListener('resize', place);
+    vv?.addEventListener('scroll', place);
+    return () => {
+      window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true);
+      vv?.removeEventListener('resize', place); vv?.removeEventListener('scroll', place);
+    };
+  }, [anchorRef, minWidth, isMobile]);
+  // Phones, for every menu built on this one (including callers that pass
+  // their own search box): a field under 16px makes iOS zoom the page when it
+  // takes focus, and a search box focused on open throws the keyboard up over
+  // the list being picked from. Tap the box to search.
+  const placed = !!pos;
+  useLayoutEffect(() => {
+    if (!isMobile || !placed || !ref.current) return;
+    ref.current.querySelectorAll('input, textarea').forEach((el) => {
+      if (parseFloat(el.style.fontSize || '16') < 16) el.style.fontSize = '16px';
+    });
+    if (ref.current.contains(document.activeElement)) document.activeElement.blur();
+  }, [isMobile, placed]);
   useEffect(() => {
     const onDoc = (e) => {
       if (ref.current?.contains(e.target)) return;
@@ -880,8 +979,10 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
     <div ref={ref} className="nx-scroll" style={{
       position: 'fixed', left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
       ...(pos.top !== undefined ? { top: pos.top } : { bottom: pos.bottom }),
+      ...(pos.lift ? { transform: 'translateY(-100%)' } : null),
       background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
       boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 5000, overflowY: 'auto', fontFamily: FONT,
+      ...(isMobile ? { overscrollBehavior: 'contain' } : null),
     }}>
       {children}
     </div>,
@@ -889,8 +990,18 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
   );
 }
 
+// The search box at the top of a SelectMenu. Phones: 16px, so iOS does not
+// zoom the page when it is tapped.
+const menuSearchStyle = (isMobile) => ({
+  width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
+  fontSize: isMobile ? 16 : 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
+});
+// Option rows: a 40px floor on phones, so each is a comfortable tap target.
+const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null);
+
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const sel = people.find((p) => p.email === value);
@@ -911,12 +1022,14 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
       </button>
       {open && !disabled && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+          {/* Desktop focuses the search box on open; a phone waits for a tap
+              (see SelectMenu) rather than covering the list with the keyboard. */}
+          <input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
             onKeyDown={onEnterPickFirst(filtered, (p) => { onChange(p.email); setOpen(false); })}
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
-          <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
+            style={menuSearchStyle(isMobile)} />
+          <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
           {filtered.map((p) => (
-            <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
+            <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
               <Avatar email={p.email} name={p.name} size={22} card={false} />
               <span style={{ flex: 1 }}>{p.name}</span>
               {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
@@ -1050,6 +1163,7 @@ export function SearchSelect({
   value,
 }) {
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const ref = useRef(null);
   const query = q.trim().toLowerCase();
@@ -1081,8 +1195,8 @@ export function SearchSelect({
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={close} minWidth={menuMinWidth}>
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            style={menuSearchStyle(isMobile)} />
           {shown.map((o) => (o.header ? (
             <div key={o.id} style={{
               padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
@@ -1090,7 +1204,7 @@ export function SearchSelect({
             }}>{o.label}</div>
           ) : (
             <div key={o.id} onClick={() => { onPick(o.id); close(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}
               onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
               {renderOption ? renderOption(o) : (
