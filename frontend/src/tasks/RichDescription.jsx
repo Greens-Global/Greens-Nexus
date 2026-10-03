@@ -109,6 +109,10 @@ export default function RichDescription({
   const uploadingCbRef = useRef(onUploadingChange);
   useEffect(() => { uploadingCbRef.current = onUploadingChange; }, [onUploadingChange]);
   useEffect(() => { uploadingCbRef.current?.(uploading); }, [uploading]);
+  // Unmounting mid-upload (e.g. switching drawer tabs) must not leave the
+  // parent believing an upload is still running - its Done would stay held
+  // forever. The late result has no editor to land in, so report zero.
+  useEffect(() => () => { uploadingCbRef.current?.(0); }, []);
   const frameRef = useRef(null);
   const caretRef = useRef(null);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }

@@ -179,4 +179,20 @@ describe('phone editor details', () => {
     await act(async () => { release(); });
     await waitFor(() => expect(counts.at(-1)).toBe(0));
   });
+
+  it('reports 0 when it unmounts with an upload still running, so the parent never stays held', async () => {
+    setViewport(false);
+    let release;
+    const hold = new Promise((r) => { release = r; });
+    const upload = vi.fn(async (f) => { await hold; return { url: `https://x.supabase.co/storage/v1/object/public/ticket-evidence/${f.name}`, name: f.name, kind: 'image' }; });
+    const counts = [];
+    const { container, unmount } = render(<RichDescription value="" onChange={() => {}} onAttachFile={upload} allowInlineData={false}
+      onUploadingChange={(n) => counts.push(n)} />);
+    await act(async () => { fireEvent.change(container.querySelector('input[type="file"][accept="image/*"]'), { target: { files: [png('a.png')] } }); });
+    expect(counts.at(-1)).toBe(1);
+    unmount();
+    expect(counts.at(-1)).toBe(0);
+    await act(async () => { release(); });
+    expect(counts.at(-1)).toBe(0);
+  });
 });
