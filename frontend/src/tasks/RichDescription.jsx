@@ -21,6 +21,8 @@ import { useImageZoom } from './components';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { api } from '../api';
 import { matchPeople } from '../lib/peopleSearch';
+import { useIsMobile } from '../lib/useIsMobile';
+import { rootZoom } from '../lib/utils';
 
 // Highlight, as a local mark. @tiptap/extension-highlight would be a new
 // dependency for one mark; StarterKit already ships everything else the toolbar
@@ -54,7 +56,8 @@ const buildExtensions = (placeholder) => [
   Placeholder.configure({ placeholder }),
 ];
 
-function Btn({ icon: Icon, label, active, disabled, onClick }) {
+// `big`: the phone toolbar's 36px touch targets (Oct 2026).
+function Btn({ icon: Icon, label, active, disabled, onClick, big = false }) {
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled}
       // onMouseDown-preventDefault keeps the selection alive: a plain onClick
@@ -62,12 +65,12 @@ function Btn({ icon: Icon, label, active, disabled, onClick }) {
       onMouseDown={(e) => { e.preventDefault(); if (!disabled) onClick(); }}
       style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 28, height: 28, borderRadius: 6, border: 'none', flexShrink: 0,
+        width: big ? 36 : 28, height: big ? 36 : 28, borderRadius: big ? 8 : 6, border: 'none', flexShrink: 0,
         background: active ? NX.border2 : 'transparent',
         color: disabled ? NX.faint : (active ? NX.ink : NX.dim),
         cursor: disabled ? 'default' : 'pointer',
       }}>
-      <Icon size={15} />
+      <Icon size={big ? 18 : 15} />
     </button>
   );
 }
@@ -85,8 +88,22 @@ export default function RichDescription({
   onSubmit,
   placeholder = 'Add more detail…',
   toolbar = true,
+  // false = a picture is NEVER embedded as a base64 data: URL: "Insert
+  // image…", paste and the "+" menu all go through onAttachFile (which must
+  // upload and return { url, name, kind }), and a failed upload says so
+  // instead of falling back to inline data. The ticket reply composer (Oct
+  // 2026) - a phone photo inlined as base64 made a multi-MB comment, and the
+  // server now refuses one. Default true: Tasks behave exactly as before.
+  allowInlineData = true,
 }) {
+  const isMobile = useIsMobile();
   const [addOpen, setAddOpen] = useState(false);
+  // Uploads still in flight and the last upload problem - shown only for an
+  // editor that uploads (allowInlineData false).
+  const [uploading, setUploading] = useState(0);
+  const [notice, setNotice] = useState('');
+  const frameRef = useRef(null);
+  const caretRef = useRef(null);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }
   // @mention autocomplete: { query, index, coords } while an @word is being typed.
   const [mention, setMention] = useState(null);
@@ -157,7 +174,7 @@ export default function RichDescription({
   }, [editor]);
   const placeImage = useCallback((src) => insertAfterSelection({ type: 'image', attrs: { src } }), [insertAfterSelection]);
 
-  const insertImage = useCallback(async (file) => {
+  const readInline = useCallback(async (file) => {
     const src = await new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -167,18 +184,46 @@ export default function RichDescription({
     if (src) placeImage(src);
   }, [placeImage]);
 
+  // allowInlineData false: upload, then embed by URL - never base64.
+  const uploadAndPlace = useCallback(async (file) => {
+    if (!onAttachFile) { setNotice("Pictures and files can't be added here."); return; }
+    setNotice('');
+    setUploading((n) => n + 1);
+    let saved = null;
+    let why = '';
+    try { saved = await onAttachFile(file); } catch (e) { why = e?.message || ''; }
+    finally { setUploading((n) => Math.max(0, n - 1)); }
+    if (!editor || editor.isDestroyed) return;   // the upload outlived the editor
+    if (!saved?.url) {
+      setNotice(`"${file.name}" couldn't be uploaded${why ? `: ${why}` : ''}. Nothing was added - try again.`);
+      return;
+    }
+    // The parent says what it stored: a HEIC this browser could not convert
+    // is a download (a link), not a picture that would show as broken.
+    const isImg = saved.kind ? saved.kind === 'image' : file.type.startsWith('image/');
+    if (isImg) placeImage(saved.url);
+    else insertAfterSelection([
+      { type: 'text', marks: [{ type: 'link', attrs: { href: saved.url } }], text: saved.name || file.name },
+      { type: 'text', text: ' ' },
+    ]);
+  }, [editor, onAttachFile, placeImage, insertAfterSelection]);
+
+  const insertImage = useCallback((file) => (allowInlineData ? readInline(file) : uploadAndPlace(file)),
+    [allowInlineData, readInline, uploadAndPlace]);
+
   const attach = useCallback(async (file) => {
+    if (!allowInlineData) { await uploadAndPlace(file); return; }
     // Asana parity: the file lands on the task AND, when it's an image, embeds
     // inline where the cursor is.
     const saved = await onAttachFile?.(file).catch(() => null);
     if (!editor || editor.isDestroyed) return;   // the upload outlived the editor
     if (file.type.startsWith('image/')) {
       if (saved?.url) placeImage(saved.url);
-      else await insertImage(file);
+      else await readInline(file);
     } else if (saved?.url) {
       insertAfterSelection(`<a href="${saved.url}">${saved.name || file.name}</a> `);
     }
-  }, [editor, insertImage, placeImage, insertAfterSelection, onAttachFile]);
+  }, [editor, allowInlineData, uploadAndPlace, readInline, placeImage, insertAfterSelection, onAttachFile]);
 
   // A mention is a mailto link, not a custom node: it reuses the Link mark (no extra
   // TipTap package) and degrades to a working mailto anywhere the HTML is rendered
@@ -199,8 +244,22 @@ export default function RichDescription({
     const before = state.doc.textBetween(Math.max(0, from - 60), from, '\n', '\ufffc');
     const m = /(^|[\s(])@([\w.\-']*)$/.exec(before);
     if (!m) { setMention(null); return; }
-    setMention((prev) => ({ query: m[2], from: from - m[2].length - 1, index: prev ? prev.index : 0 }));
-  }, [mentionPeople]);
+    // Phone: where the caret is, relative to the editor frame - the popup is
+    // anchored there (AnchoredMenu), so it can flip above the line when the
+    // on-screen keyboard leaves no room below.
+    let caret = null;
+    if (isMobile && frameRef.current) {
+      try {
+        const c = ed.view.coordsAtPos(from);
+        const r = frameRef.current.getBoundingClientRect();
+        const z = rootZoom();
+        caret = { left: (c.left - r.left) / z, top: (c.top - r.top) / z, height: Math.max(16, (c.bottom - c.top) / z) };
+      } catch {
+        caret = { left: 12, top: 10, height: 18 };
+      }
+    }
+    setMention((prev) => ({ query: m[2], from: from - m[2].length - 1, index: prev ? prev.index : 0, caret }));
+  }, [mentionPeople, isMobile]);
 
   useEffect(() => { mentionScanRef.current = scanForMention; }, [scanForMention]);
   useEffect(() => { submitRef.current = onSubmit || null; }, [onSubmit]);
@@ -277,11 +336,38 @@ export default function RichDescription({
 
   return (
     <div style={wrap}>
-      <div className="nx-rich" style={{ padding: '10px 12px', minHeight, cursor: 'text', position: 'relative' }}
+      <div ref={frameRef} className="nx-rich" style={{ padding: '10px 12px', minHeight, cursor: 'text', position: 'relative' }}
         onClick={() => editor.chain().focus().run()} onDoubleClick={zoomImage}>
         <EditorContent editor={editor} />
         {zoomViewer}
-        {mention && matches.length > 0 && (
+        {isMobile && mention && (
+          // Phone (Oct 2026): the list hangs off the caret through
+          // AnchoredMenu - portaled (the drawer body clips), flipped above
+          // the line when the keyboard leaves no room below (it measures the
+          // visualViewport), with rows big enough to tap. The absolute list
+          // below opened under the editor, i.e. behind the keyboard.
+          <span ref={caretRef} aria-hidden="true" style={{ position: 'absolute', left: mention.caret?.left ?? 12, top: mention.caret?.top ?? 10,
+            width: 1, height: mention.caret?.height ?? 18, pointerEvents: 'none' }} />
+        )}
+        <AnchoredMenu anchorRef={caretRef} open={!!(isMobile && mention && matches.length > 0)} onClose={() => setMention(null)}
+          role="listbox" aria-label="Mention someone"
+          style={{ minWidth: 240, maxWidth: 320, maxHeight: 260, background: NX.surface, border: `1px solid ${NX.border}`,
+                   borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+          {matches.map((p, i) => (
+            <button key={p.email} type="button" role="option" aria-selected={i === mention?.index}
+              // mousedown keeps the editor focused (and the keyboard up);
+              // click does the insert.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => insertMention(p)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 44, padding: '6px 10px', borderRadius: 8,
+                       border: 'none', cursor: 'pointer', fontSize: 14, fontFamily: FONT, color: NX.ink, textAlign: 'left',
+                       background: i === mention?.index ? NX.hover : 'transparent' }}>
+              <Avatar email={p.email} name={p.name} size={26} />
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            </button>
+          ))}
+        </AnchoredMenu>
+        {!isMobile && mention && matches.length > 0 && (
           <div style={{ position: 'absolute', left: 8, bottom: -6, transform: 'translateY(100%)', zIndex: 70,
                         minWidth: 240, background: NX.surface, border: `1px solid ${NX.border}`,
                         borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
@@ -320,26 +406,41 @@ export default function RichDescription({
       {ai?.error && (
         <div style={{ borderTop: `1px solid ${NX.border2}`, padding: '7px 12px', fontSize: 12, color: NX.red }}>{ai.error}</div>
       )}
+      {!allowInlineData && uploading > 0 && (
+        <div role="status" style={{ borderTop: `1px solid ${NX.border2}`, padding: '7px 12px', fontSize: 12, color: NX.dim, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Loader2 size={13} className="spin" />Uploading {uploading}…
+        </div>
+      )}
+      {notice && (
+        <div role="alert" style={{ borderTop: `1px solid ${NX.border2}`, padding: '4px 4px 4px 12px', fontSize: 12, color: NX.red, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ flex: 1, minWidth: 0 }}>{notice}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice('')}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: isMobile ? 36 : 26, height: isMobile ? 36 : 26, border: 'none', background: 'transparent', color: NX.red, cursor: 'pointer', flexShrink: 0 }}>
+            <X size={13} />
+          </button>
+        </div>
+      )}
 
       {toolbar && (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', padding: '5px 8px', borderTop: `1px solid ${NX.border2}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 2 : 1, flexWrap: isMobile ? 'nowrap' : 'wrap', padding: isMobile ? '3px 6px' : '5px 8px', borderTop: `1px solid ${NX.border2}` }}>
         <span ref={addRef} style={{ display: 'inline-flex' }}>
-          <Btn icon={Plus} label="Attach" active={addOpen} onClick={() => setAddOpen((o) => !o)} />
+          <Btn icon={Plus} label="Attach" big={isMobile} active={addOpen} onClick={() => setAddOpen((o) => !o)} />
           {/* Portaled: the editor frame and the modal/drawer body around it
               both clip, and the toolbar sits at the frame's bottom edge. */}
           <AnchoredMenu anchorRef={addRef} open={addOpen} onClose={() => setAddOpen(false)}
-            style={{ width: 190, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+            style={{ width: isMobile ? 210 : 190, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
             {onAttachFile && (
               <button type="button" onClick={() => { setAddOpen(false); fileRef.current?.click(); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left', ...(isMobile ? { minHeight: 44, fontSize: 14 } : null) }}>
                 <Paperclip size={14} style={{ color: NX.dim }} />Attach file…
               </button>
             )}
             <button type="button" onClick={() => { setAddOpen(false); imageRef.current?.click(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left', ...(isMobile ? { minHeight: 44, fontSize: 14 } : null) }}>
               <ImagePlus size={14} style={{ color: NX.dim }} />Insert image…
             </button>
-            <div style={{ padding: '4px 8px 2px', fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste</div>
+            {/* No clipboard shortcut on a phone. */}
+            {!isMobile && <div style={{ padding: '4px 8px 2px', fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste</div>}
           </AnchoredMenu>
         </span>
         {/* `multiple`: a batch of photos is picked in one go. Uploaded one after
@@ -349,6 +450,16 @@ export default function RichDescription({
         <input ref={imageRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
           onChange={async (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; for (const f of fs) await insertImage(f); }} />
 
+        {isMobile ? (<>
+          {/* Phone (Oct 2026): the six that matter, at 36px, on one row - the
+              full set wrapped to three rows of 28px targets above the
+              keyboard. Desktop keeps the full toolbar below. */}
+          <Btn big icon={Bold} label="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
+          <Btn big icon={Italic} label="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
+          <Btn big icon={List} label="Bulleted list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
+          <Btn big icon={ListOrdered} label="Numbered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
+          <Btn big icon={Link2} label="Link" active={editor.isActive('link')} onClick={setLink} />
+        </>) : (<>
         <Divider />
         <Btn icon={Undo2} label="Undo" disabled={!can?.undo().run} onClick={() => editor.chain().focus().undo().run()} />
         <Btn icon={Redo2} label="Redo" onClick={() => editor.chain().focus().redo().run()} />
@@ -368,6 +479,7 @@ export default function RichDescription({
         <Btn icon={SquareCode} label="Code block" active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
         <Divider />
         <Btn icon={ai?.busy ? Loader2 : Sparkles} label="Rephrase with AI" disabled={ai?.busy} onClick={rephrase} />
+        </>)}
       </div>
       )}
     </div>

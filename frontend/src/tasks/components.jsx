@@ -1212,7 +1212,14 @@ export function TaskCountBadges({ t, store, size = 12 }) {
 // captured so it closes the viewer without also closing the drawer underneath.
 // Older rows only carry kind image/doc, so the renderer also sniffs the file
 // extension to give videos and PDFs their proper treatment.
+//
+// Phone (Oct 2026, kept in step with tickets/TicketsView.jsx's copy): a PDF is
+// never put in an iframe - iOS shows only page 1, Android a blank box - so it
+// gets the document card with Open (new tab) and Download; media is sized in
+// dvh; the file name gives way before the close button does; both header
+// actions are 40px targets.
 export function AttachmentViewer({ att, onClose }) {
+  const isMobile = useIsMobile();
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', onKey, true);
@@ -1223,30 +1230,39 @@ export function AttachmentViewer({ att, onClose }) {
   const isPdf = /\.pdf($|\?)/i.test(probe);
   const isVideo = att.kind === 'video' || /\.(mp4|webm|mov|m4v)($|\?)/i.test(probe);
   const isImage = att.kind === 'image' || /\.(png|jpe?g|gif|webp|svg)($|\?)/i.test(probe);
+  const maxH = isMobile ? '78dvh' : '78vh';
+  const iconBtn = isMobile ? { width: 40, height: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center', flexShrink: 0 } : null;
   const body = isImage ? (
-    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
+    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: maxH, objectFit: 'contain', borderRadius: 8 }} />
   ) : isVideo ? (
-    <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />
-  ) : isPdf ? (
+    <video src={att.url} controls autoPlay playsInline style={{ maxWidth: '92vw', maxHeight: maxH, borderRadius: 8, background: '#000' }} />
+  ) : isPdf && !isMobile ? (
     <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
   ) : (
-    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: isMobile ? '28px 22px' : '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw', boxSizing: 'border-box' }}>
       <Paperclip size={30} style={{ color: NX.faint }} />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
-      <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <Download size={14} /> Download
-      </a>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: isMobile ? '100%' : 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 12.5, color: NX.dim }}>{isPdf ? 'Open it in your phone\'s viewer, or download it.' : 'No inline preview for this file type.'}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        {isPdf && (
+          <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ ...btn('outline'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 40 }}>
+            <FileText size={14} /> Open
+          </a>
+        )}
+        <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, ...(isMobile ? { minHeight: 40 } : null) }}>
+          <Download size={14} /> Download
+        </a>
+      </div>
     </div>
   );
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-        <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
-        <span style={{ flex: 1 }} />
-        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
-        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, padding: isMobile ? '6px 6px 6px 16px' : '13px 20px', color: '#fff' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(isMobile ? { flex: 1, minWidth: 0 } : null) }}>{att.name}</span>
+        <span style={{ fontSize: 12, opacity: 0.65, ...(isMobile ? { flexShrink: 0 } : null) }}>{att.size}</span>
+        {!isMobile && <span style={{ flex: 1 }} />}
+        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" aria-label={`Download ${att.name || 'file'}`} style={{ color: '#fff', opacity: 0.8, display: 'flex', ...iconBtn }}><Download size={isMobile ? 18 : 16} /></a>}
+        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4, ...iconBtn }}><X size={isMobile ? 22 : 19} /></button>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
