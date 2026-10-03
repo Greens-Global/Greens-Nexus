@@ -51,6 +51,9 @@ import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
+import { prepareImageForUpload, isHeic } from '../lib/imagePrep';
+import { canRecordScreen, isCoarsePointer } from '../lib/screenCapability';
+import { dialog } from '../ui/dialog';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
@@ -1542,34 +1545,60 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
 // scheme it replaced (which silently dropped anything over 2MB; recordings
 // always would have). Bucket must exist on the Supabase project - public,
 // same as Testing's qa-evidence - create `ticket-evidence` there.
-async function uploadTicketEvidence(file, prefix = 'file') {
+//
+// Every ticket upload goes through here, so every one gets the image prep
+// (lib/imagePrep.js, Oct 2026): a phone photo is scaled to 1600px and sent as
+// JPEG, a HEIC the browser can read becomes JPEG, and anything that cannot be
+// prepared goes up exactly as picked. `file` in the result is what was
+// stored - its name, size and type can differ from what was picked.
+async function storeTicketEvidence(file, prefix = 'file') {
   if (!supabase) throw new Error('Storage not configured');
-  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
+  const ready = await prepareImageForUpload(file).catch(() => ({ file, heicUndecoded: false }));
+  const f = ready.file || file;
+  const ext = (f.name.split('.').pop() || 'dat').toLowerCase();
   const path = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { data, error } = await supabase.storage.from('ticket-evidence')
-    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
+    .upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
   if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
+  const url = toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
+  if (!url) throw new Error('Upload failed');
+  return { url, file: f };
+}
+
+async function uploadTicketEvidence(file, prefix = 'file') {
+  return (await storeTicketEvidence(file, prefix)).url;
 }
 
 function attachmentKindOf(f) {
+  // A HEIC still HEIC after prep is one this browser could not convert -
+  // only Safari can show it, so it is filed as a download, not a picture.
+  if (isHeic(f)) return 'doc';
   if (f.type.startsWith('image/')) return 'image';
   if (f.type.startsWith('video/')) return 'video';
   return 'doc';
 }
 
+// The attachment row for a stored file, described from what was STORED
+// (after prep): a converted photo reads "IMG_1.jpg, 380 KB", not the HEIC.
+function attachmentRowFor(f, url) {
+  return { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: attachmentKindOf(f), url };
+}
+
 // Posts one file to a ticket - the ticket must already exist (attachments are
-// keyed by ticket id). A failed storage upload still records the attachment
-// by name (returns false) so the attempt isn't silently lost - the caller
-// decides whether/how to surface that.
+// keyed by ticket id). Returns false when the file could not be stored or
+// recorded; the caller decides how to surface that. A failed upload is NOT
+// recorded any more - an empty-url row was a struck-through card nobody
+// could open or download.
 async function uploadTicketFile(ticketId, f) {
-  const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-  const kind = attachmentKindOf(f);
-  let url = '';
-  let ok = true;
-  try { url = await uploadTicketEvidence(f, kind); } catch { ok = false; }
-  await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
-  return ok;
+  let stored;
+  try { stored = await storeTicketEvidence(f, attachmentKindOf(f)); } catch { return false; }
+  if (!stored?.url) return false;
+  try {
+    await api.addTicketAttachment(ticketId, attachmentRowFor(stored.file, stored.url));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Shared Record + Upload control - a screen recording (optionally with mic
@@ -1579,10 +1608,23 @@ async function uploadTicketFile(ticketId, f) {
 // `compact` (the Create a Ticket form, Oct 1): a slimmer pair that sits in a
 // row directly under the description editor instead of a featured red button
 // at the foot of the form - same actions, same recording flow.
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false }) {
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false, photoInputs = false }) {
   const fileRef = useRef(null);
+  const camRef = useRef(null);
+  const libRef = useRef(null);
+  const pick = (e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); };
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
+  // Record only where it can work (Oct 2026): never offered on a phone (no
+  // getDisplayMedia on iOS, a dead end on Android), and the return-cue prime
+  // below never asks for notification permission where recording is not
+  // supported. A desktop browser keeps the button either way - one without
+  // getDisplayMedia (an insecure http origin) still gets told why on press.
+  const isMobile = useIsMobile();
+  // A touch-first device with no getDisplayMedia (an iPad, a phone turned
+  // landscape past the 640px breakpoint) can only fail too, so it is not
+  // offered there either; a mouse-driven desktop keeps the button as before.
+  const recordable = showRecord && !isMobile && !(isCoarsePointer() && !canRecordScreen(false));
   const setRec = (v) => { setRecording(v); onRecordingChange?.(v); };
   // The submenu used to close itself via a position:fixed full-viewport
   // backdrop div. That div sits above everything else in the modal
@@ -1621,7 +1663,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      {showRecord && (
+      {(recordable || recording) && (
         <div style={{ position: 'relative' }}>
           {/* Record is the featured action here - a screen recording tells us
               more about a broken workflow than a paragraph of description
@@ -1633,7 +1675,7 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               mistake for spam next to the picker everyone expects) was very
               likely getting reflexively dismissed. That's the "come back"
               cue this button promises. */}
-          <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
+          <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { if (canRecordScreen(isMobile)) primeReturnCue(); setMenu((m) => !m); }}
             style={compact ? {
               ...btn('outline'), fontSize: 12.5, fontWeight: 600, color: NX.red,
               borderColor: 'rgba(220,38,38,0.45)', display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -1657,12 +1699,27 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
           </AnchoredMenu>
         </div>
       )}
+      {/* Phone (Oct 2026): the camera and the photo library sit beside Upload,
+          the same pair the Create a Ticket form offers - on a phone a photo
+          of the problem IS the screenshot. capture="environment" opens the
+          rear camera. */}
+      {photoInputs && isMobile && (<>
+        <button type="button" disabled={disabled} onClick={() => camRef.current?.click()}
+          style={{ ...btn('outline'), fontSize: 12.5, minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Camera size={14} /> Take Photo
+        </button>
+        <button type="button" disabled={disabled} onClick={() => libRef.current?.click()}
+          style={{ ...btn('outline'), fontSize: 12.5, minHeight: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <ImagePlus size={14} /> Photo Library
+        </button>
+        <input ref={camRef} type="file" accept="image/*" capture="environment" data-testid="ticket-camera-input" style={{ display: 'none' }} onChange={pick} />
+        <input ref={libRef} type="file" accept="image/*" multiple data-testid="ticket-library-input" style={{ display: 'none' }} onChange={pick} />
+      </>)}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
-        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6, ...(isMobile ? { minHeight: 40 } : null) }}>
         <UploadIcon size={13} /> {compact ? 'Upload Attachment' : 'Upload'}
       </button>
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
-        onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={pick} />
     </div>
   );
 }
@@ -3466,7 +3523,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
+export function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
@@ -3485,6 +3542,26 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
+  const isMobile = useIsMobile();
+  // A picture pasted or picked into the reply is uploaded to ticket-evidence
+  // straight away and embedded by URL (Oct 2026). It used to be read into
+  // the comment as a base64 data: URL - a phone photo made a multi-MB comment
+  // row, activity line, email and Teams message (the server now refuses
+  // those). Storage only, no Attachments row: nothing about the reply reaches
+  // the requester until Done (Pranshu, Oct 1), and a row would bell them now.
+  const attachToReply = useCallback(async (file) => {
+    const stored = await storeTicketEvidence(file, attachmentKindOf(file));
+    return { url: stored.url, name: stored.file.name, kind: attachmentKindOf(stored.file) };
+  }, []);
+  // Pictures still uploading into the reply ride on the drawer's reply state
+  // (`reply.uploading`), so the drawer can hold Done until they land - a reply
+  // sent mid-upload would go out without its picture. Cmd/Ctrl+Enter is held
+  // here for the same reason.
+  const uploading = reply.uploading || 0;
+  const onUploadingChange = useCallback((n) => {
+    onReplyChange((r) => ((r.uploading || 0) === n ? r : { ...r, uploading: n }));
+  }, [onReplyChange]);
+  const submitReply = useCallback(() => { if (!uploading) onDone?.(); }, [uploading, onDone]);
 
   return (
     <div>
@@ -3497,6 +3574,26 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
                 ...(newSince !== undefined && (c.createdAt || '') > newSince && !c.internal ? { background: 'rgba(37,99,235,0.06)', borderRadius: 10, padding: 8 } : {}) }}>
                 <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
                 <div style={{ flex: 1, minWidth: 0 }}>
+                  {isMobile ? (
+                    // Phone (Oct 2026): one row could not hold a long name, the
+                    // chips, the time and Delete - the name now gives way
+                    // (ellipsis), the chips and time wrap under it, and Delete
+                    // keeps a full-size target of its own beside them.
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                      <div data-testid="comment-head" style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap', columnGap: 6, rowGap: 2 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink, minWidth: 0, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(c.authorId) || c.authorId}</span>
+                        {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal note</span>}
+                        {newSince !== undefined && (c.createdAt || '') > newSince && (
+                          <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 10.5 }}>New</span>
+                        )}
+                        <span style={{ fontSize: 12, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>
+                      </div>
+                      {canInternal && (
+                        <button onClick={() => del(c.id)} title="Delete" aria-label="Delete comment"
+                          style={{ ...btn('ghost'), width: 36, height: 36, minWidth: 36, padding: 0, justifyContent: 'center', flexShrink: 0, margin: '-8px -6px 0 0', color: NX.faint }}><X size={16} /></button>
+                      )}
+                    </div>
+                  ) : (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId) || c.authorId}</span>
                     {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal note</span>}
@@ -3508,6 +3605,7 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
                       <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
                     )}
                   </div>
+                  )}
                   {/* richBodyHtml sanitizes, and wraps a plain-text body (every
                       comment written before this change) in paragraphs - so old
                       and new comments render the same way. */}
@@ -3533,18 +3631,24 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
         <RichDescription
           value={body}
           onChange={setBody}
-          onSubmit={onDone}
+          onSubmit={submitReply}
           mentionPeople={people}
           minHeight={64}
+          onAttachFile={attachToReply}
+          onUploadingChange={onUploadingChange}
+          allowInlineData={false}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
       </div>
-      <div style={{ fontSize: 11, color: NX.faint, marginTop: 8 }}>
-        {isEmptyDoc(body) ? (
+      <div style={{ fontSize: isMobile ? 12 : 11, color: NX.faint, marginTop: 8 }}>
+        {uploading > 0 ? (
+          <span role="status" style={{ color: NX.amber, fontWeight: 600 }}>Wait for the upload to finish before clicking Done.</span>
+        ) : isEmptyDoc(body) ? (
           <>Type <b>@</b> to mention someone - they'll be added to the ticket and told.</>
         ) : (
           <span style={{ color: NX.amber, fontWeight: 600 }}>
-            {internal ? 'Your note is added' : 'Your reply is sent'} with your other changes when you click Done (or ⌘/Ctrl+Enter).
+            {/* No keyboard on a phone to press Cmd/Ctrl+Enter with. */}
+            {internal ? 'Your note is added' : 'Your reply is sent'} with your other changes when you click Done{isMobile ? '.' : ' (or ⌘/Ctrl+Enter).'}
           </span>
         )}
       </div>
@@ -3558,7 +3662,15 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
 // (6000). Escape is captured so it closes the viewer without also closing the
 // drawer underneath; files with no inline renderer (docx, xlsx…) get a clean
 // download card rather than a broken embed.
-function AttachmentViewer({ att, onClose }) {
+//
+// Phone (Oct 2026): a PDF is never put in an iframe there - iOS shows only
+// page 1 and Android a blank box - so it gets the document card with Open (new
+// tab, the phone's own PDF viewer) and Download. Media is sized in dvh (the
+// visible viewport, not the one behind the browser bars), the file name gives
+// way before the close button does, and both header actions are 40px targets.
+// Kept in step with tasks/components.jsx's copy.
+export function AttachmentViewer({ att, onClose }) {
+  const isMobile = useIsMobile();
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
     window.addEventListener('keydown', onKey, true);
@@ -3566,30 +3678,42 @@ function AttachmentViewer({ att, onClose }) {
   }, [onClose]);
   if (!att) return null;
   const isPdf = /\.pdf($|\?)/i.test(att.name || '') || /\.pdf($|\?)/i.test(att.url || '');
+  const maxH = isMobile ? '78dvh' : '78vh';
+  // Touch-first devices at ANY width (a phone in landscape, an iPad) get the
+  // card too: it is the WebKit iframe that shows only page 1, not the width.
+  const pdfFrame = !isMobile && !(isCoarsePointer());
+  const iconBtn = isMobile ? { width: 40, height: 40, minWidth: 40, alignItems: 'center', justifyContent: 'center', flexShrink: 0 } : null;
   const body = att.kind === 'image' ? (
-    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 }} />
+    <img src={att.url} alt={att.name} style={{ maxWidth: '92vw', maxHeight: maxH, objectFit: 'contain', borderRadius: 8 }} />
   ) : att.kind === 'video' ? (
-    <video src={att.url} controls autoPlay style={{ maxWidth: '92vw', maxHeight: '78vh', borderRadius: 8, background: '#000' }} />
-  ) : isPdf ? (
+    <video src={att.url} controls autoPlay playsInline style={{ maxWidth: '92vw', maxHeight: maxH, borderRadius: 8, background: '#000' }} />
+  ) : isPdf && pdfFrame ? (
     <iframe src={att.url} title={att.name} style={{ width: '92vw', height: '78vh', border: 'none', borderRadius: 8, background: '#fff' }} />
   ) : (
-    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: isMobile ? '28px 22px' : '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw', boxSizing: 'border-box' }}>
       <Paperclip size={30} style={{ color: NX.faint }} />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
-      <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <Download size={14} /> Download
-      </a>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: isMobile ? '100%' : 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 12.5, color: NX.dim }}>{isPdf ? 'Open it in your device\'s viewer, or download it.' : 'No inline preview for this file type.'}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+        {isPdf && (
+          <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ ...btn('outline'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, minHeight: 40 }}>
+            <Link2 size={14} /> Open
+          </a>
+        )}
+        <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8, ...(isMobile ? { minHeight: 40 } : null) }}>
+          <Download size={14} /> Download
+        </a>
+      </div>
     </div>
   );
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
-        <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
-        <span style={{ flex: 1 }} />
-        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
-        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
+      <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 12, padding: isMobile ? '6px 6px 6px 16px' : '13px 20px', color: '#fff' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(isMobile ? { flex: 1, minWidth: 0 } : null) }}>{att.name}</span>
+        <span style={{ fontSize: 12, opacity: 0.65, ...(isMobile ? { flexShrink: 0 } : null) }}>{att.size}</span>
+        {!isMobile && <span style={{ flex: 1 }} />}
+        {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" aria-label={`Download ${att.name || 'file'}`} style={{ color: '#fff', opacity: 0.8, display: 'flex', ...iconBtn }}><Download size={isMobile ? 18 : 16} /></a>}
+        <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4, ...iconBtn }}><X size={isMobile ? 22 : 19} /></button>
       </div>
       <div onClick={(e) => e.stopPropagation()}>{body}</div>
     </div>
@@ -3603,32 +3727,65 @@ function AttachmentViewer({ att, onClose }) {
 const ATT_CARD_W = 138;
 const ATT_THUMB_H = 84;
 
-function TicketAttachments({ ticketId, ticketType }) {
+export function TicketAttachments({ ticketId, ticketType }) {
   const [rows, setRows] = useState(null);
-  const [busy, setBusy] = useState(false);
+  // In-flight uploads, counted (Oct 2026): a boolean went false when the
+  // FIRST of several files finished, re-enabling Upload mid-batch.
+  const [uploading, setUploading] = useState(0);
+  const busy = uploading > 0;
+  const [notice, setNotice] = useState('');   // phone: inline error instead of alert()
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
   const [hoverId, setHoverId] = useState(null);
   const isMobile = useIsMobile();   // no hover on touch - actions stay visible instead
+  // Removing is the desk's (DELETE is require_ticket_desk on the server: a
+  // tickets or tasks grant, or administrator). Without it the X only ever
+  // 403'd, so it is not offered.
+  const { canAccessModule } = useRole() || {};
+  const canRemove = !canAccessModule || canAccessModule('tickets', 'administrator') || canAccessModule('tasks', 'administrator');
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
+  // Phone: inline, dismissible. Desktop keeps its alert().
+  const report = (msg) => { if (isMobile) setNotice(msg); else alert(msg); };
+
+  // A failed upload is reported and NOT recorded - it used to leave an
+  // empty-url row (a struck-through card nobody could open).
   const sendFile = async (f) => {
-    setBusy(true);
-    const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
-    const kind = attachmentKindOf(f);
-    let url = '';
+    setUploading((n) => n + 1);
     try {
-      url = await uploadTicketEvidence(f, kind);
+      const stored = await storeTicketEvidence(f, attachmentKindOf(f));
+      await api.addTicketAttachment(ticketId, attachmentRowFor(stored.file, stored.url));
     } catch (e) {
-      alert(`"${f.name}" was recorded but couldn't be stored: ${e?.message || 'upload failed'}. It won't be playable/downloadable.`);
+      report(`"${f.name}" couldn't be uploaded: ${e?.message || 'upload failed'}. Nothing was attached - try again.`);
+    } finally {
+      setUploading((n) => Math.max(0, n - 1));
+      reload();
     }
-    await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
-    setBusy(false);
+  };
+  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
+  const del = async (a) => {
+    // Evidence: one stray tap must not delete it (Oct 2026). The confirm
+    // handles Escape itself (React, at the root); this keeps that same
+    // keypress from going on to the drawer Modal's window listener, which
+    // would close the drawer behind the dialog. Document, bubble phase: after
+    // React has let the dialog cancel, before the window listener.
+    const holdEscape = (e) => { if (e.key === 'Escape') e.stopPropagation(); };
+    document.addEventListener('keydown', holdEscape);
+    let ok;
+    try {
+      ok = await dialog.confirm(`Remove "${a.name}" from this ticket? This can't be undone.`,
+        { title: 'Remove Attachment', confirmText: 'Remove', danger: true });
+    } finally {
+      document.removeEventListener('keydown', holdEscape);
+    }
+    if (!ok) return;
+    try {
+      await api.deleteTicketAttachment(a.id);
+    } catch (e) {
+      report(`Couldn't remove "${a.name}": ${e?.message || 'the request failed'}.`);
+    }
     reload();
   };
-  const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
-  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
-  const del = async (id) => { await api.deleteTicketAttachment(id).catch(() => {}); reload(); };
   // Recording from an EXISTING ticket's Attachments tab, mirroring the create
   // form's onRecChange (recordingDraft.js): sendFile already uploads fine
   // even if this component unmounts mid-flight (it's just async API calls,
@@ -3651,10 +3808,19 @@ function TicketAttachments({ ticketId, ticketType }) {
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
-          onRecordingChange={onRecChange} />
+          onRecordingChange={onRecChange} photoInputs />
         {busy && <Spinner size={14} />}
-        <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+        {busy && isMobile && <span role="status" style={{ fontSize: 12, color: NX.dim }}>Uploading {uploading}…</span>}
+        {/* No clipboard shortcut on a phone - the camera and library buttons are its paste. */}
+        {!isMobile && <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
       </div>
+      {notice && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10, padding: '8px 4px 8px 10px', borderRadius: 8, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.3)', fontSize: 12.5, color: NX.red }}>
+          <span style={{ flex: 1, minWidth: 0 }}>{notice}</span>
+          <button type="button" onClick={() => setNotice('')} aria-label="Dismiss"
+            style={{ ...btn('ghost'), width: 32, height: 32, padding: 0, justifyContent: 'center', flexShrink: 0, color: NX.red, marginTop: -6 }}><X size={14} /></button>
+        </div>
+      )}
       {rows === null ? (
         <div style={{ padding: '6px 0' }}>
           <SkeletonBlocks count={4} height={ATT_THUMB_H + 40} borderRadius={12}
@@ -3698,7 +3864,7 @@ function TicketAttachments({ ticketId, ticketType }) {
                       <Paperclip size={22} style={{ color: NX.faint }} />
                     )}
                     {failed && (
-                      <span title="Upload failed" style={{ position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: '50%', background: NX.red, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span title="Upload failed" style={{ position: 'absolute', ...(isMobile ? { bottom: 6 } : { top: 6 }), right: 6, width: 20, height: 20, borderRadius: '50%', background: NX.red, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <ShieldAlert size={12} style={{ color: '#fff' }} />
                       </span>
                     )}
@@ -3708,12 +3874,21 @@ function TicketAttachments({ ticketId, ticketType }) {
                     <div style={{ fontSize: 11, color: NX.faint, marginTop: 1 }}>{a.size}</div>
                   </div>
                 </button>
-                {showActions && (
+                {showActions && (isMobile ? (
+                  // Phone: 36px targets in opposite corners - Download and
+                  // Remove side by side at 22px were one mis-tap apart.
+                  <>
+                    {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" aria-label={`Download ${a.name}`}
+                      style={{ ...actionBtn, width: 36, height: 36, position: 'absolute', top: 4, left: 4 }}><Download size={16} /></a>}
+                    {canRemove && <button type="button" onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`}
+                      style={{ ...actionBtn, width: 36, height: 36, position: 'absolute', top: 4, right: 4 }}><X size={16} /></button>}
+                  </>
+                ) : (
                   <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
-                    {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
-                    <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>
+                    {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" aria-label={`Download ${a.name}`} style={actionBtn}><Download size={12} /></a>}
+                    {canRemove && <button onClick={() => del(a)} title="Remove" aria-label={`Remove ${a.name}`} style={actionBtn}><X size={12} /></button>}
                   </div>
-                )}
+                ))}
               </div>
             );
           })}

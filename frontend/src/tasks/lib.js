@@ -4,7 +4,7 @@ import { NX, PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './
 import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
-import { toViewUrl } from '../lib/storageView';
+import { toViewUrl, VIEW_PREFIX } from '../lib/storageView';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -718,6 +718,24 @@ const RICH_TAGS = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIK
   'H1', 'H2', 'H3', 'H4', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH']);
 const RICH_ATTRS = { A: ['href', 'title'], IMG: ['src', 'alt', 'title'] };
 const SAFE_URL = /^(https?:|mailto:|data:image\/)/i;
+// The app's own file viewer (lib/storageView.js). api.js rewrites every
+// private-bucket picture or file in a body to it, and on the hosted app (cookie
+// mode) it is RELATIVE - "/api/files/view?u=<encoded storage URL>" - which
+// SAFE_URL alone strips, so uploaded pictures vanished from task comments and
+// ticket descriptions/replies once those buckets went private (Sep 22). Only
+// the exact viewer prefixes pass: the one this build uses, the hosted relative
+// one, and the configured API base's. The rest must be URL-encoded query text
+// (no quotes, spaces, angle brackets or backslashes), so nothing can steer the
+// request off the viewer route.
+const VIEW_URL_PREFIXES = [...new Set([VIEW_PREFIX, '/api/files/view?u=',
+  `${String(import.meta.env.VITE_API_BASE ?? 'http://localhost:8000').replace(/\/+$/, '')}/files/view?u=`])];
+const VIEW_URL_REST = /^[A-Za-z0-9%._~!$&()*+,;=:@/?-]+$/;
+export function isSafeRichUrl(value) {
+  const v = String(value ?? '').trim();
+  if (SAFE_URL.test(v)) return true;
+  const prefix = VIEW_URL_PREFIXES.find((p) => v.startsWith(p));
+  return !!prefix && VIEW_URL_REST.test(v.slice(prefix.length));
+}
 
 /** Comment and description bodies are stored as HTML and come from people -
  * and from Asana, which is outside our control. Render them through this, never
@@ -744,7 +762,7 @@ export function sanitizeRichHtml(html, nameOf) {
         const allowed = RICH_ATTRS[tag] || [];
         if (!allowed.includes(name)) { child.removeAttribute(attr.name); continue; }
         // javascript: and vbscript: URLs are the whole point of the allowlist.
-        if ((name === 'href' || name === 'src') && !SAFE_URL.test(attr.value.trim())) {
+        if ((name === 'href' || name === 'src') && !isSafeRichUrl(attr.value)) {
           child.removeAttribute(attr.name);
         }
       }

@@ -737,6 +737,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # caller for everyone else); now it is open to all, so the address is
     # checked against the curated People list instead - see _valid_requester.
     body.requester_email = _valid_requester(db, user, body.requester_email)
+    _check_images(body.images)
     # Company on intake (Sep 19, Pranshu: "End user don't have the ability to
     # choose company but here it is showing the ticket is raised for GGcon
     # company"). A desk-grant caller (raising on someone else's behalf, or an
@@ -937,6 +938,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     comment_internal = bool(data.pop("comment_internal", None))
     if _blank_comment(comment_body):
         comment_body = ""
+    _check_comment_html(comment_body)
+    if "images" in data:
+        _check_images(data.get("images"))
     if comment_body:
         # Replying needs only participation, the same rule as the comments
         # endpoint - never the field-edit scope below.
@@ -1333,6 +1337,52 @@ def _tattachment(a) -> dict:
             "addedAt": a.added_at or "", "addedBy": _nz(a.added_by)}
 
 
+# ── Evidence + comment guards (Oct 2026, tickets on phones) ─────────────────
+# A ticket's attachments and pictures are evidence, held to the same rule as
+# an item's photos: the URL has to point at our own Supabase storage
+# (routers/items.py's _validate_photo_url - imported, not copied, so the two
+# can never drift).
+#
+# A comment is HTML from the rich editor. Pictures in it are uploaded to
+# ticket-evidence and embedded by URL; a data: URI is a whole photo inlined as
+# base64 (multi-MB from a phone camera) that would ride along in the row, the
+# activity preview, every email and the Teams DM - so it is refused with a
+# message that says what to do instead. The length cap is a flood backstop far
+# above any real reply (a long paste of a log is a few tens of thousands).
+COMMENT_MAX_CHARS = 200_000
+# Only a data: URI in a tag's src/href/srcset counts - a reply that merely
+# MENTIONS one (a pasted log, an HTML snippet in a code block) arrives with its
+# "<" escaped as "&lt;", so it never matches a real tag here.
+_DATA_URI_RE = re.compile(r"""<[a-z][^>]*?\b(?:src|href|srcset)\s*=\s*["']?\s*data:""", re.IGNORECASE)
+
+
+def _check_evidence_url(url, field: str) -> None:
+    from routers.items import _validate_photo_url
+    _validate_photo_url(url, field)
+
+
+def _check_images(images, field: str = "images") -> None:
+    for u in images or []:
+        if isinstance(u, str):
+            if u.strip().lower().startswith("data:"):
+                raise HTTPException(422, f"{field} must be uploaded files, not inline data")
+            _check_evidence_url(u, field)
+        elif isinstance(u, dict):
+            _check_evidence_url(u.get("url") or "", field)
+
+
+def _check_comment_html(text: str) -> None:
+    if not text:
+        return
+    if len(text) > COMMENT_MAX_CHARS:
+        raise HTTPException(413, "This comment is too long to save. Shorten it, or attach the "
+                                 "text as a file instead.")
+    if _DATA_URI_RE.search(text):
+        raise HTTPException(422, "Pictures in a comment have to be uploaded, not pasted in as "
+                                 "inline data. Remove the picture and add it again (or attach "
+                                 "it under Attachments).")
+
+
 class TicketCommentBody(BaseModel):
     body: str
     internal: Optional[bool] = False
@@ -1365,7 +1415,11 @@ def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
 
 def _blank_comment(text: str) -> bool:
     """True for a reply with no words in it - the rich editor's empty
-    document is `<p></p>`, which is not something to post."""
+    document is `<p></p>`, which is not something to post. A picture is
+    content: a reply that is only a photo (the natural reply from a phone) is
+    kept, not dropped as empty."""
+    if re.search(r"<img\b[^>]*\bsrc\s*=", text or "", re.IGNORECASE):
+        return False
     return not re.sub(r"<[^>]*>|&nbsp;|\s", "", text or "")
 
 
@@ -1441,6 +1495,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     # those are the desk talking among themselves and are hidden from the
     # requester.
     _require_ticket_participant(db, user, t)
+    _check_comment_html(body.body or "")
     c, internal = _record_ticket_comment(db, t, user, body.body or "", bool(body.internal))
     db.commit()
     db.refresh(c)
@@ -1492,6 +1547,10 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     _require_ticket_participant(db, user, t)
+    # Ours or nothing: an attachment URL must point at our own storage. (An
+    # empty one is still accepted from older clients; the current screens no
+    # longer send it - a failed upload is reported, not recorded.)
+    _check_evidence_url(body.url, "url")
     a = models.TaskAttachment(id=gen_id(), task_id=ticket_id, name=body.name, size=body.size or "",
                               kind=body.kind or "other", url=body.url or "", added_at=now_iso(), added_by=user["email"])
     db.add(a)
