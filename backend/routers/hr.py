@@ -3749,6 +3749,17 @@ def _graph_set_signin(token: str, m365_id: str, enabled: bool) -> None:
         raise RuntimeError(f"sign-in toggle failed: {resp.text[:200]}")
 
 
+def _graph_revoke_sessions(token: str, m365_id: str) -> None:
+    """End every Microsoft 365 session the person already has (G3). Blocking
+    sign-in only stops NEW sign-ins - Outlook and Teams on a phone keep their
+    refresh tokens until those expire. Same app permission as the sign-in
+    toggle (User.ReadWrite.All covers revokeSignInSessions)."""
+    resp = httpx.post(f"{_GRAPH}/users/{m365_id}/revokeSignInSessions",
+                      headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"session revoke failed: {resp.text[:200]}")
+
+
 def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
     """Release the person's licenses back to the pool. Only DIRECTLY-assigned
     licenses can be removed per-user; a license that arrives via group
@@ -3862,6 +3873,14 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
             if off_block["mailboxAction"] in ("remove", "share"):
                 _graph_set_signin(token, row.m365_id, False)
                 m365["signIn"] = "blocked"
+                # Its own try: a failed revoke must not skip the license and
+                # export steps below - it is reported, and IT can press Revoke
+                # Sessions in the Entra admin center.
+                try:
+                    _graph_revoke_sessions(token, row.m365_id)
+                    m365["sessions"] = "ended"
+                except Exception as e:
+                    m365["sessions"] = f"not ended ({str(e)[:120]}) - press Revoke Sessions in Entra"
             if off_block.get("freeUpLicense"):
                 m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
@@ -3874,7 +3893,18 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
             m365["error"] = str(getattr(e, "detail", e))[:200]
     elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
         m365 = {"error": "No linked M365 account - nothing to block or free."}
-    elif did_change and row.m365_id and body.status in ("active", "onboarding"):
+    # A leaver's open Nexus tabs and phones are logged out now, not at the next
+    # token refresh (up to an hour). Runs with or without an M365 link.
+    if did_change and body.status == "offboarded" and row.work_email:
+        try:
+            import bff_session
+            dropped = bff_session.revoke_sessions(db, row.work_email)
+            if m365 is None:
+                m365 = {}
+            m365["nexusSessions"] = dropped
+        except Exception as e:
+            print(f"[hr] Nexus session revoke failed for {row.id}: {e}")
+    if did_change and row.m365_id and body.status in ("active", "onboarding"):
         # Coming back from inactive/left - restore sign-in (best-effort).
         try:
             _graph_set_signin(_graph_token(), row.m365_id, True)
