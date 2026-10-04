@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Onboarding / offboarding checklists: the profile tab renders a checklist
 // grouped by phase with owners and US dates, ticking a step calls the API, the
@@ -80,6 +80,23 @@ describe('ChecklistSettings', () => {
   it('renders the owners and the template editor', async () => {
     render(<ChecklistSettings entities={[{ id: 'co-a', name: 'Greens' }]} toastOk={() => {}} toastErr={() => {}} />);
     expect(await screen.findByText('Who Owns Each Role')).toBeInTheDocument();
+    expect(await screen.findByText('Profile Complete')).toBeInTheDocument();
+    expect(screen.getByText('When the checklist starts')).toBeInTheDocument();
+    // Read first, edit on click: the step opens its fields in place.
+    fireEvent.click(screen.getByText('Profile Complete'));
     expect(await screen.findByDisplayValue('Profile Complete')).toBeInTheDocument();
+  });
+
+  it('groups steps under numbered phases and acts on ticked steps together', async () => {
+    render(<ChecklistSettings entities={[]} toastOk={() => {}} toastErr={() => {}} />);
+    expect(await screen.findByText('Phase 1')).toBeInTheDocument();
+    expect(screen.getByText('Offer Accepted')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select every step in Offer Accepted' }));
+    expect(screen.getByText('1 step selected')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Change owner of selected steps' }), { target: { value: 'it' } });
+    // The owner tag now reads IT, the selection clears, and the change waits for Save.
+    expect(await screen.findByText('Template changes not saved yet')).toBeInTheDocument();
+    expect(screen.queryByText('1 step selected')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Phase 1: Offer Accepted' })).getByText('IT')).toBeInTheDocument();
   });
 });
