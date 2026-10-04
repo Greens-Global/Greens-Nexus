@@ -537,6 +537,9 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             db.add(emp)
             row.employee_id = emp.id
             created_employee = emp
+            # Their onboarding checklist starts with the hire (hr_checklists.py).
+            import hr_checklists
+            hr_checklists.start_on_hire(db, emp, user["email"])
 
         # One notification per stage move, to the candidate's owner (unless
         # they made the move themselves) - mirrors the items.py convention

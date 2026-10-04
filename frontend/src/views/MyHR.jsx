@@ -13,6 +13,7 @@ import { reasonLook } from '../lib/timeOffReasons';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
+import { MyChecklistSteps } from '../components/HrChecklists';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -439,6 +440,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
         </>
       ) : !profErr && <SkeletonBlocks count={1} height={74} />}
       {clockParts ? clockParts.card : clock}
+      {/* Onboarding / offboarding steps this person owns - a manager, IT or the
+          new hire ticks them here. Renders nothing when there are none. */}
+      <MyChecklistSteps />
 
       {profErr ? (
         <div className="dash-card" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: 40 }}>{profErr}</div>

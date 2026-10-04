@@ -1040,6 +1040,7 @@ export const DOCS = [
       'Every employee record in one place, always up to date.',
       'Hiring pipeline from screening to hired, with offer letters sent through Nexus Sign.',
       'Leave and time approvals in one screen.',
+      'An onboarding and offboarding checklist for every person, with an owner and a due date on each step.',
     ],
     shot: 'people',
     walkthroughs: [
@@ -1067,6 +1068,15 @@ export const DOCS = [
           'Open the request and click Approve or Reject.',
         ],
       },
+      {
+        title: 'Run an Onboarding or Offboarding Checklist',
+        steps: [
+          'Marking a candidate Hired starts their onboarding checklist. For anyone else, open their profile, click the Checklist tab, then Start Checklist.',
+          'Pick Onboarding, Offboarding or Leave Or Suspension. Offboarding asks for the exit date and the exit type; start it the day notice is received.',
+          'Each step shows its owner and due date. Click the circle to mark a step done, the block icon to mark it N/A with a reason, or the people icon to change the owner or date.',
+          'Steps marked Auto tick themselves when Nexus sees it happen, for example a finished provisioning run or the status changing to Left.',
+        ],
+      },
     ],
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status.' },
@@ -1076,13 +1086,15 @@ export const DOCS = [
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
       { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it). The tiles on top open what they count: Team Hours (hours by person and day), Timesheets to Review, Punch Exceptions (the Missing Punches list) and Time Off Pending. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
       { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Locations (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius in feet with the slider (330-1,000 ft suits most locations; under 330 ft, phone GPS drift flags people who are on-site). Distances everywhere read in miles and feet. In the Location Library, the Companies dropdown sets who punches in there: tick All, or tick the companies that use it. The radius slider sits under the map. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
+      { name: 'Checklists', desc: 'Onboarding, offboarding and leave checklists per person, on the Checklist tab of their profile. Steps are grouped by phase, each with an owner and a due date counted from the start date, the exit date or the leave start. Business-day steps skip weekends and the company\'s holidays; a date that lands on a weekend moves to the Friday before; a step whose date has already passed when the checklist starts is due that day. When the start date on the profile changes, open dates move with it. Which steps a person gets depends on their worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors) and, for offboarding, the exit type. Owners get one bell reminder per checklist when steps are due tomorrow or overdue, and see their steps under My Checklist Steps on My HR, where they can tick them without People access. Starting an offboarding checklist changes nothing in Microsoft 365 - Left still happens from Change Status.' },
+      { name: 'Checklist Settings', desc: 'People > Checklists. Pick a company (or the default for every company), then set who owns the HR, IT, Payroll, Equipment and Finance steps; Manager steps go to the person\'s reports-to and HR steps to the company\'s HR contact first. Below, edit the template rows for Onboarding, Offboarding and Leave Or Suspension: title, phase, owner, days before or after the anchor, business days, who the step is for, and whether Nexus ticks it by itself. A company that saves its own template stops using the default; Reset goes back. Checklists already started keep their steps.' },
       { name: 'Work Mode', desc: 'On an employee profile: Remote (punch from anywhere) or On-Site. For On-Site, optionally click their usual locations - any number of them. A punch inside any company location counts as at that site; their usual sites only win where two sites overlap.' },
     ],
     manager: {
       title: 'HR & Admins',
       points: [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
-        'Offboarding: hand over their tasks, set mailbox handling, then mark them Left.',
+        'Offboarding: start the offboarding checklist the day notice is received, hand over their tasks, set mailbox handling, then mark them Left.',
         'Changing a status asks for a reason, and every change is kept in history.',
         'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
       ],

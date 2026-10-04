@@ -4897,3 +4897,68 @@ class AccountingAllocationRun(Base):
     run_by  = Column(String, default="")
     run_at  = Column(String, default="")
     lines   = Column(JSON, default=dict)
+
+
+class HrChecklistTemplate(Base):
+    """The rows a new onboarding / offboarding / leave checklist is built from
+    (HR roadmap Section C). One per kind and company; entity_id '' is the
+    default every company falls back to. `items` is the ordered list of rows -
+    see hr_checklist_seed.py for the shape. Seeded on first read. New table -
+    create_all builds it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "hr_checklist_templates"
+    id         = Column(String, primary_key=True)                 # uuid
+    kind       = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    entity_id  = Column(String, default="", index=True)            # HrEntity.id ('' = every company)
+    name       = Column(String, default="")
+    items      = Column(JSON, default=list)
+    updated_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class HrChecklist(Base):
+    """One person's onboarding, offboarding or leave checklist. Due dates hang
+    off `anchor_date` (start date, exit date or leave start); when the person's
+    start date changes, open rows move with it. New table - create_all builds
+    it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "hr_checklists"
+    id          = Column(String, primary_key=True)                 # uuid
+    employee_id = Column(String, nullable=False, index=True)
+    kind        = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    template_id = Column(String, default="")
+    company     = Column(String, default="", index=True)           # HrEntity.id, frozen at start
+    anchor_date = Column(String, default="")                       # YYYY-MM-DD ('' = not known yet)
+    exit_type   = Column(String, default="")                       # offboarding only (hr_checklist_seed.EXIT_TYPES)
+    status      = Column(String, default="open", index=True)        # open | done | cancelled
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    closed_at   = Column(String, default="")
+
+
+class HrChecklistItem(Base):
+    """One row of a person's checklist. Owner and due date are resolved when
+    the checklist starts (owner_role -> a person, offset -> a date) and can be
+    changed by HR; owner_manual / due_manual keep a hand-set value from being
+    overwritten when the anchor moves. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "hr_checklist_items"
+    id           = Column(String, primary_key=True)                # uuid
+    checklist_id = Column(String, nullable=False, index=True)
+    key          = Column(String, default="")                      # template row key, e.g. ON-12
+    phase        = Column(String, default="")
+    title        = Column(String, default="")
+    hint         = Column(String, default="")
+    owner_role   = Column(String, default="")                      # hr | manager | employee | it | payroll | equipment | finance
+    owner_email  = Column(String, default="", index=True)
+    owner_manual = Column(Boolean, default=False)
+    anchor       = Column(String, default="")                      # S | X | created | none
+    offset       = Column(Integer, default=0)
+    business_days = Column(Boolean, default=False)
+    due_date     = Column(String, default="")                      # YYYY-MM-DD ('' = no date)
+    due_manual   = Column(Boolean, default=False)
+    signal       = Column(String, default="")                      # auto-tick rule (hr_checklists.SIGNALS)
+    status       = Column(String, default="open", index=True)       # open | done | na
+    done_by      = Column(String, default="")                      # email, or "Nexus" for an auto-tick
+    done_at      = Column(String, default="")
+    note         = Column(String, default="")
+    sort_order   = Column(Integer, default=0)

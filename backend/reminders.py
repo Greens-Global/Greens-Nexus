@@ -658,6 +658,12 @@ async def reminders_loop():
             await asyncio.to_thread(equipment_reminders.run_daily)
         except Exception as e:
             print(f"[reminders] equipment loop error: {e}")
+        # Onboarding / offboarding checklists: sync + one reminder per owner.
+        try:
+            import hr_checklists
+            await asyncio.to_thread(hr_checklists.run_daily)
+        except Exception as e:
+            print(f"[reminders] checklist loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:
