@@ -2888,3 +2888,5 @@ app.include_router(accounting_allocations.router)  # Accounting > Allocations: m
 from routers import accounting_loans, accounting_leasing  # noqa: E402
 app.include_router(accounting_loans.router)        # Accounting > Loans & Financing: loans set up from the ledger, DSCR review (Oct 2)
 app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)
+from routers import hr_checklists as hr_checklists_router  # noqa: E402
+app.include_router(hr_checklists_router.router)    # People > onboarding / offboarding / leave checklists per person (hr_checklists.py)

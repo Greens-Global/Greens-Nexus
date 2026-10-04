@@ -1842,6 +1842,22 @@ export const api = {
   // path as New Lease.
   getLeaseProposals:      () => req('/accounting/leasing/from-ledger/proposals'),
   createLeasesFromLedger: (body) => req('/accounting/leasing/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+  // People > onboarding / offboarding / leave checklists (hr_checklists.py).
+  // The owner of a step (manager, IT, the new hire) ticks it from My HR via
+  // getMyChecklistSteps + updateChecklistItem without an hr grant.
+  getChecklistMeta:       ()          => req('/hr/checklists/meta'),
+  getEmployeeChecklists:  (empId)     => req(`/hr/checklists/employee/${empId}`),
+  startChecklist:         (empId, d)  => req(`/hr/checklists/employee/${empId}`, { method: 'POST', body: JSON.stringify(d) }),
+  cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
+  reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
+  updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
+  getChecklistProgress:   ()          => req('/hr/checklists/progress'),
+  getChecklistTemplates:  (entityId = '') => req(`/hr/checklists/templates?entity_id=${encodeURIComponent(entityId)}`),
+  saveChecklistTemplate:  (kind, entityId, d) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
+  resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
+  getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
+  saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
