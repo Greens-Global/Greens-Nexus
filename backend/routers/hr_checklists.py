@@ -14,6 +14,7 @@ Who can do what:
 
 import json
 import uuid
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -270,6 +271,60 @@ def progress(user: dict = Depends(require_hr_read), db: Session = Depends(get_db
             "overdue": sum(1 for r in rows if r.status == "open" and r.due_date and r.due_date < today),
         })
     return {"progress": out}
+
+
+@router.get("/board")
+def board(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Every open checklist HR can see, one row each: who, what, where it
+    stands and the step that is next. People > Checklists > Overview."""
+    scope = hr_scope(user, db)
+    q = db.query(HrChecklist).filter(HrChecklist.status == "open")
+    if scope is not None:
+        q = q.filter(HrChecklist.company.in_(scope))
+    lists = q.all()
+    if not lists:
+        return {"rows": []}
+    emps = {e.id: e for e in db.query(NexusEmployee)
+            .filter(NexusEmployee.id.in_([c.employee_id for c in lists])).all()}
+    items = (db.query(HrChecklistItem)
+             .filter(HrChecklistItem.checklist_id.in_([c.id for c in lists])).all())
+    by_cl = {}
+    for i in items:
+        by_cl.setdefault(i.checklist_id, []).append(i)
+    names = hc.name_map(db, [i.owner_email for i in items])
+    today = hc._today()
+    t_iso, week_iso = today.isoformat(), (today + timedelta(days=7)).isoformat()
+    me = user["email"].lower()
+    entity_names = {e.id: e.name for e in db.query(HrEntity).all()}
+    out = []
+    for cl in lists:
+        emp = emps.get(cl.employee_id)
+        if emp is None:
+            continue   # removed from Nexus - nothing to act on
+        rows = by_cl.get(cl.id, [])
+        open_rows = sorted([r for r in rows if r.status == "open"],
+                           key=lambda r: (r.due_date or "9999-12-31", r.sort_order or 0))
+        nxt = open_rows[0] if open_rows else None
+        out.append({
+            "checklistId": cl.id, "kind": cl.kind, "kindLabel": hc.KIND_LABELS.get(cl.kind, cl.kind),
+            "employeeId": emp.id, "name": hc.full_name(emp), "jobTitle": emp.job_title or "",
+            "employeeStatus": emp.status, "company": cl.company, "companyName": entity_names.get(cl.company, ""),
+            "anchorDate": cl.anchor_date, "exitType": cl.exit_type, "createdAt": cl.created_at,
+            "total": len(rows), "done": sum(1 for r in rows if r.status in ("done", "na")),
+            "overdue": sum(1 for r in open_rows if r.due_date and r.due_date < t_iso),
+            "dueThisWeek": sum(1 for r in open_rows if r.due_date and t_iso <= r.due_date <= week_iso),
+            "unassigned": sum(1 for r in open_rows if not r.owner_email),
+            "mine": sum(1 for r in open_rows if r.owner_email == me),
+            "next": None if nxt is None else {
+                "title": nxt.title, "dueDate": nxt.due_date,
+                "overdue": bool(nxt.due_date and nxt.due_date < t_iso),
+                "ownerEmail": nxt.owner_email, "ownerName": names.get(nxt.owner_email, ""),
+                "ownerRoleLabel": hc.ROLE_LABELS.get(nxt.owner_role, nxt.owner_role),
+            },
+        })
+    # Most urgent first: anything late, then the nearest date.
+    out.sort(key=lambda r: (-r["overdue"], r["anchorDate"] or "9999-12-31", r["name"]))
+    return {"rows": out}
 
 
 # --- Templates -------------------------------------------------------------

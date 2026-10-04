@@ -270,6 +270,30 @@ class ChecklistTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_board_lists_open_checklists_most_urgent_first(self):
+        late = self._person("emp-late", start=(date.today() - timedelta(days=2)).isoformat())
+        later = self._person("emp-later", start=(date.today() + timedelta(days=40)).isoformat())
+        self._start(later)
+        db = database.SessionLocal()
+        try:
+            emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.id == late).first()
+            cl = hc.start(db, emp, "onboarding", by=HR)
+            cl.created_at = (date.today() - timedelta(days=20)).isoformat() + "T00:00:00+00:00"
+            db.flush()
+            for it in db.query(models.HrChecklistItem).filter(models.HrChecklistItem.checklist_id == cl.id).all():
+                it.due_date = hc.due_for(emp.start_date, cl.created_at[:10], it.anchor, it.offset, it.business_days, set())
+            db.commit()
+        finally:
+            db.close()
+        rows = self.client.get("/hr/checklists/board").json()["rows"]
+        self.assertEqual([r["employeeId"] for r in rows], [late, later])
+        self.assertGreater(rows[0]["overdue"], 0)
+        self.assertTrue(rows[0]["next"]["overdue"])
+        self.assertEqual(rows[1]["overdue"], 0)
+        self.assertGreater(rows[1]["mine"] + rows[1]["total"], 0)
+        _as(SCOPED)   # company B only - neither person is theirs
+        self.assertEqual(self.client.get("/hr/checklists/board").json()["rows"], [])
+
     def test_template_edit_is_validated(self):
         r = self.client.put("/hr/checklists/templates/onboarding?entity_id=" + CO_B,
                             json={"items": [{"title": "Laptop", "owner": "janitor"}]})

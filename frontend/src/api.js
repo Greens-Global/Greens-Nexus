@@ -1853,6 +1853,7 @@ export const api = {
   updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
   getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
   getChecklistProgress:   ()          => req('/hr/checklists/progress'),
+  getChecklistBoard:      ()          => req('/hr/checklists/board'),
   getChecklistTemplates:  (entityId = '') => req(`/hr/checklists/templates?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistTemplate:  (kind, entityId, d) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
