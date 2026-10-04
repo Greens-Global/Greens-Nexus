@@ -4752,6 +4752,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       const m = saved.m365;
       const bits = [];
       if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
+      if (m?.sessions) bits.push(`M365 sessions ${m.sessions}`);
+      if (m?.nexusSessions) bits.push(`logged out of Nexus on ${m.nexusSessions} device${m.nexusSessions === 1 ? '' : 's'}`);
       if (m?.licenses) bits.push(`license ${m.licenses}`);
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
