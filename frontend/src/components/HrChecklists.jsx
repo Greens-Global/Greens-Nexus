@@ -538,6 +538,184 @@ export function ChecklistSection({ employee, canEdit = false, myEmail = '', toas
   );
 }
 
+// --- Small progress chip (profile header, directory rows) ------------------
+
+// p = one /hr/checklists/progress entry: { kind, kindLabel, done, total, overdue }.
+export function ChecklistChip({ p, onClick, compact = false }) {
+  if (!p) return null;
+  const look = KIND_LOOK[p.kind] || KIND_LOOK.onboarding;
+  const late = p.overdue > 0;
+  const body = (
+    <>
+      <look.Icon size={12} aria-hidden="true" />
+      {!compact && <span>{p.kindLabel}</span>}
+      <span style={{ fontVariantNumeric: 'tabular-nums' }}>{p.done}/{p.total}</span>
+      {late && <span style={{ color: 'var(--wk-red)' }}>· {p.overdue} late</span>}
+    </>
+  );
+  const style = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', fontFamily: FONT,
+    background: late ? 'var(--wk-red-bg)' : 'var(--wk-brand-tint)', color: late ? 'var(--wk-red)' : 'var(--wk-brand)', border: 'none' };
+  const label = `${p.kindLabel} checklist: ${p.done} of ${p.total} done${late ? `, ${p.overdue} overdue` : ''}`;
+  return onClick
+    ? <button type="button" onClick={e => { e.stopPropagation(); onClick(); }} title={`${label} - open the checklist`} aria-label={label} style={{ ...style, cursor: 'pointer' }}>{body}</button>
+    : <span title={label} aria-label={label} style={style}>{body}</span>;
+}
+
+// --- People > Checklists > Overview -----------------------------------------
+
+function BoardTile({ Icon, chip, label, value, sub, active, onClick }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={active}
+      style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: FONT,
+        borderColor: active ? 'var(--wk-brand)' : 'var(--wk-line2)', boxShadow: active ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)' }}>
+      <span className={`dk-chip ${chip}`}><Icon /></span>
+      <span style={{ display: 'grid', gap: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1, color: 'var(--wk-ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>{label}</span>
+        {sub && <span style={{ fontSize: 11.5, color: 'var(--wk-dim)' }}>{sub}</span>}
+      </span>
+    </button>
+  );
+}
+
+function anchorPhrase(r) {
+  const d = daysFromToday(r.anchorDate);
+  if (!r.anchorDate) return r.kind === 'onboarding' ? 'No start date yet' : 'No date';
+  const when = d === 0 ? 'today' : d > 0 ? `in ${d} day${d === 1 ? '' : 's'}` : `${-d} day${d === -1 ? '' : 's'} ago`;
+  const verb = r.kind === 'onboarding' ? (d >= 0 ? 'Starts' : 'Started') : r.kind === 'offboarding' ? (d >= 0 ? 'Leaves' : 'Left') : 'Leave from';
+  return `${verb} ${formatDate(r.anchorDate)} · ${when}`;
+}
+
+export function ChecklistBoard({ entities = [], onOpen }) {
+  const [rows, setRows] = useState(null);   // null = loading, false = failed
+  const [kind, setKind] = useState('all');
+  const [company, setCompany] = useState('');
+  const [focus, setFocus] = useState('');   // '' | 'overdue' | 'mine' | 'unassigned'
+  const load = useCallback(() => {
+    api.getChecklistBoard().then(r => setRows(r.rows || [])).catch(() => setRows(false));
+  }, []);
+  useEffect(load, [load]);
+
+  if (rows === null) return <SkeletonBlocks count={3} height={90} />;
+  if (rows === false) {
+    return (
+      <div style={{ ...card, padding: 18, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--wk-dim)' }}>
+        <span className="dk-chip dk-chip--red"><AlertTriangle /></span>
+        <span style={{ flex: 1 }}>Could not load the checklists.</span>
+        <button onClick={load} style={ghostBtn}><RotateCcw size={13} /> Retry</button>
+      </div>
+    );
+  }
+  const count = k => rows.filter(r => r.kind === k).length;
+  const overdue = rows.reduce((n, r) => n + r.overdue, 0);
+  const mine = rows.reduce((n, r) => n + r.mine, 0);
+  const unassigned = rows.reduce((n, r) => n + r.unassigned, 0);
+  const shown = rows.filter(r => (kind === 'all' || r.kind === kind) && (!company || r.company === company)
+    && (focus === 'overdue' ? r.overdue > 0 : focus === 'mine' ? r.mine > 0 : focus === 'unassigned' ? r.unassigned > 0 : true));
+  const companiesInUse = entities.filter(en => rows.some(r => r.company === en.id));
+  const pickKind = k => { setKind(k === kind ? 'all' : k); setFocus(''); };
+  const pickFocus = f => { setFocus(f === focus ? '' : f); setKind('all'); };
+
+  return (
+    <div style={{ fontFamily: FONT }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <BoardTile Icon={UserPlus} chip="dk-chip--green" label="Onboarding" value={count('onboarding')} sub="people joining" active={kind === 'onboarding'} onClick={() => pickKind('onboarding')} />
+        <BoardTile Icon={UserMinus} chip="dk-chip--orange" label="Offboarding" value={count('offboarding')} sub="people leaving" active={kind === 'offboarding'} onClick={() => pickKind('offboarding')} />
+        <BoardTile Icon={PauseCircle} chip="dk-chip--purple" label="On Leave" value={count('inactive')} sub="leave or suspension" active={kind === 'inactive'} onClick={() => pickKind('inactive')} />
+        <BoardTile Icon={AlertTriangle} chip="dk-chip--red" label="Steps Overdue" value={overdue} sub={overdue ? 'across everyone' : 'nothing late'} active={focus === 'overdue'} onClick={() => pickFocus('overdue')} />
+        <BoardTile Icon={UserCog} chip="dk-chip--brand" label="Waiting On You" value={mine} sub={unassigned ? `${unassigned} unassigned` : 'your steps'} active={focus === 'mine'} onClick={() => pickFocus('mine')} />
+      </div>
+
+      <section style={{ ...card, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 16px', borderBottom: '1px solid var(--wk-line2)' }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)', flex: '1 1 160px' }}>
+            In Progress <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-faint)' }}>{shown.length}</span>
+          </h3>
+          {(kind !== 'all' || focus) && (
+            <button onClick={() => { setKind('all'); setFocus(''); }} style={ghostBtn}><X size={12} /> {focus === 'overdue' ? 'Overdue only' : focus === 'mine' ? 'Waiting on you' : KIND_LABEL_OF(kind)}</button>
+          )}
+          {unassigned > 0 && focus !== 'unassigned' && (
+            <button onClick={() => pickFocus('unassigned')} style={{ ...ghostBtn, color: 'var(--wk-orange)', borderColor: 'var(--wk-orange)' }}>{unassigned} Unassigned Step{unassigned === 1 ? '' : 's'}</button>
+          )}
+          {companiesInUse.length > 1 && (
+            <select value={company} onChange={e => setCompany(e.target.value)} aria-label="Company" style={{ ...inputStyle, padding: '6px 8px' }}>
+              <option value="">All Companies</option>
+              {companiesInUse.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          )}
+        </div>
+
+        {!rows.length ? (
+          <div style={{ padding: '36px 20px', textAlign: 'center', display: 'grid', justifyItems: 'center', gap: 8 }}>
+            <span className="dk-chip dk-chip--brand" style={{ width: 40, height: 40 }}><ListChecks /></span>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>No one is joining or leaving right now</div>
+            <div style={{ fontSize: 13, color: 'var(--wk-dim)', maxWidth: 440, lineHeight: 1.5 }}>
+              Mark a candidate Hired in Hiring to start an onboarding checklist, or change someone&apos;s status to Left or Inactive to start offboarding or leave.
+            </div>
+          </div>
+        ) : !shown.length ? (
+          <div style={{ padding: '24px 16px', display: 'flex', alignItems: 'center', gap: 10, color: 'var(--wk-dim)', fontSize: 13 }}>
+            <span className="dk-chip dk-chip--green"><Check /></span> Nothing matches - {focus === 'overdue' ? 'nobody is behind.' : 'try another filter.'}
+          </div>
+        ) : shown.map(r => {
+          const look = KIND_LOOK[r.kind] || KIND_LOOK.onboarding;
+          const nextDays = daysFromToday(r.next?.dueDate);
+          return (
+            <button key={r.checklistId} type="button" onClick={() => onOpen?.(r.employeeId)}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '12px 16px', background: 'none', border: 'none', borderBottom: '1px solid var(--wk-line2)', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--wk-hover)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+              {/* Who */}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 220px', minWidth: 0 }}>
+                <span style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)' }}>
+                  {initials(r.name)}
+                </span>
+                <span style={{ minWidth: 0, display: 'grid', gap: 1 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                  <span style={{ fontSize: 12, color: 'var(--wk-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {[r.jobTitle, r.companyName].filter(Boolean).join(' · ') || '-'}
+                  </span>
+                </span>
+              </span>
+              {/* What and when */}
+              <span style={{ display: 'grid', gap: 3, flex: '1 1 190px', minWidth: 0 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>
+                  <look.Icon size={13} style={{ color: `var(--wk-${r.kind === 'onboarding' ? 'green' : r.kind === 'offboarding' ? 'orange' : 'brand'})` }} />
+                  {r.kindLabel}{r.exitType ? ` · ${EXIT_LABEL[r.exitType] || r.exitType}` : ''}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{anchorPhrase(r)}</span>
+              </span>
+              {/* Progress */}
+              <span style={{ flex: '1 1 150px', minWidth: 120 }}>
+                <ProgressBar done={r.done} total={r.total} />
+              </span>
+              {/* Next step */}
+              <span style={{ display: 'grid', gap: 2, flex: '1.4 1 240px', minWidth: 0 }}>
+                {r.next ? (
+                  <>
+                    <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontWeight: 600 }}>Next Step</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.next.title}</span>
+                    <span style={{ fontSize: 12, color: r.next.overdue ? 'var(--wk-red)' : 'var(--wk-dim)', fontWeight: r.next.overdue ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.next.ownerName || r.next.ownerEmail || <span style={{ color: 'var(--wk-orange)', fontWeight: 600 }}>Unassigned</span>} ({r.next.ownerRoleLabel})
+                      {r.next.dueDate ? ` · ${relDue(nextDays)}` : ''}
+                    </span>
+                  </>
+                ) : <span style={{ fontSize: 12.5, color: 'var(--wk-green)', fontWeight: 600 }}>All steps done</span>}
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                {r.overdue > 0 && pill({ label: `${r.overdue} Overdue`, ...STEP_META.overdue })}
+                {r.mine > 0 && pill({ label: `${r.mine} Yours`, bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' })}
+                <ChevronRight size={15} color="var(--wk-faint)" aria-hidden="true" />
+              </span>
+            </button>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+const KIND_LABEL_OF = k => ({ onboarding: 'Onboarding', offboarding: 'Offboarding', inactive: 'On Leave' }[k] || 'All');
+
 // --- My HR: steps I own ----------------------------------------------------
 
 export function MyChecklistSteps() {

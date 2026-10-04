@@ -18,6 +18,14 @@ const CHECKLIST = {
       dueDate: '2026-11-02', overdue: false, signal: '', signalLabel: '', status: 'open', sortOrder: 2 },
   ],
 };
+const BOARD = [
+  { checklistId: 'cl-1', kind: 'onboarding', kindLabel: 'Onboarding', employeeId: 'emp-1', name: 'Jane Doe', jobTitle: 'Facility Manager', company: 'co-a', companyName: 'Greens',
+    anchorDate: '2099-01-05', exitType: '', total: 30, done: 7, overdue: 2, dueThisWeek: 3, unassigned: 1, mine: 1,
+    next: { title: 'Microsoft 365 Account Provisioned', dueDate: '2026-10-01', overdue: true, ownerEmail: 'it@greensglobal.com', ownerName: 'Ivy Tech', ownerRoleLabel: 'IT' } },
+  { checklistId: 'cl-2', kind: 'offboarding', kindLabel: 'Offboarding', employeeId: 'emp-2', name: 'Tom Baker', jobTitle: 'Site Supervisor', company: 'co-a', companyName: 'Greens',
+    anchorDate: '2099-01-10', exitType: 'resignation', total: 26, done: 5, overdue: 0, dueThisWeek: 1, unassigned: 0, mine: 0,
+    next: { title: 'Knowledge Handover Plan', dueDate: '2099-01-01', overdue: false, ownerEmail: '', ownerName: '', ownerRoleLabel: 'Manager' } },
+];
 const META = {
   kinds: [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave Or Suspension' }],
   roles: [{ value: 'hr', label: 'HR' }, { value: 'it', label: 'IT' }, { value: 'manager', label: 'Manager' }],
@@ -34,6 +42,7 @@ vi.mock('../api', () => ({
       checklistStatus: 'open',
     })),
     getMyChecklistSteps: vi.fn(() => Promise.resolve({ steps: [] })),
+    getChecklistBoard: vi.fn(() => Promise.resolve({ rows: BOARD })),
     getChecklistOwners: vi.fn(() => Promise.resolve({ owners: { it: 'it@greensglobal.com' }, effective: { it: 'it@greensglobal.com' }, hrContact: '' })),
     getChecklistTemplates: vi.fn(() => Promise.resolve({ templates: [
       { id: 't1', kind: 'onboarding', kindLabel: 'Onboarding', name: 'Onboarding', entityId: '', inherited: false, updatedAt: '',
@@ -43,7 +52,7 @@ vi.mock('../api', () => ({
 }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'it@greensglobal.com', name: 'Ivy Tech' }] }) }));
 
-const { ChecklistSection, MyChecklistSteps, ChecklistSettings } = await import('./HrChecklists');
+const { ChecklistSection, MyChecklistSteps, ChecklistSettings, ChecklistBoard, ChecklistChip } = await import('./HrChecklists');
 const { api } = await import('../api');
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -98,5 +107,29 @@ describe('ChecklistSettings', () => {
     expect(await screen.findByText('Template changes not saved yet')).toBeInTheDocument();
     expect(screen.queryByText('1 step selected')).not.toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Phase 1: Offer Accepted' })).getByText('IT')).toBeInTheDocument();
+  });
+});
+
+describe('ChecklistBoard', () => {
+  it('shows everyone in progress with counts and their next step, and opens a person', async () => {
+    const onOpen = vi.fn();
+    render(<ChecklistBoard entities={[{ id: 'co-a', name: 'Greens' }]} onOpen={onOpen} />);
+    expect(await screen.findByText('Jane Doe')).toBeInTheDocument();
+    expect(screen.getByText('Tom Baker')).toBeInTheDocument();
+    expect(screen.getByText('Steps Overdue')).toBeInTheDocument();
+    expect(screen.getByText('Knowledge Handover Plan')).toBeInTheDocument();
+    expect(screen.getByText('7 of 30 Done')).toBeInTheDocument();
+    // The Offboarding tile narrows the list to leavers.
+    fireEvent.click(screen.getAllByRole('button', { name: /Offboarding/ })[0]);   // the tile, before the rows
+    expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Tom Baker'));
+    expect(onOpen).toHaveBeenCalledWith('emp-2');
+  });
+});
+
+describe('ChecklistChip', () => {
+  it('reads the progress and the late steps', () => {
+    render(<ChecklistChip p={{ checklistId: 'x', kind: 'onboarding', kindLabel: 'Onboarding', done: 3, total: 30, overdue: 2 }} />);
+    expect(screen.getByLabelText('Onboarding checklist: 3 of 30 done, 2 overdue')).toBeInTheDocument();
   });
 });
