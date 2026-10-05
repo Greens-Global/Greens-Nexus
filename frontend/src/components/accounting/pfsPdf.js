@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { formatDate } from '../../lib/datetime';
 import { BAND, BRAND, INK, MARGIN, MUTED, RULE, clean, fit } from './reportPdf';
+import { pfsExtraPdf } from './pfsAffiliatedExport';
 
 // A personal financial statement as a PDF (Neil, Sep 25: "an enterprise grade,
 // a professional PFS that comes out in a beautiful PDF"). The order is the one
@@ -270,6 +271,12 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
     newPage('Executive Profile');
     wrap(font, 10, profile.executiveProfile, W - MARGIN * 2).forEach((t) => { room(0, 'Executive Profile'); if (t) page.drawText(t, { x: MARGIN, y, size: 10, font, color: INK }); y -= ROW; });
   }
+  // Oct 6 (Charmi, 10/04): Affiliated Entities and the co-borrower's executive profile (pfsAffiliatedExport.js).
+  pfsExtraPdf(statement, W - MARGIN * 2).forEach((x) => {
+    newPage(x.title);
+    if (x.cols) table(x.cols, x.rows, null, x.title);
+    if (x.text) wrap(font, 10, x.text, W - MARGIN * 2).forEach((t) => { room(0, x.title); if (t) page.drawText(t, { x: MARGIN, y, size: 10, font, color: INK }); y -= ROW; });
+  });
   room(150);
   y -= 24;
   wrap(font, 9, 'I certify that the information in this statement is true, correct and complete as of the date shown, and I authorize the lender to verify it.', W - MARGIN * 2)

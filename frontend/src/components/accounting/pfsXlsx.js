@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { formatDate } from '../../lib/datetime';
+import { pfsExtraSheets } from './pfsAffiliatedExport';
 
 // A personal financial statement as an Excel workbook (Neil, 10/01: "we
 // should have the ability to do this in excel also"). One sheet per section
@@ -235,6 +236,14 @@ export function pfsSheets({ statement, preparedBy = '' }) {
     profile.executiveProfile.split(/\n/).forEach((t) => h.push([{ text: t, s: S.text }]));
   }
   out.push(h);
+  // Oct 6 (Charmi, 10/04): Affiliated Entities and the co-borrower's executive profile (pfsAffiliatedExport.js).
+  pfsExtraSheets(statement).forEach((x) => {
+    const sh = sheet(x.name);
+    sh.title(x.title, sub);
+    if (x.cols) sh.table(x.cols, x.rows);
+    if (x.text) x.text.split(/\n/).forEach((t) => sh.push([{ text: t, s: S.text }]));
+    out.push(sh);
+  });
   return out.map(({ name: n, rows }) => ({ name: n, rows }));
 }
 

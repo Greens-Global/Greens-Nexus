@@ -161,6 +161,14 @@ export function setActAsSessionId(id) {
 function _actAsHeader() {
   return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
 }
+// PFS file lock (Charmi, 10/04): a code opens ONE file for THIS tab only, so
+// every /pfs call carries the tab's random session id (routers/pfs_access.py).
+function _pfsSessionHeader(path) {
+  if (!path.startsWith('/pfs')) return {};
+  let id;
+  try { id = sessionStorage.getItem('nexus:pfs-session') || ''; if (!id) { id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`); sessionStorage.setItem('nexus:pfs-session', id); } } catch { id = 'no-storage'; }
+  return { 'X-Pfs-Session': id };
+}
 
 // ── Keep-warm: REMOVED (Aug 1, 2026) ─────────────────────────────────────────
 // There used to be a /health ping here (boot + every 4 min per tab) papering
@@ -233,6 +241,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
           ..._actAsHeader(),
+          ..._pfsSessionHeader(path),
           ...(BFF_MODE && (options.method || 'GET').toUpperCase() !== 'GET' ? { 'X-CSRF-Token': csrfToken() } : {}),
           ...(options.headers ?? {}),
         },
@@ -1859,6 +1868,22 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+
+  // PFS file lock + Affiliated Entities + an executive profile per borrower
+  // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.
+  getPfsAccessStatus:    ()          => req('/pfs-access/status'),
+  requestPfsCode:        (id)        => req(`/pfs-access/files/${encodeURIComponent(id)}/code`, { method: 'POST' }),
+  verifyPfsCode:         (id, code)  => req(`/pfs-access/files/${encodeURIComponent(id)}/verify`, { method: 'POST', body: JSON.stringify({ code }) }),
+  lockPfsFile:           (id)        => req(`/pfs-access/files/${encodeURIComponent(id)}/lock`, { method: 'POST' }),
+  getPfsAccessLog:       (id = '')   => req(`/pfs-access/log${id ? `?profile_id=${encodeURIComponent(id)}` : ''}`),
+  getPfsAffiliatesMeta:  ()          => req('/pfs/affiliates/meta'),
+  getPfsAffiliates:      (id)        => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates`),
+  addPfsAffiliate:       (id, body)  => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates`, { method: 'POST', body: JSON.stringify(body) }),
+  updatePfsAffiliate:    (id, aid, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates/${encodeURIComponent(aid)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePfsAffiliate:    (id, aid)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates/${encodeURIComponent(aid)}`, { method: 'DELETE' }),
+  reorderPfsAffiliates:  (id, ids)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates-order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
+  getPfsExecutiveProfiles: (id)      => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`),
+  savePfsExecutiveProfile: (id, key, text) => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`, { method: 'PUT', body: JSON.stringify({ key, text }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

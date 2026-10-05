@@ -54,19 +54,21 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
 from auth import require_module_grant
 from database import SessionLocal, get_db
-from routers import accounting
+from routers import accounting, pfs_access, pfs_affiliates
 
 _read = require_module_grant("pfs", "viewer", bypass_level="owner")
 _edit = require_module_grant("pfs", "editor", bypass_level="owner")
 
-router = APIRouter(prefix="/pfs", tags=["Personal Financial Statements"], dependencies=[Depends(_read)])
+# Oct 6 (Charmi, 10/04): every route of a file ({profile_id} / {statement_id})
+# is locked until opened with a one-time code - routers/pfs_access.py.
+router = APIRouter(prefix="/pfs", tags=["Personal Financial Statements"], dependencies=[Depends(_read), Depends(pfs_access.file_gate)])
 
 KINDS = ("individual", "joint", "trust")
 
@@ -349,12 +351,13 @@ def _apply_profile(p: models.PfsProfile, body: ProfileBody, user: dict) -> None:
 
 
 @router.post("/profiles", status_code=201)
-def create_profile(body: ProfileBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
+def create_profile(body: ProfileBody, request: Request, user: dict = Depends(_edit), db: Session = Depends(get_db)):
     p = models.PfsProfile(id=str(uuid.uuid4()), name="", created_by=user["email"], created_at=_now(),
                           history=[{"question": q, "answer": "", "note": ""} for q in HISTORY_QUESTIONS])
     _apply_profile(p, body, user)
     db.add(p)
     _audit(db, user, "pfs_profile_created", p.id, {"name": p.name})
+    pfs_access.grant_now(db, user["email"], p.id, request)   # its creator opens it without a code
     db.commit()
     db.refresh(p)
     return _profile_out(p)
@@ -386,6 +389,7 @@ def delete_profile(profile_id: str, user: dict = Depends(require_module_grant("p
     they are the record of what was sent."""
     p = _get_profile(db, profile_id)
     db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id).delete(synchronize_session=False)
+    pfs_affiliates.forget(db, profile_id)   # its affiliated entities and co-borrower profile go with it; the access log stays
     _audit(db, user, "pfs_profile_deleted", p.id, {"name": p.name})
     db.delete(p)
     db.commit()
@@ -883,7 +887,7 @@ async def _statement(profile_id: str, as_of: str) -> dict:
     fetched = await asyncio.gather(*[_balances(e, as_of) for e in entities], *[_pnl(e, as_of[:4]) for e in sched])
     books = dict(zip(entities, fetched[:len(entities)]))
     pnls = {e: p for e, p in zip(sched, fetched[len(entities):]) if p.get("sections")}
-    return compute(profile, lines, as_of, books, pnls)
+    return await asyncio.to_thread(pfs_affiliates.attach, profile_id, compute(profile, lines, as_of, books, pnls))
 
 
 @router.get("/profiles/{profile_id}/statement")

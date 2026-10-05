@@ -24,6 +24,9 @@ import models
 from routers import accounting, pfs
 
 models.Base.metadata.create_all(bind=database.engine)
+# The per-file lock (Oct 6) has its own tests in test_pfs_access.py.
+from routers import pfs_access  # noqa: E402
+pfs_access.LOCK_ENABLED = False
 
 OWNER = "owner.pfs.test@greensglobal.com"
 ADMIN = "admin.pfs.test@greensglobal.com"        # administrator, no pfs grant

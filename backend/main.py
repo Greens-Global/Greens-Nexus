@@ -1843,6 +1843,13 @@ def _run_migrations():
         # Access, beside the screen-share exemption (Visesh, Oct 2).
         # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # PFS (Charmi, 10/04): Affiliated Entities, the co-borrower's executive
+        # profile, the per-file one-time codes and the file access log. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE pfs_affiliates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_profile_extras ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2890,3 +2897,6 @@ app.include_router(accounting_loans.router)        # Accounting > Loans & Financ
 app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)
 from routers import hr_checklists as hr_checklists_router  # noqa: E402
 app.include_router(hr_checklists_router.router)    # People > onboarding / offboarding / leave checklists per person (hr_checklists.py)
+from routers import pfs_access, pfs_affiliates  # noqa: E402
+app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
+app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
