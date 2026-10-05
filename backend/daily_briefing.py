@@ -864,13 +864,53 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
     return rows
 
 
+def due_task_rows(db: Session, email: str, first: str, last: str, *, label_day: bool = True) -> list:
+    """Open tasks assigned to `email` due between `first` and `last` (YYYY-MM-DD,
+    inclusive), soonest first - what is COMING due, beside the digest's
+    Overdue (Oct 2: a recurring task is one open occurrence now, so this is
+    where its next date shows up). Same row shape and in-mail actions as the
+    other task rows."""
+    email = (email or "").lower()
+    rows = []
+    found = (db.query(models.Task)
+             .filter(models.Task.completed == False,  # noqa: E712
+                     models.Task.due_on >= first, models.Task.due_on <= last + "~",
+                     models.Task.type != "section",
+                     (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all())
+    mine = sorted((t for t in found if email in set(task_assignees(t))),
+                  key=lambda t: ((t.due_on or "")[:10], t.title or ""))
+    pids = {t.project_id for t in mine if t.project_id}
+    projects = ({p.id: p.name for p in db.query(models.TaskProject).filter(models.TaskProject.id.in_(pids)).all()}
+                if pids else {})
+    for t in mine:
+        d = datetime.strptime(t.due_on[:10], "%Y-%m-%d")
+        detail = (f"Due {d.strftime('%a')} {d.strftime('%m/%d/%Y')}" if label_day else "Due today")
+        if t.status == "recurring" or (t.recurrence or {}).get("freq"):
+            detail += " - recurring"
+        if projects.get(t.project_id or ""):
+            detail += f" - {projects[t.project_id]}"
+        rows.append({
+            "title": t.title, "detail": detail,
+            "url": f"{app_url()}/tasks/mine?task={t.id}",
+            "module": "tasks", "task_id": t.id, "action_email": email, "task_open": True,
+            "project_id": t.project_id or "", "task_status": t.status or "",
+        })
+    return rows
+
+
 def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) -> dict:
     my_reports = {(e.work_email or "").lower(): e for e in
                   db.query(models.NexusEmployee)
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
+    # Tasks due today are on the day's to-do (Oct 2) - and only there, not
+    # again under Updates for You.
+    due_today = due_task_rows(db, email, briefing_date, briefing_date, label_day=False)
+    today_ids = {r["task_id"] for r in due_today}
     sections = {
-        "action_required": _red_rows(db, email, my_reports),
-        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports, briefing_date),
+        "action_required": _red_rows(db, email, my_reports) + due_today,
+        "needs_to_know":   [r for r in _amber_rows(db, email, since_iso, my_reports)
+                            if r.get("task_id") not in today_ids]
+                           + _blue_rows_manager(db, email, my_reports, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
     return {k: v for k, v in sections.items() if v}
@@ -901,6 +941,7 @@ _SECTION_META = {
     "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
     "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
+    "due_week":        ("Due This Week",                       "#1d4ed8", "Due this week"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light
@@ -914,6 +955,7 @@ _TONE = {
     "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
     "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
     "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "due_week":        ("#f5f8ff", "#e1e9fd", "#c3d3f7"),
 }
 
 _MODULE_META = {

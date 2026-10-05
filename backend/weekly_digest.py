@@ -60,7 +60,8 @@ DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 SECTION = "overdue"            # the person's own overdue tasks
 TEAM_SECTION = "team_overdue"  # manager: one line per direct report behind
 PENDING_SECTION = "pending"    # everything else still waiting on them (daily "Action Required")
-ORDER = [SECTION, PENDING_SECTION, TEAM_SECTION]
+DUE_SECTION = "due_week"       # their open tasks due in the coming week (Oct 2)
+ORDER = [SECTION, DUE_SECTION, PENDING_SECTION, TEAM_SECTION]
 
 SCAN_EVERY_SEC = 15 * 60
 _REPORT_TITLE_CAP = 3
@@ -270,19 +271,23 @@ def build_sections(db: Session, email: str, today: date) -> dict:
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()
                   if e.work_email}
     own, team = overdue_rows(db, email, today, my_reports)
-    pending = pending_rows(db, email, my_reports, {r["task_id"] for r in own})
-    return {k: v for k, v in ((SECTION, own), (PENDING_SECTION, pending), (TEAM_SECTION, team)) if v}
+    # Due This Week (Oct 2): today through six days on - where a recurring
+    # task's next date shows, now that a series keeps one open occurrence.
+    due = daily.due_task_rows(db, email, today.isoformat(), (today + timedelta(days=6)).isoformat())
+    pending = pending_rows(db, email, my_reports, {r["task_id"] for r in own + due})
+    return {k: v for k, v in ((SECTION, own), (DUE_SECTION, due), (PENDING_SECTION, pending),
+                              (TEAM_SECTION, team)) if v}
 
 
 def render(first_name: str, today: date, sections: dict, greeting: str, logo_url: str, cfg: dict) -> tuple:
     week_of = f"Week of {datetime.strptime(week_start(today), '%Y-%m-%d').strftime('%m/%d/%Y')}"
     footer = (f"You receive the Weekly Digest every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
-              "starts. It lists every task assigned to you that is past its due date, and everything else "
-              "still waiting on you.")
+              "starts. It lists every task assigned to you that is past its due date, what is due this "
+              "week, and everything else still waiting on you.")
     return daily.render_email(first_name, today.isoformat(), sections, greeting=greeting, logo_url=logo_url,
                               title="Weekly Digest", date_label=week_of,
                               intro=("These are the tasks you have overdue, along with their due dates, "
-                                     "and everything else still waiting on you."),
+                                     "what is due this week, and everything else still waiting on you."),
                               footer=footer, order=ORDER, expanded=True,
                               cta_label="Open My Tasks", cta_path="/tasks/mine",
                               cta_hint="Extend, comment on or complete each task in one click.")
