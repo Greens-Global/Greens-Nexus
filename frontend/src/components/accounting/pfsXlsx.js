@@ -1,9 +1,11 @@
 import JSZip from 'jszip';
 import { formatDate } from '../../lib/datetime';
+import { conditionOf } from './pfsCondition';
 
 // A personal financial statement as an Excel workbook (Neil, 10/01: "we
 // should have the ability to do this in excel also"). One sheet per section
-// of the statement - Summary, Borrower, Assets, Liabilities, Real Estate,
+// of the statement - Financial Condition (the bank-style first page, Oct 6),
+// Borrower, Assets, Liabilities, Real Estate,
 // Schedule E and C when there are any, History - from the same statement the
 // server computed and kept on record, so the workbook says what the PDF says.
 //
@@ -117,16 +119,39 @@ export function pfsSheets({ statement, preparedBy = '' }) {
   const sub = `${name}  ·  As of ${formatDate(asOf)}  ·  ${KIND[profile.kind] || 'Individual'} statement  ·  Prepared ${formatDate(new Date())}${preparedBy ? ` by ${preparedBy}` : ''}`;
   const out = [];
 
-  // ── Summary ───────────────────────────────────────────────────────────────
-  const summary = sheet('Summary');
-  summary.title('Personal Financial Statement', sub);
+  // ── Statement of Financial Condition (Charmi, 10/04) ──────────────────────
+  // The first sheet, as the first page of the PDF: every line of a bank's
+  // form with the share owned and the amount, live totals, net worth,
+  // contingent liabilities, and the year's income from the schedules.
+  const cond = conditionOf(statement);
+  const summary = sheet('Financial Condition');
+  summary.title('Statement of Financial Condition', sub);
+  const condCols = (head) => [{ label: head }, { label: 'Ownership' }, { label: 'Amount', num: true }];
+  const condRows = (list) => list.map((x) => [x.label, x.count ? x.ownership : '', money(x.amount)]);
   summary.heading('Assets');
-  const assetsTotalRow = summary.table([{ label: 'Assets' }, { label: 'Amount', num: true }], statement.summary.assets.map((x) => [x.label, money(x.amount)]), { totalLabel: 'Total Assets', sumCols: [1] });
+  const assetsTotalRow = summary.table(condCols('Assets'), condRows(cond.assets), { totalLabel: 'Total Assets', sumCols: [2] });
   summary.blank();
   summary.heading('Liabilities');
-  const liabTotalRow = summary.table([{ label: 'Liabilities' }, { label: 'Amount', num: true }], statement.summary.liabilities.map((x) => [x.label, money(x.amount)]), { totalLabel: 'Total Liabilities', sumCols: [1] });
+  const liabTotalRow = summary.table(condCols('Liabilities'), condRows(cond.liabilities), { totalLabel: 'Total Liabilities', sumCols: [2] });
   summary.blank();
-  summary.push([{ text: 'Net Worth', s: S.bold }, { f: `${ref(1, assetsTotalRow)}-${ref(1, liabTotalRow)}`, num: money(statement.totals.netWorth), s: S.numGrand }]);
+  const nwRow = summary.push([{ text: 'Net Worth', s: S.bold }, {}, { f: `${ref(2, assetsTotalRow)}-${ref(2, liabTotalRow)}`, num: money(statement.totals.netWorth), s: S.numGrand }]);
+  summary.push([{ text: 'Total Liabilities and Net Worth', s: S.muted }, {}, { f: `${ref(2, liabTotalRow)}+${ref(2, nwRow)}`, num: money(cond.totals.liabilities + statement.totals.netWorth), s: S.num }]);
+  summary.blank();
+  summary.heading('Contingent Liabilities');
+  if (cond.contingent.length) {
+    summary.table([{ label: 'Guarantee' }, { label: 'Lender' }, { label: 'Owned %', pct: true }, { label: 'Amount', num: true }],
+      cond.contingent.map((x) => [x.label, x.institution || '', pct(x.ownershipPct), money(x.amount)]), { totalLabel: 'Total Contingent Liabilities', sumCols: [3] });
+  } else {
+    const a = cond.contingentAnswer;
+    summary.push([{ text: `Guarantor, co-maker or endorser on any debt: ${a?.answer === 'Yes' ? `Yes${a.note ? ` - ${a.note}` : ''}` : a?.answer === 'No' ? 'None.' : 'None listed.'}`, s: S.muted }]);
+  }
+  if (cond.income) {
+    summary.blank();
+    summary.heading(`Annual Income ${cond.income.year || ''}`.trim());
+    summary.table([{ label: 'Income' }, { label: '' }, { label: 'Amount', num: true }], cond.income.lines.map((x) => [x.label, '', money(x.amount)]), { totalLabel: 'Total Annual Income', sumCols: [2] });
+  }
+  summary.blank();
+  summary.push([{ text: 'Amounts are at the share owned.', s: S.muted }]);
   out.push(summary);
 
   // ── Borrower ──────────────────────────────────────────────────────────────
