@@ -4962,3 +4962,46 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+
+
+class AccountingLoanSchedule(Base):
+    """The amortization schedule of one loan (Charmi and Neil, 10/06: "Add in
+    Amortization schedule for Commercial loans, allow us to build it or upload
+    an existing file from the bank"). One per loan: `loan_id` is the fin_loans
+    row id in the accounting app (the loan itself never lives here), and
+    `entity_code` is the loan's entity when it was saved, so a person limited
+    to certain entities only lists schedules of those. `source` is 'build'
+    (`params` = the inputs it was built from) or 'upload' (`file_url` = the
+    bank's file in the PRIVATE task-files bucket, `column_map` = which column
+    was which). `rows` is [{n, date, payment, interest, principal, balloon,
+    balance}]. New table - create_all builds it; RLS must be enabled on dev
+    and prod at release."""
+    __tablename__ = "accounting_loan_schedules"
+    id          = Column(String, primary_key=True)                # uuid
+    loan_id     = Column(String, nullable=False, unique=True, index=True)
+    entity_code = Column(String, default="", index=True)
+    source      = Column(String, default="build")                 # build | upload
+    params      = Column(JSON, default=dict)
+    rows        = Column(JSON, default=list)
+    column_map  = Column(JSON, default=dict)
+    file_url    = Column(String, default="")
+    file_name   = Column(String, default="")
+    saved_by    = Column(String, default="")
+    saved_at    = Column(String, default="")
+
+
+class AccountingLoanStressScenario(Base):
+    """A saved rate-shock scenario on one loan (Charmi and Neil, 10/06: "if
+    the interest rate were to go up, we should be able to calculate if the
+    income will support the loan"). `params` is what was typed (shock in bps,
+    NOI, covenant, floating or fixed, amortization); the figures are always
+    recomputed on screen from them. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_stress_scenarios"
+    id          = Column(String, primary_key=True)                # uuid
+    loan_id     = Column(String, nullable=False, index=True)
+    entity_code = Column(String, default="", index=True)
+    name        = Column(String, default="")
+    params      = Column(JSON, default=dict)
+    saved_by    = Column(String, default="")
+    saved_at    = Column(String, default="")
