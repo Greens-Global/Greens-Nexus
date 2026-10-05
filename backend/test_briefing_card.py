@@ -128,13 +128,16 @@ class CardShapeTests(unittest.TestCase):
             self.assertEqual(q["d"][0], DATE)
             self.assertEqual(q["s"][0], SINCE)
             if q["kind"][0] == "task":
-                self.assertIn(q["action"][0], ("comment", "react", "status", "complete"))
+                self.assertIn(q["action"][0], ("comment", "react", "toggle"))
 
     def test_decisions_and_task_actions_are_all_offered(self):
         titles = {n.get("title") for n in self.nodes}
-        for label in ("Approve", "Reject", "Confirm Reject", "Comment", "React", "Change Status",
-                      "Mark Complete", "Open in Nexus", "Open Nexus"):
+        for label in ("Approve", "Reject", "Confirm Reject", "Comment", "React", "Toggle Completion",
+                      "Open", "Open Nexus"):
             self.assertIn(label, titles)
+        # Neil, 10/01: no Change Status, and "Open" rather than "Open in Nexus".
+        for label in ("Change Status", "Mark Complete", "Open in Nexus"):
+            self.assertNotIn(label, titles)
         # One Approve per decision: task approval, ticket approval, two time-off requests.
         self.assertEqual(sum(1 for n in self.nodes if n.get("title") == "Approve"), 4)
 

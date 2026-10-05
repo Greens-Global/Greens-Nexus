@@ -155,6 +155,19 @@ def _perform(request: Request, db, *, user: dict, task_id: str, action: str, tex
     if action == "complete":
         tasks_router.update_task(task_id, tasks_router.TaskUpdate(completed=True), bt, user=user, db=db)
         return "Marked complete"
+    if action == "toggle":
+        # Toggle Completion (Neil, Oct 1 - replaces Mark Complete and Change
+        # Status in the briefing). `text` carries the state the person saw
+        # when they clicked ("done" / "open"), so a double submit or a stale
+        # email never flips the task back; with no text it simply flips.
+        t = db.query(models.Task).filter(models.Task.id == task_id).first()
+        if not t:
+            raise HTTPException(404, "Task not found")
+        want_done = {"done": True, "open": False}.get(text, not bool(t.completed))
+        if bool(t.completed) == want_done:
+            return "Already complete" if want_done else "Already open"
+        tasks_router.update_task(task_id, tasks_router.TaskUpdate(completed=want_done), bt, user=user, db=db)
+        return "Marked complete" if want_done else "Reopened"
     if action == "status":
         t = db.query(models.Task).filter(models.Task.id == task_id).first()
         valid = {k for k, _ in tma.status_options(db, getattr(t, "project_id", "") or "")}
@@ -297,7 +310,7 @@ def _card_error(message: str, status: int) -> JSONResponse:
 
 _PAGE_TITLES = {"comment": "Add Comment", "reply": "Reply", "status": "Change Status",
                 "complete": "Mark Complete", "react": "React", "mute": "Mute This Task",
-                "extend": "Extend Due Date"}
+                "extend": "Extend Due Date", "toggle": "Toggle Completion"}
 
 
 def _page(title: str, inner: str) -> HTMLResponse:
@@ -346,7 +359,7 @@ def action_page(token: str = "", do: str = "comment"):
             return _page("React", _task_header(t) +
                         "<p style='margin:0 0 12px;font-size:14px'>Tap a reaction:</p>"
                         f"<div>{btns}</div>")
-        field = ""
+        field, submit = "", _PAGE_TITLES[do]
         if do in ("comment", "reply"):
             field = ("<textarea name='text' rows='5' required autofocus style='width:100%;box-sizing:border-box;"
                      "border:1px solid #d1d5db;border-radius:8px;padding:10px;font:inherit;font-size:14px'"
@@ -361,6 +374,13 @@ def action_page(token: str = "", do: str = "comment"):
                      "You will still be emailed if someone mentions you on it.</p>")
         elif do == "complete":
             field = "<p style='margin:0;font-size:14px'>Mark this task as complete?</p>"
+        elif do == "toggle":
+            # Whichever way the task is NOW: complete it, or reopen it.
+            done = bool(t.completed)
+            submit = "Reopen Task" if done else "Mark Complete"
+            field = (f"<input type='hidden' name='text' value='{'open' if done else 'done'}'>"
+                     "<p style='margin:0;font-size:14px'>"
+                     + ("This task is complete. Reopen it?" if done else "Mark this task as complete?") + "</p>")
         elif do == "extend":
             import task_due
             from datetime import date, timedelta
@@ -380,7 +400,7 @@ def action_page(token: str = "", do: str = "comment"):
         form = (f"<form method='post' action='/mail-actions/page'>"
                 f"<input type='hidden' name='token' value='{escape(token)}'>"
                 f"<input type='hidden' name='action' value='{escape(do)}'>{field}"
-                f"<p style='margin:16px 0 0'><button type='submit' style='{_BTN}'>{escape(_PAGE_TITLES[do])}</button></p></form>")
+                f"<p style='margin:16px 0 0'><button type='submit' style='{_BTN}'>{escape(submit)}</button></p></form>")
         return _page(_PAGE_TITLES[do], _task_header(t) + form)
     finally:
         db.close()

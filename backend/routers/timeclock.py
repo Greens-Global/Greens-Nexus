@@ -9002,6 +9002,26 @@ def _timeoff_shift_conflicts(db: Session, row: TimeOffRequest) -> list:
     return rows
 
 
+def _tell_reports_manager_off(db: Session, row, title: str, verb: str) -> None:
+    """A manager's time off reaches the people who report to them (Neil, call
+    of 10/01: "If a manager is off, then the direct reports under them should
+    also get an update ... give those notifications early so that people are
+    not guessing"). Dates only - the kind of leave stays between the manager
+    and whoever approved it. One bell per report; the Daily Briefing and
+    Weekly Digest repeat it as the day comes closer."""
+    mgr = (row.employee_email or "").strip().lower()
+    if not mgr:
+        return
+    reports = [(e.work_email or "").strip().lower() for e in db.query(NexusEmployee)
+               .filter(func.lower(NexusEmployee.manager_email) == mgr).all()]
+    name = _display_name(db, mgr)
+    when = (f"{_us_span(row.start_date, row.end_date)}"
+            f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}")
+    for rep in sorted({r for r in reports if r and r != mgr}):
+        _hr_notify(db, rep, title, f"Your manager {name} {verb} {when}.", ref_id=row.id,
+                   requested_by=mgr, action={"view": "timeclock", "sub": ""})
+
+
 @router.patch("/timeoff/{req_id}")
 def decide_timeoff(req_id: str, body: TimeOffDecision,
                    user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -9054,6 +9074,8 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
                f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')} was {body.status}."
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    if body.status == "approved":
+        _tell_reports_manager_off(db, row, "Your manager is off", "is off")
     db.commit()
     out = _ser_timeoff(row, priv=priv)
     out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
@@ -9084,5 +9106,6 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
                                 f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+        _tell_reports_manager_off(db, row, "Your manager's time off is cancelled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))

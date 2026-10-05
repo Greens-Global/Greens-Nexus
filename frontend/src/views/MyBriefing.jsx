@@ -4,8 +4,9 @@
 // buttons, and classic Outlook ignores click-to-collapse), so the email stays a
 // read-only summary and links here. This page is the interactive version: the
 // same three sections and module tables, sections that open and close, and
-// Approve / Reject / Comment / React / Change Status / Mark Complete that run
-// in place. Content and actions come from backend/routers/daily_briefing.py
+// Approve / Reject / Comment / React / Toggle Completion that run in place -
+// on one short line per row (Neil, 10/01: no Change Status, "Open" not "Open
+// in Nexus", tight enough to scan fifty updates). Content and actions come from backend/routers/daily_briefing.py
 // (/daily-briefing/me and /me/act), which reuse the email's own content
 // builder and the same action code the email links use.
 import { useEffect, useState, useCallback } from 'react';
@@ -29,9 +30,9 @@ const SUMMARY_LABEL = {
 };
 const MODULE_LABEL = {
   tasks: 'Tasks', tickets: 'Tickets', documents: 'Documents', time_off: 'Time Off',
-  timecard: 'Time Card', items: 'Items', team: 'Team',
+  timecard: 'Time Card', shifts: 'Shifts', items: 'Items', team: 'Team',
 };
-const MODULE_ORDER = ['tasks', 'tickets', 'documents', 'time_off', 'timecard', 'items', 'team'];
+const MODULE_ORDER = ['tasks', 'tickets', 'documents', 'time_off', 'timecard', 'shifts', 'items', 'team'];
 const ROWS_SHOWN = 5;
 const COLLAPSE_KEY = 'nexus:my-briefing:collapsed';
 
@@ -57,6 +58,8 @@ const btnBase = {
 };
 const solid = (v) => ({ ...btnBase, background: hsl(v), borderColor: hsl(v), color: '#fff' });
 const outline = { ...btnBase, background: 'var(--card)', borderColor: 'var(--line)', color: 'var(--ink)' };
+// The row's own actions: small text links on one line, not a row of buttons.
+const rowLink = { ...btnBase, padding: '2px 0', background: 'none', border: 'none', color: hsl('--color-green'), fontSize: 12.5 };
 const textInput = {
   fontFamily: FONT, fontSize: 13, width: '100%', boxSizing: 'border-box', padding: '8px 10px',
   borderRadius: 6, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)',
@@ -195,7 +198,7 @@ function ModuleTable({ label, rows, color, reactions, onChanged }) {
 }
 
 function Row({ row, color, first, reactions, onChanged }) {
-  const [panel, setPanel] = useState('');       // '', comment, react, status, reject:<id>
+  const [panel, setPanel] = useState('');       // '', comment, react, reject:<id>
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);   // { ok, message }
@@ -215,7 +218,7 @@ function Row({ row, color, first, reactions, onChanged }) {
   const task = (action, value = '') => act({ kind: 'task', id: row.taskId, action, text: value });
   // Nexus requires a reason to reject a ticket request; the other decisions need none.
   const reject = (d) => (d.kind === 'ticket_approval' ? setPanel(`reject:${d.id}`) : decide(d, 'reject'));
-  const openPanel = (p) => { setPanel((cur) => (cur === p ? '' : p)); setText(p === 'status' ? (row.taskStatus || row.statusOptions?.[0]?.value || '') : ''); };
+  const openPanel = (p) => { setPanel((cur) => (cur === p ? '' : p)); setText(''); };
 
   const decisionButtons = (d) => (
     <>
@@ -262,18 +265,22 @@ function Row({ row, color, first, reactions, onChanged }) {
         </div>
       ))}
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-        {row.decision && decisionButtons(row.decision)}
-        {row.taskId && (
-          <>
-            <button style={outline} onClick={() => openPanel('comment')}>Comment</button>
-            <button style={outline} onClick={() => openPanel('react')}>React</button>
-            {row.taskOpen && row.statusOptions?.length > 0 && <button style={outline} onClick={() => openPanel('status')}>Change Status</button>}
-            {row.taskOpen && <button disabled={busy} style={outline} onClick={() => task('complete')}>Mark Complete</button>}
-          </>
-        )}
-        {row.path && <a href={row.path} style={{ ...solid('--color-green'), textDecoration: 'none', display: 'inline-block' }}>Open in Nexus</a>}
-      </div>
+      {row.decision && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>{decisionButtons(row.decision)}</div>}
+      {(row.taskId || row.path) && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
+          {row.taskId && (
+            <>
+              <button style={rowLink} onClick={() => openPanel('comment')}>Comment</button>
+              <button style={rowLink} onClick={() => openPanel('react')}>React</button>
+              {(row.taskOpen || row.taskDone) && (
+                <button disabled={busy} style={rowLink} onClick={() => task('toggle', row.taskDone ? 'open' : 'done')}
+                  title={row.taskDone ? 'Reopen this task' : 'Mark this task complete'}>Toggle Completion</button>
+              )}
+            </>
+          )}
+          {row.path && <a href={row.path} style={{ ...rowLink, textDecoration: 'none' }}>Open</a>}
+        </div>
+      )}
       {row.decision && rejectPanel(row.decision)}
 
       {panel === 'comment' && (
@@ -290,15 +297,6 @@ function Row({ row, color, first, reactions, onChanged }) {
           {reactions.map((e) => (
             <button key={e} disabled={busy} aria-label={`React ${e}`} style={{ ...outline, fontSize: 16, padding: '4px 10px' }} onClick={() => task('react', e)}>{e}</button>
           ))}
-        </div>
-      )}
-      {panel === 'status' && (
-        <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={text} onChange={(e) => setText(e.target.value)} style={{ ...textInput, width: 'auto', minWidth: 180 }}>
-            {row.statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button disabled={busy} style={solid('--color-green')} onClick={() => task('status', text)}>Update Status</button>
-          <button style={outline} onClick={() => setPanel('')}>Cancel</button>
         </div>
       )}
 
