@@ -10,6 +10,8 @@ import { ExportMenu, control } from './reportControls';
 import { downloadBlob, iso, priorMonthEnd } from './reportModel';
 import SendReportDialog from './SendReportDialog';
 import { conditionOf } from './pfsCondition';
+import PfsAffiliated, { PfsCoExecutiveProfile } from './PfsAffiliated';
+import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -52,6 +54,7 @@ import { conditionOf } from './pfsCondition';
 
 const SECTIONS = [
   { key: 'statement', label: 'Statement' },
+  { key: 'affiliated', label: 'Affiliated Entities' },   // Oct 6 (Charmi, 10/04) - PfsAffiliated.jsx
   { key: 'borrower', label: 'Borrower' },
   { key: 'asset', label: 'Assets' },
   { key: 'liability', label: 'Liabilities' },
@@ -100,6 +103,12 @@ export default function PfsTab({ canEdit = false }) {
   const [sending, setSending] = useState(null);     // 'email' | 'egnyte' - the Export menu's send dialogs
   const [note, setNote] = useState('');
   const seq = useRef(0);
+  // Oct 6 (Charmi, 10/04): every file is locked until opened with a one-time
+  // code (PfsLock.jsx; the server enforces it). The Access Log for editors.
+  const locks = usePfsLocks();
+  const { markLocked } = locks;
+  const fileOpen = locks.isOpen(openId);
+  const [showLog, setShowLog] = useState(false);
 
   const loadProfiles = useCallback(() => api.getPfsProfiles()
     .then((list) => { setProfiles(list || []); return list || []; })
@@ -120,10 +129,10 @@ export default function PfsTab({ canEdit = false }) {
     const p = api.getPfsProfile(id).then((x) => { if (mine === seq.current) setProfile(x); return x; });
     return Promise.all([p, api.getPfsStatement(id, date), api.getPfsStatements(id)])
       .then(([x, s, list]) => { if (mine === seq.current) { setProfile(x); setStatement(s); setPast(list || []); } })
-      .catch((e) => { if (mine === seq.current) setError(e?.message || 'Could not load the statement.'); })
+      .catch((e) => { if (mine !== seq.current) return; if (isLockedError(e)) markLocked(id); else setError(e?.message || 'Could not load the statement.'); })
       .finally(() => { if (mine === seq.current) setWorking(false); });
-  }, []);
-  useEffect(() => { setNote(''); refresh(openId, asOf); }, [openId, asOf, refresh]);
+  }, [markLocked]);
+  useEffect(() => { setNote(''); refresh(fileOpen ? openId : '', asOf); }, [openId, asOf, refresh, fileOpen]);
 
   const categories = useMemo(() => ({
     asset: meta?.assetCategories || [], liability: meta?.liabilityCategories || [], real_estate: meta?.realEstateKinds || [],
@@ -213,8 +222,8 @@ export default function PfsTab({ canEdit = false }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
             <strong style={{ fontSize: '0.86rem' }}>Guarantors</strong>
             {canEdit && (
-              <button type="button" className="secondary-btn" onClick={() => setCreating(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
-                <Plus size={13} /> New Guarantor
+              <button type="button" className="secondary-btn" onClick={() => setCreating(true)} aria-label="New Guarantor" title="New Guarantor" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+                <Plus size={13} /> New
               </button>
             )}
           </div>
@@ -223,15 +232,21 @@ export default function PfsTab({ canEdit = false }) {
             {(profiles || []).map((p) => (
               <button key={p.id} type="button" onClick={() => { setOpenId(p.id); setSection('statement'); }} aria-pressed={p.id === openId}
                 style={{ textAlign: 'left', border: 'none', borderRadius: 8, padding: '7px 9px', cursor: 'pointer', font: 'inherit', background: p.id === openId ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: 'var(--text-primary)', opacity: p.archived ? 0.6 : 1 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                  {locks.enabled && <PfsLockIcon open={locks.isOpen(p.id)} />}
+                </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{KINDS[p.kind] || 'Individual'}{p.archived ? ' · archived' : ''}</div>
               </button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
             <Lock size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>Only owners and people granted this screen can open it; everyone let in sees every guarantor. Every open, change and statement is written to the audit log.</span>
+            <span>Only owners and people granted this screen can open it. Each file opens with a one-time code emailed to you, for 30 minutes in this tab, and its borrowers are told. Every open, change and statement is logged.</span>
           </div>
+          {canEdit && (
+            <button type="button" className="acct-drill" onClick={() => setShowLog(true)} style={{ fontSize: '0.74rem', marginTop: 6 }}>Access Log</button>
+          )}
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
             Add each guarantor once; a joint statement lists both names.
           </div>
@@ -239,9 +254,10 @@ export default function PfsTab({ canEdit = false }) {
 
         <div style={{ minWidth: 0, display: 'grid', gap: 10 }}>
           {error && <div style={bad}>{error}</div>}
-          {!profile && !working && <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{canEdit ? 'Start with New Guarantor.' : 'No guarantor has been set up yet.'}</div>}
-          {!profile && working && <SkeletonBlocks count={3} />}
-          {profile && (
+          {openId && !fileOpen && <PfsUnlockPanel key={openId} file={(profiles || []).find((p) => p.id === openId) || { id: openId }} onUnlocked={locks.markOpen} />}
+          {(!openId || fileOpen) && !profile && !working && <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{canEdit ? 'Start with New Guarantor.' : 'No guarantor has been set up yet.'}</div>}
+          {fileOpen && !profile && working && <SkeletonBlocks count={3} />}
+          {profile && fileOpen && (
             <>
               <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <div style={{ minWidth: 0, marginRight: 6 }}>
@@ -256,6 +272,7 @@ export default function PfsTab({ canEdit = false }) {
                   ))}
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
                   <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
                   {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
@@ -297,6 +314,8 @@ export default function PfsTab({ canEdit = false }) {
                 )}
                 {section === 'schedules' && statement && <Schedules statement={statement} profile={profile} />}
                 {section === 'history' && <History profile={profile} canEdit={canEdit} onSave={saveProfile} />}
+                {section === 'history' && <div style={{ marginTop: 10 }}><PfsCoExecutiveProfile key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} /></div>}
+                {section === 'affiliated' && <PfsAffiliated key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} />}
               </div>
             </>
           )}
@@ -317,8 +336,9 @@ export default function PfsTab({ canEdit = false }) {
       )}
       {creating && (
         <NewGuarantor onClose={() => setCreating(false)}
-          onCreate={(body) => api.createPfsProfile(body).then((p) => loadProfiles().then(() => { setCreating(false); setOpenId(p.id); setSection('borrower'); }))} />
+          onCreate={(body) => api.createPfsProfile(body).then((p) => loadProfiles().then(() => { locks.markOpen(p.id, new Date(Date.now() + 30 * 60_000).toISOString()); setCreating(false); setOpenId(p.id); setSection('borrower'); }))} />
       )}
+      {showLog && <PfsAccessLog files={profiles || []} initialFileId={openId} onClose={() => setShowLog(false)} />}
     </AsyncSection>
   );
 }
@@ -603,7 +623,7 @@ function History({ profile, canEdit, onSave }) {
         </div>
       </div>
       <div>
-        <label style={label} htmlFor="pfs-exec">Executive Profile</label>
+        <label style={label} htmlFor="pfs-exec">Executive Profile - {profile.name}</label>
         <textarea id="pfs-exec" value={text} disabled={!canEdit} maxLength={6000} rows={9} onChange={(e) => setText(e.target.value)}
           placeholder="Who they are, what they have built, and their history with lenders."
           style={{ ...control, width: '100%', height: 'auto', padding: 9, lineHeight: 1.5, resize: 'vertical' }} />

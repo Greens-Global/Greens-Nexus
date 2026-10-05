@@ -5037,3 +5037,80 @@ class RecurringExpense(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+class PfsAffiliate(Base):
+    """One entity a PFS's borrowers own or hold an interest in (Charmi, 10/04:
+    "the banker wants ownership and beneficial ownership interest in all
+    entities"): the Affiliated Entities tab. Kept per statement file (a
+    pfs_profiles row, both borrowers of a joint statement). `ownership` is
+    {"primary": pct, "co": pct} - the borrower's and the co-borrower's share.
+    Only the last four digits of an EIN, never more (routers/pfs_affiliates.py
+    refuses a longer number). New table - create_all builds it; RLS by the
+    startup sweep and main.py."""
+    __tablename__ = "pfs_affiliates"
+    id             = Column(String, primary_key=True)    # uuid
+    profile_id     = Column(String, index=True, nullable=False)
+    sort           = Column(Integer, default=0)
+    name           = Column(String, default="")
+    entity_type    = Column(String, default="other")     # single_member_llc | multi_member_llc | general_partnership | limited_partnership | c_corporation | s_corporation | trust | other
+    ein_last4      = Column(String, default="")
+    state          = Column(String, default="")
+    ownership      = Column(JSON, default=dict)
+    beneficial_pct = Column(Float, nullable=True)
+    role           = Column(String, default="")          # Member, Manager, Partner, Shareholder, Trustee, Beneficiary...
+    notes          = Column(String, default="")
+    ledger_entity  = Column(String, default="")          # Intacct entity code when picked from the ledger list
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class PfsProfileExtra(Base):
+    """What a PFS file holds beyond pfs_profiles, one row per file (Charmi,
+    10/04: "Executive profile should be there for both borrowers") - the
+    co-borrower's executive profile, saved on its own. The borrower's stays in
+    pfs_profiles.executive_profile. New table - RLS by the startup sweep and
+    main.py."""
+    __tablename__ = "pfs_profile_extras"
+    profile_id           = Column(String, primary_key=True)
+    co_executive_profile = Column(Text, default="")
+    updated_by           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
+class PfsAccessChallenge(Base):
+    """A one-time code that opens ONE PFS file for ONE person in ONE browser
+    session (Charmi, 10/04: "it should ask for OTP to the file and not to the
+    module"). The code is never stored: `code_hash` is sha256 over
+    "id:code", salted with an id the caller never sees. A used code becomes
+    the grant: `granted_until` is when the file closes again (30 minutes).
+    `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
+    routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
+    __tablename__ = "pfs_access_challenges"
+    id            = Column(String, primary_key=True)     # uuid - also the hash salt
+    profile_id    = Column(String, index=True, nullable=False)
+    email         = Column(String, index=True, nullable=False)   # the viewer the code went to
+    session_hash  = Column(String, default="")
+    target        = Column(String, default="")           # the address it was sent to
+    code_hash     = Column(String, default="")           # '' = opened without a code (the file's creator)
+    attempts      = Column(Integer, default=0)
+    created_at    = Column(String, default="")
+    expires_at    = Column(String, default="")
+    consumed_at   = Column(String, default="")
+    granted_until = Column(String, default="", index=True)
+
+
+class PfsAccessLog(Base):
+    """Who opened which PFS file, when, and what they did (Charmi, 10/04: "it
+    should maintain a log"): otp_sent, unlocked, failed, viewed, exported,
+    locked, notified (the borrowers were emailed). Never a figure, never a
+    code. Kept for good - nothing deletes these rows. New table - RLS by the
+    startup sweep and main.py."""
+    __tablename__ = "pfs_access_log"
+    id         = Column(String, primary_key=True)        # uuid
+    profile_id = Column(String, index=True, nullable=False)
+    email      = Column(String, index=True, default="")
+    action     = Column(String, default="")
+    at         = Column(String, index=True, default="")
+    ip         = Column(String, default="")
+    details    = Column(JSON, default=dict)

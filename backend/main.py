@@ -1850,6 +1850,13 @@ def _run_migrations():
         # Accounting > MRE, monthly recurring expenses (Oct 6). New table - RLS
         # per CLAUDE.md.
         "ALTER TABLE recurring_expenses ENABLE ROW LEVEL SECURITY",
+        # PFS (Charmi, 10/04): Affiliated Entities, the co-borrower's executive
+        # profile, the per-file one-time codes and the file access log. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE pfs_affiliates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_profile_extras ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2901,3 +2908,6 @@ from routers import accounting_loan_plans  # noqa: E402
 app.include_router(accounting_loan_plans.router)   # Accounting > Loans: amortization schedules + rate stress scenarios per loan (Oct 6)
 from routers import accounting_mre  # noqa: E402
 app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)
+from routers import pfs_access, pfs_affiliates  # noqa: E402
+app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
+app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
