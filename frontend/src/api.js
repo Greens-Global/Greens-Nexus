@@ -1837,6 +1837,15 @@ export const api = {
   createLoansFromLedger: (body) => req('/accounting/loans/create', { method: 'POST', body: JSON.stringify(body) }),
   getLoanReview:         (month) => req(`/accounting/loans/review?month=${encodeURIComponent(month)}`),
   updateLoan:            (id, month, body) => req(`/accounting/loans/${encodeURIComponent(id)}?month=${encodeURIComponent(month)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // Oct 6 (Charmi and Neil, 10/03-10/04): the review for a window (from / to,
+  // as of today by default) and the entities picked; the scan of the active
+  // entities as of a date; a manual loan; the accounts a loan can be wired
+  // to; and the ledger lines behind a loan (drill-down and payment history).
+  getLoansReview:        ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`),
+  getLoanProposalsAsOf:  ({ asof = '', entities = [], historical = false } = {}) => req(`/accounting/loans/proposals?${new URLSearchParams({ ...(asof ? { asof } : {}), ...(entities.length ? { entities: entities.join(',') } : {}), ...(historical ? { historical: 'true' } : {}) })}`),
+  createManualLoan:      (body) => req('/accounting/loans/manual', { method: 'POST', body: JSON.stringify(body) }),
+  getLoanAccounts:       (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`),
+  getLoanHistory:        (id, { from = '', to = '', interest = '' } = {}) => req(`/accounting/loans/${encodeURIComponent(id)}/history?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(interest ? { interest } : {}) })}`),
   // MRI > Leasing > Set Up From the Ledger: one lease per (entity, customer)
   // with rent postings in the last twelve months, created through the same
   // path as New Lease.

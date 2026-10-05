@@ -1843,6 +1843,10 @@ def _run_migrations():
         # Access, beside the screen-share exemption (Visesh, Oct 2).
         # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # Accounting > Loans & Financing (Oct 6): interest account, original
+        # principal, Internal / External and Egnyte folders per loan. New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

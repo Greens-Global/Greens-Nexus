@@ -4962,3 +4962,27 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+
+
+class AccountingLoanSetting(Base):
+    """What Nexus keeps beside one loan of Accounting > Loans & Financing
+    (Charmi and Neil, 10/03-10/04). The loan itself is a fin_loans row in the
+    accounting app (lender, number, entity, principal GL account, rate,
+    maturity, monthly payment) - that table takes no new columns from Nexus,
+    so the wiring and the links Nexus adds live here, keyed on its id: the
+    interest expense account the interest is read from ('' = matched
+    automatically), the original principal typed over the ledger's first
+    credit (None = the ledger's), Internal / External (None = by kind:
+    intercompany is internal), and the Egnyte folders of the loan documents
+    and the lender's statements. New table - create_all builds it; RLS must
+    be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_settings"
+    loan_id            = Column(String, primary_key=True)          # fin_loans.id (uuid)
+    entity_code        = Column(String, default="", index=True)    # for reference; the loan row is the truth
+    interest_account   = Column(String, default="")                # GL code; '' = automatic
+    original_principal = Column(Float, nullable=True)              # typed over the ledger's; None = ledger
+    internal           = Column(Boolean, nullable=True)            # None = by kind
+    docs_path          = Column(String, default="")                # Egnyte folder, /Shared/...
+    statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
+    updated_by         = Column(String, default="")
+    updated_at         = Column(String, default="")

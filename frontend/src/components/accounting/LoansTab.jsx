@@ -1,210 +1,167 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, FileSpreadsheet, Pencil, RefreshCw, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Database, FileText, FolderOpen, FolderUp, Mail, PenLine, Pencil, Plus, Search, Settings2 } from 'lucide-react';
 import { api } from '../../api';
-import Amount, { AmountInput, Figure, formatAmount } from './Amount';
-import AsyncSection, { SkeletonBlocks } from '../AsyncState';
+import Amount, { Figure, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { control } from './reportControls';
-import { downloadBlob, downloadCsv } from './reportModel';
-import { POLL_MS, ScanProgress, entitiesScannedText, useLedgerScan } from './LedgerScan';
+import { EntitiesPicker, ExportMenu, PeriodStepper, PopoverPanel, control, entityOptions, usePopover } from './reportControls';
+import { downloadBlob, iso, presetRange } from './reportModel';
+import { useAccountingPrefs } from './prefs';
+import { linesFile } from './linesExport';
+import SendReportDialog from './SendReportDialog';
+import EntryDetail from './EntryDetail';
+import LoanDetail, { INTEREST_SOURCE } from './LoanDetail';
+import LoanSetupDialog, { Chip, DEBIT_NOTE } from './LoanSetupDialog';
+import { EditLoanDialog, ManualLoanDialog } from './LoanDialogs';
+import { POLL_MS } from './LedgerScan';
 
 // Accounting -> Loans & Financing (Neil and Charmi, 10/02: "Nothing has been
 // done on Loans & Financing for me to review"). The loans table was empty on
 // production, so the Data > Loans grid and every loan widget opened blank.
 //
-//   Set Up From the Ledger   the balance sheet of every entity you may read,
-//                            as of the month shown; one proposed loan per
-//                            liability account whose title says loan,
-//                            mortgage, note payable, line of credit,
-//                            financing, or names a lender. Tick + Create
-//                            writes the same fin_loans rows Data > Loans
-//                            keeps, balance read from the ledger. Re-running
-//                            proposes only what is missing.
-//   Review                   per loan, ledger-driven for the month: balance
-//                            now, a month ago, a year ago; principal paid
-//                            (the decrease), interest paid (the entity's
-//                            Interest expense accounts), debt service; the
-//                            property's trailing-12 NOI; DSCR against the
-//                            covenant minimum (1.35 unless typed), red when
-//                            under it. Rate, maturity and monthly P&I show
-//                            when typed - here or in Data > Loans, one row.
-//   Totals                   by lender and by entity; a strip of the loans
-//                            maturing in the next 24 months.
+// Oct 6 (Charmi and Neil, feedback of 10/03-10/04), the screen as it is now:
+//   - Filters on top like Reports: Entities (the Reports picker - "see only
+//     Rajesh's loans"), the period with its arrows (Month-to-Date by default:
+//     balances as of TODAY), Internal / External, and a quick text filter.
+//   - The loans as of the period's end. A loan with nothing owed (paid off)
+//     or marked inactive is CLOSED and hidden unless Customize > Show Closed
+//     Loans - the old loans used to flood the list.
+//   - Columns: Lender, Loan #, Entity, Monthly Payment, Original Principal,
+//     Balance, Principal Paid, Interest Paid, Debt Service, Rate, Maturity,
+//     DSCR, Type, Egnyte. No GL line under the name, no Debit Balance chip
+//     (the balance is the positive amount owed; a debit balance gets a note
+//     on hover), no Month Ago / Year Ago.
+//   - Principal paid = the debits to the loan's liability account in the
+//     period; interest paid = its own interest expense account (wired under
+//     Change Loan, or matched by title) - read from the ledger, not derived.
+//   - Click a loan: the payments in the period (every entry opens), and the
+//     whole payment history in a section that opens and closes.
+//   - Export as Reports does it: Excel, CSV, PDF, Email, Save to Files.
+//   - + Add: From the Ledger (the scan, active entities only) or Manual.
+//   - Skeleton rows while the ledger is read.
+//   - Fix: "I added a few of the loans and they do not show up" - the API
+//     cached the review for five minutes per worker; it is read fresh now,
+//     and a failed read no longer says "No loans set up".
+//
+// The amortization schedule and stress test plug into the per-loan detail
+// (LoanDetail's `extras`, see renderLoanExtras below).
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+const dash = <span style={{ color: 'var(--text-muted)' }}>-</span>;
+const toolbarButton = (active) => ({
+  ...control, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', whiteSpace: 'nowrap',
+  border: `1px solid ${active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
+});
+const panel = (width) => ({ width, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10 });
 const KIND = { external: 'External', intercompany: 'Intercompany', given: 'Loan Given' };
-const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
-const shiftMonth = (m, by) => { const i = Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 + by; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`; };
-const monthLabel = (m) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+const TYPES = [['all', 'All Types'], ['external', 'External'], ['internal', 'Internal']];
 const dscrText = (v) => (v == null ? '-' : `${v.toFixed(2)}x`);
 const rateText = (r) => (r.ratePct == null ? '' : `${Number(r.ratePct).toFixed(2)}%${r.rateType ? ` ${r.rateType === 'variable' ? 'variable' : 'fixed'}` : ''}`);
+const sumOf = (rows, k) => Math.round(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0) * 100) / 100;
 /** Not configured on this environment: the accounting service is not connected (503 from the API). */
 export const notAvailable = (e) => e?.status === 503 || /not configured|not available/i.test(e?.message || '');
 
-function Chip({ tone = 'muted', children, title }) {
-  const tones = {
-    ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
-    wait: { fg: '#92400e', bg: 'rgba(180,83,9,0.13)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
-    muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
-  }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+// Where the amortization schedule / stress test plug into a loan's detail.
+// eslint-disable-next-line no-unused-vars
+const renderLoanExtras = (loan, ctx) => null;
+
+/** The loans the filters let through, closed ones only when asked for. */
+export function visibleLoans(loans, { type = 'all', text = '', showClosed = false } = {}) {
+  const q = text.trim().toLowerCase();
+  return loans.filter((r) => (showClosed || !r.closed)
+    && (type === 'all' || (type === 'internal') === !!r.internal)
+    && (!q || [r.lender, r.loanNo, r.entityName, r.entityCode, r.glAccount, r.notes].some((v) => String(v || '').toLowerCase().includes(q))));
 }
 
-export default function LoansTab({ canEdit = false }) {
-  const [month, setMonth] = useState(thisMonth);
-  const [review, setReview] = useState(null);
-  const [error, setError] = useState(null);     // Error | null
-  const [loading, setLoading] = useState(false);
-  const [setup, setSetup] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const seq = useRef(0);
+/** Totals by lender or by entity over the loans shown. */
+export function groupTotals(rows, key, labelKey) {
+  const by = new Map();
+  rows.forEach((r) => {
+    const k = r[key] || '';
+    if (!by.has(k)) by.set(k, { key: k, label: r[labelKey] || k || '(no lender)', loans: 0, balance: 0, debtServiceT12: 0, noiT12: 0, entities: new Set() });
+    const g = by.get(k);
+    g.loans += 1;
+    g.balance += r.balance || 0;
+    g.debtServiceT12 += r.debtServiceT12 || 0;
+    if (!g.entities.has(r.entityCode)) { g.entities.add(r.entityCode); g.noiT12 += r.noiT12 || 0; }
+  });
+  return [...by.values()].map((g) => ({ ...g, dscr: g.debtServiceT12 > 0.005 ? Math.round((g.noiT12 / g.debtServiceT12) * 100) / 100 : null })).sort((a, b) => b.balance - a.balance);
+}
 
-  const load = useCallback((m) => {
-    const mine = ++seq.current;
-    setLoading(true);
-    setError(null);
-    return api.getLoanReview(m)
-      .then((d) => { if (mine === seq.current) setReview(d); })
-      .catch((e) => { if (mine === seq.current) { setReview((r) => r || { loans: [], byLender: [], byEntity: [], maturities: [], summary: {} }); setError(e); } })
-      .finally(() => { if (mine === seq.current) setLoading(false); });
-  }, []);
-  useEffect(() => { load(month); }, [month, load]);
-
-  const loans = review?.loans || [];
-  const sum = review?.summary || {};
-  const unavailable = error && notAvailable(error);
-
-  const exportCsv = () => {
-    const head = ['Lender', 'Loan #', 'Kind', 'Entity', 'GL Account', 'Balance', 'Month Ago', 'Year Ago', 'Principal Paid', 'Interest Paid', 'Debt Service', 'NOI (T12)', 'Debt Service (T12)', 'DSCR', 'Covenant Min', 'Rate', 'Maturity', 'Monthly P&I'];
-    const rows = loans.map((r) => [r.lender, r.loanNo, KIND[r.kind] || r.kind, r.entityName, r.glAccount, r.balance, r.balanceMonthAgo ?? '', r.balanceYearAgo ?? '', r.principalPaid ?? '', r.interestPaid, r.debtService, r.noiT12, r.debtServiceT12, r.dscr ?? '', r.covenantMin, rateText(r), r.maturity ? formatDate(r.maturity) : '', r.monthlyPi ?? '']);
-    rows.push(['Total', '', '', '', '', sum.balance || 0, '', '', '', '', '', '', sum.debtServiceT12 || 0, '', '', '', '', '']);
-    downloadCsv(`Loans-and-Financing_${month}.csv`, [head, ...rows]);
+// The loans on screen as a table for linesFile (Excel / CSV / PDF and the
+// Email / Save to Files dialog) - the Reports tab's export path.
+const EXPORT_COLUMNS = [
+  { label: 'Lender', width: 200 }, { label: 'Loan #', width: 90 }, { label: 'Entity', width: 200 }, { label: 'Monthly Payment', num: true, width: 110 },
+  { label: 'Original Principal', num: true, width: 120 }, { label: 'Balance', num: true, width: 120 }, { label: 'Principal Paid', num: true, width: 110 },
+  { label: 'Interest Paid', num: true, width: 110 }, { label: 'Debt Service', num: true, width: 110 }, { label: 'Rate', width: 90 }, { label: 'Maturity', width: 90 },
+  { label: 'DSCR', width: 70 }, { label: 'Type', width: 80 }, { label: 'Principal Account', width: 90 }, { label: 'Interest Account', width: 90 },
+];
+export function loansTable(rows, { from, to, entityLabel }) {
+  const n = (v) => (v == null ? '' : v);
+  return {
+    title: 'Loans & Financing',
+    period: `${formatDate(from)} - ${formatDate(to)}`.replace(/\//g, '-'),
+    subtitle: `${entityLabel} · ${formatDate(from)} - ${formatDate(to)} · balances as of ${formatDate(to)}`,
+    columns: EXPORT_COLUMNS,
+    rows: rows.map((r) => [r.lender, r.loanNo, r.entityName, n(r.monthlyPayment), n(r.originalPrincipal), r.balance, n(r.principalPaid), n(r.interestPaid), n(r.debtService),
+      rateText(r), r.maturity ? formatDate(r.maturity) : '', dscrText(r.dscr), r.internal ? 'Internal' : 'External', r.glAccount || '', r.interestAccount || '']),
+    totals: ['Total', '', '', sumOf(rows, 'monthlyPayment'), sumOf(rows, 'originalPrincipal'), sumOf(rows, 'balance'), sumOf(rows, 'principalPaid'), sumOf(rows, 'interestPaid'), sumOf(rows, 'debtService'), '', '', '', '', '', ''],
   };
-  const exportExcel = async () => {
-    const { buildStatementWorkbook } = await import('./reportExcel');
-    const columns = [
-      { key: 'entity', label: 'Entity', type: 'text' }, { key: 'kind', label: 'Kind', type: 'text' }, { key: 'gl', label: 'GL Account', type: 'text' },
-      { key: 'balance', label: 'Balance', type: 'amount' }, { key: 'm1', label: 'Month Ago', type: 'amount' }, { key: 'm12', label: 'Year Ago', type: 'amount' },
-      { key: 'principal', label: 'Principal Paid', type: 'amount' }, { key: 'interest', label: 'Interest Paid', type: 'amount' }, { key: 'ds', label: 'Debt Service', type: 'amount' },
-      { key: 'noi', label: 'NOI (T12)', type: 'amount' }, { key: 'ds12', label: 'Debt Service (T12)', type: 'amount' },
-      { key: 'dscr', label: 'DSCR', type: 'text' }, { key: 'cov', label: 'Covenant Min', type: 'text' }, { key: 'rate', label: 'Rate', type: 'text' }, { key: 'maturity', label: 'Maturity', type: 'date' }, { key: 'pi', label: 'Monthly P&I', type: 'amount' },
-    ];
-    const rows = [{ kind: 'section', label: 'Loans', section: 'loans', values: [] }, ...loans.map((r) => ({
-      kind: 'account', code: r.loanNo || r.glAccount, title: r.lender || '(no lender)', section: 'loans',
-      values: [r.entityName, KIND[r.kind] || r.kind, r.glAccount, r.balance, r.balanceMonthAgo || 0, r.balanceYearAgo || 0, r.principalPaid || 0, r.interestPaid, r.debtService, r.noiT12, r.debtServiceT12, dscrText(r.dscr), `${r.covenantMin.toFixed(2)}x`, rateText(r), r.maturity ? formatDate(r.maturity) : '', r.monthlyPi || 0],
-    }))];
-    const result = { config: { report: 'balance-sheet', asof: review.asOf, entities: [], book: 'accrual', preset: 'custom' }, def: { key: 'loans', label: 'Loans & Financing' }, org: '', columns, rows };
-    const bytes = await buildStatementWorkbook({ title: `Loans & Financing - ${monthLabel(month)}`, result });
-    downloadBlob(`Loans-and-Financing_${month}.xlsx`, new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  };
+}
 
+function SkeletonRows({ rows = 6, cols = 14 }) {
+  return Array.from({ length: rows }, (_x, i) => (
+    <tr key={`sk${i}`} aria-hidden="true">
+      {Array.from({ length: cols }, (_y, j) => (
+        <td key={j}><div className="nx-skel" style={{ height: 12, borderRadius: 4, width: j === 0 ? '80%' : '60%', marginLeft: j > 2 ? 'auto' : 0, '--i': i }} /></td>
+      ))}
+    </tr>
+  ));
+}
+
+function AddMenu({ onLedger, onManual }) {
+  const [open, setOpen, ref] = usePopover();
+  const item = { display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%', textAlign: 'left', border: 'none', background: 'none', borderRadius: 6, padding: '7px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--text-primary)' };
   return (
-    <AsyncSection loading={review === null} skeleton={<SkeletonBlocks count={3} />}>
-      <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-            <button type="button" style={icon} aria-label="Previous month" onClick={() => setMonth((m) => shiftMonth(m, -1))}><ChevronLeft size={16} /></button>
-            <strong style={{ fontSize: '0.86rem', minWidth: 72, textAlign: 'center' }}>{monthLabel(month)}</strong>
-            <button type="button" style={icon} aria-label="Next month" disabled={month >= thisMonth()} onClick={() => setMonth((m) => shiftMonth(m, 1))}><ChevronRight size={16} /></button>
-          </div>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Balances as of {review?.asOf ? formatDate(review.asOf) : 'the month end'}; trailing twelve months from {review?.trailingFrom ? formatDate(review.trailingFrom) : ''}.</span>
-          {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{review.notes.join(' · ')} - open again to retry.</div>}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>
-            <span>Loans <strong>{sum.loans || 0}</strong></span>
-            <span>Balance <strong><Amount value={sum.balance} /></strong></span>
-            <span>Debt Service (T12) <strong><Amount value={sum.debtServiceT12} /></strong></span>
-            <span>Below Covenant <strong style={{ color: sum.belowCovenant ? 'var(--bad-fg, #dc2626)' : undefined }}>{sum.belowCovenant || 0}</strong></span>
-            <button type="button" className="secondary-btn" onClick={exportCsv} disabled={!loans.length} style={{ fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export CSV</button>
-            <button type="button" className="secondary-btn" onClick={exportExcel} disabled={!loans.length} style={{ fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><FileSpreadsheet size={13} /> Export Excel</button>
-            {canEdit && !unavailable && (
-              <button type="button" className="primary-btn" onClick={() => setSetup(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-                <RefreshCw size={14} /> Set Up From the Ledger
-              </button>
-            )}
-          </div>
-        </div>
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+        <Plus size={14} /> Add
+      </button>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align="right" role="menu" aria-label="Add a loan" style={{ ...panel(290), padding: 6 }}>
+        <button type="button" role="menuitem" style={item} onClick={() => { setOpen(false); onLedger(); }}>
+          <Database size={14} style={{ color: 'var(--text-muted)', marginTop: 2 }} />
+          <span><span style={{ display: 'block', fontWeight: 600 }}>From the Ledger</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Liability accounts that look like loans in Intacct</span></span>
+        </button>
+        <button type="button" role="menuitem" style={item} onClick={() => { setOpen(false); onManual(); }}>
+          <PenLine size={14} style={{ color: 'var(--text-muted)', marginTop: 2 }} />
+          <span><span style={{ display: 'block', fontWeight: 600 }}>Manual</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>A loan that is not in Intacct</span></span>
+        </button>
+      </PopoverPanel>
+    </div>
+  );
+}
 
-        {error && (unavailable ? (
-          <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
-            <strong style={{ color: 'var(--text-primary)' }}>Loans & Financing is not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read loans from.
-          </div>
-        ) : <div style={bad}>{error.message || 'Could not read the loans.'}</div>)}
-
-        {!unavailable && !loans.length && !loading && (
-          <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
-            <strong style={{ color: 'var(--text-primary)' }}>No loans set up for the entities you may read.</strong>
-            <span>Set Up From the Ledger reads each entity's balance sheet as of {monthLabel(month)} and proposes a loan for every liability account whose title says {(review?.lookedFor || []).join(', ')}. Accounts payable, credit cards, payroll, accrued, deferred and deposit balances are left out unless the title says loan.</span>
-            <span>{canEdit ? 'Or add one by hand under Accounting > Data > Loans (loan number, lender, entity, GL account).' : 'An editor on Accounting can set them up here or under Accounting > Data > Loans.'}</span>
-          </div>
-        )}
-
-        {loans.length > 0 && (
-          <div style={{ ...card, padding: 0, overflow: 'hidden', opacity: loading ? 0.6 : 1 }}>
-            <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
-              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr>
-                    <th>Lender / Loan</th><th>Entity</th><th style={num}>Balance</th><th style={num}>Month Ago</th><th style={num}>Year Ago</th>
-                    <th style={num}>Principal Paid</th><th style={num}>Interest Paid</th><th style={num}>Debt Service</th><th style={num}>NOI (T12)</th><th style={num}>Debt Service (T12)</th>
-                    <th style={num}>DSCR</th><th>Rate</th><th>Maturity</th><th style={num}>Monthly P&I</th>{canEdit && <th style={{ width: 36 }} />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {loans.map((r) => (
-                    <tr key={r.id} style={r.belowCovenant ? { background: 'rgba(220,38,38,0.05)' } : undefined}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{r.lender || '(no lender)'} {r.kind !== 'external' && <Chip tone="muted">{KIND[r.kind] || r.kind}</Chip>}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>#{r.loanNo || '-'} · GL {r.glAccount || '-'} · {r.balanceSource === 'ledger' ? 'Ledger' : 'Kept by hand'}{r.sharedWith ? ` · interest shared with ${r.sharedWith} more on this entity` : ''}</div>
-                      </td>
-                      <td>{r.entityName}</td>
-                      <td style={num}><Amount value={r.balance} />{r.debitBalance && <> <Chip tone="wait" title="This liability account carries a debit balance on the ledger: shown as negative owed, not flipped">Debit Balance</Chip></>}</td>
-                      <td style={num}>{r.balanceMonthAgo == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.balanceMonthAgo} />}</td>
-                      <td style={num}>{r.balanceYearAgo == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.balanceYearAgo} />}</td>
-                      <td style={num} title="Owed a month ago less owed now; a negative is a draw and counts as no payment in the debt service">{r.principalPaid == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.principalPaid} zero="dash" />}</td>
-                      <td style={num} title="The entity's Interest expense accounts for the month"><Amount value={r.interestPaid} zero="dash" /></td>
-                      <td style={num}><Amount value={r.debtService} zero="dash" /></td>
-                      <td style={num} title={`Income ${formatAmount(r.incomeT12)} less operating expenses ${formatAmount(r.operatingExpensesT12)} (interest, depreciation and amortization left out)`}><Amount value={r.noiT12} zero="dash" /></td>
-                      <td style={num}><Amount value={r.debtServiceT12} zero="dash" /></td>
-                      <td style={num}>
-                        {r.dscr == null ? <Chip tone="muted" title="Nothing was serviced in the trailing twelve months">No Service</Chip>
-                          : <Chip tone={r.belowCovenant ? 'bad' : 'ok'} title={`NOI ${formatAmount(r.noiT12)} over the entity's debt service ${formatAmount(r.entityDebtServiceT12)}; minimum ${r.covenantMin.toFixed(2)}x${r.covenantTyped ? '' : ' (default)'}`}>{dscrText(r.dscr)} / {r.covenantMin.toFixed(2)}x</Chip>}
-                      </td>
-                      <td>{rateText(r) || <span style={{ color: 'var(--text-muted)' }}>-</span>}</td>
-                      <td>{r.maturity ? formatDate(r.maturity) : <span style={{ color: 'var(--text-muted)' }}>-</span>}</td>
-                      <td style={num}>{r.monthlyPi == null ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Amount value={r.monthlyPi} />}</td>
-                      {canEdit && <td><button type="button" className="icon-btn" aria-label={`Edit ${r.lender || r.loanNo}`} onClick={() => setEditing(r)} style={{ padding: 4, color: 'var(--text-muted)' }}><Pencil size={13} /></button></td>}
-                    </tr>
-                  ))}
-                  <tr style={{ fontWeight: 700 }}>
-                    <td>Total</td><td /><td style={num}><Amount value={sum.balance} /></td><td /><td />
-                    <td style={num}><Amount value={loans.reduce((s, r) => s + (r.principalPaid || 0), 0)} zero="dash" /></td>
-                    <td style={num}><Amount value={loans.reduce((s, r) => s + r.interestPaid, 0)} zero="dash" /></td>
-                    <td style={num}><Amount value={loans.reduce((s, r) => s + r.debtService, 0)} zero="dash" /></td>
-                    <td /><td style={num}><Amount value={sum.debtServiceT12} zero="dash" /></td><td colSpan={canEdit ? 5 : 4} />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {loans.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 }}>
-            <Totals title="By Lender" rows={review.byLender} />
-            <Totals title="By Entity" rows={review.byEntity} />
-          </div>
-        )}
-
-        {loans.length > 0 && <Maturities month={month} rows={review.maturities || []} />}
-      </div>
-      {setup && <SetupDialog month={month} onClose={() => setSetup(false)} onCreated={() => { setSetup(false); load(month); }} />}
-      {editing && <EditDialog loan={editing} month={month} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(month); }} />}
-    </AsyncSection>
+function LoansCustomize({ showClosed, onShowClosed, showHistorical, onShowHistorical, closedCount }) {
+  const [open, setOpen, ref] = usePopover();
+  const on = showClosed || showHistorical;
+  const check = (checked, onChange, title, sub) => (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
+      <span>{title}<span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{sub}</span></span>
+    </label>
+  );
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" style={toolbarButton(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
+        <Settings2 size={14} style={{ color: on ? 'inherit' : 'var(--text-muted)' }} /> Customize
+      </button>
+      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align="right" role="dialog" aria-label="Customize" style={{ ...panel(320), display: 'grid', gap: 10 }}>
+        {check(showClosed, onShowClosed, 'Show Closed Loans', `Loans with nothing owed as of the date, or marked inactive${closedCount ? ` (${closedCount} now)` : ''}.`)}
+        {check(showHistorical, onShowHistorical, 'Show historical entities', 'The (H) entities Intacct keeps for old books, in the Entities list and in + Add > From the Ledger.')}
+      </PopoverPanel>
+    </div>
   );
 }
 
@@ -216,7 +173,7 @@ function Totals({ title, rows }) {
         <thead><tr><th>{title === 'By Lender' ? 'Lender' : 'Entity'}</th><th style={num}>Loans</th><th style={num}>Balance</th><th style={num}>Debt Service (T12)</th><th style={num}>NOI (T12)</th><th style={num}>DSCR</th></tr></thead>
         <tbody>
           {rows.map((g) => (
-            <tr key={g.label}>
+            <tr key={g.key || g.label}>
               <td>{g.label || '(no lender)'}</td><td style={num}>{g.loans}</td><td style={num}><Amount value={g.balance} /></td><td style={num}><Amount value={g.debtServiceT12} zero="dash" /></td>
               <td style={num}><Amount value={g.noiT12} zero="dash" /></td><td style={num}><Figure text={dscrText(g.dscr)} /></td>
             </tr>
@@ -227,13 +184,24 @@ function Totals({ title, rows }) {
   );
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shiftMonth = (m, by) => { const i = Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 + by; return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`; };
+const monthLabel = (m) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+
 function Maturities({ month, rows }) {
   const strip = Array.from({ length: 24 }, (_x, i) => shiftMonth(month, i));
-  const by = new Map(rows.map((r) => [r.month, r]));
+  const by = new Map();
+  rows.forEach((r) => {
+    const m = (r.maturity || '').slice(0, 7);
+    if (!m || m < month || m > strip[strip.length - 1]) return;
+    if (!by.has(m)) by.set(m, { balance: 0, loans: [] });
+    by.get(m).balance += r.balance;
+    by.get(m).loans.push(r);
+  });
   return (
     <div style={{ ...card, padding: '8px 12px', display: 'grid', gap: 6 }}>
       <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>Maturities - Next 24 Months</div>
-      {!rows.length ? <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>No loan matures in the next 24 months{rows.length === 0 ? ' (maturity dates are typed here or in Data > Loans)' : ''}.</div> : (
+      {!by.size ? <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>No loan shown matures in the next 24 months (maturity dates are typed under Change Loan).</div> : (
         <div className="scroll-tabs" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {strip.map((m) => {
             const cell = by.get(m);
@@ -241,7 +209,7 @@ function Maturities({ month, rows }) {
               <div key={m} title={cell ? cell.loans.map((l) => `${l.lender} #${l.loanNo} (${l.entityName}) ${formatAmount(l.balance)}`).join('\n') : ''}
                 style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? '#b45309' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'rgba(180,83,9,0.10)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
                 <div style={{ fontWeight: 700 }}>{monthLabel(m)}</div>
-                <div style={{ fontVariantNumeric: 'tabular-nums' }}>{cell ? <><Amount value={cell.balance} /><div style={{ color: 'var(--text-muted)' }}>{cell.loans.map((l) => l.lender || l.loanNo).join(', ')}</div></> : <span style={{ color: 'var(--text-muted)' }}>-</span>}</div>
+                <div style={{ fontVariantNumeric: 'tabular-nums' }}>{cell ? <><Amount value={cell.balance} /><div style={{ color: 'var(--text-muted)' }}>{cell.loans.map((l) => l.lender || l.loanNo).join(', ')}</div></> : dash}</div>
               </div>
             );
           })}
@@ -251,137 +219,253 @@ function Maturities({ month, rows }) {
   );
 }
 
-// Set Up From the Ledger: the proposals, ticked and created. The scan is a
-// background job on the API (Oct 2: 145 s live): polled until the table.
-export function SetupDialog({ month, onClose, onCreated, pollMs = POLL_MS }) {
-  const scan = useLedgerScan(() => api.getLoanProposals(month), [month], pollMs);
-  const { data, progress, retry } = scan;
-  const [error, setError] = useState('');
-  const [unticked, setUnticked] = useState(() => new Set());   // every new row starts ticked; this holds what was unticked
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(null);
-  const scanError = scan.error ? (scan.error.message || 'Could not read the ledger.') : '';
-  const rows = data?.proposals || [];
-  const fresh = rows.filter((p) => p.status === 'new');
-  const ticked = { has: (k) => !unticked.has(k) };
-  const toggle = (k) => setUnticked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const create = () => {
-    const items = fresh.filter((p) => ticked.has(`${p.entityCode}|${p.glAccount}`)).map((p) => ({ entityCode: p.entityCode, glAccount: p.glAccount }));
-    if (!items.length) return;
-    setBusy(true);
-    setError('');
-    api.createLoansFromLedger({ month, items })
-      .then((r) => { setDone(r); setBusy(false); })
-      .catch((e) => { setError(e?.message || 'Could not create the loans.'); setBusy(false); });
+const firstPeriod = () => { const [f, t] = presetRange('mtd').map(iso); return { preset: 'mtd', from: f, to: t }; };
+
+export default function LoansTab({ canEdit = false }) {
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const showClosed = !!prefs.loansShowClosed;
+  const showHistorical = !!prefs.showHistoricalEntities;
+  const [period, setPeriod] = useState(firstPeriod);
+  const [picked, setPicked] = useState([]);
+  const [type, setType] = useState('all');
+  const [text, setText] = useState('');
+  const [entities, setEntities] = useState([]);
+  const [limited, setLimited] = useState(false);
+  // The answer is kept with the key of the read it belongs to: a new read
+  // (another period, other entities, after a save) shows as loading over
+  // the last answer, without resetting state inside the effect.
+  const [reloads, setReloads] = useState(0);
+  const [res, setRes] = useState({ key: null, data: null, error: null });
+  const [dialog, setDialog] = useState(null);   // 'ledger' | 'manual' | { edit: loan }
+  const [open, setOpen] = useState(() => new Set());
+  const [entry, setEntry] = useState(null);
+  const [sending, setSending] = useState(null);
+  const [sent, setSent] = useState(null);
+  const [busy, setBusy] = useState('');
+
+  useEffect(() => {
+    api.getAccountingLocations?.().then((d) => { setEntities(d?.entities || []); setLimited(!!d?.limited); }).catch(() => setEntities([]));
+  }, []);
+
+  const key = JSON.stringify([period.from, period.to, picked, reloads]);
+  useEffect(() => {
+    let alive = true;
+    api.getLoansReview({ from: period.from, to: period.to, entities: picked })
+      .then((d) => { if (alive) setRes({ key, data: d, error: null }); })
+      .catch((e) => { if (alive) setRes({ key, data: null, error: e }); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const load = () => setReloads((n) => n + 1);
+  const loading = res.key !== key;
+  const error = loading ? null : res.error;      // Error | null
+  const review = res.data;
+
+  const all = useMemo(() => review?.loans || [], [review]);
+  const rows = useMemo(() => visibleLoans(all, { type, text, showClosed }), [all, type, text, showClosed]);
+  const closedCount = all.filter((r) => r.closed).length;
+  const hiddenClosed = showClosed ? 0 : closedCount;
+  const unavailable = error && notAvailable(error);
+  const to = review?.to || period.to;
+  const from = review?.from || period.from;
+  const opts = useMemo(() => entityOptions(entities, { showHistorical, keep: picked }), [entities, showHistorical, picked]);
+  const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
+    : picked.length === 1 ? `${opts.find((o) => o.code === picked[0])?.name || 'Unnamed'} (${picked[0]})` : `${picked.length} entities`;
+  const toggleOpen = (id) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const onPeriod = (p) => {
+    if (p.preset && p.preset !== 'custom') { const [f, t] = presetRange(p.preset).map(iso); setPeriod({ preset: p.preset, from: f, to: t }); return; }
+    setPeriod((cur) => ({ ...cur, ...p }));
   };
-  const count = fresh.filter((p) => ticked.has(`${p.entityCode}|${p.glAccount}`)).length;
+
+  const table = () => loansTable(rows, { from, to, entityLabel });
+  const exportAs = async (format) => {
+    if (busy) return;
+    setBusy(format);
+    try {
+      const file = await linesFile(table(), format);
+      downloadBlob(file.name, file);
+    } catch (e) {
+      setSent({ text: e?.message || 'Could not export the loans.', bad: true });
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const cols = 15 + (canEdit ? 1 : 0);
+  const totals = { monthly: sumOf(rows, 'monthlyPayment'), original: sumOf(rows, 'originalPrincipal'), balance: sumOf(rows, 'balance'), principal: sumOf(rows, 'principalPaid'), interest: sumOf(rows, 'interestPaid'), ds: sumOf(rows, 'debtService') };
+
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Set up loans from the ledger" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 980 }}>
-        <div className="modal-header">
-          <div>
-            <h3 style={{ margin: 0 }}>Set Up From the Ledger</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>Liability accounts that look like loans on the balance sheet as of {data?.asOf ? formatDate(data.asOf) : monthLabel(month)}. Nothing is typed: the balance is read from the ledger every month.</div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+    <div style={{ display: 'grid', gap: 10 }}>
+      <style>{`
+        .acct-loans tbody.loan:nth-of-type(even) > tr.loan-row > td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 5%); }
+        .acct-loans tbody.loan > tr.loan-row:hover > td { background: var(--wk-brand-tint, #e8ecfd); }
+        .acct-loans tbody.loan > tr.loan-row { cursor: pointer; }
+        .acct-loans tbody.loan > tr.loan-row.closed > td { color: var(--text-muted); }
+      `}</style>
+      <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={showHistorical} />
+        <PeriodStepper config={period} period="range" onChange={onPeriod} />
+        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Internal or External" style={{ ...control, color: type === 'all' ? 'var(--text-primary)' : 'var(--wk-brand, #2b45e1)' }}>
+          {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <div style={{ position: 'relative' }}>
+          <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
+          <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter loans" aria-label="Filter loans" style={{ ...control, width: 170, paddingLeft: 24 }} />
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
-          {error && <div style={bad}>{error}</div>}
-          {scanError && (
-            <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ flex: 1 }}>{scanError}</span>
-              <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>
-            </div>
-          )}
-          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
-          {data && !done && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{entitiesScannedText(data)} · {data.liabilityAccounts ?? 0} liability {data.liabilityAccounts === 1 ? 'account' : 'accounts'}</div>}
-          {progress ? <ScanProgress progress={progress} /> : scanError ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
-            <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
-              <strong>{done.created.length} {done.created.length === 1 ? 'loan' : 'loans'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
-              {done.created.map((p) => <div key={`${p.entityCode}|${p.glAccount}`}>{p.lender || p.title} - {p.entityName}, GL {p.glAccount}, <Amount value={p.balance} /></div>)}
-              {done.skipped.map((p) => <div key={`${p.entityCode}|${p.glAccount}`} style={{ color: 'var(--text-muted)' }}>{p.entityCode} GL {p.glAccount}: {p.why}</div>)}
-            </div>
-          ) : !rows.length ? (
-            <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
-              <strong style={{ color: 'var(--text-primary)' }}>No loan-like liability accounts found.</strong>
-              <span>Looked at {data.liabilityAccounts ?? 0} liability {data.liabilityAccounts === 1 ? 'account' : 'accounts'} across {data.entitiesScanned ?? 0} {data.entitiesScanned === 1 ? 'entity' : 'entities'} for a title that says {(data.lookedFor || []).join(', ')}.</span>
-              <span>If a loan sits on an account named differently, add it under Accounting &gt; Data &gt; Loans with its GL account and Balance from set to Ledger.</span>
-            </div>
-          ) : (
-            <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
-              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead><tr><th style={{ width: 30 }} /><th>Entity</th><th>GL Account</th><th>Title</th><th style={num}>Balance</th><th>Lender</th><th>Kind</th><th>Status</th></tr></thead>
-                <tbody>
-                  {rows.map((p) => {
-                    const k = `${p.entityCode}|${p.glAccount}`;
-                    return (
-                      <tr key={k} style={p.status === 'set_up' ? { color: 'var(--text-muted)' } : undefined}>
-                        <td>{p.status === 'new' ? <input type="checkbox" checked={ticked.has(k)} onChange={() => toggle(k)} aria-label={`Create ${p.title} on ${p.entityName}`} /> : null}</td>
-                        <td>{p.entityName}</td><td>{p.glAccount}</td><td>{p.title}</td>
-                        <td style={num}><Amount value={p.balance} />{p.debitBalance && <> <Chip tone="wait" title="This liability account carries a debit balance on the ledger: it is shown as negative owed, not flipped">Debit Balance</Chip></>}</td>
-                        <td>{p.lender || <span style={{ color: 'var(--text-muted)' }}>unknown - type it after</span>}</td>
-                        <td><Chip tone={p.kind === 'intercompany' ? 'muted' : 'brand'}>{KIND[p.kind] || p.kind}</Chip></td>
-                        <td>{p.status === 'set_up' ? <Chip tone="ok">Set Up</Chip> : <Chip tone="wait">New</Chip>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '10px 24px 16px' }}>
-          <button type="button" className="secondary-btn" onClick={done ? onCreated : onClose}>{done ? 'Done' : 'Cancel'}</button>
-          {!done && rows.length > 0 && <button type="button" className="primary-btn" disabled={busy || !count} onClick={create}>{busy ? 'Creating...' : `Create ${count} ${count === 1 ? 'Loan' : 'Loans'}`}</button>}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+            Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
+          </span>
+          <LoansCustomize showClosed={showClosed} onShowClosed={(v) => setPrefs({ loansShowClosed: v })} showHistorical={showHistorical} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })} closedCount={closedCount} />
+          <ExportMenu disabled={!rows.length} items={[
+            { key: 'excel', label: 'Excel', hint: 'The loans shown, totals in bold', onPick: () => exportAs('excel'), busy: busy === 'excel' },
+            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per loan', onPick: () => exportAs('csv'), busy: busy === 'csv' },
+            { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: busy === 'pdf' },
+            { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, the loans attached', Icon: Mail, onPick: () => setSending('email') },
+            { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
+          ]} />
+          {canEdit && !unavailable && <AddMenu onLedger={() => setDialog('ledger')} onManual={() => setDialog('manual')} />}
         </div>
       </div>
+
+      {sent && (
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
+          <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open the File</a></>}</span>
+          <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
+        </div>
+      )}
+      {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{review.notes.join(' · ')} - open again to retry.</div>}
+
+      {error && (unavailable ? (
+        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+          <strong style={{ color: 'var(--text-primary)' }}>Loans & Financing is not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read loans from.
+        </div>
+      ) : (
+        <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: 1 }}>{error.message || 'Could not read the loans.'}</span>
+          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: '0.76rem' }}>Try Again</button>
+        </div>
+      ))}
+
+      {/* A failed read is not "no loans" (Oct 6). */}
+      {!error && !loading && review && !all.length && (
+        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
+          <strong style={{ color: 'var(--text-primary)' }}>No loans set up for {picked.length ? 'the entities picked' : 'the entities you may read'}.</strong>
+          <span>+ Add &gt; From the Ledger reads each active entity's balance sheet as of {formatDate(to)} and proposes a loan for every liability account whose title says {(review?.lookedFor || []).join(', ')}. Accounts payable, credit cards, payroll, accrued, deferred and deposit balances are left out unless the title says loan.</span>
+          <span>{canEdit ? 'Or + Add > Manual for a loan that is not in Intacct.' : 'An editor on Accounting can add them here.'}</span>
+        </div>
+      )}
+      {!error && !loading && all.length > 0 && !rows.length && (
+        <div style={{ ...card, padding: 14, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+          No loan matches the filters{hiddenClosed ? ` - ${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan is' : 'loans are'} hidden (Customize > Show Closed Loans)` : ''}.
+        </div>
+      )}
+
+      {!unavailable && (loading || rows.length > 0) && (
+        <div style={{ ...card, padding: 0, overflow: 'hidden' }} aria-busy={loading}>
+          <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
+            <table className="req-table acct-loans" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 26 }} /><th>Lender</th><th>Loan #</th><th>Entity</th><th style={num}>Monthly Payment</th><th style={num}>Original Principal</th><th style={num}>Balance</th>
+                  <th style={num}>Principal Paid</th><th style={num}>Interest Paid</th><th style={num}>Debt Service</th><th>Rate</th><th>Maturity</th><th style={num}>DSCR</th><th>Type</th><th>Egnyte</th>
+                  {canEdit && <th style={{ width: 36 }} />}
+                </tr>
+              </thead>
+              {loading && !review ? <tbody><SkeletonRows cols={cols} /></tbody> : rows.map((r) => {
+                const isOpen = open.has(r.id);
+                const stop = (e) => e.stopPropagation();
+                return (
+                  <tbody key={r.id} className="loan">
+                    <tr className={`loan-row${r.closed ? ' closed' : ''}`} onClick={() => toggleOpen(r.id)} style={loading ? { opacity: 0.6 } : r.belowCovenant ? { boxShadow: 'inset 3px 0 0 var(--bad-fg, #dc2626)' } : undefined}>
+                      <td><button type="button" className="icon-btn" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} details of ${r.lender || r.loanNo}`} onClick={(e) => { stop(e); toggleOpen(r.id); }} style={{ padding: 2, color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex' }}>{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button></td>
+                      <td style={{ fontWeight: 600 }}>
+                        <span>{r.lender || '(no lender)'}</span>
+                        {r.wiring === 'manual' && <> <Chip tone="muted" title="Kept by hand - not in Intacct">Manual</Chip></>}
+                        {r.wiring === 'missing' && <> <Chip tone="wait" title={`GL ${r.glAccount} has no lines in this entity on the ledger - check the principal account under Change Loan.`}>Check Wiring</Chip></>}
+                        {r.closed && <> <Chip tone="muted">Closed</Chip></>}
+                      </td>
+                      <td>{r.loanNo || dash}</td>
+                      <td>{r.entityName}</td>
+                      <td style={num}>{r.monthlyPayment == null ? dash : <Amount value={r.monthlyPayment} />}</td>
+                      <td style={num} title={r.originalPrincipalEdited ? `Typed over the ledger${r.originalPrincipalLedger != null ? `'s ${formatAmount(r.originalPrincipalLedger)}` : ''}` : r.originalPrincipalDate ? `The first credit on the account, ${formatDate(r.originalPrincipalDate)}` : undefined}>
+                        {r.originalPrincipal == null ? dash : <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>}
+                      </td>
+                      <td style={num} title={r.debitBalance ? DEBIT_NOTE : r.wiring === 'ok' ? `GL ${r.glAccount} as of ${formatDate(to)}` : undefined}>
+                        {r.wiring === 'missing' ? dash : <Amount value={r.balance} />}{r.debitBalance && <span aria-hidden="true" style={{ color: 'var(--text-muted)' }}> *</span>}
+                      </td>
+                      <td style={num} title={r.wiring === 'ok' ? `Debits to GL ${r.glAccount} in the period${r.draws ? `; draws (credits) ${formatAmount(r.draws)}` : ''}` : undefined}>{r.principalPaid == null ? dash : <Amount value={r.principalPaid} zero="dash" />}</td>
+                      <td style={num} title={r.interestAccounts?.length ? `GL ${r.interestAccounts.map((a) => `${a.code} ${a.title}`).join(', ')} - ${INTEREST_SOURCE[r.interestSource] || ''}${r.interestSharedWith ? ` (with ${r.interestSharedWith} more)` : ''}` : 'No interest account - wire one under Change Loan'}>
+                        {r.interestPaid == null ? dash : <Amount value={r.interestPaid} zero="dash" />}
+                      </td>
+                      <td style={num}><Amount value={r.debtService} zero="dash" /></td>
+                      <td>{rateText(r) || dash}</td>
+                      <td>{r.maturity ? formatDate(r.maturity) : dash}</td>
+                      <td style={num}>
+                        {r.dscr == null ? <span title="Nothing was serviced in the trailing twelve months" style={{ color: 'var(--text-muted)' }}>-</span>
+                          : <Chip tone={r.belowCovenant ? 'bad' : 'ok'} title={`NOI ${formatAmount(r.noiT12)} over the entity's debt service ${formatAmount(r.entityDebtServiceT12)} (trailing 12); minimum ${r.covenantMin.toFixed(2)}x${r.covenantTyped ? '' : ' (default)'}`}>{dscrText(r.dscr)}</Chip>}
+                      </td>
+                      <td><Chip tone={r.internal ? 'muted' : 'brand'} title={r.kind === 'intercompany' ? 'Owed to another entity' : KIND[r.kind] || undefined}>{r.internal ? 'Internal' : 'External'}</Chip></td>
+                      <td onClick={stop} style={{ whiteSpace: 'nowrap' }}>
+                        {r.docsUrl ? <a href={r.docsUrl} target="_blank" rel="noreferrer" aria-label={`Loan documents of ${r.lender}`} title="Loan Documents in Egnyte" style={{ marginRight: 8, color: 'var(--wk-brand, #2b45e1)' }}><FolderOpen size={14} /></a> : null}
+                        {r.statementsUrl ? <a href={r.statementsUrl} target="_blank" rel="noreferrer" aria-label={`Loan statements of ${r.lender}`} title="Loan Statements in Egnyte" style={{ color: 'var(--wk-brand, #2b45e1)' }}><FileText size={14} /></a> : null}
+                        {!r.docsUrl && !r.statementsUrl && dash}
+                      </td>
+                      {canEdit && <td onClick={stop}><button type="button" className="icon-btn" aria-label={`Edit ${r.lender || r.loanNo}`} onClick={() => setDialog({ edit: r })} style={{ padding: 4, color: 'var(--text-muted)' }}><Pencil size={13} /></button></td>}
+                    </tr>
+                    {isOpen && (
+                      <tr className="loan-detail">
+                        <td colSpan={cols} style={{ padding: 0 }}>
+                          <LoanDetail loan={r} from={from} to={to} onOpenEntry={(l) => setEntry({ id: l.entryId, no: l.entryNo })} extras={renderLoanExtras(r, { from, to, canEdit })} />
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                );
+              })}
+              {!loading && rows.length > 0 && (
+                <tfoot>
+                  <tr style={{ fontWeight: 700 }}>
+                    <td /><td>Total</td><td /><td />
+                    <td style={num}><Amount value={totals.monthly} zero="dash" /></td><td style={num}><Amount value={totals.original} zero="dash" /></td><td style={num}><Amount value={totals.balance} /></td>
+                    <td style={num}><Amount value={totals.principal} zero="dash" /></td><td style={num}><Amount value={totals.interest} zero="dash" /></td><td style={num}><Amount value={totals.ds} zero="dash" /></td>
+                    <td colSpan={cols - 10} style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{hiddenClosed ? `${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan' : 'loans'} hidden` : ''}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!loading && rows.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 }}>
+          <Totals title="By Lender" rows={groupTotals(rows, 'lender', 'lender')} />
+          <Totals title="By Entity" rows={groupTotals(rows, 'entityCode', 'entityName')} />
+        </div>
+      )}
+      {!loading && rows.length > 0 && <Maturities month={to.slice(0, 7)} rows={rows.filter((r) => !r.closed)} />}
+
+      {dialog === 'ledger' && (
+        <LoanSetupDialog asof={iso(new Date()) < to ? iso(new Date()) : to} entities={picked} entityLabel={entityLabel} historical={showHistorical}
+          onClose={() => setDialog(null)} onCreated={() => { setDialog(null); load(); }} />
+      )}
+      {dialog === 'manual' && <ManualLoanDialog entities={entities} showHistorical={showHistorical} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); }} />}
+      {dialog?.edit && <EditLoanDialog loan={dialog.edit} to={to} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); }} />}
+      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {sending && (
+        <SendReportDialog mode={sending} title="Loans & Financing" baseName={`Loans & Financing - ${entityLabel} - ${formatDate(to).replace(/\//g, '-')}`.replace(/[\\/:*?"<>|]+/g, ' ')} what="loan list"
+          makeFile={async (format, name) => linesFile(table(), format, name)}
+          onClose={() => setSending(null)} onDone={(t, url) => { setSending(null); setSent({ text: t, url }); }} />
+      )}
     </div>
   );
 }
 
-// The fields the ledger cannot say, saved to the same fin_loans row.
-function EditDialog({ loan, month, onClose, onSaved }) {
-  const [d, setD] = useState({ lender: loan.lender || '', ratePct: loan.ratePct ?? '', rateType: loan.rateType || 'fixed', maturity: loan.maturity || '', monthlyPi: loan.monthlyPi ?? null, covenantMin: loan.covenantTyped ? loan.covenantMin : '', notes: loan.notes || '' });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const set = (patch) => setD((x) => ({ ...x, ...patch }));
-  const save = (e) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    api.updateLoan(loan.id, month, { lender: d.lender, ratePct: d.ratePct === '' ? 0 : Number(d.ratePct), rateType: d.rateType, maturity: d.maturity || '', monthlyPi: d.monthlyPi == null ? 0 : Number(d.monthlyPi), covenantMin: d.covenantMin === '' ? 0 : Number(d.covenantMin), notes: d.notes })
-      .then(onSaved).catch((err) => { setError(err?.message || 'Could not save.'); setBusy(false); });
-  };
-  const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 };
-  return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label="Change loan" onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 640 }}>
-        <div className="modal-header">
-          <div>
-            <h3 style={{ margin: 0 }}>Change Loan</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{loan.entityName} · GL {loan.glAccount} · balance <Amount value={loan.balance} /> from the ledger. The same row as Accounting &gt; Data &gt; Loans.</div>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12 }}>
-          {error && <div style={bad}>{error}</div>}
-          <div style={grid}>
-            <div><label style={label} htmlFor="loan-lender">Lender</label><input id="loan-lender" type="text" value={d.lender} onChange={(e) => set({ lender: e.target.value })} style={{ ...control, width: '100%' }} /></div>
-            <div><label style={label} htmlFor="loan-rate">Rate %</label><input id="loan-rate" type="number" step="0.01" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={{ ...control, width: '100%' }} /></div>
-            <div><label style={label} htmlFor="loan-rate-type">Fixed or Variable</label><select id="loan-rate-type" value={d.rateType} onChange={(e) => set({ rateType: e.target.value })} style={{ ...control, width: '100%' }}><option value="fixed">Fixed</option><option value="variable">Variable</option></select></div>
-            <div><label style={label} htmlFor="loan-maturity">Maturity</label><input id="loan-maturity" type="date" value={d.maturity} onChange={(e) => set({ maturity: e.target.value })} style={{ ...control, width: '100%' }} /></div>
-            <div><label style={label} htmlFor="loan-pi">Monthly P&I</label><AmountInput id="loan-pi" value={d.monthlyPi} onChange={(v) => set({ monthlyPi: v })} style={{ ...control, width: '100%' }} /></div>
-            <div><label style={label} htmlFor="loan-cov">Covenant Minimum (DSCR)</label><input id="loan-cov" type="number" step="0.01" min="0" value={d.covenantMin} onChange={(e) => set({ covenantMin: e.target.value })} placeholder="1.35" style={{ ...control, width: '100%' }} /></div>
-          </div>
-          <div><label style={label} htmlFor="loan-notes">Notes</label><input id="loan-notes" type="text" value={d.notes} onChange={(e) => set({ notes: e.target.value })} style={{ ...control, width: '100%' }} /></div>
-        </div>
-        <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '10px 24px 16px' }}>
-          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary-btn" disabled={busy}>{busy ? 'Saving...' : 'Save'}</button>
-        </div>
-      </form>
-    </div>
-  );
+/** The ledger scan dialog, still importable by its old name. */
+export function SetupDialog({ month, asof, onClose, onCreated, pollMs = POLL_MS }) {
+  const date = asof || (month ? (() => { const [y, m] = month.split('-').map(Number); return iso(new Date(y, m, 0)); })() : iso(new Date()));
+  return <LoanSetupDialog asof={date} onClose={onClose} onCreated={onCreated} pollMs={pollMs} />;
 }
 
-export const _test = { shiftMonth, monthLabel, dscrText };
+export const _test = { dscrText, visibleLoans, groupTotals, loansTable };
