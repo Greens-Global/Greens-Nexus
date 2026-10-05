@@ -1910,6 +1910,13 @@ export const api = {
   reorderPfsAffiliates:  (id, ids)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates-order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   getPfsExecutiveProfiles: (id)      => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`),
   savePfsExecutiveProfile: (id, key, text) => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`, { method: 'PUT', body: JSON.stringify({ key, text }) }),
+  // MRI > Leasing (Charmi, Oct 6): the rent roll narrowed to entities /
+  // customers, a tenant's customer record (the popover), the team's note per
+  // lease, and the ledger sync (link leases to customers, add new tenants).
+  getLeasingRentRollFor:  (year, { entities = [], customers = [] } = {}) => req(`/leasing/rent-roll?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}${customers.length ? `&customers=${encodeURIComponent(customers.join(','))}` : ''}`),
+  getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
+  setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
+  syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

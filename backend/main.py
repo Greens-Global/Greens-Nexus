@@ -844,6 +844,11 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
             # Time-tracking exemption moves to the role (Visesh, Oct 2) - see the Postgres list.
             "ALTER TABLE nexus_groups ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
+            # MRI rent roll Notes column + automatic customer link (Oct 6) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN team_note VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1857,6 +1862,12 @@ def _run_migrations():
         "ALTER TABLE pfs_profile_extras ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE pfs_access_challenges ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE pfs_access_log ENABLE ROW LEVEL SECURITY",
+        # MRI rent roll (Charmi, Oct 6): the team's note per lease (who / when)
+        # and how the lease was linked to its Intacct customer.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_by VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_at VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS link_source VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2415,6 +2426,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
             print(f"[startup] accounting sso sync skipped: {e}")
+        # MRI leasing ledger sync (Charmi, Oct 6): leases linked to their
+        # Intacct customers, new tenants added. Deployed-worker gated inside.
+        try:
+            from routers.accounting_leasing import leasing_sync_loop
+            _tasks.append(_a.create_task(leasing_sync_loop()))
+        except Exception as e:
+            print(f"[startup] leasing sync skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;

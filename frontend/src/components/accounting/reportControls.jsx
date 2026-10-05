@@ -385,13 +385,13 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
             ))}
           </div>
         </div>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+        {onShowZero && <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={!!showZero} onChange={(e) => onShowZero(e.target.checked)} style={{ marginTop: 2 }} />
           <span>
             Show zero balances
             <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are hidden until this is on. One column with activity keeps a line.</span>
           </span>
-        </label>
+        </label>}
         {onShowHistorical && (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
             <input type="checkbox" checked={!!showHistorical} onChange={(e) => onShowHistorical(e.target.checked)} style={{ marginTop: 2 }} />

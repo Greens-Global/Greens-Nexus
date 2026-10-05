@@ -19,6 +19,11 @@ import { POLL_MS, ScanProgress, entitiesScannedText, useLedgerScan } from './Led
 // Only LEAF entities are scanned (a parent rolls its children up and proposed
 // every tenant twice, Oct 2), and the scan is a background job on the API
 // (305 s live): polled every three seconds until the table.
+//
+// Oct 6 (Charmi: "5 of 279 entities", and slow): the scan reads the ACTIVE
+// leaf entities only - the historical (H) ones are skipped like the parents
+// - and in a few dozen reads instead of hundreds, so the progress bar counts
+// what is actually read. The table is banded with a hover like the rent roll.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (m) => (m ? `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}` : '');
@@ -73,7 +78,7 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
               </div>
             ))}
           {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
-          {data && !done && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{entitiesScannedText(data)}</div>}
+          {data && !done && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{entitiesScannedText(data)}{data.historicalSkipped ? `; ${data.historicalSkipped} historical (H) ${data.historicalSkipped === 1 ? 'entity' : 'entities'} not read` : ''}</div>}
           {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'lease' : 'leases'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
@@ -85,15 +90,15 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
               <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
                 <strong style={{ color: 'var(--text-primary)' }}>No rent postings found.</strong>
                 <span>
-                  Looked for income accounts whose title says {(data.lookedFor || ['Rent', 'Rental', 'Lease']).join(', ')} in {data.entitiesScanned ?? 0} {data.entitiesScanned === 1 ? 'entity' : 'entities'};
+                  Looked for income accounts whose title says {(data.lookedFor || ['Rent', 'Rental', 'Lease']).join(', ')} in {data.entitiesScanned ?? 0} {data.entitiesScanned === 1 ? 'active entity' : 'active entities'};
                   {data.entitiesWithRentAccounts ? ` ${data.entitiesWithRentAccounts} had one (${(data.rentAccounts || []).map((a) => `${a.code} ${a.title}`).join(', ')}) but no customer posted to it in this window.` : ' none had one.'}
                 </span>
                 <span>Post rent in Intacct to an income account named that way, with the tenant as the customer, or add the lease by hand with New Lease.</span>
               </div>
             )
           ) : (
-            <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
-              <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <div className="acct-lines-wrap">
+              <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
                 <thead><tr><th style={{ width: 30 }} /><th>Property (Entity)</th><th>Tenant (Customer)</th><th>Income Accounts</th><th style={num}>Monthly Rent</th><th>First Posted</th><th style={num}>Months Posted</th><th style={num}>Received (12 Mo)</th><th>Status</th></tr></thead>
                 <tbody>
                   {rows.map((p) => {

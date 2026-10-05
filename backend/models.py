@@ -4772,6 +4772,14 @@ class Lease(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 6 (Charmi): the team's note on the rent roll's Notes column, with
+    # who wrote it and when; and how the lease found its Intacct customer
+    # ('' typed or picked, 'auto-name' matched by the tenant's name,
+    # 'auto-ledger' added by the ledger sync).
+    team_note        = Column(String, default="")
+    team_note_by     = Column(String, default="")
+    team_note_at     = Column(String, default="")
+    link_source      = Column(String, default="")
 
 
 class LeaseRate(Base):
