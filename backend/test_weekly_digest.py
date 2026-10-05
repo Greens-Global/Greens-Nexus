@@ -202,7 +202,7 @@ class ScheduleTests(_Case):
         self.assertEqual(self.sent[0]["to"], ["qa@greensglobal.com"])
         self.assertTrue(self.sent[0]["subject"].startswith(f"[TEST -> {AMY}]"))
         # Links that act as Amy are not in a copy someone else reads.
-        self.assertNotIn("Extend Due Date", self.sent[0]["html"])
+        self.assertNotIn("do=extend", self.sent[0]["html"])
         self.assertNotIn("mail-actions", self.sent[0]["html"])
         self.assertIn(">Open</a>", self.sent[0]["html"])
 
@@ -320,7 +320,7 @@ class ContentTests(_Case):
         self.assertIn("Here is everything waiting on you in Nexus this week: 1 overdue task.", html)
         self.assertNotIn("These are the tasks you have overdue", html)
         self.assertIn("Due 09/20/2026 - 8 days overdue", html)
-        self.assertIn("Extend Due Date", html)
+        self.assertIn(">Extend</a>", html)
         self.assertIn("do=extend", html)
         self.assertIn('class="nx-acc" checked', html)   # its one section starts open
         self.assertNotIn(">ID</th>", html)              # no task ID column (Oct 1)
@@ -347,7 +347,7 @@ class ContentTests(_Case):
         # Buttons are colored cells (bgcolor + mso-padding-alt), not a bare link.
         self.assertRegex(html, r"<td class='nx-btn' bgcolor='#[0-9a-f]{6}'[^>]*mso-padding-alt[^>]*><a [^>]*>Open My Briefing</a></td>")
         # A row's own actions are one line of links (Neil, 10/01), Extend included.
-        self.assertRegex(html, r"<a href='[^']*do=extend'[^>]*>Extend Due Date</a>")
+        self.assertRegex(html, r"<a href='[^']*do=extend'[^>]*>Extend</a>")
 
 
 class StillToDoTests(_Case):
@@ -420,7 +420,7 @@ class DailyUnchangedTests(_Case):
             self.assertNotIn(gone, html)
         self.assertIn("Open My Briefing", html)
         self.assertIn("/briefing", html)
-        self.assertNotIn("Extend Due Date", html)
+        self.assertNotIn("do=extend", html)
         self.assertNotIn(" checked", html)
 
 
@@ -534,7 +534,7 @@ class SendTestTests(_Case):
         self.assertEqual(r.json()["overdueCount"], 1)
         self.assertEqual([s["to"] for s in self.sent], [["qa@greensglobal.com"]])
         self.assertEqual(self.sent[0]["subject"], f"[TEST -> {AMY}] Your Weekly Digest - Week of 09/28/2026")
-        self.assertNotIn("Extend Due Date", self.sent[0]["html"])
+        self.assertNotIn("do=extend", self.sent[0]["html"])
         self.assertEqual(self._logs(), [])   # the real weekly send is unaffected
 
     def test_defaults_to_the_admin_when_there_are_no_test_recipients(self):
@@ -544,7 +544,7 @@ class SendTestTests(_Case):
     def test_your_own_digest_keeps_the_extend_button(self):
         r = self._send(to=[AMY.upper()])
         self.assertTrue(r.json()["sent"])
-        self.assertIn("Extend Due Date", self.sent[0]["html"])
+        self.assertIn(">Extend</a>", self.sent[0]["html"])
 
     def test_nothing_overdue_sends_nothing(self):
         self._emp("bob@greensglobal.com")
