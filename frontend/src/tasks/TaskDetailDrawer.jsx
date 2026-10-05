@@ -3,13 +3,13 @@
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
 // the real TasksContext store + api.js instead of the export's mocked Zustand store.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -182,6 +182,10 @@ function MenuItem({ icon, onClick, danger, children }) {
 // Defaults to Overview, so every existing caller behaves exactly as before.
 // `zIndex`: the drawer normally sits at 3500, under Modal (4000). A caller that
 // opens it FROM a modal (the ticket drawer's linked tasks) raises it above.
+// Convert to Ticket (Neil, 10/05) reuses the ticket intake form itself, loaded
+// only when someone converts - the Tickets module is a large chunk.
+const CreateTicketModal = lazy(() => import('../tickets/TicketsView').then((m) => ({ default: m.CreateTicketModal })));
+
 export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500 }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
@@ -194,6 +198,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [tab, setTab] = useState(initialTab);
   useEffect(() => setTab(initialTab), [activeId, initialTab]);
   const [shareOpen, setShareOpen] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   const task = taskById[activeId];
 
@@ -390,6 +395,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               {(close) => (
                 <>
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
+                  {/* Filed as a task when it is really a request for a team
+                      (Neil, 10/05: "employees ... may still do it as a task"). */}
+                  <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
@@ -458,6 +466,13 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           ) : paneFor(tab)}
         </div>
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
+        {converting && (
+          <Suspense fallback={null}>
+            <CreateTicketModal onClose={() => setConverting(false)} onCreated={() => store.refresh?.()}
+              fromTask={{ id: task.id, title: task.title, description: task.description, priority: task.priority,
+                ownerId: task.ownerId, fileCount: (task.attachmentIds || []).length }} />
+          </Suspense>
+        )}
       </aside>
     </div>,
     document.body,
