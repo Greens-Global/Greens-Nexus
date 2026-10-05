@@ -1868,6 +1868,10 @@ def _run_migrations():
         "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_by VARCHAR DEFAULT ''",
         "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_at VARCHAR DEFAULT ''",
         "ALTER TABLE leases ADD COLUMN IF NOT EXISTS link_source VARCHAR DEFAULT ''",
+        # Accounting > Loans & Financing (Oct 6): interest account, original
+        # principal, Internal / External and Egnyte folders per loan. New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -166,7 +166,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // Export for Intacct. Measured 10295 KB locally (25 KB under), CI reads about
 // 10 KB higher. +80 KB headroom. No new dependency. Deliberate; every piece
 // was asked for (Visesh, 10/02: "build all of it").
-const TOTAL_KB     = 10480;
+// Oct 6, 2026: 10480 -> 10750. Charmi + Neil's 10/04 review batch: MRE
+// (a new Reporting tab), loan amortization schedules + rate stress tests,
+// the Loans rebuild (detail, payment history, manual loans, Egnyte folders),
+// PFS Affiliated Entities + per-file lock + first page, the MRI rent roll
+// filters / notes / tenant card, Dashboard / Reporting / Tools dropdowns.
+// Measured 10654 KB locally; CI reads about 10 KB higher. No new dependency.
+// Deliberate; every piece was asked for (Visesh, 10/06: "fix all of these").
+const TOTAL_KB     = 10750;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

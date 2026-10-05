@@ -634,7 +634,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
           {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
           {data && !done && (
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-              {entitiesScannedText(data)}{data.historicalSkipped ? `; ${data.historicalSkipped} historical (H) ${data.historicalSkipped === 1 ? 'entity' : 'entities'} left out` : ''}.
+              {entitiesScannedText(data)}.
             </div>
           )}
           {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (

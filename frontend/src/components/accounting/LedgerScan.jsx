@@ -65,5 +65,8 @@ export function entitiesScannedText(data) {
   const n = data?.entitiesScanned ?? 0;
   const parents = data?.parentsSkipped ?? 0;
   const leaf = `${n} leaf ${n === 1 ? 'entity' : 'entities'}`;
-  return parents ? `Entities scanned: ${leaf} (${parents} ${parents === 1 ? 'parent' : 'parents'} skipped - their figures roll up from the children)` : `Entities scanned: ${leaf}`;
+  const base = parents ? `Entities scanned: ${leaf} (${parents} ${parents === 1 ? 'parent' : 'parents'} skipped - their figures roll up from the children)` : `Entities scanned: ${leaf}`;
+  // Oct 6 (Loans): historical (H) entities are not read unless asked for.
+  const hist = data?.historicalSkipped ?? 0;
+  return hist ? `${base}; ${hist} historical (H) ${hist === 1 ? 'entity' : 'entities'} not read` : base;
 }

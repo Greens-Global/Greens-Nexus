@@ -155,7 +155,7 @@ describe('MreFromLedger', () => {
     const dialog = await screen.findByRole('dialog', { name: /Add recurring expenses from the ledger/ });
     await within(dialog).findByText('Reading the ledger... 1 of 3 entities');
     await within(dialog).findByText('State Farm');
-    expect(within(dialog).getByText(/2 historical \(H\) entities left out/)).toBeTruthy();
+    expect(within(dialog).getByText(/2 historical \(H\) entities not read/)).toBeTruthy();
     const existing = within(dialog).getByText('San Diego Gas & Electric').closest('tr');
     expect(within(existing).getByText('Set Up')).toBeTruthy();
     expect(within(existing).queryByRole('checkbox')).toBeNull();
