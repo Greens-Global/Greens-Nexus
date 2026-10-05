@@ -5005,6 +5005,8 @@ class AccountingLoanStressScenario(Base):
     params      = Column(JSON, default=dict)
     saved_by    = Column(String, default="")
     saved_at    = Column(String, default="")
+
+
 class RecurringExpense(Base):
     """One monthly recurring expense (MRE, Oct 6 - the expense-side mirror of
     MRI; Neil listed it as pending, Charmi wants it under Reporting next to
