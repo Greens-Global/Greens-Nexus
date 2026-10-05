@@ -258,7 +258,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
           {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
           {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
-          {sub === 'mre' && <MreTab canEdit={canEdit} />}
+          {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
         </div>
       ) : (
@@ -279,7 +279,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
               {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
-              {sub === 'mre' && <MreTab canEdit={canEdit} />}
+              {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
             </div>
           </DashNav.Provider>
