@@ -1859,6 +1859,13 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // MRI > Leasing (Charmi, Oct 6): the rent roll narrowed to entities /
+  // customers, a tenant's customer record (the popover), the team's note per
+  // lease, and the ledger sync (link leases to customers, add new tenants).
+  getLeasingRentRollFor:  (year, { entities = [], customers = [] } = {}) => req(`/leasing/rent-roll?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}${customers.length ? `&customers=${encodeURIComponent(customers.join(','))}` : ''}`),
+  getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
+  setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
+  syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
