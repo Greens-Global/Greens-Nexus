@@ -1859,7 +1859,6 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
-<<<<<<< HEAD
   // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
   // loan (built or the bank's file) and saved rate stress scenarios
   // (routers/accounting_loan_plans.py).
@@ -1870,7 +1869,6 @@ export const api = {
   getLoanStressScenarios:  (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`),
   saveLoanStressScenario:  (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`, { method: 'POST', body: JSON.stringify(body) }),
   deleteLoanStressScenario: (loanId, id)  => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-=======
   // Accounting > Reporting > MRE, monthly recurring expenses (Oct 6,
   // routers/accounting_mre.py): the grid of expected against paid (paid read
   // from the ledger), the lines, and From the Ledger (a background scan
@@ -1884,7 +1882,6 @@ export const api = {
   getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
   getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
   createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
->>>>>>> feat/acct-mre-oct06
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
