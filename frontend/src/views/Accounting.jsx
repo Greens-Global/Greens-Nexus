@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Banknote, CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Search, ShieldCheck, TrendingUp, Wallet, X } from 'lucide-react';
+import { Banknote, CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Loader2, Receipt, Search, ShieldCheck, TrendingUp, Upload, Wallet, Wrench, X } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -10,7 +10,10 @@ import AccessTab from '../components/accounting/AccessTab';
 import PfsTab from '../components/accounting/PfsTab';
 import MriTab from '../components/accounting/MriTab';
 import LoansTab from '../components/accounting/LoansTab';
+import MreTab from '../components/accounting/MreTab';
+import ImportHub from '../components/accounting/ImportHub';
 import { control } from '../components/accounting/reportControls';
+import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
@@ -48,31 +51,48 @@ import { Calculator, Split, Users } from 'lucide-react';
 // hands off through Nexus); Leasing became a section of MRI, Monthly
 // Recurring Income.
 
+// Oct 6 (Charmi and Neil, 10/04): the bar was fourteen tabs long. It is now
+// six, three of them dropdowns: Dashboard (Overview / Cash / Performance /
+// Close), Reporting (Reports / Packages / PFS / MRI / MRE) and Tools (Data /
+// Access / Allocations / Import Hub). The sub keys did not change - a group
+// is only how the bar draws them - so every deep link still lands.
 const TABS = [
-  { key: 'overview', label: 'Overview', Icon: LayoutGrid },
-  { key: 'cash', label: 'Cash', Icon: Wallet },
-  { key: 'performance', label: 'Performance', Icon: TrendingUp },
-  { key: 'close', label: 'Close', Icon: CheckSquare },
-  { key: 'reports', label: 'Reports', Icon: FileText },
-  { key: 'packages', label: 'Packages', Icon: FileStack },
-  { key: 'mri', label: 'MRI', Icon: KeyRound },
+  { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, items: [
+    { key: 'overview', label: 'Overview', Icon: LayoutGrid },
+    { key: 'cash', label: 'Cash', Icon: Wallet },
+    { key: 'performance', label: 'Performance', Icon: TrendingUp },
+    { key: 'close', label: 'Close', Icon: CheckSquare },
+  ] },
+  { key: 'reporting', label: 'Reporting', Icon: FileText, items: [
+    { key: 'reports', label: 'Reports', Icon: FileText },
+    { key: 'packages', label: 'Packages', Icon: FileStack },
+    { key: 'pfs', label: 'PFS', Icon: Landmark },
+    { key: 'mri', label: 'MRI', Icon: KeyRound },
+    // Oct 6: Monthly Recurring Expenses, beside MRI.
+    { key: 'mre', label: 'MRE', Icon: Receipt },
+  ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
   // month - balances, principal and interest paid, NOI, DSCR against the
   // covenant. Per entity, so a limited person gets it too.
   { key: 'loans', label: 'Loans & Financing', Icon: Banknote },
-  { key: 'pfs', label: 'PFS', Icon: Landmark },
-  { key: 'data', label: 'Data', Icon: Database },
-  { key: 'access', label: 'Access', Icon: ShieldCheck },
   // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year, vendor
   // and customer records with changes sent for approval, and the monthly
   // payroll allocation entry from Time Clock hours.
   { key: 'budget', label: 'Budget', Icon: Calculator },
   { key: 'partners', label: 'Vendors & Customers', Icon: Users },
-  { key: 'allocations', label: 'Allocations', Icon: Split },
+  // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
+  { key: 'tools', label: 'Tools', Icon: Wrench, items: [
+    { key: 'data', label: 'Data', Icon: Database },
+    { key: 'access', label: 'Access', Icon: ShieldCheck },
+    { key: 'allocations', label: 'Allocations', Icon: Split },
+    { key: 'imports', label: 'Import Hub', Icon: Upload },
+  ] },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'mri', 'loans', 'budget', 'partners'];
-// Links made before the rename still land.
+const LIMITED_TABS = ['reports', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports'];
+// Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri' };
+const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
+const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -107,31 +127,42 @@ export default function Accounting({ activeSub, onSubChange }) {
     return () => { alive = false; };
   }, []);
   const limited = !!access?.limited;
-  const tabs = TABS.filter((t) => (t.key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(t.key) : (t.key !== 'data' || canEdit) && (t.key !== 'access' || canManage)));
-  const wanted = ALIAS[activeSub] || activeSub;
-  const sub = tabs.some((t) => t.key === wanted) ? wanted : tabs[0].key;
+  // Oct 6: the person's Dashboard density (Overview > Density), on every Dashboard tab.
+  const [prefs] = useAccountingPrefs();
+  const dashDensity = dashDensityOf(prefs);
+  const allowed = (key) => (key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(key) : (key !== 'data' || canEdit) && (key !== 'access' || canManage));
+  // Groups keep only the items this person may open; an empty group goes.
+  const tabs = TABS.map((t) => (t.items ? { ...t, items: t.items.filter((i) => allowed(i.key)) } : t))
+    .filter((t) => (t.items ? t.items.length > 0 : allowed(t.key)));
+  const leaves = leafKeys(tabs);
+  const group = tabs.find((t) => t.key === activeSub && t.items);
+  const wanted = group ? group.items[0].key : (ALIAS[activeSub] || activeSub);
+  const sub = leaves.includes(wanted) ? wanted : leaves[0];
   useEffect(() => { if (access && sub !== activeSub) onSubChange?.(sub); }, [access, sub, activeSub, onSubChange]);
 
-  // The ledger search, from any tab: two characters typed here open Reports
-  // with the words (Reports draws the same box itself, so the header's one
-  // hides there). Enter goes at once.
-  const [headerSearch, setHeaderSearch] = useState('');
-  const [search, setSearch] = useState(null);   // { text, nonce } handed to Reports
-  const nonce = useRef(0);
+  // The ledger search, from any tab (Oct 6, Neil: "search bar should always
+  // be on the top right in the entire accounting module"): one box, top
+  // right of the header, on every tab. On Reports it IS Reports' search box
+  // (the text and the spinner are shared with ReportsTab); anywhere else,
+  // two characters typed open Reports with the words after a pause, Enter at
+  // once. Leaving Reports clears it, so it never bounces anyone back there.
+  const [searchText, setSearchText] = useState('');
+  const [searchWaiting, setSearchWaiting] = useState(false);
   const searchTimer = useRef(null);
   const goSearch = (text) => {
-    const t = text.trim();
-    if (t.length < 2) return;
-    nonce.current += 1;
-    setSearch({ text: t, nonce: nonce.current });
-    setHeaderSearch('');
+    if (text.trim().length < 2) return;
     if (sub !== 'reports') onSubChange?.('reports');
   };
   useEffect(() => {
     clearTimeout(searchTimer.current);
-    if (headerSearch.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(headerSearch), 600);
+    if (sub !== 'reports' && searchText.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(searchText), 600);
     return () => clearTimeout(searchTimer.current);
-  }, [headerSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchText]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lastSub = useRef(sub);
+  useEffect(() => {
+    if (lastSub.current === 'reports' && sub !== 'reports') { setSearchText(''); setSearchWaiting(false); }
+    lastSub.current = sub;
+  }, [sub]);
 
   // Open Nexus Accounting: the sign-in handoff answers with the app's URL;
   // the tab is opened first (synchronously, so the browser allows it) and
@@ -162,6 +193,8 @@ export default function Accounting({ activeSub, onSubChange }) {
     budget: 'The budget per entity and year, by account and month, against the actuals',
     partners: 'Vendor and customer records, with changes sent to a manager for approval before they are keyed into Intacct',
     allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
+    mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
+    imports: 'Every setup that reads the ledger - loans, leases and recurring expenses',
   }[sub];
   // Every tab has the same one-line header (10/02): the statement still
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
@@ -170,29 +203,14 @@ export default function Accounting({ activeSub, onSubChange }) {
   return (
     <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* One header for every tab (Visesh, 10/02: the search "keeps jumping
-          on every screen change"). Three fixed columns - title, search,
-          Open Nexus Accounting - so the search sits in the same centered spot
-          on every tab; on Reports, which has its own search, the slot stays
-          and is simply empty. One line, one height, everywhere. */}
+          on every screen change"). Oct 6 (Neil): the search sits at the TOP
+          RIGHT on every tab, Reports included - title left, the quiet "Open
+          Nexus Accounting" link, then the search box last. One line, one
+          height, everywhere. */}
       <div className="view-header acct-header">
         <div className="acct-header-title">
           <h2>Accounting</h2>
           <p title={subtitle}>{subtitle}</p>
-        </div>
-        <div className="acct-header-search">
-          {access && sub !== 'reports' && (
-            <form role="search" onSubmit={(e) => { e.preventDefault(); goSearch(headerSearch); }} style={{ position: 'relative', width: '100%' }}>
-              <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
-              <input type="text" value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} aria-label="Search the ledger"
-                placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
-              {headerSearch && (
-                <button type="button" onClick={() => setHeaderSearch('')} aria-label="Clear search"
-                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
-                  <X size={14} />
-                </button>
-              )}
-            </form>
-          )}
         </div>
         <div className="acct-header-actions">
           {/* The way into the accounting app itself. It came off the tabs on
@@ -206,6 +224,23 @@ export default function Accounting({ activeSub, onSubChange }) {
             </button>
           )}
         </div>
+        <div className="acct-header-search">
+          {access && (
+            <form role="search" onSubmit={(e) => { e.preventDefault(); clearTimeout(searchTimer.current); goSearch(searchText); }} style={{ position: 'relative', width: '100%' }}>
+              {searchWaiting && sub === 'reports'
+                ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
+                : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
+              <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
+                placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
+              {searchText && (
+                <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
+                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
+                  <X size={14} />
+                </button>
+              )}
+            </form>
+          )}
+        </div>
       </div>
 
       {access && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />}
@@ -216,23 +251,25 @@ export default function Accounting({ activeSub, onSubChange }) {
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
         <div style={{ marginTop: 8 }}>
-          {sub === 'reports' && <ReportsTab search={search} />}
+          {sub === 'reports' && <ReportsTab searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'loans' && <LoansTab canEdit={canEdit} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
           {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
           {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+          {sub === 'mre' && <MreTab canEdit={canEdit} />}
+          {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
         </div>
       ) : (
         <DashProvider>
           <DashNav.Provider value={(to) => onSubChange?.(to)}>
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 8 }} className={DASH_SUBS.includes(sub) ? `acct-dash acct-dash--${dashDensity}` : undefined}>
               {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
-              {sub === 'reports' && <ReportsTab search={search} />}
+              {sub === 'reports' && <ReportsTab searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />}
               {sub === 'packages' && <PackagesTab />}
               {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'loans' && <LoansTab canEdit={canEdit} />}
@@ -242,6 +279,8 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
               {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
+              {sub === 'mre' && <MreTab canEdit={canEdit} />}
+              {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
             </div>
           </DashNav.Provider>
         </DashProvider>
