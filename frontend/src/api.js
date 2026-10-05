@@ -1859,6 +1859,16 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
+  // loan (built or the bank's file) and saved rate stress scenarios
+  // (routers/accounting_loan_plans.py).
+  getLoanSchedule:         (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`),
+  saveLoanSchedule:        (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteLoanSchedule:      (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'DELETE' }),
+  getLoanScheduleExpected: (month)        => req(`/accounting/loan-plans/expected?month=${encodeURIComponent(month)}`),
+  getLoanStressScenarios:  (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`),
+  saveLoanStressScenario:  (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteLoanStressScenario: (loanId, id)  => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
