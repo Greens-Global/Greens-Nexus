@@ -1,12 +1,17 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { formatDate } from '../../lib/datetime';
 import { BAND, BRAND, INK, MARGIN, MUTED, RULE, clean, fit } from './reportPdf';
+import { conditionOf } from './pfsCondition';
 
 // A personal financial statement as a PDF (Neil, Sep 25: "an enterprise grade,
 // a professional PFS that comes out in a beautiful PDF"). The order is the one
 // a lender reads: who the borrower is, what they own, what they owe, the
-// schedule of real estate, the summary that ends in net worth, the standard
-// questions, the executive profile, and a place to sign.
+// schedule of real estate, the standard questions, the executive profile, and
+// a place to sign.
+//
+// Oct 6 (Charmi, 10/04): page 1 is the bank-style Statement of Financial
+// Condition - the summary that ends in net worth, on the lines a bank's form
+// uses - in place of the old cover and the Summary page at the end.
 //
 // Built in the browser from the statement the server computed, so the figures
 // on paper are the figures that were kept on record when it was produced.
@@ -119,34 +124,69 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
     }
   };
 
-  // ── Cover ─────────────────────────────────────────────────────────────────
+  // ── Page 1: Statement of Financial Condition (Charmi, 10/04) ──────────────
+  // The page a bank's own PFS form opens with: who, as of when, every asset
+  // and liability line of the form with the share owned and the amount, the
+  // totals, net worth, contingent liabilities, and the year's income from the
+  // schedules. It replaces the old cover and the Summary page at the end.
+  const cond = conditionOf(statement);
   page = doc.addPage([W, H]);
-  page.drawRectangle({ x: 0, y: H - 12, width: W, height: 12, color: BRAND });
-  y = H - 170;
+  page.drawRectangle({ x: 0, y: H - 10, width: W, height: 10, color: BRAND });
+  y = H - MARGIN;
   const img = await embedPhoto(doc, photo);
   if (img) {
-    const size = 96;
+    const size = 64;
     const scale = Math.min(size / img.width, size / img.height);
-    page.drawImage(img, { x: MARGIN, y: y - img.height * scale + 20, width: img.width * scale, height: img.height * scale });
-    y -= size + 8;
+    page.drawImage(img, { x: W - MARGIN - img.width * scale, y: y - img.height * scale + 8, width: img.width * scale, height: img.height * scale });
   }
-  page.drawText('PERSONAL FINANCIAL STATEMENT', { x: MARGIN, y, size: 10, font: bold, color: BRAND });
-  y -= 38;
-  wrap(bold, 28, name, W - MARGIN * 2).slice(0, 3).forEach((t) => { page.drawText(t, { x: MARGIN, y, size: 28, font: bold, color: INK }); y -= 34; });
-  page.drawText(`As of ${asOfText}`, { x: MARGIN, y, size: 13, font, color: INK });
+  const textWidth = W - MARGIN * 2 - (img ? 76 : 0);
+  page.drawText('PERSONAL FINANCIAL STATEMENT', { x: MARGIN, y, size: 8.5, font: bold, color: BRAND });
   y -= 22;
-  page.drawText(clean(`${KIND[profile.kind] || 'Individual'} statement  ${String.fromCharCode(0xb7)}  Prepared ${today}${preparedBy ? ` by ${preparedBy}` : ''}`), { x: MARGIN, y, size: 10, font, color: MUTED });
-  y -= 60;
-  // Net worth at a glance.
-  [['Total Assets', statement.totals.assets], ['Total Liabilities', statement.totals.liabilities], ['Net Worth', statement.totals.netWorth]].forEach(([label, v], i) => {
-    const f = i === 2 ? bold : font;
-    if (i === 2) { page.drawLine({ start: { x: MARGIN, y: y + 13 }, end: { x: MARGIN + 300, y: y + 13 }, thickness: 0.9, color: INK }); }
-    page.drawText(label, { x: MARGIN, y, size: 12, font: f, color: INK });
-    const t = money(v);
-    page.drawText(t, { x: MARGIN + 300 - f.widthOfTextAtSize(t, 12), y, size: 12, font: f, color: INK });
-    y -= 22;
-  });
-  page.drawText('Confidential. Prepared for the lender named by the borrower; not to be shared further.', { x: MARGIN, y: MARGIN + 6, size: 8.5, font, color: MUTED });
+  page.drawText('Statement of Financial Condition', { x: MARGIN, y, size: 17, font: bold, color: INK });
+  y -= 20;
+  wrap(bold, 12, name, textWidth).slice(0, 2).forEach((t) => { page.drawText(t, { x: MARGIN, y, size: 12, font: bold, color: INK }); y -= 15; });
+  page.drawText(fit(font, 9, `As of ${asOfText}  ${String.fromCharCode(0xb7)}  ${KIND[profile.kind] || 'Individual'} statement  ${String.fromCharCode(0xb7)}  Prepared ${today}${preparedBy ? ` by ${preparedBy}` : ''}`, textWidth), { x: MARGIN, y, size: 9, font, color: MUTED });
+  y -= 22;
+  const firstCols = [{ label: '', width: 330 }, { label: 'Ownership', width: 74, num: true }, { label: 'Amount', width: 100, num: true }];
+  const condRows = (list) => list.map((x) => [x.label, x.count ? x.ownership : '', x.count || x.amount ? money(x.amount) : '-']);
+  heading('Assets');
+  table(firstCols, condRows(cond.assets), ['Total Assets', '', money(cond.totals.assets)], 'Statement of Financial Condition');
+  heading('Liabilities');
+  table(firstCols, condRows(cond.liabilities), ['Total Liabilities', '', money(cond.totals.liabilities)], 'Statement of Financial Condition');
+  room(ROW * 3);
+  page.drawLine({ start: { x: MARGIN, y: y + 13 }, end: { x: W - MARGIN, y: y + 13 }, thickness: 0.8, color: INK });
+  page.drawLine({ start: { x: MARGIN, y: y + 10.5 }, end: { x: W - MARGIN, y: y + 10.5 }, thickness: 0.8, color: INK });
+  page.drawText('Net Worth', { x: MARGIN, y, size: 11.5, font: bold, color: INK });
+  const nwText = money(statement.totals.netWorth);
+  page.drawText(nwText, { x: W - MARGIN - bold.widthOfTextAtSize(nwText, 11.5), y, size: 11.5, font: bold, color: INK });
+  y -= ROW;
+  const tlnw = 'Total Liabilities and Net Worth';
+  const tlnwText = money(cond.totals.liabilities + statement.totals.netWorth);
+  page.drawText(tlnw, { x: MARGIN, y, size: 9, font, color: MUTED });
+  page.drawText(tlnwText, { x: W - MARGIN - font.widthOfTextAtSize(tlnwText, 9), y, size: 9, font, color: MUTED });
+  y -= ROW + 6;
+  heading('Contingent Liabilities');
+  if (cond.contingent.length) {
+    table([{ label: 'Guarantee', width: 230 }, { label: 'Lender', width: 100 }, { label: 'Ownership', width: 74, num: true }, { label: 'Amount', width: 100, num: true }],
+      cond.contingent.map((x) => [x.label, x.institution || '', pct(x.ownershipPct), money(x.amount)]),
+      ['Total Contingent Liabilities', '', '', money(cond.contingent.reduce((s, x) => s + (Number(x.amount) || 0), 0))], 'Statement of Financial Condition');
+  } else {
+    room(ROW);
+    const a = cond.contingentAnswer;
+    const said = a?.answer === 'Yes' ? `Yes${a.note ? ` - ${a.note}` : ''}` : a?.answer === 'No' ? 'None.' : 'None listed.';
+    page.drawText(fit(font, 9, `Guarantor, co-maker or endorser on any debt: ${said}`, W - MARGIN * 2), { x: MARGIN, y, size: 9, font, color: INK });
+    y -= ROW + 6;
+  }
+  if (cond.income) {
+    heading(`Annual Income ${cond.income.year || ''}`.trim());
+    table([{ label: '', width: 404 }, { label: 'Amount', width: 100, num: true }], cond.income.lines.map((x) => [x.label, money(x.amount)]),
+      ['Total Annual Income', money(cond.income.total)], 'Statement of Financial Condition');
+    room(ROW);
+    page.drawText('At the share owned, from each entity\'s ledger for the calendar year (the schedules that follow).', { x: MARGIN, y, size: 8, font, color: MUTED });
+    y -= ROW;
+  }
+  room(ROW);
+  page.drawText('Amounts are at the share owned. Confidential: prepared for the lender named by the borrower; not to be shared further.', { x: MARGIN, y: Math.max(y, FLOOR), size: 8, font, color: MUTED });
 
   // ── Borrower ──────────────────────────────────────────────────────────────
   newPage('Borrower Information');
@@ -234,21 +274,7 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
   if ((sch.e || []).length) schedule('Schedule E - Rental Real Estate', sch.e, 'Rents Received', 'Net Income (Loss)', false);
   if ((sch.c || []).length) schedule('Schedule C - Profit or Loss From Business', sch.c, 'Gross Receipts', 'Net Profit (Loss)', true);
 
-  // ── Summary ───────────────────────────────────────────────────────────────
-  newPage('Summary');
-  const two = [{ label: '', width: 384 }, { label: 'Amount', width: 120, num: true }];
-  heading('Assets');
-  table(two, statement.summary.assets.map((x) => [x.label, money(x.amount)]), ['Total Assets', money(statement.totals.assets)], 'Summary');
-  heading('Liabilities');
-  table(two, statement.summary.liabilities.map((x) => [x.label, money(x.amount)]), ['Total Liabilities', money(statement.totals.liabilities)], 'Summary');
-  room(ROW * 2);
-  y -= 4;
-  page.drawLine({ start: { x: MARGIN, y: y + 14 }, end: { x: W - MARGIN, y: y + 14 }, thickness: 0.8, color: INK });
-  page.drawLine({ start: { x: MARGIN, y: y + 11.5 }, end: { x: W - MARGIN, y: y + 11.5 }, thickness: 0.8, color: INK });
-  page.drawText('Net Worth', { x: MARGIN, y, size: 12, font: bold, color: INK });
-  const nw = money(statement.totals.netWorth);
-  page.drawText(nw, { x: W - MARGIN - bold.widthOfTextAtSize(nw, 12), y, size: 12, font: bold, color: INK });
-  y -= 30;
+  // (The summary that ends in net worth is page 1 now - Oct 6.)
 
   // ── History, profile, signature ───────────────────────────────────────────
   const answered = (profile.history || []).filter((h) => h.answer);
@@ -288,7 +314,6 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
   // ── Footers ───────────────────────────────────────────────────────────────
   const total = doc.getPageCount();
   doc.getPages().forEach((p, i) => {
-    if (i === 0) return;
     p.drawLine({ start: { x: MARGIN, y: MARGIN - 8 }, end: { x: W - MARGIN, y: MARGIN - 8 }, thickness: 0.4, color: RULE });
     p.drawText('Confidential', { x: MARGIN, y: MARGIN - 22, size: 8, font, color: MUTED });
     const n = `Page ${i + 1} of ${total}`;
