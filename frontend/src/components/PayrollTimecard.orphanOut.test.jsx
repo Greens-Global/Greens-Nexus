@@ -7,15 +7,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // The server now sends it as a segment with no `in`; the card shows "Missing"
 // on the in side, and clicking it opens the day editor to add the clock-in.
 
-const CARD = {
-  payType: 'hourly', email: 'me@x.com', name: 'Me', periodStart: '2026-09-20', periodEnd: '2026-10-03',
-  rate: 20, rateSet: true, overtimeRule: 'ca',
-  days: [{
-    date: '2026-09-27', weekStart: '2026-09-27', workedMin: 0, regMin: 0, otMin: 0, dtMin: 0, pay: 0,
-    segments: [{ in: '', inR: '', out: '2026-09-27T17:05:00', outR: '2026-09-27T17:05:00', inId: '', outId: 'o1',
-      workedMin: 0, flags: ['out_without_in'], breaks: [] }],
-  }],
-  totals: { regMin: 0, otMin: 0, dtMin: 0, workedMin: 0, totalPay: 0, missingPunches: 1, editedPunches: 0, pendingEdits: 0 },
+// The card opens on the CURRENT pay period, so the lone clock-out goes on the
+// first day of whatever period it asks for - a fixed date fell out of view
+// once that period passed (failed 10/05).
+const cardFor = (start) => {
+  const end = new Date(`${start}T12:00:00`); end.setDate(end.getDate() + 13);
+  return {
+    payType: 'hourly', email: 'me@x.com', name: 'Me', periodStart: start, periodEnd: end.toISOString().slice(0, 10),
+    rate: 20, rateSet: true, overtimeRule: 'ca',
+    days: [{
+      date: start, weekStart: start, workedMin: 0, regMin: 0, otMin: 0, dtMin: 0, pay: 0,
+      segments: [{ in: '', inR: '', out: `${start}T17:05:00`, outR: `${start}T17:05:00`, inId: '', outId: 'o1',
+        workedMin: 0, flags: ['out_without_in'], breaks: [] }],
+    }],
+    totals: { regMin: 0, otMin: 0, dtMin: 0, workedMin: 0, totalPay: 0, missingPunches: 1, editedPunches: 0, pendingEdits: 0 },
+  };
 };
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
@@ -25,10 +31,12 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
 }));
 vi.mock('../api', () => {
   const api = new Proxy({}, {
-    get: (_, key) => () => Promise.resolve(key === 'timeMyPayroll' ? CARD : []),
+    get: (_, key) => (start) => Promise.resolve(key === 'timeMyPayroll' ? globalThis.__cardFor(start) : []),
   });
   return { api, default: api };
 });
+
+globalThis.__cardFor = cardFor;
 
 describe('a clock-out with no clock-in', () => {
   it('shows Missing on the in side and opens the editor from it', async () => {
