@@ -1121,15 +1121,21 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # that renders correctly with no <style> support at all (Outlook desktop's
 # Word engine). The <style> block only adds the collapse toggle and the phone
 # layout for clients that honor it.
-_BRAND = "#0f3d2e"
+# The app's own green (Oct 6: "make the green used in mails the same as the
+# default green in the application") - the --color-green status token,
+# hsl(142,60%,35%), the same #248f4b the task emails' buttons and the one-tap
+# action pages already use. An admin's Email Appearance accent still wins
+# (email_theme), so every family follows one setting.
+_GREEN = "#248f4b"
+_BRAND = _GREEN
 _INK, _BODY, _MUTED, _LINE, _SOFT = "#111827", "#374151", "#6b7280", "#e5e7eb", "#f9fafb"
-_LINK = "#166534"
+_LINK = _GREEN
 
 _SECTION_META = {
     # key: (heading, accent, summary label)
     "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
     "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
-    "completed":       ("Completed Since Your Last Briefing",  "#15803d", "Completed"),
+    "completed":       ("Completed Since Your Last Briefing",  _GREEN, "Completed"),
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
     "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue tasks"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
@@ -1171,12 +1177,12 @@ _MODULE_VIEW_URL = {
     "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
     "shifts": "/shifts",
 }
-# Rows past this show as compact title-only rows, grouped by exact title
-# (N rows sharing one title = one row with "x N"), and the grouped list is
-# itself capped so one flooded project can't make the email unbounded
-# (Sep 22 duplicate-task incident).
-_MODULE_CARD_CAP = 3
-_OVERFLOW_GROUP_CAP = 15
+# Every row a table lists is a full row with its actions (Oct 6: past the
+# first three, rows used to shrink to a title and Open only, so the same email
+# offered Comment / React / Toggle on some tasks and not others). The table is
+# still capped so one flooded project can't make the email unbounded (Sep 22
+# duplicate-task incident) - the rest is counted with a View All link.
+_MODULE_ROW_CAP = 18
 
 
 
@@ -1213,7 +1219,7 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
 
 
 # Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
-_BUTTON_COLOR = {"approve": "#15803d", "reject": "#b91c1c", "open": "#166534"}
+_BUTTON_COLOR = {"approve": _GREEN, "reject": "#b91c1c", "open": _GREEN}
 
 
 def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str = "12px") -> str:
@@ -1290,7 +1296,9 @@ def _inline_links(pairs: list) -> str:
     """Links on ONE line, dot-separated - the cell is nowrap, so a separator
     can never be left dangling at a line end (the reason _links uses plain
     spacing)."""
-    dot = f"<span style='color:{_MUTED};padding:0 6px'>&middot;</span>"
+    # Spaces as text, not padding: some clients drop a span's padding and ran
+    # the links together ("Comment·React", Oct 6).
+    dot = f"&nbsp;&nbsp;<span style='color:{_MUTED}'>&middot;</span>&nbsp;&nbsp;"
     return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
@@ -1356,38 +1364,18 @@ def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
     return f"<tr>{ref}{item}{_actions_cell_html(row, td)}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
 
 
-def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
-    """Compact title-only rows for everything past the cap - still in the
-    same table, so the reader sees WHAT the rest is without leaving the email."""
+def _overflow_footer_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
+    """The line under a table that has more rows than it lists: how many are
+    not listed, and where to see them all."""
     cols = 3 if with_ref else 2
-    groups: dict = {}
-    for r in hidden:
-        key = (r.get("ref") or "", r["title"])
-        g = groups.setdefault(key, {"count": 0, "url": r.get("url") or ""})
-        g["count"] += 1
-    by_title = list(groups.items())
-    listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
-    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {tone[2]};font-size:12.5px;color:{_BODY}"
-    out = []
-    for (ref, title), g in listed:
-        count = f" <span style='color:{_MUTED}'>&times;{g['count']}</span>" if g["count"] > 1 else ""
-        open_link = _links([("Open", g["url"])]) if g["url"] else ""
-        ref_td = (f"<td class='nx-td nx-ref' style='{td};font-weight:600;color:{_MUTED};white-space:nowrap'>"
-                  f"{escape(ref)}</td>") if with_ref else ""
-        out.append(f"<tr>{ref_td}<td class='nx-td' style='{td}'>{escape(title)}{count}</td>"
-                   f"<td class='nx-td nx-act' align='right' style='{td};text-align:right'>{open_link}</td></tr>")
-    more = ""
-    if overflow:
-        more = f"{sum(g['count'] for _, g in overflow)} more not listed. "
+    more = f"{len(hidden)} more not listed. "
     # Team rows are people, not one screen: "View All" used to open the first
     # report's first task (Oct 5), so a team table gets the count only.
     view_url = ("" if module == "team" else
                 (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}")
     view = _links([(f"View All {len(shown) + len(hidden)} in Nexus", view_url)]) if view_url else ""
-    if more or view:
-        out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
-                   f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
-    return "".join(out)
+    return (f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
+            f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
 
 
 def _group_by_module(rows: list) -> list:
@@ -1402,7 +1390,7 @@ def _group_by_module(rows: list) -> list:
 
 def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
     tone = _TONE[section]
-    shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
+    shown, hidden = rows[:_MODULE_ROW_CAP], rows[_MODULE_ROW_CAP:]
     with_ref = any(r.get("ref") for r in rows)
     th = _th(tone)
     head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
@@ -1410,7 +1398,7 @@ def _module_table_html(section: str, module: str, label: str, rows: list) -> str
             f"<th class='nx-th' align='right' style='{th};text-align:right'>Actions</th>")
     body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
     if hidden:
-        body += _overflow_rows_html(module, shown, hidden, with_ref, tone)
+        body += _overflow_footer_html(module, shown, hidden, with_ref, tone)
     return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
             f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
             # bgcolor as well as the style: Outlook desktop honors the attribute
@@ -1473,6 +1461,16 @@ _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or a
                  "a shift). It lists what needs your attention in Nexus since your last briefing.")
 
 
+def _brand() -> str:
+    """The header band and main button: the admin's Email Appearance accent
+    when one is set, else the app green. Never fails a send over styling."""
+    try:
+        import email_theme
+        return email_theme.current().color(_BRAND)
+    except Exception:
+        return _BRAND
+
+
 def render_email(first_name: str, briefing_date: str, sections: dict,
                  greeting: str = "Hello", logo_url: str = "", *,
                  title: str = "Daily Briefing", date_label: str = "",
@@ -1489,6 +1487,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     clients cannot do (Neil, 10/01). `notes` puts one line of text at the top of
     a section ({section key: text}) - the digest's team summary."""
     order = order or _ORDER
+    brand = _brand()
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
     weekday_date = date_label or f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
     subject = f"Your {title} - {weekday_date}"
@@ -1516,10 +1515,10 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
   </style>
   <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
     <tr>
-      <td class="nx-pad" style="background:{_BRAND};padding:16px 32px">
+      <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:16px 32px">
         <table width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>{logo}</td>
-          <td align="right" style="font-size:12.5px;color:#cfe3d8">{escape(weekday_date)}</td>
+          <td align="right" style="font-size:12.5px;color:#e8f5ec">{escape(weekday_date)}</td>
         </tr></table>
       </td>
     </tr>
@@ -1536,7 +1535,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", _BRAND, pad="10px 22px", size="13px")])}
+        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13px")])}
         {f'<div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>' if cta_hint else ''}
       </td>
     </tr>

@@ -165,6 +165,21 @@ class ActionLineTests(_Case):
         self.assertIn(">Actions</th>", html)
         self.assertNotIn(">Update</th>", html)
 
+    def test_every_listed_row_carries_its_actions(self):
+        # Oct 6: rows past the third used to shrink to a title and Open only.
+        rows = [{"title": f"Task {i}", "detail": "Overdue", "url": f"https://n/x{i}", "module": "tasks",
+                 "task_id": f"t{i}", "action_email": AMY, "task_open": True} for i in range(20)]
+        html = daily_briefing.render_email("Amy", "2026-09-28", {"needs_to_know": rows})[1]
+        self.assertEqual(html.count(">Toggle Completion<"), daily_briefing._MODULE_ROW_CAP)
+        self.assertIn("2 more not listed.", html)
+        self.assertIn("View All 20 in Nexus", html)
+        self.assertIn("&nbsp;&nbsp;<span", html)   # the dots keep their spaces without padding
+
+    def test_the_email_uses_the_app_green(self):
+        html = self._html({"title": "X", "detail": "", "url": "u", "module": "tasks"})
+        self.assertIn('bgcolor="#248f4b"', html)
+        self.assertNotIn("#0f3d2e", html)
+
     def test_a_finished_task_can_be_reopened_but_an_approval_is_never_toggled(self):
         done = self._html({"title": "X", "detail": "Completed", "url": "u", "module": "tasks",
                            "task_id": "t1", "action_email": AMY, "task_done": True})
@@ -208,6 +223,22 @@ class ToggleCompletionTests(_Case):
         self._toggle("done")
         self.assertEqual(self._toggle("done"), "Already complete")
         self.assertTrue(self._done())
+
+    def test_the_comment_page_shows_the_recent_comments(self):
+        import task_mail_actions
+        tok = task_mail_actions.sign_token(self.tid, AMY)
+        page = mail_actions.action_page(token=tok, do="comment").body.decode()
+        self.assertIn("No comments yet", page)
+        for i, (body, internal) in enumerate((("Gate code is 4471", False), ("HR only", True), ("Done on site", False))):
+            self.db.add(models.TaskComment(id=gen_id(), task_id=self.tid, author_email=AMY, body=f"<p>{body}</p>",
+                                           internal=internal, created_at=f"2026-09-2{i}T10:00:00"))
+        self.db.commit()
+        page = mail_actions.action_page(token=tok, do="comment").body.decode()
+        self.assertIn("Recent Comments", page)
+        self.assertLess(page.index("Gate code is 4471"), page.index("Done on site"))   # oldest first
+        self.assertIn("09/20/2026", page)
+        self.assertNotIn("HR only", page)
+        self.assertLess(page.index("Recent Comments"), page.index("<textarea"))
 
     def test_the_page_offers_the_right_way_round(self):
         import task_mail_actions
