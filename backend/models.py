@@ -4962,3 +4962,35 @@ class HrChecklistItem(Base):
     done_at      = Column(String, default="")
     note         = Column(String, default="")
     sort_order   = Column(Integer, default=0)
+
+
+class RecurringExpense(Base):
+    """One monthly recurring expense (MRE, Oct 6 - the expense-side mirror of
+    MRI; Neil listed it as pending, Charmi wants it under Reporting next to
+    MRI): a vendor (an Intacct vendor) that the entity pays from the same
+    expense account(s) on a schedule - utilities, insurance, payroll
+    services, software, rent paid. Debt service is NOT kept here: Loans &
+    Financing covers it. What was PAID is never keyed: it is what posted to
+    the line's expense accounts for that vendor in that month, read from the
+    ledger (routers/accounting_mre.py). A line that stops is ENDED, not
+    deleted. New table - create_all builds it; RLS by main.py and the startup
+    sweep; enable it on dev and prod at release."""
+    __tablename__ = "recurring_expenses"
+    id               = Column(String, primary_key=True)          # uuid
+    entity_code      = Column(String, default="", index=True)    # Intacct entity the expense posts to
+    entity_name      = Column(String, default="")
+    vendor_id        = Column(String, default="", index=True)    # Intacct vendor
+    vendor_name      = Column(String, default="")
+    expense_accounts = Column(JSON, default=list)                # GL codes, e.g. ["62100", "62110"]
+    category         = Column(String, default="other")           # utilities | insurance | payroll_services | software | rent_paid | other
+    frequency        = Column(String, default="monthly")         # monthly | quarterly | annual
+    expected_amount  = Column(Float, default=0)                  # per occurrence
+    start_date       = Column(String, default="")                # YYYY-MM-DD; quarterly / annual fall due from this month
+    end_date         = Column(String, default="")                # '' = open-ended
+    status           = Column(String, default="active")          # active | ended
+    notes            = Column(String, default="")
+    source           = Column(String, default="manual")          # manual | ledger
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")

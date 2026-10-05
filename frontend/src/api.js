@@ -1859,6 +1859,19 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Accounting > Reporting > MRE, monthly recurring expenses (Oct 6,
+  // routers/accounting_mre.py): the grid of expected against paid (paid read
+  // from the ledger), the lines, and From the Ledger (a background scan
+  // polled like the leases one: 202 with the progress until the result).
+  getMreGrid:          (year, entities = []) => req(`/accounting/mre/grid?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
+  createMreLine:       (body)     => req('/accounting/mre/lines', { method: 'POST', body: JSON.stringify(body) }),
+  updateMreLine:       (id, body) => req(`/accounting/mre/lines/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setMreNotes:         (id, notes) => req(`/accounting/mre/lines/${encodeURIComponent(id)}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) }),
+  endMreLine:          (id, endDate) => req(`/accounting/mre/lines/${encodeURIComponent(id)}/end`, { method: 'POST', body: JSON.stringify({ endDate }) }),
+  deleteMreLine:       (id)       => req(`/accounting/mre/lines/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
+  getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
+  createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -1843,6 +1843,9 @@ def _run_migrations():
         # Access, beside the screen-share exemption (Visesh, Oct 2).
         # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # Accounting > MRE, monthly recurring expenses (Oct 6). New table - RLS
+        # per CLAUDE.md.
+        "ALTER TABLE recurring_expenses ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2890,3 +2893,5 @@ app.include_router(accounting_loans.router)        # Accounting > Loans & Financ
 app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)
 from routers import hr_checklists as hr_checklists_router  # noqa: E402
 app.include_router(hr_checklists_router.router)    # People > onboarding / offboarding / leave checklists per person (hr_checklists.py)
+from routers import accounting_mre  # noqa: E402
+app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)

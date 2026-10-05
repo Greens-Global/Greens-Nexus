@@ -363,9 +363,11 @@ export const DENSITIES = [
 // entities are offered are the person's own (every accounting screen follows
 // them); showing the accounts with nothing in them belongs to the report and
 // is memorized with it.
-export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, showHistoricalAccounts, onShowHistoricalAccounts, flux = null, onFlux, align = 'right' }) {
+export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, showHistoricalAccounts, onShowHistoricalAccounts, flux = null, onFlux, align = 'right', active = false, children = null }) {
   const [open, setOpen, ref] = usePopover();
-  const on = !!showZero || !!showHistorical || !!showHistoricalAccounts;
+  // `children` / `active` (Oct 6, MRE): a screen's own options under the
+  // shared ones (Show Ended, Show Inactive Vendors), lighting the button.
+  const on = !!showZero || !!showHistorical || !!showHistoricalAccounts || !!active;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
@@ -424,6 +426,7 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>A line is flagged when its variance passes both. Memorized with the report.</div>
           </div>
         )}
+        {children}
       </PopoverPanel>
     </div>
   );
