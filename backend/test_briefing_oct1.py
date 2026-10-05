@@ -152,6 +152,19 @@ class ActionLineTests(_Case):
         # Links, not a row of buttons: the only button is the closing one.
         self.assertEqual(html.count("class='nx-btn'"), 1)
 
+    def test_actions_sit_on_the_rows_line_at_the_right(self):
+        # Neil, 10/05: "in line, the four actions are to the right" - one
+        # right-hand cell per row, links and Approve / Reject in ONE table row.
+        import re
+        html = self._html({"title": "Approve: Budget", "detail": "Waiting", "url": "https://n/x", "module": "tasks",
+                           "task_id": "t1", "action_email": AMY, "action_kind": "task_approval", "action_id": "t1"})
+        [cell] = re.findall(r"<td class='nx-td nx-act'.*?</table></td>", html, re.S)
+        self.assertEqual(cell.count("<tr>"), 1)
+        for label in ("Comment", "React", ">Open<", ">Approve<", ">Reject<"):
+            self.assertIn(label, cell)
+        self.assertIn(">Actions</th>", html)
+        self.assertNotIn(">Update</th>", html)
+
     def test_a_finished_task_can_be_reopened_but_an_approval_is_never_toggled(self):
         done = self._html({"title": "X", "detail": "Completed", "url": "u", "module": "tasks",
                            "task_id": "t1", "action_email": AMY, "task_done": True})

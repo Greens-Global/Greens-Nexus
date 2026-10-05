@@ -1261,14 +1261,12 @@ def _decision_buttons(kind: str, action_id: str, email: str) -> str:
             _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject")]
 
 
-def _row_actions_html(row: dict) -> str:
-    parts = []
-    if row.get("action_kind"):
-        parts.append(f"<div style='margin-top:8px'>"
-                     f"{_button_bar(_decision_buttons(row['action_kind'], row['action_id'], row['action_email']))}</div>")
-    # One short line of links (Neil, 10/01): Comment, React, Toggle Completion,
-    # Open - no Change Status, and "Open" rather than "Open in Nexus" - tight
-    # enough to scan fifty rows. Only Approve / Reject stay buttons.
+def _row_links(row: dict) -> list:
+    """[(label, url)] for a row's own actions (Neil, 10/01 and 10/05): Comment,
+    React, Toggle Completion, Open - no Change Status, "Open" rather than "Open
+    in Nexus". Each opens the signed one-tap page (routers/mail_actions.py) or
+    the item in Nexus - a digest of many tasks cannot run them inside the
+    email, which Neil accepted on 10/05."""
     links = []
     if row.get("task_id"):
         # The same signed forms the task notification email uses
@@ -1282,12 +1280,35 @@ def _row_actions_html(row: dict) -> str:
         if row.get("task_extend"):
             # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" -
             # do=extend applies the app's own due-date rule.
-            links.append(("Extend Due Date", f"{base}&do=extend"))
+            links.append(("Extend", f"{base}&do=extend"))
     if row.get("url"):
         links.append(("Open", row["url"]))
+    return links
+
+
+def _inline_links(pairs: list) -> str:
+    """Links on ONE line, dot-separated - the cell is nowrap, so a separator
+    can never be left dangling at a line end (the reason _links uses plain
+    spacing)."""
+    dot = f"<span style='color:{_MUTED};padding:0 6px'>&middot;</span>"
+    return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+                    f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
+
+
+def _actions_cell_html(row: dict, td: str) -> str:
+    """The right-hand cell of a row (Neil, 10/05: "in line, the four actions
+    are to the right"): the row's links, then Approve / Reject when it is a
+    decision - all on ONE line, as cells of one table row so Outlook desktop
+    lines them up too."""
+    cells = []
+    links = _row_links(row)
     if links:
-        parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
-    return "".join(parts)
+        cells.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;padding-right:4px'>"
+                     f"{_inline_links(links)}</td>")
+    if row.get("action_kind"):
+        cells += _decision_buttons(row["action_kind"], row["action_id"], row["action_email"])
+    return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
+            f"{_button_bar(cells, 'right')}</td>")
 
 
 def _sub_actions_html(row: dict, tone: tuple) -> str:
@@ -1322,15 +1343,17 @@ def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
 
 
 def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
+    """One row: what it is and what happened on the left - the title, the
+    update under it - and its actions on the same line at the right."""
     td = _td(tone)
     ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
            f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
+    detail = (f"<div style='font-size:13px;line-height:1.45;color:{_BODY};margin-top:3px'>"
+              f"{escape(row['detail'])}</div>") if row.get("detail") else ""
     item = (f"<td class='nx-td' style='{td}'>"
             f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
-            f"{_sub_actions_html(row, tone)}{_row_actions_html(row)}</td>")
-    update = (f"<td class='nx-td nx-upd' width='34%' style='{td};font-size:13px;line-height:1.45;color:{_BODY}'>"
-              f"{escape(row.get('detail') or '')}</td>")
-    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
+            f"{detail}{_sub_actions_html(row, tone)}</td>")
+    return f"<tr>{ref}{item}{_actions_cell_html(row, td)}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
 
 
 def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
@@ -1352,7 +1375,7 @@ def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, 
         ref_td = (f"<td class='nx-td nx-ref' style='{td};font-weight:600;color:{_MUTED};white-space:nowrap'>"
                   f"{escape(ref)}</td>") if with_ref else ""
         out.append(f"<tr>{ref_td}<td class='nx-td' style='{td}'>{escape(title)}{count}</td>"
-                   f"<td class='nx-td nx-upd' style='{td}'>{open_link}</td></tr>")
+                   f"<td class='nx-td nx-act' align='right' style='{td};text-align:right'>{open_link}</td></tr>")
     more = ""
     if overflow:
         more = f"{sum(g['count'] for _, g in overflow)} more not listed. "
@@ -1383,7 +1406,8 @@ def _module_table_html(section: str, module: str, label: str, rows: list) -> str
     with_ref = any(r.get("ref") for r in rows)
     th = _th(tone)
     head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
-            f"<th class='nx-th' style='{th}'>Item</th><th class='nx-th' style='{th}'>Update</th>")
+            f"<th class='nx-th' style='{th}'>Item</th>"
+            f"<th class='nx-th' align='right' style='{th};text-align:right'>Actions</th>")
     body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
     if hidden:
         body += _overflow_rows_html(module, shown, hidden, with_ref, tone)
@@ -1485,7 +1509,8 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       .nx-head {{ display:none !important; }}
       .nx-td {{ display:block !important; width:auto !important; }}
       .nx-ref {{ padding-bottom:0 !important; }}
-      .nx-upd {{ border-top:0 !important; padding-top:4px !important; }}
+      .nx-act {{ border-top:0 !important; padding-top:0 !important; text-align:left !important; white-space:normal !important; }}
+      .nx-act table {{ float:none !important; }}
       .nx-kpi {{ padding:12px !important; }}
     }}
   </style>

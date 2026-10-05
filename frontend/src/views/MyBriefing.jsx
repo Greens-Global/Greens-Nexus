@@ -87,11 +87,13 @@ export default function MyBriefing() {
   return (
     <div style={{ fontFamily: FONT, color: 'var(--ink)', maxWidth: 1040, margin: '0 auto', padding: '8px 0 48px' }}>
       <style>{`
-        .mb-row { display: grid; grid-template-columns: minmax(0, 1fr) 34%; gap: 16px; }
-        .mb-head { display: grid; grid-template-columns: minmax(0, 1fr) 34%; gap: 16px; }
+        .mb-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start; }
+        .mb-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; }
+        .mb-act { display: flex; gap: 14px; align-items: center; justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap; }
         .mb-tiles { display: grid; gap: 10px; }
         @media (max-width: 640px) {
-          .mb-row { grid-template-columns: 1fr; gap: 4px; }
+          .mb-row { grid-template-columns: 1fr; gap: 6px; }
+          .mb-act { justify-content: flex-start; flex-wrap: wrap; }
           .mb-head { display: none; }
           .mb-tiles { gap: 6px; }
           .mb-tile { padding: 10px 10px !important; }
@@ -180,7 +182,7 @@ function ModuleTable({ label, rows, color, reactions, onChanged }) {
       <div style={{ border: `1px solid ${hsl(color, 0.35)}`, borderRadius: 8, overflow: 'hidden', background: hsl(color, 0.05) }}>
         <div className="mb-head" style={{ padding: '8px 14px', background: hsl(color, 0.13), fontSize: 11, fontWeight: 700,
           letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
-          <span>Item</span><span>Update</span>
+          <span>Item</span><span>Actions</span>
         </div>
         {shown.map((r, i) => (
           <Row key={`${r.title}-${i}`} row={r} color={color} first={i === 0} reactions={reactions} onChanged={onChanged} />
@@ -238,12 +240,33 @@ function Row({ row, color, first, reactions, onChanged }) {
 
   return (
     <div style={{ padding: '13px 14px', borderTop: first ? 'none' : `1px solid ${hsl(color, 0.25)}` }}>
+      {/* What it is and what happened on the left, its actions on the same
+          line at the right (Neil, 10/05: "in line, the four actions are to the
+          right"). */}
       <div className="mb-row">
-        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, minWidth: 0, overflowWrap: 'anywhere' }}>
-          {row.ref && <span style={{ color: 'var(--muted)', fontWeight: 600, marginRight: 8 }}>{row.ref}</span>}
-          {row.title}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4, overflowWrap: 'anywhere' }}>
+            {row.ref && <span style={{ color: 'var(--muted)', fontWeight: 600, marginRight: 8 }}>{row.ref}</span>}
+            {row.title}
+          </div>
+          {row.detail && <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.45, marginTop: 3 }}>{row.detail}</div>}
         </div>
-        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.45 }}>{row.detail}</div>
+        {(row.taskId || row.path || row.decision) && (
+          <div className="mb-act">
+            {row.taskId && (
+              <>
+                <button style={rowLink} onClick={() => openPanel('comment')}>Comment</button>
+                <button style={rowLink} onClick={() => openPanel('react')}>React</button>
+                {(row.taskOpen || row.taskDone) && (
+                  <button disabled={busy} style={rowLink} onClick={() => task('toggle', row.taskDone ? 'open' : 'done')}
+                    title={row.taskDone ? 'Reopen this task' : 'Mark this task complete'}>Toggle Completion</button>
+                )}
+              </>
+            )}
+            {row.path && <a href={row.path} style={{ ...rowLink, textDecoration: 'none' }}>Open</a>}
+            {row.decision && <span style={{ display: 'flex', gap: 6 }}>{decisionButtons(row.decision)}</span>}
+          </div>
+        )}
       </div>
 
       {row.comments?.length > 0 && (
@@ -265,22 +288,6 @@ function Row({ row, color, first, reactions, onChanged }) {
         </div>
       ))}
 
-      {row.decision && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>{decisionButtons(row.decision)}</div>}
-      {(row.taskId || row.path) && (
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
-          {row.taskId && (
-            <>
-              <button style={rowLink} onClick={() => openPanel('comment')}>Comment</button>
-              <button style={rowLink} onClick={() => openPanel('react')}>React</button>
-              {(row.taskOpen || row.taskDone) && (
-                <button disabled={busy} style={rowLink} onClick={() => task('toggle', row.taskDone ? 'open' : 'done')}
-                  title={row.taskDone ? 'Reopen this task' : 'Mark this task complete'}>Toggle Completion</button>
-              )}
-            </>
-          )}
-          {row.path && <a href={row.path} style={{ ...rowLink, textDecoration: 'none' }}>Open</a>}
-        </div>
-      )}
       {row.decision && rejectPanel(row.decision)}
 
       {panel === 'comment' && (
