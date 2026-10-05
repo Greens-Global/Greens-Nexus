@@ -204,7 +204,7 @@ class ScheduleTests(_Case):
         # Links that act as Amy are not in a copy someone else reads.
         self.assertNotIn("Extend Due Date", self.sent[0]["html"])
         self.assertNotIn("mail-actions", self.sent[0]["html"])
-        self.assertIn("Open in Nexus", self.sent[0]["html"])
+        self.assertIn(">Open</a>", self.sent[0]["html"])
 
     def test_inactive_and_external_people_are_skipped(self):
         for who, kw in (("gone@greensglobal.com", {"status": "offboarded"}),
@@ -315,17 +315,19 @@ class ContentTests(_Case):
         mail = self.sent[0]
         self.assertEqual(mail["subject"], "Your Weekly Digest - Week of 09/28/2026")
         html = mail["html"]
-        self.assertIn("These are the tasks you have overdue, along with their due dates, "
-                      "what is due this week, and everything else still waiting on you.", html)
+        # The opening line counts what is waiting, not "the tasks you have
+        # overdue" (Neil, 10/01).
+        self.assertIn("Here is everything waiting on you in Nexus this week: 1 overdue task.", html)
+        self.assertNotIn("These are the tasks you have overdue", html)
         self.assertIn("Due 09/20/2026 - 8 days overdue", html)
         self.assertIn("Extend Due Date", html)
         self.assertIn("do=extend", html)
         self.assertIn('class="nx-acc" checked', html)   # its one section starts open
         self.assertNotIn(">ID</th>", html)              # no task ID column (Oct 1)
         self.assertNotIn("Daily Briefing", html)
-        self.assertIn("Open My Tasks", html)
-        self.assertIn("/tasks/mine", html)
-        self.assertNotIn("Open My Briefing", html)
+        self.assertIn("Open My Briefing", html)
+        self.assertIn("/briefing", html)
+        self.assertNotIn("Open My Tasks", html)
 
     def test_outlook_desktop_gets_no_checkbox_or_arrow_and_real_buttons(self):
         """Oct 1: Outlook Classic (the Word engine) drew the open section's
@@ -343,8 +345,9 @@ class ContentTests(_Case):
         self.assertEqual(html.count("&#9656;"), hidden.count("&#9656;"))
         self.assertGreater(hidden.count('type="checkbox"'), 0)
         # Buttons are colored cells (bgcolor + mso-padding-alt), not a bare link.
-        self.assertRegex(html, r"<td class='nx-btn' bgcolor='#[0-9a-f]{6}'[^>]*mso-padding-alt[^>]*><a [^>]*>Extend Due Date</a></td>")
-        self.assertRegex(html, r"<td class='nx-btn'[^>]*><a [^>]*>Open in Nexus</a></td>")
+        self.assertRegex(html, r"<td class='nx-btn' bgcolor='#[0-9a-f]{6}'[^>]*mso-padding-alt[^>]*><a [^>]*>Open My Briefing</a></td>")
+        # A row's own actions are one line of links (Neil, 10/01), Extend included.
+        self.assertRegex(html, r"<a href='[^']*do=extend'[^>]*>Extend Due Date</a>")
 
 
 class StillToDoTests(_Case):
@@ -383,7 +386,7 @@ class StillToDoTests(_Case):
         self.assertEqual(len(self.sent), 1)
         html = self.sent[0]["html"]
         self.assertIn("Needs Your Attention", html)
-        self.assertIn("and everything else still waiting on you.", html)
+        self.assertIn("1 item needing your action (Tasks).", html)
         self.assertNotIn("Overdue Tasks", html)
 
     def test_a_test_copy_carries_no_one_click_decisions(self):
@@ -411,7 +414,10 @@ class DailyUnchangedTests(_Case):
         self.assertEqual(subject, "Your Daily Briefing - Monday, 09/28/2026")
         self.assertIn("Here is what changed since your last briefing.", html)
         self.assertIn("You receive one briefing a day", html)
-        self.assertIn("Open in Nexus", html)
+        self.assertIn(">Open</a>", html)
+        self.assertIn("Toggle Completion", html)
+        for gone in ("Open in Nexus", "Change Status", "Mark Complete", "Collapse sections"):
+            self.assertNotIn(gone, html)
         self.assertIn("Open My Briefing", html)
         self.assertIn("/briefing", html)
         self.assertNotIn("Extend Due Date", html)

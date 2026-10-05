@@ -27,8 +27,8 @@ const BRIEFING = {
         comments: [], decision: { kind: 'ticket_approval', id: 'k1' } },
     ] },
     { key: 'needs_to_know', label: 'Updates for You', rows: [
-      { title: 'Fix the gate', detail: 'Changed status', module: 'tasks', path: '/tasks/mine?task=t2', taskId: 't2',
-        taskOpen: true, taskStatus: 'in_progress', statusOptions: [{ value: 'in_progress', label: 'In Progress' }, { value: 'completed', label: 'Completed' }],
+      { title: 'Fix the gate', detail: 'Neil Kadakia changed status to In Progress', module: 'tasks',
+        path: '/tasks/mine?task=t2', taskId: 't2', taskOpen: true, taskDone: false,
         comments: [{ author: 'Neil Kadakia', body: 'Any update?' }] },
     ] },
   ],
@@ -48,7 +48,11 @@ describe('MyBriefing', () => {
     expect(screen.getByText('Need your action')).toBeTruthy();
     expect(screen.getByText('Approve: Budget')).toBeTruthy();
     expect(screen.getByText('Any update?')).toBeTruthy();
-    expect(screen.getAllByText('Open in Nexus')[0].getAttribute('href')).toBe('/tasks/mine?task=t1');
+    expect(screen.getAllByText('Open')[0].getAttribute('href')).toBe('/tasks/mine?task=t1');
+    // Neil, 10/01: one short line - no Change Status / Mark Complete / "Open in Nexus".
+    for (const gone of ['Change Status', 'Mark Complete', 'Open in Nexus']) expect(screen.queryByText(gone)).toBeNull();
+    // An approval is decided, never toggled; the open task can be.
+    expect(screen.getAllByText('Toggle Completion')).toHaveLength(1);
   });
 
   it('shows a friendly empty state', async () => {
@@ -98,7 +102,7 @@ describe('MyBriefing', () => {
       { kind: 'decision', id: 'k1', decision_kind: 'ticket_approval', action: 'reject', text: 'Not needed' }));
   });
 
-  it('posts a comment and changes status on a task', async () => {
+  it('posts a comment and toggles completion on a task', async () => {
     getMyBriefing.mockResolvedValue(BRIEFING);
     actOnMyBriefing.mockResolvedValue({ ok: true, message: 'Done.' });
     render(<MyBriefing />);
@@ -107,9 +111,8 @@ describe('MyBriefing', () => {
     fireEvent.change(screen.getByPlaceholderText('Write a comment'), { target: { value: 'On it' } });
     fireEvent.click(screen.getByText('Post Comment'));
     await waitFor(() => expect(actOnMyBriefing).toHaveBeenCalledWith({ kind: 'task', id: 't2', action: 'comment', text: 'On it' }));
-    fireEvent.click(screen.getByText('Change Status'));
-    fireEvent.change(screen.getByDisplayValue('In Progress'), { target: { value: 'completed' } });
-    fireEvent.click(screen.getByText('Update Status'));
-    await waitFor(() => expect(actOnMyBriefing).toHaveBeenCalledWith({ kind: 'task', id: 't2', action: 'status', text: 'completed' }));
+    fireEvent.click(screen.getByText('Toggle Completion'));
+    // The state the reader saw goes along, so a repeat click never flips it back.
+    await waitFor(() => expect(actOnMyBriefing).toHaveBeenCalledWith({ kind: 'task', id: 't2', action: 'toggle', text: 'done' }));
   });
 });
