@@ -680,6 +680,16 @@ class NexusGroup(Base):
     # Members of a group flagged is_global_admin=1 are GLOBAL ADMINS: unrestricted
     # across every company - the only role that sees past the company walls.
     is_global_admin = Column(Integer, default=0)
+    # Job roles: where its people's BOD / EOD / break messages post in Microsoft
+    # Teams (Neil, 10/07: "it should be based on a role" - set once in Access,
+    # not person by person, and not in a Shifts setting). A group chat
+    # (bod_chat_id) or a channel (bod_chat_id = channel, bod_team_* its team).
+    # Wins over a shift group's binding, which stays as the fallback.
+    bod_target      = Column(String, default="chat")   # chat | channel
+    bod_chat_id     = Column(String, default="")
+    bod_chat_name   = Column(String, default="")
+    bod_team_id     = Column(String, default="")
+    bod_team_name   = Column(String, default="")
 
 
 class NexusGroupMember(Base):
@@ -891,6 +901,20 @@ class NexusEmployee(Base):
     # changes; name/role/email/template/address/socials are untouched -
     # this isn't a second branding system, just one picture swapped out.
     signature_logo_url       = Column(String, default="")
+    # Microsoft 365 contact info, kept in step both ways (Neil, 10/07: "we
+    # should be able to select office, office phone, have all of these fields
+    # inside Nexus and change it there and it updates [in M365]. Change it in
+    # MS, it updates in Nexus"). phone = mobile, location = office, country =
+    # ISO code (M365 holds the name). See m365_profile_sync.py.
+    office_phone             = Column(String, default="")       # businessPhones[0]
+    street_address           = Column(String, default="")       # the WORK street address M365 shows - not the home address in `personal`
+    city                     = Column(String, default="")
+    state                    = Column(String, default="")
+    postal_code              = Column(String, default="")
+    # {"base": {field: value as M365 last had it}, "at": ISO, "error": ""} - the
+    # common ancestor of the three-way merge, so a change on either side is told
+    # apart from the other side simply being different.
+    m365_sync                = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):

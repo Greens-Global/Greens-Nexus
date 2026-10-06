@@ -95,10 +95,48 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "bod_exempt": bool(getattr(jr, "bod_exempt", False)),
         "time_tracking_exempt": bool(getattr(jr, "time_tracking_exempt", False)),
         "default_manager_email": (getattr(jr, "default_manager_email", "") or ""),
+        "teams": _teams_target(jr),
         "company_id": (jr.company_id or ""),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
     }
+
+
+def _teams_target(jr: NexusGroup) -> dict:
+    """Where this role's people post BOD / EOD / break messages in Teams
+    (Neil, 10/07). {} when the role sets none."""
+    cid = (getattr(jr, "bod_chat_id", "") or "").strip()
+    if not cid:
+        return {}
+    channel = (getattr(jr, "bod_target", "") or "") == "channel"
+    return {"type": "channel" if channel else "chat", "id": cid, "name": getattr(jr, "bod_chat_name", "") or "",
+            "teamId": (getattr(jr, "bod_team_id", "") or "") if channel else "",
+            "teamName": (getattr(jr, "bod_team_name", "") or "") if channel else ""}
+
+
+class TeamsTarget(BaseModel):
+    """A role's BOD/EOD destination. id '' clears it."""
+    type: str = "chat"            # chat | channel
+    id: str = ""                  # chat id, or the channel id
+    name: Optional[str] = ""
+    teamId: Optional[str] = ""    # channel only - the team that holds it
+    teamName: Optional[str] = ""
+
+
+def _apply_teams(jr: NexusGroup, t: "TeamsTarget") -> None:
+    cid = (t.id or "").strip()[:200]
+    if not cid:
+        jr.bod_target, jr.bod_chat_id, jr.bod_chat_name, jr.bod_team_id, jr.bod_team_name = "chat", "", "", "", ""
+        return
+    channel = (t.type or "") == "channel"
+    team = (t.teamId or "").strip()[:200]
+    if channel and not team:
+        raise HTTPException(status_code=400, detail="A Teams channel needs its team - pick the channel again.")
+    jr.bod_target = "channel" if channel else "chat"
+    jr.bod_chat_id = cid
+    jr.bod_chat_name = (t.name or "").strip()[:200]
+    jr.bod_team_id = team if channel else ""
+    jr.bod_team_name = (t.teamName or "").strip()[:200] if channel else ""
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -114,6 +152,7 @@ class JobRoleBody(BaseModel):
     time_tracking_exempt: Optional[bool] = False
     default_manager_email: Optional[str] = ""
     company_id: Optional[str] = ""            # HrEntity.id, or '' = shared across companies
+    teams: Optional[TeamsTarget] = None       # BOD/EOD destination (Oct 7)
 
 class JobRoleUpdate(BaseModel):
     name: Optional[str] = None
@@ -126,6 +165,7 @@ class JobRoleUpdate(BaseModel):
     time_tracking_exempt: Optional[bool] = None
     default_manager_email: Optional[str] = None
     company_id: Optional[str] = None
+    teams: Optional[TeamsTarget] = None       # BOD/EOD destination; {id: ''} clears it
 
 class AssignBody(BaseModel):
     email: str
@@ -231,6 +271,8 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         created_by=user["email"],
         created_at=now,
     )
+    if body.teams is not None:
+        _apply_teams(jr, body.teams)
     db.add(jr)
     db.commit()
     return _serialize(jr, db)
@@ -261,6 +303,8 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.time_tracking_exempt = 1 if body.time_tracking_exempt else 0
     if body.default_manager_email is not None:
         jr.default_manager_email = body.default_manager_email.lower().strip()
+    if body.teams is not None:
+        _apply_teams(jr, body.teams)
 
     if body.company_id is not None:
         new_company = _clean_company(db, body.company_id)

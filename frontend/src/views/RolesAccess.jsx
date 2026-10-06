@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
   LayoutGrid, Copy, MonitorOff, TimerOff, PlayCircle, Users, User, TrendingUp, MailPlus, ChevronLeft,
+  Hash, MessageSquare,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import { api } from '../api';
@@ -15,6 +16,7 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
 import AnchoredMenu from '../components/AnchoredMenu';
+import TeamsTargetPicker, { EMPTY_TEAMS_TARGET, teamsTargetLabel } from '../components/TeamsTargetPicker';
 
 // ── Roles & Access - people-first restructure (Jul 27) ───────────────────────
 // One rule: a person's access = their ONE job role (baseline) + extra groups
@@ -635,6 +637,12 @@ export default function RolesAccess({ embedded = false }) {
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDelete(selected)} title="Delete role"><Trash2 size={13} /></button>
                   </div>
                   {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0', maxWidth: '60ch' }}>{selected.description}</p>}
+                  {selected.teams?.id && !selected.bod_exempt && (
+                    <div title="Where people in this role post their BOD, EOD and break messages"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, padding: '5px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                      {selected.teams.type === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />} Day messages post to {teamsTargetLabel(selected.teams)}
+                    </div>
+                  )}
                   {['owner', 'full', 'editor', 'viewer'].map(lvl => {
                     const mods = (selected.allowed_modules || []).filter(g => g.level === lvl);
                     if (!mods.length) return null;
@@ -1497,6 +1505,8 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
   const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [bodExempt, setBodExempt] = useState(!!role?.bod_exempt);
   const [ttExempt, setTtExempt] = useState(!!role?.time_tracking_exempt);
+  // Where this role's BOD / EOD / break messages post in Teams (Neil, 10/07).
+  const [teams, setTeams] = useState(() => ({ ...EMPTY_TEAMS_TARGET, ...(role?.teams || {}) }));
   const [busy, setBusy] = useState(false);
   const deptOptions = departments || [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
   const initialBundle = useMemo(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])), [role]);
@@ -1504,12 +1514,14 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
     || desc !== (role?.description || '') || monExempt !== !!role?.monitoring_exempt
     || bodExempt !== !!role?.bod_exempt
     || ttExempt !== !!role?.time_tracking_exempt
+    || (teams.id || '') !== (role?.teams?.id || '')
     || JSON.stringify(bundle) !== JSON.stringify(initialBundle);
 
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
-    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, bod_exempt: bodExempt, time_tracking_exempt: ttExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    const body = { name: name.trim(), tier, department: dept.trim(), description: desc.trim(), monitoring_exempt: monExempt, bod_exempt: bodExempt, time_tracking_exempt: ttExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })),
+      teams: { type: teams.type, id: teams.id || '', name: teams.name || '', teamId: teams.teamId || '', teamName: teams.teamName || '' } };
     try {
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body)
@@ -1591,6 +1603,19 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             </span>
           </span>
         </button>
+        {/* The role decides where its people's day messages go (Neil, 10/07:
+            "it isn't even based on the person, it's based on a role") - set
+            once here, and everyone given the role posts there from day one. */}
+        <div style={{ ...sectLabel, marginTop: 10, marginBottom: 0 }}>Teams Messages</div>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '11px 13px' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>Where BOD, EOD and break messages post</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 10 }}>
+            {bodExempt
+              ? 'People in this role skip these messages (see above), so nothing posts.'
+              : 'Everyone given this role posts here, ahead of any shift group setting. Leave empty to keep using the shift group.'}
+          </div>
+          {!bodExempt && <TeamsTargetPicker value={teams} onChange={setTeams} toastErr={onErr} audience="People in this role" />}
+        </div>
       </div>
       <div style={{ flex: '2 1 480px', minWidth: 0 }}>
         <div style={{ ...sectLabel, marginTop: 0 }}>Module Bundle</div>

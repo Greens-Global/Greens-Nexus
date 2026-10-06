@@ -408,7 +408,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 No team chat set up for you yet - your message is recorded in Nexus.
-                An admin can link one under Settings &gt; Global Settings &gt; Shifts &gt; Groups.
+                An admin sets it on your job role under Access &gt; Job Roles.
               </div>
             )}
           </div>
