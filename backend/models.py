@@ -5170,6 +5170,131 @@ class AccountingLoanSetting(Base):
     statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
     updated_by         = Column(String, default="")
     updated_at         = Column(String, default="")
+# ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
+# Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
+# is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
+# One dedicated Google account (an Owner / Manager on every location) is
+# connected once; everyone works through it, and Nexus records which person
+# did what - Google itself shows every reply as "Response from the owner".
+# New tables: create_all builds them; RLS must be enabled on dev and prod at
+# release (CLAUDE.md).
+
+class MarketingIntegrationToken(Base):
+    """One connected external account per provider (encrypted, server-only).
+    id is the provider: "gbp" today; Google Ads / GA4 / Meta later."""
+    __tablename__ = "marketing_integration_tokens"
+    id                = Column(String, primary_key=True)
+    account_email     = Column(String, default="")      # the account that granted access
+    account_name      = Column(String, default="")      # the provider's id for it, e.g. GBP "accounts/123..."
+    account_label     = Column(String, default="")      # its display name at the provider
+    refresh_token_enc = Column(Text, default="")        # secret_box-encrypted; never leaves the server
+    scope             = Column(String, default="")
+    connected_by      = Column(String, default="")      # the Nexus admin who connected it
+    connected_at      = Column(String, default="")
+    last_sync_at      = Column(String, default="")
+    last_error        = Column(String, default="")
+    perf_synced_at    = Column(String, default="")      # performance + keywords + photo counts (every 6 hours)
+    perf_error        = Column(String, default="")      # kept apart: reviews still sync when only Performance is refused
+
+
+class MarketingGbpLocation(Base):
+    """A Google Business Profile location, mirrored from Google on each sync."""
+    __tablename__ = "marketing_gbp_locations"
+    id            = Column(String, primary_key=True)    # Google's "locations/123..."
+    account_name  = Column(String, default="")
+    title         = Column(String, default="")
+    address       = Column(String, default="")
+    place_id      = Column(String, default="")          # for the "write a review" link
+    phone         = Column(String, default="")
+    website       = Column(String, default="")
+    facility_name = Column(String, default="", index=True)   # the property it is (mapped in Nexus)
+    review_count  = Column(Integer, default=0)
+    avg_rating    = Column(Float, default=0)
+    listing       = Column(JSON, default=dict)          # the last Business Information read, for the edit form
+    synced_at     = Column(String, default="")
+    photo_count   = Column(Integer, default=0)
+    last_photo_at = Column(String, default="")          # newest photo's createTime - the "stale photos" alert
+
+
+class MarketingReview(Base):
+    """A review and its reply, mirrored from the platform on each sync -
+    platform "google" today. replied_by is the Nexus person who last replied
+    FROM Nexus; blank for a reply made on the platform directly."""
+    __tablename__ = "marketing_reviews"
+    id               = Column(String, primary_key=True)
+    platform         = Column(String, default="google", index=True)
+    external_id      = Column(String, unique=True, index=True)   # GBP "accounts/../locations/../reviews/.."
+    location_id      = Column(String, default="", index=True)
+    reviewer_name    = Column(String, default="")
+    reviewer_photo   = Column(String, default="")
+    rating           = Column(Integer, default=0)
+    text             = Column(Text, default="")
+    reviewed_at      = Column(String, default="", index=True)
+    updated_at       = Column(String, default="")
+    reply_text       = Column(Text, default="")
+    reply_updated_at = Column(String, default="")
+    replied_by       = Column(String, default="")
+    replied_at       = Column(String, default="")
+    synced_at        = Column(String, default="")
+
+
+class MarketingReviewAction(Base):
+    """Every reply, edit and delete made from Nexus - who, what, and whether
+    the platform accepted it. The accountability Google does not give."""
+    __tablename__ = "marketing_review_actions"
+    id          = Column(String, primary_key=True)
+    review_id   = Column(String, default="", index=True)
+    action      = Column(String, default="")    # reply | edit | delete
+    actor_email = Column(String, default="")
+    text        = Column(Text, default="")
+    ok          = Column(Boolean, default=True)
+    error       = Column(String, default="")
+    at          = Column(String, default="")
+
+
+class MarketingListingAction(Base):
+    """Every listing edit made from Nexus (description, phone, website,
+    hours) - who, which fields, what was sent, and whether Google accepted
+    it. Google keeps no record of which manager changed a listing."""
+    __tablename__ = "marketing_listing_actions"
+    id          = Column(String, primary_key=True)
+    location_id = Column(String, default="", index=True)
+    actor_email = Column(String, default="")
+    fields      = Column(String, default="")    # comma-separated updateMask, e.g. "profile.description,regularHours"
+    changes     = Column(JSON, default=dict)    # the patch that was sent
+    ok          = Column(Boolean, default=True)
+    error       = Column(String, default="")
+    at          = Column(String, default="")
+
+
+class MarketingGbpDaily(Base):
+    """One location's Business Profile Performance figures for one day
+    (fetchMultiDailyMetricsTimeSeries). Maps / Search views add the mobile
+    and desktop impressions together. Google reports a few days late, so
+    the last two weeks are re-read on every performance sync."""
+    __tablename__ = "marketing_gbp_daily"
+    id                 = Column(String, primary_key=True)    # "<location id>|<YYYY-MM-DD>"
+    location_id        = Column(String, default="", index=True)
+    date               = Column(String, default="", index=True)
+    maps_views         = Column(Integer, default=0)
+    search_views       = Column(Integer, default=0)
+    website_clicks     = Column(Integer, default=0)
+    call_clicks        = Column(Integer, default=0)
+    direction_requests = Column(Integer, default=0)
+
+
+class MarketingGbpKeyword(Base):
+    """A search term that showed a location's profile, per month
+    (searchkeywords.impressions.monthly). Google gives a floor instead of a
+    count for rare terms - below_threshold marks those (impressions holds the
+    floor)."""
+    __tablename__ = "marketing_gbp_keywords"
+    id              = Column(String, primary_key=True)
+    location_id     = Column(String, default="", index=True)
+    month           = Column(String, default="", index=True)   # YYYY-MM
+    keyword         = Column(String, default="")
+    impressions     = Column(Integer, default=0)
+    below_threshold = Column(Boolean, default=False)
 
 
 class TicketBatch(Base):

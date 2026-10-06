@@ -78,26 +78,30 @@ const TICKET_VIEW_TABS = [
 // resize kit the Task List uses) owns them, persisted to the user's profile
 // under table:"tickets" so an arrangement follows them between devices.
 // checkbox/type/resolved are `fixed`: structure, not data - they never move.
+// `shrink` (Oct 6): how narrow a column may get. Until someone drags a width,
+// every data column is elastic - minmax(shrink, width as a share) - so the
+// table fills the screen it is on and only scrolls sideways once every column
+// is at its floor (Pranshu: "no horizontal scroll bar at the bottom").
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
   // minWidth: a floor even under a width someone dragged - the title is what
   // the row IS, and it must never be squeezed to nothing to make room for
   // another column (Neil, Oct 1).
-  { key: 'title', label: 'Title', width: 260, minWidth: 200, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
+  { key: 'title', label: 'Title', width: 260, minWidth: 200, shrink: 200, sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'company', label: 'Company', width: 130, shrink: 80, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
   // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'Status', width: 180, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', width: 180, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  { key: 'due', label: 'Due Date', width: 110, sort: (t) => t.slaDueOn || '' },
-  { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assigned To', width: 150, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
+  { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  { key: 'due', label: 'Due Date', width: 110, shrink: 92, sort: (t) => t.slaDueOn || '' },
+  { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
+  { key: 'assignee', label: 'Assigned To', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created Date', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
   // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
   // enough by default for a name and a line of the preview; sorts by when.
-  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, sort: (t) => t.latestComment?.createdAt || '' },
+  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── What do you need help with? ──────────────────────────────────────────────
@@ -634,7 +638,8 @@ export default function TicketsView() {
   // column set entirely on My Requests (rather than being hidden per-row), so
   // the grid template - and the reorder/resize state - never has to know about it.
   const columnDefs = useMemo(
-    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester')),
+    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester'))
+      .map((c) => (c.shrink ? { ...c, template: `minmax(${c.shrink}px, ${c.width}fr)` } : c)),
     [scope],
   );
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
@@ -924,9 +929,9 @@ export default function TicketsView() {
         // ticket having no assignee is not work waiting for someone.
         const unassignedCount = tickets.filter(
           (t) => !t.assigneeId && !CLOSED_STATES.includes(t.status)).length;
-        const tile = (label, bandBg, bandFg, n, sub, onGo, active) => (
+        const tile = (label, bandBg, bandFg, n, sub, onGo, active, bodyBg) => (
           <button key={label} onClick={onGo}
-            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
+            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: bodyBg || NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? `0 0 0 1px ${bandFg}` : 'none'; }}>
             <span style={{ display: 'block', padding: '6px 14px', background: bandBg, color: bandFg, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
@@ -944,17 +949,15 @@ export default function TicketsView() {
                 broken. */}
             {/* The Open status color (ticketMeta's TICKET_STATUS_META) - not
                 blue, which no status uses any more (Neil, Oct 1). */}
+            {/* Unassigned leads the row, in yellow (Pranshu, Oct 6): the major
+                item - tickets nobody is working - so it is the first thing
+                the desk sees, the whole card tinted, not only its band. */}
+            {tile('Unassigned', 'rgba(245,158,11,0.24)', '#b45309', unassignedCount, 'nobody working them',
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
+              statusFilter === 'unassigned', 'rgba(245,158,11,0.09)')}
             {tile('Open', TICKET_STATUS_META.open.tint, TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
-            {/* Red once there's actually a backlog - purple read as "just an
-                info card" and nobody's eye caught it climbing (Pranshu, Sept
-                8 2026). Same red the SLA-breached tile uses, so red already
-                means one thing across this row: something needs a person. */}
-            {tile('Unassigned', unassignedCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(124,58,237,0.14)',
-              unassignedCount > 0 ? NX.red : '#7c3aed', unassignedCount, 'nobody working them',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
-              statusFilter === 'unassigned')}
             {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
               () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
               slaFilter === 'breached')}
@@ -1037,7 +1040,13 @@ export default function TicketsView() {
                 div's actual width to its grid content, so there's nothing
                 left over to paint; still never shrinks below it either, so
                 a narrow screen scrolls horizontally exactly as before. */}
-            <div ref={wrapRef} style={{ width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }}>
+            {/* Elastic columns (Oct 6) fill the width; the table scrolls only
+                below every column's floor (min-content). Once EVERY data
+                column carries a dragged px width, fit-content again, so there
+                is no blank strip past the last column. */}
+            <div ref={wrapRef} style={cols.every((c) => c.fixed || widths[c.key])
+              ? { width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }
+              : { width: '100%', minWidth: 'min-content', '--nx-grid': template }}>
               <TicketListHeader cols={cols} widths={widths} startResize={startResize} resetWidth={resetWidth} autofitWidth={autofitWidth}
                 dragProps={dragProps} sort={sort} onSort={onSort} allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} />
               {groups.map((g) => (
@@ -1651,10 +1660,32 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
         style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <UploadIcon size={13} /> {compact ? 'Upload Attachment' : 'Upload'}
+        <UploadIcon size={13} /> Upload Attachment
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
+    </div>
+  );
+}
+
+// The Create a Ticket evidence card (Oct 6): a recording (where the type takes
+// one) or a file, made impossible to miss.
+function EvidenceCard({ canRecord, children }) {
+  return (
+    <div style={{ marginTop: 10, borderRadius: 12, padding: '14px 16px',
+      border: `1.5px dashed ${canRecord ? 'rgba(220,38,38,0.45)' : NX.border}`,
+      background: canRecord ? 'rgba(220,38,38,0.04)' : NX.surface2 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+        {canRecord ? <Video size={16} style={{ color: NX.red }} /> : <Paperclip size={16} style={{ color: NX.dim }} />}
+        <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{canRecord ? 'Show Us the Problem' : 'Attach Files'}</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12, lineHeight: 1.45 }}>
+        {canRecord
+          ? 'A short screen recording is the fastest way to get this fixed - record what happens (add your voice if it helps), or attach a screenshot or file.'
+          : 'Attach a screenshot or a document if it helps explain the request.'}
+      </div>
+      {children}
+      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 10 }}>or press Ctrl+V to paste a screenshot</div>
     </div>
   );
 }
@@ -2124,18 +2155,20 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         <label style={label}>Description</label>
         <RichDescription value={form.description} onChange={(html) => set('description', html)} minHeight={isMobile ? 90 : 110}
           placeholder="What is happening? What were you doing, and what did you expect?" />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          <RecordUploadButtons compact showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+        {/* Its own card (Pranshu, Oct 6: "too small and hard to find"): a
+            recording shows the desk more than any description, so it gets a
+            heading, a line on why, and the full-size red Record button. */}
+        <EvidenceCard canRecord={!NO_RECORDING_TYPES.includes(form.type)}>
+          <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
             onFile={addFile} onRecordingChange={onRecChange} />
-          <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
-        </div>
-        {attachments.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {attachments.map((f, i) => (
-              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
-            ))}
-          </div>
-        )}
+          {attachments.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {attachments.map((f, i) => (
+                <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+              ))}
+            </div>
+          )}
+        </EvidenceCard>
       </div>
 
       {/* Self-service before a ticket (Neil, Sep 26): guide articles that
@@ -3174,7 +3207,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
 
         </>)}
         {tab === 'conversation' && (
-          <TicketConversation ticketId={t.id} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
+          <TicketConversation ticketId={t.id} ticketType={t.type} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
             reply={reply} onReplyChange={setReply} onDone={done}
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
@@ -3597,8 +3630,9 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
+  const [attaching, setAttaching] = useState(false);
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
   const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
@@ -3616,6 +3650,25 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
+
+  // Record / attach from the conversation (Pranshu, Oct 6: "if the same issue
+  // happens again there's no option to add a recording again"). The file goes
+  // to the ticket's Attachments straight away, and a link to it is added to
+  // the reply being written, so it is sent with the message on Done.
+  const attach = async (f) => {
+    setAttaching(true);
+    const kind = attachmentKindOf(f);
+    let url = '';
+    try { url = await uploadTicketEvidence(f, kind); } catch (e) {
+      alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
+    }
+    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(() => {});
+    setAttaching(false);
+    if (!url) return;
+    const text = kind === 'video' ? 'Screen recording' : f.name;
+    const link = `<p>${kind === 'video' ? 'Attached a screen recording' : 'Attached'}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
+    onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
+  };
 
   return (
     <div>
@@ -3669,6 +3722,12 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
           minHeight={64}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
+          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+        {attaching && <Spinner size={14} />}
+        <span style={{ fontSize: 11, color: NX.faint }}>Saved to Attachments and linked in your reply. Ctrl+V pastes a screenshot straight into the reply.</span>
       </div>
       <div style={{ fontSize: 11, color: NX.faint, marginTop: 8 }}>
         {isEmptyDoc(body) ? (
@@ -3727,6 +3786,16 @@ function AttachmentViewer({ att, onClose }) {
   );
 }
 
+// After a recording made from an EXISTING ticket stops, bring the person back
+// to that ticket if they wandered off mid-recording (shared by the Attachments
+// tab and the Conversation, Oct 6). Links in a reply use escapeHtml (above).
+const returnToTicketAfterRecording = (ticketId) => (v) => {
+  if (v || isTicketDrawerOpen(ticketId)) return;
+  setPendingOpen('ticket', ticketId);
+  window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
+};
+
 // ── Attachments ──────────────────────────────────────────────────────────────
 // Card size for the attachment gallery - wide/tall enough for a video thumbnail
 // to actually read as a preview rather than an icon, narrow enough that a
@@ -3771,12 +3840,7 @@ function TicketAttachments({ ticketId, ticketType }) {
   // fire both the live event (drawer already mounted, showing something
   // else) and the module navigate (TicketsView itself unmounted) so
   // whichever one applies brings this exact ticket back up.
-  const onRecChange = (v) => {
-    if (v || isTicketDrawerOpen(ticketId)) return;
-    setPendingOpen('ticket', ticketId);
-    window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
-  };
+  const onRecChange = returnToTicketAfterRecording(ticketId);
 
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>

@@ -566,7 +566,8 @@ export const DOCS = [
     ],
     features: [
       { name: 'Tabs', desc: 'All, My Requests, Assigned to Me, and (only when something is waiting) To Route and To Approve.' },
-      { name: 'Tiles', desc: 'Live counts for Open, Unassigned, SLA Breached, Resolved and Closed. Click one to filter the list.' },
+      { name: 'Tiles', desc: 'Live counts for Unassigned (first, in yellow - tickets nobody is working), Open, SLA Breached, Resolved and Closed. Click one to filter the list.' },
+      { name: 'Screen Recordings', desc: "Raising a ticket, the Show Us the Problem card under the description records your screen (with your voice if you like) or attaches a file. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
@@ -1100,6 +1101,16 @@ export const DOCS = [
           'Steps marked Auto-Ticks are marked done by Nexus itself when it sees it happen, for example a finished provisioning run or the status changing to Left.',
         ],
       },
+      {
+        title: 'Give a Manager Their Team in People',
+        steps: [
+          'Administrators: give the person the Manager tier and the People grant (through their job role or a group). Nothing else to switch on.',
+          'They see only the people below them in the reporting line - their direct reports and everyone who reports to those people - set by Reports To on each profile.',
+          "In People they get the team's list and five read-only profile tabs: Overview, Assets, Work Mode, Access and Work Logs. Hiring, Org Chart, Leave, Checklists, Add Person, documents, compliance and pay are hidden.",
+          "In Time they see the team's hours, timecards (Payroll), attendance, punch requests, missing punches, screenshots, locations and time off - never pay or wage figures, and no payroll files. They can fix their team's time (add a missing punch, correct a time, decide punch requests) except while a timesheet is back with the employee, out for signature or finalized.",
+          'HR staff who need everyone should be Global Admins (administrator and up), which is never limited.',
+        ],
+      },
     ],
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status.' },
@@ -1119,6 +1130,7 @@ export const DOCS = [
       title: 'HR & Admins',
       points: [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
+        'The Manager tier with the People grant sees only their own team (everyone below them in Reports To), read only, and never pay - even with the Compensation grant. HR staff who need everyone should be Global Admins.',
         'Offboarding: start the offboarding checklist the day notice is received, hand over their tasks, set mailbox handling, then mark them Left. Left logs them out of Nexus on every device straight away and, when the mailbox is removed or shared, ends their Microsoft 365 sessions too (Outlook and Teams on their phone stop working).',
         'Changing a status asks for a reason, and every change is kept in history.',
         'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',

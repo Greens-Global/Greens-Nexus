@@ -82,6 +82,22 @@ export function buildAccountWideInsightInput(params) {
 
   const campaigns = initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status }))
 
+  // Real Google review figures when Google Business Profile is connected
+  // (params.gbp, GET /marketing/gbp/summary) - the rules below then talk
+  // about the real rating, sentiment and backlog instead of the samples.
+  const real = params.gbp?.connected ? params.gbp : null
+  const reputation = real
+    ? {
+        reviewRating: real.rating,
+        sentimentPositivePct: real.positivePct,
+        recentPositiveReviewTexts: real.recentPositiveTexts,
+        recentNegativeReviewTexts: real.recentNegativeTexts,
+        gbp: { unansweredQuestions: 0, stalePhotoProperties: real.stalePhotoLocations || [] },
+        reviewBacklog: { agingCount: real.overdueUnreplied },
+        platformRatings: real.platformRatings,
+      }
+    : {}
+
   return {
     sessions: { current: totals.sessions, previous: prevTotals.sessions },
     organicSessions: { current: totals.organicSessions, previous: prevTotals.organicSessions },
@@ -117,5 +133,6 @@ export function buildAccountWideInsightInput(params) {
     staleLeads,
     reviewBacklog,
     platformRatings,
+    ...reputation,
   }
 }

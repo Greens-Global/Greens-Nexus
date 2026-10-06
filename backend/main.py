@@ -849,6 +849,11 @@ def _run_migrations():
             "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
+            # Marketing > Google Business Profile performance sync (Oct 2026)
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_synced_at VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_error VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN photo_count INTEGER DEFAULT 0",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN last_photo_at VARCHAR DEFAULT ''",
             # Property Tickets (Oct 6) - see the Postgres list.
             "ALTER TABLE task_tickets ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN property_name VARCHAR DEFAULT ''",
@@ -1886,6 +1891,20 @@ def _run_migrations():
         # principal, Internal / External and Egnyte folders per loan. New
         # table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
+        # Marketing > Google Business Profile performance sync (Oct 2026)
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_synced_at VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_error VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS last_photo_at VARCHAR DEFAULT ''",
+        # Marketing > Google Business Profile (Oct 2026). New tables - RLS per
+        # CLAUDE.md (the token table holds the sealed Google refresh token).
+        "ALTER TABLE marketing_integration_tokens ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_locations ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_reviews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_review_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_listing_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_keywords ENABLE ROW LEVEL SECURITY",
         # Property Tickets (Neil, 10/05): a ticket's Asset Management property
         # (soft link + name snapshot), the walkthrough it was filed in, and its
         # maintenance vendor/cost. See property_links.py.
@@ -2544,6 +2563,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
+        # Google Business Profile mirror (Marketing, Oct 2026): locations and
+        # reviews every 30 minutes. Deployed worker only - one connected Google
+        # account, and a laptop must not spend its quota or race the deploy.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from gbp import gbp_sync_loop
+                _tasks.append(_a.create_task(gbp_sync_loop()))
+            else:
+                print("[startup] Google Business Profile sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Business Profile sync skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -2971,6 +3002,9 @@ app.include_router(accounting_mre.router)          # Accounting > Reporting > MR
 from routers import pfs_access, pfs_affiliates  # noqa: E402
 app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
+from routers import marketing_gbp  # noqa: E402
+app.include_router(marketing_gbp.router)           # Marketing > Google Business Profile: listings, reviews, replies (Oct 2026)
+app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
 from routers import property_tickets  # noqa: E402
 app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
 from routers import ticket_walkthroughs  # noqa: E402
