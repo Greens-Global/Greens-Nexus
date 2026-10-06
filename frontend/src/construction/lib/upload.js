@@ -11,6 +11,7 @@
 // 100 MB clip through FastAPI would hold it in a gunicorn worker's memory for
 // the length of a jobsite LTE upload.
 import { supabase } from '../../lib/supabase';
+import { toViewUrl } from '../../lib/storageView';
 
 export const BUCKET = 'construction-media';
 
@@ -208,7 +209,9 @@ export async function uploadConstructionMedia(file, { projectId }) {
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(data.path);
 
-  return { error: null, payload: { ...common, storage_path: data.path, url: pub.publicUrl } };
+  // Viewer URL so the preview shows before the save (the bucket is private);
+  // api.js turns it back into the canonical URL on the way to the backend.
+  return { error: null, payload: { ...common, storage_path: data.path, url: toViewUrl(pub.publicUrl) } };
 }
 
 /** Any file kind from a clipboard paste - photos, but also a dragged-in clip.

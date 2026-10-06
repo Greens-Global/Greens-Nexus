@@ -214,8 +214,9 @@ def _fetch(url: str) -> bytes:
         import base64
         return base64.b64decode((url.split(",", 1) + [""])[1])
     import httpx
+    from routers.files import fetchable_url
     with httpx.Client(timeout=30) as c:
-        r = c.get(url)
+        r = c.get(fetchable_url(url))   # construction-media is private: signed URL
         r.raise_for_status()
         return r.content
 
