@@ -5,14 +5,16 @@ import BusinessProfilePage from './reputation/BusinessProfilePage';
 import InsightsPage from './insights/InsightsPage';
 import SeoPage from './seo/SeoPage';
 import LeadsPage from './leads/LeadsPage';
-import { ALL_PROPERTIES } from './shared/facilities';
+import { ALL_PROPERTIES, FACILITIES } from './shared/facilities';
 import { thisMonth } from './shared/utils';
 import { computeAlerts } from './shared/alerts';
 import { monthlyBudgetByPropertyDefault } from './googleAds/data';
 import { leadGoalByPropertyDefault } from './insights/data';
 import { generateInsights } from './insights/insightEngine';
 import { buildAccountWideInsightInput } from './insights/buildAccountWideInsightInput';
-import { useGbpSummary } from './gbp/useGbp';
+import { useGbpSummary, useGbpPermissions } from './gbp/useGbp';
+import { useAdsSummary } from './googleAds/useAds';
+import { api } from '../api';
 
 // Ported 1:1 from the standalone "Marketing Module Nexus" export (src/pages/
 // marketing/Marketing.tsx). The export drove tab/date-range/property state
@@ -35,6 +37,23 @@ export default function Marketing({ initialSub } = {}) {
   // (null until then, or without the Marketing grant) - the alerts bell and
   // the AI Analyst use them instead of the sample reviews.
   const gbpSummary = useGbpSummary();
+  // Real Google Ads spend once Google Ads is connected (null until then).
+  const adsSummary = useAdsSummary();
+  const { canReply: canSaveBudgets } = useGbpPermissions();
+
+  // Budgets saved on the server replace the sample ones; a property with no
+  // saved budget has none. Nothing saved yet (or no access) -> the samples.
+  useEffect(() => {
+    let live = true;
+    api.getAdBudgets()
+      .then((saved) => {
+        if (live && saved && Object.keys(saved).length) {
+          setMonthlyBudgetByProperty({ ...Object.fromEntries(FACILITIES.map((f) => [f, 0])), ...saved });
+        }
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   // A bell notification (e.g. a new low-star review) opens a specific tab via
   // nexus:navigate - follow it even when Marketing is already open.
@@ -51,16 +70,24 @@ export default function Marketing({ initialSub } = {}) {
   const totalLeadGoal = useMemo(() => Object.values(leadGoalByProperty).reduce((a, b) => a + b, 0), [leadGoalByProperty]);
 
   const allAlerts = useMemo(
-    () => computeAlerts({ monthlyBudget: totalMonthlyBudget, leadGoal: totalLeadGoal, gbp: gbpSummary }),
-    [totalMonthlyBudget, totalLeadGoal, gbpSummary],
+    () => computeAlerts({ monthlyBudget: totalMonthlyBudget, leadGoal: totalLeadGoal, gbp: gbpSummary, ads: adsSummary }),
+    [totalMonthlyBudget, totalLeadGoal, gbpSummary, adsSummary],
   );
   const alerts = useMemo(() => allAlerts.filter(a => !dismissedAlertIds.has(a.id)), [allAlerts, dismissedAlertIds]);
   const insights = useMemo(
-    () => generateInsights(buildAccountWideInsightInput({ monthlyBudgetByProperty, leadGoalByProperty, gbp: gbpSummary })),
-    [monthlyBudgetByProperty, leadGoalByProperty, gbpSummary],
+    () => generateInsights(buildAccountWideInsightInput({ monthlyBudgetByProperty, leadGoalByProperty, gbp: gbpSummary, ads: adsSummary })),
+    [monthlyBudgetByProperty, leadGoalByProperty, gbpSummary, adsSummary],
   );
 
   const changeMonthlyBudget = (facility, value) => setMonthlyBudgetByProperty(prev => ({ ...prev, [facility]: value }));
+  // Set Budget: saved for everyone with the Marketing editor grant, kept on
+  // this screen only for the rest (as before).
+  const saveBudgets = canSaveBudgets
+    ? async (budgets) => {
+        const saved = await api.setAdBudgets(budgets);
+        setMonthlyBudgetByProperty(prev => ({ ...prev, ...saved }));
+      }
+    : undefined;
   const changeLeadGoal = (facility, value) => setLeadGoalByProperty(prev => ({ ...prev, [facility]: value }));
   const clearAlert = (id) => setDismissedAlertIds(prev => new Set(prev).add(id));
 
@@ -95,6 +122,7 @@ export default function Marketing({ initialSub } = {}) {
       {...sharedProps}
       monthlyBudgetByProperty={monthlyBudgetByProperty}
       onChangeMonthlyBudget={changeMonthlyBudget}
+      onSaveBudgets={saveBudgets}
     />
   );
 

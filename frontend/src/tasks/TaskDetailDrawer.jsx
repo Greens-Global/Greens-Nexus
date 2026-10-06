@@ -993,29 +993,16 @@ function useCommentAttachments(taskId) {
   return [byComment, reload];
 }
 
-// Paperclip button + hidden file input + staged-file chips, shown above a
-// composer's Send button. Files aren't uploaded here - a comment_id is
-// required to link them (see uploadPendingAttachments), and the comment
-// doesn't exist yet while its composer is still open.
+// Staged-file chips under a comment composer (the paperclip that adds them
+// is in the editor toolbar - RichDescription's onStageFiles). Files aren't
+// uploaded here - a comment_id is required to link them (see
+// uploadPendingAttachments), and the comment doesn't exist yet while its
+// composer is still open.
 function PendingAttachments({ files, setFiles }) {
-  const fileRef = useRef(null);
-  // Several at once - a photo dump is one pick, not one trip per picture.
-  const onFile = (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) setFiles((p) => [...p, ...fs]); };
   const remove = (i) => setFiles((p) => p.filter((_, j) => j !== i));
-  if (!files.length) {
-    return (
-      <>
-        <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
-        <button type="button" onClick={() => fileRef.current?.click()} title="Attach Files"
-          style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
-      </>
-    );
-  }
+  if (!files.length) return null;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} title="Attach More Files"
-        style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
+    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
       {files.map((f, i) => (
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
           {f.type.startsWith('image/')
@@ -1125,17 +1112,18 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           onSubmit={submit}
           mentionPeople={people}
           minHeight={64}
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
         />
       </div>
+      <PendingAttachments files={pending} setFiles={setPending} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
-        <PendingAttachments files={pending} setFiles={setPending} />
+        <span style={{ fontSize: 11, color: NX.faint }}>
+          Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
+        </span>
         <button onClick={submit} disabled={isEmptyDoc(body) || busy}
           style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
           {busy ? 'Posting…' : 'Comment'}
         </button>
-      </div>
-      <div style={{ fontSize: 11, color: NX.faint, marginTop: 4 }}>
-        Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
       </div>
     </div>
   );
@@ -1265,12 +1253,13 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
-          mentionPeople={people} minHeight={64} />
+          mentionPeople={people} minHeight={64}
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
+        <PendingAttachments files={pending} setFiles={setPending} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
-          <PendingAttachments files={pending} setFiles={setPending} />
           <button onClick={submit} disabled={isEmptyDoc(body)}
             style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
         </div>

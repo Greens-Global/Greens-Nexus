@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { CheckCircle2, AlertTriangle, RefreshCw, Link2, Unplug, Copy, X } from 'lucide-react'
-import { api } from '../../api'
 import { formatDateTime } from '../../lib/datetime'
 import { C } from '../theme'
-import { useGbpPermissions, errorText, announceGbpChange } from './useGbp'
+import { useGbpPermissions, errorText, GBP_BAR } from './useGbp'
 
 const btn = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8,
@@ -36,10 +35,11 @@ export function Notice({ kind = 'info', children, onClose }) {
   )
 }
 
-// The Google Business Profile connection: who is connected, when it last
-// synced, and the admin's Connect / Disconnect plus everyone-with-editor
-// Sync Now. `onSynced` lets the page reload its lists after a sync.
-export default function GbpConnectionBar({ gbp, onSynced }) {
+// A Google connection (Business Profile by default, Google Ads with its own
+// `config`): who is connected, when it last synced, and the admin's Connect /
+// Disconnect plus everyone-with-editor Sync Now. `onSynced` lets the page
+// reload its lists after a sync.
+export default function GbpConnectionBar({ gbp, onSynced, config = GBP_BAR }) {
   const { isAdmin, canReply } = useGbpPermissions()
   const { status, loading, error, refresh, notice, setNotice } = gbp
   const [busy, setBusy] = useState('')
@@ -49,7 +49,7 @@ export default function GbpConnectionBar({ gbp, onSynced }) {
   async function connect() {
     setBusy('connect')
     try {
-      const out = await api.startGbpConnect()
+      const out = await config.start()
       if (out?.error) { setNotice({ kind: 'error', text: out.error }); return }
       window.location.assign(out.url)
     } catch (e) {
@@ -62,15 +62,15 @@ export default function GbpConnectionBar({ gbp, onSynced }) {
   async function syncNow() {
     setBusy('sync')
     try {
-      const out = await api.syncGbp()
+      const out = await config.sync()
       setNotice({
         kind: 'ok',
         text: out?.skipped
           ? 'Already up to date - it synced less than a minute ago.'
-          : `Synced ${out?.locations ?? 0} location${out?.locations === 1 ? '' : 's'} and ${out?.reviews ?? 0} review${out?.reviews === 1 ? '' : 's'}.`,
+          : config.syncedText(out),
       })
       onSynced?.()
-      announceGbpChange()
+      config.announce?.()
     } catch (e) {
       setNotice({ kind: 'error', text: errorText(e) })
     } finally {
@@ -82,10 +82,10 @@ export default function GbpConnectionBar({ gbp, onSynced }) {
   async function disconnect() {
     setBusy('disconnect')
     try {
-      await api.disconnectGbp()
-      setNotice({ kind: 'ok', text: 'Google is disconnected. The synced reviews and reply history are kept.' })
+      await config.disconnect()
+      setNotice({ kind: 'ok', text: config.disconnectedText })
       setConfirmDisconnect(false)
-      announceGbpChange()
+      config.announce?.()
     } catch (e) {
       setNotice({ kind: 'error', text: errorText(e) })
     } finally {
@@ -109,7 +109,7 @@ export default function GbpConnectionBar({ gbp, onSynced }) {
   if (loading) return <div className="nx-skel" style={{ height: 52, borderRadius: 10, marginBottom: 12 }} />
 
   if (error === 'forbidden') {
-    return <>{noticeEl}<Notice kind="info">You are seeing sample data. Real Google reviews need the Marketing access grant - ask an administrator.</Notice></>
+    return <>{noticeEl}<Notice kind="info">{config.forbidden}</Notice></>
   }
   if (error) {
     return <>{noticeEl}<Notice kind="error">{error} <button onClick={refresh} style={{ ...btn, padding: '2px 8px', marginLeft: 6 }}>Retry</button></Notice></>
@@ -124,11 +124,11 @@ export default function GbpConnectionBar({ gbp, onSynced }) {
           padding: '12px 14px', borderRadius: 10, border: '1px dashed ' + C.gray300, background: C.gray50, marginBottom: 16,
         }}>
           <div style={{ minWidth: 0, flex: '1 1 320px' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 2 }}>Google Business Profile Is Not Connected</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 2 }}>{config.title} Is Not Connected</div>
             {status.configured ? (
               <div style={{ fontSize: 12.5, color: C.gray500 }}>
                 {isAdmin
-                  ? 'Connect the dedicated Google account that manages the locations. Everyone with Marketing access then works through it.'
+                  ? config.adminBlurb
                   : 'An administrator connects the Google account once.'}
                 {' '}The figures below are sample data until then.
               </div>
@@ -180,7 +180,7 @@ export default function GbpConnectionBar({ gbp, onSynced }) {
           <CheckCircle2 size={15} style={{ color: C.emerald600, flexShrink: 0 }} />
           <span style={{ color: C.gray900, fontWeight: 500 }}>Connected to Google</span>
           <span>{status.accountLabel ? `${status.accountLabel} - ` : ''}{status.accountEmail}</span>
-          <span>&middot; {status.locationCount} location{status.locationCount === 1 ? '' : 's'}</span>
+          <span>&middot; {config.countText(status)}</span>
           <span>&middot; Last synced {formatDateTime(status.lastSyncAt, 'never')}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
