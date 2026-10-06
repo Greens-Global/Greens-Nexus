@@ -173,7 +173,14 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // filters / notes / tenant card, Dashboard / Reporting / Tools dropdowns.
 // Measured 10654 KB locally; CI reads about 10 KB higher. No new dependency.
 // Deliberate; every piece was asked for (Visesh, 10/06: "fix all of these").
-const TOTAL_KB     = 10750;
+// Oct 7, 2026: 10750 -> 10850. Property tickets (#434, Neil 10/05 + Pranshu
+// 10/06): the property picker on ticket forms, Property Walkthrough (many
+// tickets at one property in one submit), the Asset Management Maintenance
+// tab's Support-style ticket tables, Needs Action -> maintenance record with
+// recurring services, the nested Maintenance Log with filters, and the world
+// currency picker. CI measured 10809 KB with dev at 10743 (dev was 7 KB under
+// the cap, so any feature tipped it). No new dependency. Deliberate.
+const TOTAL_KB     = 10850;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

@@ -600,6 +600,9 @@ export const api = {
   getTicketTaxonomySettings: () => req("/task-tickets/taxonomy/settings"),
   updateTicketTaxonomySettings: (patch) => req("/task-tickets/taxonomy/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
+  // Desk Access rule (administrators): legacy / explicit - backend/ticket_roles.py.
+  getTicketDeskAccess: () => req("/task-tickets/desk-access"),
+  updateTicketDeskAccess: (deskAccess) => req("/task-tickets/desk-access", { method: "PUT", body: JSON.stringify({ deskAccess }) }),
   // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
@@ -1183,6 +1186,8 @@ export const api = {
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
   getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
   getGeofence:       (id)       => req(`/hr/employees/${id}/geofence`),
+  // The Access tab, read only, for a manager looking at their team (Oct 6).
+  getEmployeeAccessRead: (id)   => req(`/hr/employees/${id}/access`),
   setGeofence:       (id, data) => req(`/hr/employees/${id}/geofence`, { method: 'PUT', body: JSON.stringify(data) }),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
@@ -1357,6 +1362,8 @@ export const api = {
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
+  // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
+  timeMyChannels:    ()          => req('/timeclock/my-channels', { timeoutMs: 45000 }),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
   policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
@@ -1926,6 +1933,54 @@ export const api = {
   getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
   setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
   syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
+  // Marketing > Google Business Profile (backend/routers/marketing_gbp.py).
+  // A location is addressed by its Google number (the 123 of locations/123).
+  getGbpStatus: () => req('/marketing/gbp/status'),
+  startGbpConnect: () => req('/marketing/gbp/oauth/start', { method: 'POST' }),
+  disconnectGbp: () => req('/marketing/gbp/connection', { method: 'DELETE' }),
+  syncGbp: () => req('/marketing/gbp/sync', { method: 'POST', timeoutMs: 180_000 }),   // may wait on a running sync, then pull performance
+  getGbpLocations: () => req('/marketing/gbp/locations'),
+  mapGbpLocation: (key, facility) => req(`/marketing/gbp/locations/${key}/facility`, { method: 'PATCH', body: JSON.stringify({ facility }) }),
+  updateGbpListing: (key, changes) => req(`/marketing/gbp/locations/${key}/listing`, { method: 'PATCH', body: JSON.stringify(changes) }),
+  getGbpReviews: ({ replied = '', location = '', limit = 200, offset = 0 } = {}) =>
+    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, limit: String(limit), offset: String(offset) })}`),
+  replyGbpReview: (id, text) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'PUT', body: JSON.stringify({ text }) }),
+  deleteGbpReply: (id) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'DELETE' }),
+  getGbpListingHistory: (key) => req(`/marketing/gbp/locations/${key}/history`),
+  getGbpReviewHistory: (id) => req(`/marketing/gbp/reviews/${id}/history`),
+  getGbpSummary: () => req('/marketing/gbp/summary'),
+  getGbpPerformance: ({ start, end, location = '' }) => req(`/marketing/gbp/performance?${new URLSearchParams({ start, end, location })}`),
+  getGbpPosts: (key) => req(`/marketing/gbp/locations/${key}/posts`),
+  createGbpPost: (key, d) => req(`/marketing/gbp/locations/${key}/posts`, { method: 'POST', body: JSON.stringify(d) }),
+  updateGbpPost: (key, id, d) => req(`/marketing/gbp/locations/${key}/posts/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  deleteGbpPost: (key, id) => req(`/marketing/gbp/locations/${key}/posts/${id}`, { method: 'DELETE' }),
+  getGbpPhotos: (key) => req(`/marketing/gbp/locations/${key}/photos`),
+  addGbpPhoto: (key, file, category) => { const fd = new FormData(); fd.append('file', file); fd.append('category', category); return req(`/marketing/gbp/locations/${key}/photos`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  deleteGbpPhoto: (key, id) => req(`/marketing/gbp/locations/${key}/photos/${id}`, { method: 'DELETE' }),
+  // Property Tickets (Neil, 10/05) - routers/property_tickets.py: the property
+  // picker for ticket forms (names only, open to anyone who can raise one).
+  getTicketProperties:    () => cachedGet('/ticket-properties', 120_000),
+  // Property Walkthrough (routers/ticket_walkthroughs.py). Never retried here
+  // (mutations aren't); the form's batch_id makes a manual retry safe instead.
+  createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
+  // A property's tickets for Asset Management > Maintenance, and Follow.
+  getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
+  followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
+  // Maintenance record + recurring services (Pranshu, 10/06).
+  addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
+  updateMaintenanceService: (id, serviceId, body) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  openMaintenanceServiceNow: (id, serviceId) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}/open-now`, { method: 'POST' }),
+  // Marketing > Google Ads, read-only (backend/routers/marketing_ads.py).
+  getAdsStatus: () => req('/marketing/ads/status'),
+  startAdsConnect: () => req('/marketing/ads/oauth/start', { method: 'POST' }),
+  disconnectAds: () => req('/marketing/ads/connection', { method: 'DELETE' }),
+  syncAds: () => req('/marketing/ads/sync', { method: 'POST', timeoutMs: 240_000 }),   // a new account backfills ~14 months
+  getAdsSummary: () => req('/marketing/ads/summary'),
+  getAdsReport: ({ start, end, facility = '' }) => req(`/marketing/ads/report?${new URLSearchParams({ start, end, facility })}`),
+  getAdsCampaigns: () => req('/marketing/ads/campaigns'),
+  mapAdsCampaigns: (changes) => req('/marketing/ads/campaigns/facilities', { method: 'PUT', body: JSON.stringify({ changes }) }),
+  getAdBudgets: () => req('/marketing/ads/budgets'),
+  setAdBudgets: (budgets) => req('/marketing/ads/budgets', { method: 'PUT', body: JSON.stringify({ budgets }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

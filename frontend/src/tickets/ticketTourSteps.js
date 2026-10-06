@@ -23,12 +23,16 @@
  * @param {boolean}             ctx.isMobile   phone layout (toolbar/tiles are hidden)
  */
 export function buildTicketTourSteps({ setScope, setView, isMobile }) {
+  // The phone's scope strip is shorter-worded (All / Mine / Assigned) than the
+  // desktop's - the copy has to name the tabs the viewer is actually looking at.
+  const MINE = isMobile ? 'Mine' : 'My Requests';
+  const ASSIGNED = isMobile ? 'Assigned' : 'Assigned to Me';
   const steps = [
     {
       target: 'ticket-scope',
       before: () => { setScope('all'); setView('list'); },
       title: 'Every ticket starts from these tabs',
-      body: 'All shows everything you have access to. My Requests is what you raised; Assigned to Me is what you are working. To Route and To Approve only appear when there is something waiting in them, and only for the people they belong to.',
+      body: `All shows everything you have access to. ${MINE} is what you raised; ${ASSIGNED} is what you are working. To Route and To Approve only appear when there is something waiting in them, and only for the people they belong to.`,
     },
     {
       target: 'ticket-views',
@@ -60,7 +64,9 @@ export function buildTicketTourSteps({ setScope, setView, isMobile }) {
       target: 'ticket-body',
       before: () => setView('list'),
       title: 'Working a ticket',
-      body: 'Click a row to open the full thread, attachments and history - or click State/Priority right in the list to change it without opening anything. Resolved and Closed tickets collapse into their own section below so they do not crowd what is still open.',
+      body: isMobile
+        ? 'Tap a card to open the full thread, attachments and history. Search sits above the list, and the filter button in the bar below narrows and sorts it. Resolved and Closed tickets collapse into their own section below so they do not crowd what is still open.'
+        : 'Click a row to open the full thread, attachments and history - or click State/Priority right in the list to change it without opening anything. Resolved and Closed tickets collapse into their own section below so they do not crowd what is still open.',
     },
   ];
 
@@ -68,7 +74,7 @@ export function buildTicketTourSteps({ setScope, setView, isMobile }) {
     target: 'ticket-scope',
     before: () => { setScope('all'); setView('list'); },
     title: 'That is the tour',
-    body: 'Day to day you will be in All, My Requests or Assigned to Me, working tickets straight from the list. You can run this again any time from the profile menu\'s Tour row.',
+    body: `Day to day you will be in All, ${MINE} or ${ASSIGNED}, working tickets straight from the list. You can run this again any time from the profile menu's Tour row.`,
   });
 
   // `when` is ours, not GuidedTour's - strip it so the component only ever

@@ -466,7 +466,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const shift = (n) => setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
   const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
   const cur = data?.currency || 'USD';         // $ or ₹
-  const fmtM = (n) => money(n, cur);
+  // The manager tier never sees pay (Pranshu, 10/06) - the server sends none
+  // and says so (payHidden): the pay columns, rates and totals disappear.
+  const showPay = !data?.payHidden;
+  const fmtM = (n) => (showPay ? money(n, cur) : '');
   // Fixed employees navigate by MONTH; the backend reads `start` as a month anchor.
   const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 15)); };
   // Format from the ISO strings, not the UTC instants - toLocaleDateString on a
@@ -478,6 +481,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     : label;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
+  const span = (self ? 16 : 17) - (showPay ? 0 : 2);   // full-width rows across the table
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -710,9 +714,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
           <span title={self ? undefined : 'Set on the Pay & Benefits tab of this person\'s profile'}>
-            <strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr · <strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
+            {showPay && <><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
           </span>
-          {rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
+          {showPay && rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
             <span title="The rate changed inside this period - each day is paid at the rate in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>
               {rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`)}
             </span>
@@ -723,7 +727,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <CheckCircle size={12} /> Finalized · {nameFor(fin.by)} - period locked</span>}
         </div>
       )}
-      {!stepLocked && !data?.rateSet && (
+      {!stepLocked && showPay && !data?.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No pay rate set for this employee - wages show {fmtM(0)} until you set one.
         </div>
@@ -756,8 +760,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Loc</th>
                 {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={{ ...th, textAlign: 'left' }}>Notes</th>}
                 <th style={{ ...th, textAlign: 'left' }}>Department</th>
-                <th style={th}>Pay rate</th>
-                <th style={th}>Wage</th>
+                {showPay && <th style={th}>Pay rate</th>}
+                {showPay && <th style={th}>Wage</th>}
                 <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
               </tr>
@@ -765,13 +769,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'brk' ? (
                 <tr key={i}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
                       <Coffee size={11} /> Breaks
                       {!r.breaks.length && <span style={{ fontWeight: 500 }}>- none recorded</span>}
@@ -802,20 +806,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'auto' ? (
                 <tr key={i}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
                   </td>
                 </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <span>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
                         {r.name || 'Company holiday'}{r.worked
-                          ? <> - worked the half day, plus {fmtM(r.pay)} credited for the other half.</>
-                          : <> - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
+                          ? <> - worked the half day, plus {showPay ? fmtM(r.pay) : 'the other half'} credited{showPay ? ' for the other half' : ''}.</>
+                          : <> - not worked, {showPay ? <>paid {fmtM(r.pay)}</> : 'paid holiday'}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
                       </span>
                       {/* The pay figure under its own text was easy to miss (Pranshu,
                           Sep 22) - repeat it where the Wage column reads for every
@@ -826,7 +830,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}
                   </td>
                 </tr>
@@ -886,8 +890,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     </td>
                   )}
                   <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
+                  {showPay && <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>}
+                  {showPay && <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>}
                   <td style={{ ...td, textAlign: 'center' }}>
                     {r.first !== false && (
                       <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
@@ -931,8 +935,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
                   <td style={td}></td>
                   <td style={td}></td>
-                  <td style={td}></td>
-                  <td style={td}>{fmtM(T.totalPay)}</td>
+                  {showPay && <td style={td}></td>}
+                  {showPay && <td style={td}>{fmtM(T.totalPay)}</td>}
                   <td style={td}></td>
                   <td style={td}></td>
                 </tr>
@@ -953,7 +957,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               // With a rate change inside the period each day is priced at its
               // own rate, so the lines name no single rate; the strip above shows the split.
               const split = (data.rateSplits || []).length > 1;
-              const at = (mult) => split ? '' : ` at ${fmtM(rate * mult)}/hr`;
+              const at = (mult) => (split || !showPay) ? '' : ` at ${fmtM(rate * mult)}/hr`;
               const rows = [
                 [`Total Regular hours${at(1)}`, hd(T.regMin), fmtM(T.regPay)],
                 [`Total Overtime hours${at(1.5)}`, hd(T.otMin), fmtM(T.otPay)],
@@ -1015,7 +1019,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
               </div>
             )}
-            {!self && (
+            {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               <button className="secondary-btn" disabled={exporting} title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
@@ -1128,6 +1132,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
 function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote }) {
+  const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
@@ -1207,13 +1212,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>Fixed salary</span>
         {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-        <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>Salary:</strong> {fmtM(data.monthlySalary)}/mo</span>
-        {fixedSplit && (
+        {showPay && <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>Salary:</strong> {fmtM(data.monthlySalary)}/mo</span>}
+        {showPay && fixedSplit && (
           <span title="The salary changed inside this month - each day is paid at the salary in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>{fixedSplit}</span>
         )}
-        <span title="Monthly salary x 12, divided by the working days in this calendar year (days minus Saturdays and Sundays; company holidays stay in)">
+        {showPay && <span title="Monthly salary x 12, divided by the working days in this calendar year (days minus Saturdays and Sundays; company holidays stay in)">
           <strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} (annual / {data.workingDaysInYear || T.workingDaysInYear || 261} working days)
-        </span>
+        </span>}
         <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
           <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
         </span>
@@ -1229,7 +1234,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A weekday under {hhmm(bands.halfMin)} deducts a day, under {hhmm(bands.fullMin)} half a day; each weekend day worked adds {data.weekendMultiplier || 1.35} × your daily rate, pro-rated by hours{data.weekendFloor ? ` (at least ${fmtM(data.weekendFloor)})` : ''}. Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
         </div>
       )}
-      {!data.rateSet && (
+      {showPay && !data.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No salary set - set it on this person's Pay &amp; Benefits tab. Pay shows {fmtM(0)} until then.
         </div>
@@ -1241,7 +1246,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>{showPay ? 'Effect on pay' : ''}</th>
               {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={th}>Notes</th>}
               {/* Far right, like the hourly card (Sep 29). */}
               <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
@@ -1360,7 +1365,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
-                  <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
                   {!self && (
                     <td style={td}><NoteCell date={fd.date} note={dayNotes[fd.date]} onSave={saveNote} /></td>
                   )}
@@ -1509,9 +1514,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </table>
       </div>
 
-      {/* Monthly pay summary */}
+      {/* Monthly pay summary - payroll's, never the manager tier's */}
       <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ flex: 1, minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {(() => {
             const rows = [
               [fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary', fmtM(T.salaryForPeriod ?? T.monthlySalary)],

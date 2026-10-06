@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from auth import require_module_grant, hr_scope
+from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
 from services import logo_video
@@ -27,6 +27,26 @@ require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
 # bypass; everyone else needs an explicit "hr_comp" Access Group grant.
 require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")
 require_hr_comp_write = require_module_grant("hr_comp", "editor", bypass_level="owner")
+
+
+def require_comp_read_or_manager(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Pay & Benefits reads: the hr_comp grant as before, OR (Pranshu, 10/07)
+    the Manager tier holding People - for their DIRECT reports only, read only
+    and without bank details, checked per record (_direct_report_or_404)."""
+    from auth import _LEVELS, _module_level
+    if hr_team_limited(user) and _module_level(user["email"], "hr", db) >= 1:
+        return user
+    if user["level"] >= _LEVELS["owner"] or _module_level(user["email"], "hr_comp", db) >= 1:
+        return user
+    raise HTTPException(status_code=403, detail="You don't have access to this screen")
+
+
+def _direct_report_or_404(user: dict, emp: Optional[NexusEmployee]) -> None:
+    """A manager sees pay only for people whose Reports To is them - not the
+    rest of the chain they see in People. 404, so existence doesn't leak."""
+    me = (user.get("email") or "").strip().lower()
+    if emp is None or (emp.manager_email or "").strip().lower() != me:
+        raise HTTPException(404, "Employee not found")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -101,6 +121,8 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
 # people are visible only to unrestricted admins.
 
 def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
+    if emp is not None and is_team_scope(scope):   # People limited to their own team (Oct 6)
+        return (emp.work_email or "").strip().lower() in scope.emails
     return emp is not None and (scope is None or (emp.company or "") in scope)
 
 
@@ -115,7 +137,9 @@ def _assert_scope(emp: Optional[NexusEmployee], scope) -> NexusEmployee:
 
 
 def _scoped(q, scope):
-    """Apply a company scope to a NexusEmployee query."""
+    """Apply a company (or own-team) scope to a NexusEmployee query."""
+    if is_team_scope(scope):
+        return q.filter(func.lower(NexusEmployee.work_email).in_(sorted(scope.emails)))
     if scope is not None:
         q = q.filter(NexusEmployee.company.in_(scope))
     return q
@@ -180,12 +204,26 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     """`deleted=true` returns the removed people INSTEAD of the live ones - the
     Deleted filter in the directory. Live listings need no filtering of their
     own: the session hides removed rows globally (database.py)."""
-    q = _scoped(db.query(NexusEmployee), hr_scope(user, db))
+    scope = hr_scope(user, db)
+    q = _scoped(db.query(NexusEmployee), scope)
     if deleted:
         q = (q.execution_options(include_deleted=True)
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
+    if is_team_scope(scope):
+        return [_team_view(_serialize(e)) for e in rows]
     return [_serialize(e) for e in rows]
+
+
+_CONTRACTOR_PAY = ("rate", "rate_type", "currency", "billing_rate", "bill_rate")
+
+
+def _team_view(row: dict) -> dict:
+    """An employee as a manager sees them in People (Oct 6): Overview as is,
+    but no Compliance records and no contractor rate - never pay."""
+    row["compliance"] = {}
+    row["contractor"] = {k: v for k, v in (row.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
+    return row
 
 
 @router.post("/employees")
@@ -806,6 +844,8 @@ def _has_comp(user: dict, db: Session) -> bool:
     """Inline hr_comp check (paystubs are salary documents). Mirrors
     require_hr_comp_read: Global Admin bypass OR an explicit hr_comp grant."""
     from auth import _module_level, _LEVELS
+    if is_team_scope(hr_scope(user, db)):
+        return False   # the manager tier never sees pay (Oct 6)
     return user["level"] >= _LEVELS["owner"] or _module_level(user["email"], "hr_comp", db) >= 1
 
 
@@ -857,8 +897,15 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
-    if row.kind == "paystub" and not _has_comp(user, db):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
+    _assert_scope(emp, hr_scope(user, db))
+    if hr_team_limited(user):
+        # A manager opens only a direct report's paystub here (Oct 7) - their
+        # other documents are not part of the team view.
+        if row.kind != "paystub":
+            raise HTTPException(404, "Document not found")
+        _direct_report_or_404(user, emp)
+    elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
@@ -888,9 +935,12 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
 # Employees see/download their own via /myhr/paystubs (routers/myhr.py).
 
 @router.get("/employees/{eid}/paystubs")
-def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read),
+def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
                   _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    _assert_scope(emp, hr_scope(user, db))
+    if hr_team_limited(user):
+        _direct_report_or_404(user, emp)   # a manager: direct reports only (Oct 7)
     rows = (db.query(HrDocument)
             .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
             .order_by(HrDocument.created_at.desc()).all())
@@ -2030,7 +2080,11 @@ def _serialize_entity(e: HrEntity) -> dict:
 def list_entities(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
     q = db.query(HrEntity)
-    if scope is not None:
+    if is_team_scope(scope):
+        # Their team's companies, for the names on the cards - nothing else.
+        ids = {c for (c,) in _scoped(db.query(NexusEmployee.company), scope).all() if c}
+        q = q.filter(HrEntity.id.in_(sorted(ids)))
+    elif scope is not None:
         q = q.filter(HrEntity.id.in_(scope))
     rows = q.order_by(HrEntity.name).all()
     return [_serialize_entity(e) for e in rows]
@@ -3306,12 +3360,18 @@ class CompensationIn(BaseModel):
 
 
 @router.get("/employees/{eid}/compensation")
-def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
+def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager),
                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
+    if hr_team_limited(user):
+        # A manager's read-only view of a direct report (Oct 7): pay, history
+        # and benefits - never the bank accounts.
+        _direct_report_or_404(user, row)
+        return {"compensation": row.compensation or {}, "bank": [], "readOnly": True,
+                "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
             "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
@@ -3654,6 +3714,18 @@ def _geofence_payload(emp: NexusEmployee) -> dict:
         "setBy": emp.geofence_set_by or "",
         "setAt": emp.geofence_set_at or "",
     }
+
+
+@router.get("/employees/{eid}/access")
+def employee_access_read(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The Access tab, READ ONLY, for a manager looking at their team in
+    People (Oct 6): the person's job role, groups and module levels - the same
+    resolution the administrators' Access tab shows - and nothing to change."""
+    from routers.jobroles import effective_access
+    emp = _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
+    if not emp or not (emp.work_email or "").strip():
+        raise HTTPException(404, "Employee not found")
+    return effective_access((emp.work_email or "").strip().lower(), user=user, db=db)
 
 
 @router.get("/employees/{eid}/geofence")

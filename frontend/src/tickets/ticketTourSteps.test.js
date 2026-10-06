@@ -59,6 +59,20 @@ describe('buildTicketTourSteps', () => {
     expect(steps[steps.length - 1].target).toBe('ticket-scope');
   });
 
+  it('names the scope tabs the way each layout labels them', () => {
+    // The phone strip reads All / Mine / Assigned; the desktop one My Requests /
+    // Assigned to Me. Copy naming a tab that is not on screen sends people looking.
+    const desk = build({ isMobile: false });
+    expect(desk[0].body).toMatch(/My Requests is what you raised; Assigned to Me is what you are working/);
+    expect(desk[desk.length - 1].body).toMatch(/All, My Requests or Assigned to Me/);
+    const phone = build({ isMobile: true });
+    expect(phone[0].body).toMatch(/Mine is what you raised; Assigned is what you are working/);
+    expect(phone[phone.length - 1].body).toMatch(/All, Mine or Assigned,/);
+    for (const step of phone) {
+      expect(step.body).not.toMatch(/My Requests|Assigned to Me|Click a row|click State/);
+    }
+  });
+
   it('resets scope and view before pointing at a screen', () => {
     // Without before(), a step could spotlight the right element while it is
     // showing a stale scope/view left over from an earlier step.

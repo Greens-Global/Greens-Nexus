@@ -569,8 +569,8 @@ function AssetsSection({ employee }) {
 // Every punch still records where it was made, so a doubtful one can be looked
 // at on the map - "that's on us, that's not on him."
 function GeofenceSection({ employee, toastOk, toastErr }) {
-  const { canAccessModule } = useRole();
-  const canEdit = canAccessModule('hr', 'manager', 'editor');
+  const { canAccessModule, hrTeam } = useRole();
+  const canEdit = !hrTeam && canAccessModule('hr', 'manager', 'editor');   // a team view is read only
   const [data, setData] = useState(null);        // { geofence: {remote,setBy,setAt}, lastPunchLocation, workSites }
   const [busy, setBusy] = useState(false);
 
@@ -1051,7 +1051,9 @@ function StatCard({ label, value, sub, tone }) {
 
 // Restricted read view of pay/benefits/bank; edit opens the full CompensationModal.
 // reloadToken bumps after the modal closes so saved changes show without a reload.
-function PayTab({ employee, reloadToken, onEdit }) {
+// `readOnly` (Oct 7): a manager viewing a direct report - no Edit, no upload
+// or delete, and no bank accounts (the server sends none to them either).
+function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   const [data, setData] = useState(null);
   const [stubs, setStubs] = useState([]);
   const [stubPeriod, setStubPeriod] = useState('');
@@ -1109,8 +1111,8 @@ function PayTab({ employee, reloadToken, onEdit }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> Restricted · compensation grant</span>
-        <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> {readOnly ? 'Read only · your direct report' : 'Restricted · compensation grant'}</span>
+        {!readOnly && <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>}
       </div>
       {!data ? (
         <SkeletonBlocks count={4} height={44} />
@@ -1154,13 +1156,13 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {(data.comp.benefits || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.comp.benefits.map((bn, i) => row2(`bn${i}`, label(BENEFIT_TYPES, bn.type), [bn.plan, bn.deduction && `${money(bn.deduction, data.comp.currency)}/paycheck`, bn.note].filter(Boolean).join(' · ')))}
-          {sectionLabel('Bank accounts')}
-          {data.bank.length === 0
+          {!readOnly && sectionLabel('Bank accounts')}
+          {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
-            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · ')))}
+            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
 
           {sectionLabel('Paystubs')}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          {!readOnly && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
             <input className="form-input" placeholder='Pay period, e.g. "Jun 16 – Jun 30, 2026"' value={stubPeriod}
               onChange={e => setStubPeriod(e.target.value)} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
             <input ref={stubFileRef} type="file" accept="application/pdf" style={{ display: 'none' }}
@@ -1169,9 +1171,9 @@ function PayTab({ employee, reloadToken, onEdit }) {
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               {stubBusy ? 'Uploading…' : 'Upload PDF'}
             </button>
-          </div>
+          </div>}
           {stubs.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None uploaded. The employee sees these under My HR.</div>
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{readOnly ? 'None uploaded.' : 'None uploaded. The employee sees these under My HR.'}</div>
             : stubs.map(s => (
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
                 <FileText size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -1179,9 +1181,9 @@ function PayTab({ employee, reloadToken, onEdit }) {
                   {s.fileName}
                 </button>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
-                <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                {!readOnly && <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                   <Trash2 size={13} />
-                </button>
+                </button>}
               </div>
             ))}
         </>
@@ -1489,7 +1491,57 @@ function ExternalLifecycle({ e, toastOk, toastErr, onChanged, onRemoved }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
+// The Access tab for a manager looking at their team in People (Oct 6): what
+// this person can open in Nexus, read only - access is changed by
+// administrators in Admin > Roles & Access. Remounts per person (the profile
+// is keyed on the employee), so it loads once and never resets in an effect.
+const titleCase = v => String(v || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+function TeamAccessView({ employee }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.getEmployeeAccessRead(employee.id)
+      .then(d => { if (live) setData(d); })
+      .catch(e => { if (live) setErr(e?.message || 'Could not load access.'); });
+    return () => { live = false; };
+  }, [employee.id]);
+  if (err) return <ErrorBanner message={err} />;
+  if (!data) return <SkeletonBlocks count={3} height={40} />;
+  const modName = id => MODULES.find(m => m.id === id)?.label || id;
+  const lvl = l => MODULE_LEVELS[l]?.label || titleCase(l);
+  const head = { fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', textAlign: 'left', padding: '6px 8px' };
+  const cell = { fontSize: 13, padding: '7px 8px', borderTop: '1px solid var(--line)' };
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        <StatCard label="Role Tier" value={titleCase(data.tier || 'employee')} sub="what their role allows" />
+        <StatCard label="Job Role" value={data.job_role?.name || '-'} sub={data.extra_groups?.length ? `+ ${data.extra_groups.map(g => g.name).join(', ')}` : 'no extra groups'} />
+      </div>
+      {(data.modules || []).length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>No module access beyond what every employee has.</div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={head}>Module</th><th style={head}>Level</th><th style={head}>Granted By</th></tr></thead>
+          <tbody>
+            {data.modules.map(m => (
+              <tr key={m.module}>
+                <td style={{ ...cell, fontWeight: 600 }}>{modName(m.module)}</td>
+                <td style={cell}>{lvl(m.level)}</td>
+                <td style={{ ...cell, color: 'var(--muted)' }}>{m.source}{m.manual ? ' (added)' : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Lock size={12} /> Read only - administrators change access in Admin &gt; Roles &amp; Access.
+      </div>
+    </div>
+  );
+}
+
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1543,7 +1595,17 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
     </div>
   );
-  const tabs = [
+  // A manager looking at their team (Oct 6) gets five tabs, read only - plus
+  // Pay & Benefits, read only, for their DIRECT reports (Oct 7).
+  const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
+  const tabs = (teamView ? [
+    ['overview', 'Overview', Contact],
+    directReport && ['pay', 'Pay & Benefits', Wallet],
+    ['assets', 'Assets', Briefcase],
+    ['location', 'Work Mode', MapPinned],
+    ['access', 'Access', Shield],
+    ['bod', 'Work Logs', Clock],
+  ] : [
     ['overview', 'Overview', Contact],
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
     ['compliance', 'Compliance', ShieldCheck],
@@ -1553,7 +1615,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['checklist', 'Checklist', ListChecks],
     isAdmin && ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
-  ].filter(Boolean);
+  ]).filter(Boolean);
   const expiry = nextExpiry(e);
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
@@ -1564,7 +1626,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
         {/* Avatar opens the photo editor: view, re-crop with grid + zoom, or change */}
-        <button title="View or change profile photo" onClick={() => setPhotoOpen(true)}
+        <button title={teamView ? fullName(e) : 'View or change profile photo'} disabled={teamView} onClick={() => setPhotoOpen(true)}
           style={{ position: 'relative', cursor: 'pointer', flexShrink: 0, background: 'none', border: 'none', padding: 0 }}>
           <Avatar e={e} size={56} card={false} />
           <span style={{ position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--card)' }}>
@@ -1587,7 +1649,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {/* A removed person is read-only: Restore is the only way forward, so
             editing, status changes and provisioning are all withheld rather
             than left live on a record that is not currently in the company. */}
-        {isRemoved ? (
+        {teamView ? (
+          <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: isRemoved ? 'hsla(var(--color-red),0.12)' : sm.bg, color: isRemoved ? 'hsl(var(--color-red))' : sm.fg }}>
+            {isRemoved ? 'Removed' : sm.label}
+          </span>
+        ) : isRemoved ? (
           <>
             <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>
               Removed
@@ -1666,9 +1732,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
-        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
+        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : mgrEmail ? `reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : 'no manager'} />
         <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
-        {expiry
+        {teamView ? null : expiry
           ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
           : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
@@ -1707,7 +1773,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
-              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
+              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
               {e.notes && row(FileText, 'Notes', e.notes)}
             </div>
@@ -1715,9 +1781,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
                 <Contact size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Personal details
               </span>
-              <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-                <Pencil size={12} /> Edit
-              </button>
+              {!teamView && (
+                <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+                  <Pencil size={12} /> Edit
+                </button>
+              )}
             </div>
             <div>
               {row(CalendarDays, 'Date of birth', formatDate(e.personal?.dob))}
@@ -1727,8 +1795,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           </>
         )}
 
-        {tab === 'pay' && canSeeComp && (
-          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} />
+        {tab === 'pay' && (canSeeComp || directReport) && (
+          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} readOnly={teamView} />
         )}
 
         {tab === 'compliance' && (
@@ -1771,7 +1839,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
-        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && teamView && <TeamAccessView employee={e} />}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -5631,8 +5700,11 @@ export default function HR({ activeSub, onSubChange }) {
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
   const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-attendance': 'attendance', 'hr-time-requests': 'requests' };
+  // The manager tier sees its own team in People (Oct 6): People and Time only.
+  const { hrTeam } = useRole();
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
-    : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'].includes(activeSub) ? activeSub : 'hr-people';
+    : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
@@ -5685,12 +5757,12 @@ export default function HR({ activeSub, onSubChange }) {
   const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
   const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
   const { canAccessModule, can, hrScope } = useRole();
-  const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
+  const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
   // Company-scoped People admin (Neil, Aug 25): hrScope = list of HrEntity ids
   // this admin is limited to (server-enforced; the lists that arrive are
   // already filtered). Non-null hides company-wide actions and shows a chip.
-  const isScoped = Array.isArray(hrScope) && hrScope.length > 0;
+  const isScoped = !hrTeam && Array.isArray(hrScope) && hrScope.length > 0;
   const scopeNames = isScoped ? hrScope.map(id => entities.find(en => en.id === id)?.name || null).filter(Boolean) : [];
 
   // Stable across renders: children key their loaders on these, and a new
@@ -5749,9 +5821,9 @@ export default function HR({ activeSub, onSubChange }) {
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
   useEffect(() => {
-    if (sub !== 'hr-people' && sub !== 'hr-checklists') return;
+    if (hrTeam || (sub !== 'hr-people' && sub !== 'hr-checklists')) return;
     api.getChecklistProgress().then(r => setClProgress(r.progress || {})).catch(() => {});
-  }, [sub, selectedId]);
+  }, [sub, selectedId, hrTeam]);
   const openChecklistOf = (id) => { setOpenTab('checklist'); setSelectedId(id); onSubChange?.('hr-people'); };
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
@@ -5857,7 +5929,7 @@ export default function HR({ activeSub, onSubChange }) {
     // actions sit on their profile card.
     // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
     // longer a People tab.
-  ];
+  ].filter(t => SUBS.includes(t.key));
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -5876,6 +5948,12 @@ export default function HR({ activeSub, onSubChange }) {
         </div>
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+            {hrTeam && (
+              <span title="As a manager you see the people who report to you, directly or through your managers - hours and profiles, never pay."
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 700 }}>
+                <Users size={13} /> Showing: Your Team
+              </span>
+            )}
             {isScoped && (
               <span title="Your People access is limited to these companies - people, time and leave outside them are not shown."
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 700 }}>
@@ -5886,7 +5964,7 @@ export default function HR({ activeSub, onSubChange }) {
                 module in full (Pranshu, Sep 9) - no longer buttons here. */}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
-            <div>
+            {!hrTeam && <div>
               <button ref={addMenuBtnRef} className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
                 onClick={() => setAddMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={addMenuOpen}>
                 <Plus size={15} /> Add Person <ChevronDown size={14} />
@@ -5907,7 +5985,7 @@ export default function HR({ activeSub, onSubChange }) {
                   </button>
                 ))}
               </AnchoredMenu>
-            </div>
+            </div>}
           </div>
         )}
       </div>
@@ -5950,7 +6028,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
 
       {sub === 'hr-people' && (<>
-        <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
+        {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
         <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
@@ -5971,7 +6049,7 @@ export default function HR({ activeSub, onSubChange }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <ChevronLeft size={14} /> Back to directory
           </button>
-          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
+          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
@@ -6140,7 +6218,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 <div style={{ padding: '16px 18px', minWidth: 0 }}>
                   {selected ? (
-                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
+                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
