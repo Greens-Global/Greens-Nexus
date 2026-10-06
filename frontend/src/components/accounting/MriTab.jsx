@@ -4,6 +4,9 @@ import { api } from '../../api';
 import Amount from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import LeasingTab from './LeasingTab';
+import { ExportMenu } from './reportControls';
+import { downloadBlob } from './reportModel';
+import { linesFile } from './linesExport';
 
 // Accounting -> MRI, Monthly Recurring Income (Neil, call of 09/29: "Leasing
 // is a placeholder - it should be MRI, covering leases and the interest and
@@ -16,6 +19,9 @@ import LeasingTab from './LeasingTab';
 //                               accounts month by month this year, straight
 //                               from the ledger - one row per account, a
 //                               column per month, totals below.
+//
+// Oct 6 (Charmi, 10/04): the Interest and Loan Payments table takes the same
+// Export menu (Excel, CSV, PDF) as the rent roll and Reports.
 
 const SECTIONS = [{ key: 'leasing', label: 'Leasing' }, { key: 'interest', label: 'Interest and Loan Payments' }];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -77,6 +83,24 @@ export function InterestIncome() {
   // on MRI ... for me to review" - on production the screen was empty with
   // no word on why): how many income accounts had activity, and which titles
   // this section reads.
+  const [exporting, setExporting] = useState('');
+  const exportAs = async (format) => {
+    if (exporting) return;
+    setExporting(format);
+    try {
+      const file = await linesFile({
+        title: 'Interest and Loan Payments', subtitle: `${year} · accrual book · every entity you may read`, name: `Interest and Loan Payments - ${year}`,
+        columns: [{ label: 'Account', width: 90 }, { label: 'Title', width: 220 }, ...MONTHS.map((m) => ({ label: m, num: true, width: 70 })), { label: 'Total', num: true, width: 90 }],
+        rows: rows.map((r) => [r.code, r.title, ...r.months, r.total]),
+        totals: ['Total Received', '', ...totals, grand],
+      }, format);
+      downloadBlob(file.name, file);
+    } catch (e) {
+      setError(e?.message || 'Could not export.');
+    } finally {
+      setExporting('');
+    }
+  };
   const incomeAccounts = useMemo(() => new Set((data?.rows || []).filter((r) => ['revenue', 'other_income'].includes(r.section)).map((r) => r.account_no)).size, [data]);
   return (
     <div style={{ ...card, padding: 10, display: 'grid', gap: 10 }}>
@@ -88,6 +112,11 @@ export function InterestIncome() {
         </div>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Interest and loan payments received, as posted to the income accounts, accrual book.</span>
         <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>Received this year <strong><Amount value={grand} zero="dash" /></strong></span>
+        <ExportMenu disabled={!rows.length} items={[
+          { key: 'excel', label: 'Excel', hint: 'As on screen, live totals', onPick: () => exportAs('excel'), busy: exporting === 'excel' },
+          { key: 'csv', label: 'CSV', hint: 'Plain values, one row per account', onPick: () => exportAs('csv'), busy: exporting === 'csv' },
+          { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => exportAs('pdf'), busy: exporting === 'pdf' },
+        ]} />
       </div>
       {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
       {loading && !data ? <SkeletonBlocks count={3} /> : !rows.length ? (

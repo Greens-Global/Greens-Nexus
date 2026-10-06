@@ -56,6 +56,19 @@ export function useAccountingPrefs() {
   return [prefs || {}, setPrefs];
 }
 
+// Oct 6 (Charmi, 10/04: "add in the feature to customise it to compact,
+// condensed and comfortable and make sure it saves to the user profile"):
+// how tightly the Dashboard tabs draw - card padding, the gaps between
+// widgets and the rows of the widget tables. Kept here with the rest of the
+// person's layout (`dashDensity`), so it follows them to any computer; the
+// Reports density is the separate `density` key, saved the same way.
+export const DASH_DENSITIES = [
+  { key: 'compact', label: 'Compact', hint: 'Tighter cards and rows' },
+  { key: 'condensed', label: 'Condensed', hint: 'As much on screen as possible' },
+  { key: 'comfortable', label: 'Comfortable', hint: 'Roomy cards and rows' },
+];
+export const dashDensityOf = (prefs) => (DASH_DENSITIES.some((d) => d.key === prefs?.dashDensity) ? prefs.dashDensity : 'comfortable');
+
 // For tests: forget the shared copy.
 export function resetAccountingPrefs() {
   current = null;

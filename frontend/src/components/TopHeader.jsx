@@ -4,7 +4,7 @@ const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import HelpMenu from "../support/HelpMenu";
-import { useHeaderTabs } from "./ModuleTabs";
+import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
 
@@ -447,7 +447,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
         {headerTabs ? (
           <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
-            {headerTabs.tabs.map(({ key, label, Icon, badge }) => (
+            {headerTabs.tabs.map(({ key, label, Icon, badge, items }) => (items ? (
+              <TabGroupButton key={key} tab={{ key, label, Icon, items }} active={headerTabs.active} className="hdr-tab"
+                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
+            ) : (
               <button key={key}
                 className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
                 aria-current={headerTabs.active === key ? 'page' : undefined}
@@ -456,7 +459,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 <span>{label}</span>
                 {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
               </button>
-            ))}
+            )))}
           </nav>
         ) : (
           <div style={{ position: 'relative' }} ref={searchRef}>

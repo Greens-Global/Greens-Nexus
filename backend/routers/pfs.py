@@ -36,6 +36,16 @@ Schedule C (per business interest with an entity) for the calendar year of
 the statement date, mapped from the entity's P&L account titles to the IRS
 lines; the statement also goes out as Excel.
 
+Oct 6 (Charmi, 10/03-10/04): the bank-style first page - a one-page
+Statement of Financial Condition (assets and liabilities on the lines a bank
+form uses, the totals, net worth, contingent liabilities, annual income from
+the schedules) heads the screen, the PDF and the workbook. The Institution of
+a ledger line is the BANK (the bank account record linked to the GL account,
+else the bank named in the account title), never the guarantor or entity.
+Cash on hand is its own section, the first; Vehicles is a section; Jewelry
+and Personal Property fold into Personal Holdings (saved lines move with
+them); lines keep the order they are put in, per guarantor.
+
 Who may see it
   Nobody by default. Owners, and people an Access Group explicitly grants the
   "pfs" module, and nobody else - an administrator's usual bypass does NOT
@@ -54,31 +64,39 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
 from auth import require_module_grant
 from database import SessionLocal, get_db
-from routers import accounting
+from routers import accounting, pfs_access, pfs_affiliates
 
 _read = require_module_grant("pfs", "viewer", bypass_level="owner")
 _edit = require_module_grant("pfs", "editor", bypass_level="owner")
 
-router = APIRouter(prefix="/pfs", tags=["Personal Financial Statements"], dependencies=[Depends(_read)])
+# Oct 6 (Charmi, 10/04): every route of a file ({profile_id} / {statement_id})
+# is locked until opened with a one-time code - routers/pfs_access.py.
+router = APIRouter(prefix="/pfs", tags=["Personal Financial Statements"], dependencies=[Depends(_read), Depends(pfs_access.file_gate)])
 
 KINDS = ("individual", "joint", "trust")
 
 # The statement's sections, in the order a lender reads them.
+# Oct 6 (Charmi): Cash - the GL called Cash, petty cash, cash on hand, never
+# a bank - is its own section and the first; Vehicles is a section; Notes
+# Receivable and Loans on Life Insurance get the lines the first page prints.
+# Jewelry and Personal Property fold into Personal Holdings.
 ASSET_CATEGORIES = [
+    ("cash", "Cash"),
     ("bank", "Bank Accounts"),
     ("retirement", "Retirement Accounts"),
     ("investment", "Investment Accounts"),
     ("business", "Business Interests"),
+    ("notes_receivable", "Notes Receivable"),
     ("insurance", "Insurance"),
+    ("vehicles", "Vehicles"),
     ("personal", "Personal Holdings"),
-    ("jewelry", "Jewelry & Personal Property"),
     ("other_holding", "Other Holdings"),
 ]
 LIABILITY_CATEGORIES = [
@@ -87,7 +105,11 @@ LIABILITY_CATEGORIES = [
     ("auto", "Automobile Loans"),
     ("loc", "Lines of Credit"),
     ("credit_card", "Credit Cards"),
+    ("insurance_loan", "Loans on Life Insurance"),
     ("other_liability", "Other Liabilities"),
+    # A guarantee of somebody else's debt: printed under Contingent
+    # Liabilities on the first page, never added into total liabilities.
+    ("contingent", "Contingent Liabilities"),
 ]
 REAL_ESTATE_KINDS = [
     ("domestic_residential", "Domestic Residential Real Estate"),
@@ -96,7 +118,11 @@ REAL_ESTATE_KINDS = [
     ("international_commercial", "International Commercial Real Estate"),
 ]
 # The three categories the schedule had before 09/30, as the four read them.
-_RE_LEGACY = {"residential": "domestic_residential", "commercial": "domestic_commercial", "international_re": "international_residential"}
+_RE_LEGACY = {"residential": "domestic_residential", "commercial": "domestic_commercial", "international_re": "international_residential",
+              # Oct 6 (Charmi): "remove Jewelry and Personal Property and merge
+              # their logic into Personal Holdings" - a saved jewelry line reads
+              # (and is saved again) as Personal Holdings, appraisal and all.
+              "jewelry": "personal"}
 _CATEGORIES = {
     "asset": [c for c, _ in ASSET_CATEGORIES],
     "liability": [c for c, _ in LIABILITY_CATEGORIES],
@@ -283,18 +309,43 @@ def _get_profile(db: Session, profile_id: str) -> models.PfsProfile:
     return p
 
 
+# Lines set up before the Oct 6 sections: a Jewelry line becomes Personal
+# Holdings, and a "Cash" line that was listed under Bank Accounts moves to
+# Cash. Only lines last saved before the release are touched, so a line
+# somebody has since put back under Bank Accounts on purpose stays there.
+_SECTIONS_OCT06 = "2026-10-07"
+_CASH_TITLE = re.compile(r"^\s*cash\s*$|petty cash|cash on hand|cash in hand|cash drawer|cash register", re.I)
+
+
+def _migrate_lines(db: Session, profile_id: str) -> None:
+    rows = (db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id,
+                                            models.PfsLine.category.in_(("jewelry", "bank"))).all())
+    changed = False
+    for row in rows:
+        if row.category == "jewelry":
+            row.category, changed = "personal", True
+        elif row.section == "asset" and (row.updated_at or "") < _SECTIONS_OCT06 and _CASH_TITLE.search(row.label or ""):
+            row.category, changed = "cash", True
+    if changed:
+        db.commit()
+
+
+def _ordered(q):
+    return q.order_by(models.PfsLine.sort, models.PfsLine.label).all()
+
+
 def _load(profile_id: str) -> tuple[dict, list[dict]]:
     db = SessionLocal()
     try:
         p = _get_profile(db, profile_id)
-        lines = (db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id)
-                 .order_by(models.PfsLine.sort, models.PfsLine.label).all())
+        _migrate_lines(db, profile_id)
+        lines = _ordered(db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id))
         return _profile_out(p), [_line_out(l) for l in lines]
     finally:
         db.close()
 
 
-def _save_statement(profile_id: str, as_of: str, payload: dict, user: dict, fmt: str = "pdf") -> str:
+def _save_statement(profile_id: str, as_of: str, payload: dict, user: dict, fmt: str = "pdf", delivery: str = "download") -> str:
     db = SessionLocal()
     try:
         sid = str(uuid.uuid4())
@@ -302,7 +353,7 @@ def _save_statement(profile_id: str, as_of: str, payload: dict, user: dict, fmt:
                                    generated_by=user["email"], generated_at=_now()))
         # Who, which guarantor, which date, which file - never a figure: the
         # audit log is read by people who may not see the statement itself.
-        _audit(db, user, "pfs_statement_produced", profile_id, {"statement": sid, "as_of": as_of, "format": fmt})
+        _audit(db, user, "pfs_statement_produced", profile_id, {"statement": sid, "as_of": as_of, "format": fmt, "delivery": delivery})
         db.commit()
         return sid
     finally:
@@ -349,12 +400,13 @@ def _apply_profile(p: models.PfsProfile, body: ProfileBody, user: dict) -> None:
 
 
 @router.post("/profiles", status_code=201)
-def create_profile(body: ProfileBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
+def create_profile(body: ProfileBody, request: Request, user: dict = Depends(_edit), db: Session = Depends(get_db)):
     p = models.PfsProfile(id=str(uuid.uuid4()), name="", created_by=user["email"], created_at=_now(),
                           history=[{"question": q, "answer": "", "note": ""} for q in HISTORY_QUESTIONS])
     _apply_profile(p, body, user)
     db.add(p)
     _audit(db, user, "pfs_profile_created", p.id, {"name": p.name})
+    pfs_access.grant_now(db, user["email"], p.id, request)   # its creator opens it without a code
     db.commit()
     db.refresh(p)
     return _profile_out(p)
@@ -363,8 +415,8 @@ def create_profile(body: ProfileBody, user: dict = Depends(_edit), db: Session =
 @router.get("/profiles/{profile_id}")
 def get_profile(profile_id: str, user: dict = Depends(_read), db: Session = Depends(get_db)):
     p = _get_profile(db, profile_id)
-    lines = (db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id)
-             .order_by(models.PfsLine.sort, models.PfsLine.label).all())
+    _migrate_lines(db, profile_id)
+    lines = _ordered(db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id))
     _audit(db, user, "pfs_profile_opened", p.id)
     db.commit()
     return {**_profile_out(p), "lines": [_line_out(l) for l in lines]}
@@ -386,16 +438,28 @@ def delete_profile(profile_id: str, user: dict = Depends(require_module_grant("p
     they are the record of what was sent."""
     p = _get_profile(db, profile_id)
     db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id).delete(synchronize_session=False)
+    pfs_affiliates.forget(db, profile_id)   # its affiliated entities and co-borrower profile go with it; the access log stays
     _audit(db, user, "pfs_profile_deleted", p.id, {"name": p.name})
     db.delete(p)
     db.commit()
 
 
 # ── Lines ────────────────────────────────────────────────────────────────────
+def _next_sort(db: Session, profile_id: str) -> int:
+    """A new line goes to the end of its section once the guarantor's lines
+    have been put in an order; before that every line is 0 and they read by
+    name, as they always did."""
+    top = max((s for (s,) in db.query(models.PfsLine.sort).filter(models.PfsLine.profile_id == profile_id).all() if s), default=0)
+    return top + 1 if top else 0
+
+
 @router.post("/profiles/{profile_id}/lines", status_code=201)
 def add_line(profile_id: str, body: LineBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
     _get_profile(db, profile_id)
-    row = models.PfsLine(id=str(uuid.uuid4()), profile_id=profile_id, updated_by=user["email"], updated_at=_now(), **_clean_line(body))
+    fields = _clean_line(body)
+    if not fields["sort"]:
+        fields["sort"] = _next_sort(db, profile_id)
+    row = models.PfsLine(id=str(uuid.uuid4()), profile_id=profile_id, updated_by=user["email"], updated_at=_now(), **fields)
     db.add(row)
     _audit(db, user, "pfs_line_added", profile_id, {"line": row.id, "label": row.label})
     db.commit()
@@ -455,6 +519,7 @@ def add_lines_bulk(profile_id: str, body: BulkBody, user: dict = Depends(_edit),
     have = {(l.ledger_entity, tuple(l.ledger_accounts or [])) for l in
             db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id, models.PfsLine.source == "ledger").all()}
     made = []
+    sort = _next_sort(db, profile_id)
     for a in body.accounts[:120]:
         code = (a.code or "").strip()
         if not code or (entity, (code,)) in have:
@@ -465,11 +530,16 @@ def add_lines_bulk(profile_id: str, body: BulkBody, user: dict = Depends(_edit),
             loan_code = (a.loanAccount or "").strip()
             details = {"legal_owner": (body.entityName or "")[:160],
                        "loan": {"source": "ledger", "entity": entity, "accounts": [loan_code]} if loan_code else {"source": "manual", "value": 0}}
+        # Oct 6 (Charmi): the Institution is the bank ("Chase Checking - 6532"
+        # -> Chase), never the entity the account sits in. The statement
+        # prefers the bank account record linked to the GL when it has one.
         line = _clean_line(LineBody(
-            section=body.section, category=(a.category or body.category), label=label, institution=(body.entityName or "")[:160],
+            section=body.section, category=(a.category or body.category), label=label,
+            institution="" if body.section == "real_estate" else bank_name(label),
             accountRef=_account_ref(label), ownershipPct=body.ownershipPct if a.ownershipPct is None else a.ownershipPct,
-            source="ledger", ledgerEntity=entity, ledgerAccounts=[code], details=details, notes="",
+            source="ledger", ledgerEntity=entity, ledgerAccounts=[code], details=details, notes="", sort=sort,
         ))
+        sort = sort + 1 if sort else 0
         row = models.PfsLine(id=str(uuid.uuid4()), profile_id=profile_id, updated_by=user["email"], updated_at=_now(), **line)
         db.add(row)
         have.add((entity, (code,)))
@@ -529,6 +599,29 @@ def move_line(profile_id: str, line_id: str, body: MoveBody, user: dict = Depend
     return _line_out(row)
 
 
+class OrderBody(BaseModel):
+    ids: list[str]
+
+
+@router.put("/profiles/{profile_id}/line-order")   # not under /lines/: PUT /lines/{line_id} is declared first
+def order_lines(profile_id: str, body: OrderBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
+    """The order of lines within a section (Charmi, 10/04: "rows must be
+    reorderable"), kept per guarantor: the ids in the order wanted. Every
+    statement, the PDF and the workbook print them in that order."""
+    _get_profile(db, profile_id)
+    ids = [str(i) for i in (body.ids or [])][:400]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Give the lines in the order wanted.")
+    rows = {r.id: r for r in db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id, models.PfsLine.id.in_(ids)).all()}
+    if len(rows) != len(set(ids)):
+        raise HTTPException(status_code=404, detail="A line in that order is not on this statement.")
+    for i, line_id in enumerate(ids):
+        rows[line_id].sort = i + 1
+    _audit(db, user, "pfs_lines_reordered", profile_id, {"count": len(ids)})
+    db.commit()
+    return {"ok": True, "ids": ids}
+
+
 @router.delete("/profiles/{profile_id}/lines/{line_id}", status_code=204)
 def delete_line(profile_id: str, line_id: str, user: dict = Depends(_edit), db: Session = Depends(get_db)):
     row = _get_line(db, profile_id, line_id)
@@ -570,17 +663,22 @@ async def _balances(entity: str, as_of: str) -> dict[str, dict]:
 # TITLE's words (IRA / 401k / HSA, brokerage, insurance, loan, land...), then
 # the GL group (Intacct's cash range 10xxx-11xxx is a bank account, 15xxx-17xxx
 # are fixed assets). Every guess is one "Move to..." click to change.
-_TYPE_CATEGORY = {"cash_bank": ("asset", "bank"), "petty_cash": ("asset", "bank"), "credit_card": ("liability", "credit_card")}
+_TYPE_CATEGORY = {"cash_bank": ("asset", "bank"), "petty_cash": ("asset", "cash"), "credit_card": ("liability", "credit_card")}
 _ASSET_WORDS = [
+    # Oct 6 (Charmi): "Cash" - the GL called Cash, petty cash, cash on hand -
+    # is not a bank account; it is the Cash section.
+    (_CASH_TITLE, "cash"),
     (re.compile(r"401\s*\(?k\)?|\bira\b|roth|retirement|pension|\bsep\b|403\s*\(?b\)?|\bhsa\b|health savings|457\b"), "retirement"),
     (re.compile(r"brokerage|etrade|e\*trade|webull|fidelity|schwab|robinhood|merrill|morgan stanley|vanguard|investment|securities|stock|bond|mutual|crypto|coinbase|treasur"), "investment"),
     (re.compile(r"insurance|life policy|cash value|annuity"), "insurance"),
-    (re.compile(r"jewel|watch|art\b|collectib|antique"), "jewelry"),
-    (re.compile(r"vehicle|automobile|\bauto\b|\bcar\b|boat|furniture|equipment|household"), "personal"),
+    (re.compile(r"vehicle|automobile|\bauto\b|\bcar\b|\btruck\b|boat|yacht|\brv\b|motorcycle|aircraft|airplane"), "vehicles"),
+    # Jewelry and personal property are Personal Holdings now (Oct 6).
+    (re.compile(r"jewel|watch|art\b|collectib|antique|furniture|equipment|household|personal property"), "personal"),
     (re.compile(r"checking|chkg|savings|\bbank\b|\bcash\b|money market|\bcd\b|certificate of deposit|venmo|paypal|earmarked|operating|payroll acct|\bf&m\b|\bchase\b|wells fargo|\bbofa\b|\bciti\b|\bpnc\b|us bank|first citizens|\betc\b|escrow"), "bank"),
 ]
 _RE_WORDS = re.compile(r"\bland\b|building|real estate|\bproperty\b|improvement|rental|apartment|\bbldg\b|storage|plaza|center|hotel|motel|condo|\bhouse\b|residence")
 _LIABILITY_WORDS = [
+    (re.compile(r"policy loan|insurance loan|loan against (?:life )?(?:insurance|policy)"), "insurance_loan"),
     (re.compile(r"credit card|\bamex\b|\bvisa\b|mastercard|discover card|capital one"), "credit_card"),
     (re.compile(r"line of credit|\bloc\b|credit line|heloc|revolv"), "loc"),
     (re.compile(r"\bauto\b|vehicle|\bcar\b|lease payable"), "auto"),
@@ -591,6 +689,7 @@ _LIABILITY_WORDS = [
 # working-capital balances, payroll and tax accruals. They fall to the
 # catch-all of their side, never to a bank or a loan category.
 _ASSET_SKIP = re.compile(r"accum|depreciation|amortization|allowance|clearing|suspense|receivable|\ba/r\b|prepaid|inventory|undeposited|intercompany|due from")
+_NOTES_RECEIVABLE = re.compile(r"notes? receivable|loans? receivable|\bn/r\b|note from|loan to\b")
 _LIABILITY_SKIP = re.compile(r"accounts payable|\ba/p\b|accrued|payroll|withh|tax payable|sales tax|deferred|clearing|suspense|intercompany|security deposit|unearned")
 
 
@@ -610,6 +709,8 @@ def classify_account(section: str, code: str, title: str, account_type: str = ""
         return "liability", "other_liability"
     if section != "asset":
         return "asset", "other_holding"
+    if _NOTES_RECEIVABLE.search(t):
+        return "asset", "notes_receivable"
     if _ASSET_SKIP.search(t):
         return "asset", "other_holding"
     for rx, cat in _ASSET_WORDS:
@@ -623,6 +724,157 @@ def classify_account(section: str, code: str, title: str, account_type: str = ""
     if group in ("15", "16", "17"):
         return "asset", "personal"
     return "asset", "other_holding"
+
+
+# ── Which bank holds an account (Charmi, 10/03) ──────────────────────────────
+# "The INSTITUTION shows Neil & Archana Kadakia - it must show the bank name.
+# The bank name is available in the bank accounts. Bank accounts are linked to
+# these GLs." The bank account records the accounting app keeps (Intacct's
+# checking / savings / card accounts, and its own bank accounts) each point at
+# a GL account; `_bank_directory` reads them through the internal dashboard
+# API. When no record names a bank, the account's own title usually does
+# ("Chase Checking - 6532"); `bank_name` reads it from there.
+_BANK_NAMES = [
+    (r"bank of the west|\bbotw\b|\bbow\b", "Bank of the West"),
+    (r"bank of america|\bbofa\b|\bboa\b", "Bank of America"),
+    (r"bank of baroda", "Bank of Baroda"),
+    (r"bank of hope", "Bank of Hope"),
+    (r"\bchase\b|jp\s*morgan|jpmc", "Chase"),
+    (r"citi\s*bank|\bciti\b|citigroup", "Citibank"),
+    (r"\bu\.?\s?s\.?\s*bank\b|\busbank\b", "U.S. Bank"),
+    (r"wells\s*fargo|\bwfb\b", "Wells Fargo"),
+    (r"farmers\s*(?:&|and)\s*merchants|\bf\s*&\s*m\b|\bfmb\b", "Farmers & Merchants Bank"),
+    (r"first citizens", "First Citizens Bank"),
+    (r"first republic", "First Republic Bank"),
+    (r"\bpnc\b", "PNC Bank"),
+    (r"capital\s*one", "Capital One"),
+    (r"american express|\bamex\b", "American Express"),
+    (r"\btd\s*bank\b", "TD Bank"),
+    (r"\btruist\b", "Truist"),
+    (r"\bhsbc\b", "HSBC"),
+    (r"east\s*west|\bewb\b", "East West Bank"),
+    (r"\bcathay\b", "Cathay Bank"),
+    (r"silicon valley bank|\bsvb\b", "Silicon Valley Bank"),
+    (r"\bcomerica\b", "Comerica"),
+    (r"mechanics bank", "Mechanics Bank"),
+    (r"union bank", "Union Bank"),
+    (r"citizens bank", "Citizens Bank"),
+    (r"\bkey\s*bank\b", "KeyBank"),
+    (r"\bhuntington\b", "Huntington Bank"),
+    (r"\bregions\b", "Regions Bank"),
+    (r"\bally\b", "Ally Bank"),
+    (r"\bmercury\b", "Mercury"),
+    (r"\baxos\b", "Axos Bank"),
+    (r"live oak", "Live Oak Bank"),
+    (r"pacific premier", "Pacific Premier Bank"),
+    (r"\bumpqua\b", "Umpqua Bank"),
+    (r"\bzions\b", "Zions Bank"),
+    (r"\bfrost\b", "Frost Bank"),
+    (r"\bsantander\b", "Santander"),
+    (r"\bbmo\b", "BMO"),
+    (r"\bschwab\b", "Charles Schwab"),
+    (r"\bfidelity\b", "Fidelity"),
+    (r"\bvanguard\b", "Vanguard"),
+    (r"morgan stanley", "Morgan Stanley"),
+    (r"\bmerrill\b", "Merrill"),
+    (r"e\s*\*?\s*trade", "E*TRADE"),
+    (r"\bwebull\b", "Webull"),
+    (r"\brobinhood\b", "Robinhood"),
+    (r"\bcoinbase\b", "Coinbase"),
+    (r"\bpaypal\b", "PayPal"),
+    (r"\bvenmo\b", "Venmo"),
+    (r"\bhdfc\b", "HDFC Bank"),
+    (r"\bicici\b", "ICICI Bank"),
+    (r"\bsbi\b|state bank of india", "State Bank of India"),
+    (r"\bkotak\b", "Kotak Mahindra Bank"),
+    (r"\baxis\b", "Axis Bank"),
+]
+_BANK_RX = [(re.compile(rx, re.I), name) for rx, name in _BANK_NAMES]
+# Any other "<Something> Bank" / credit union / savings named in a title.
+_BANK_GENERIC = re.compile(r"([A-Z][A-Za-z&.'\s]{1,40}?\b(?:Bank|Credit Union|Savings Bank|Federal Savings|Trust Company))\b")
+_NOT_BANK_WORDS = re.compile(r"\b(?:checking|chkg|savings|operating|payroll|account|acct|money market)\b", re.I)
+
+
+def bank_name(text: str) -> str:
+    """The bank an account title (or a bank account record) names, or ''.
+    "Chase Checking - 6532" -> "Chase"; "Bank of the West - 2721" -> "Bank of
+    the West"; "CitiBank" -> "Citibank"; "US Bank Checking" -> "U.S. Bank"."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    for rx, name in _BANK_RX:
+        if rx.search(t):
+            return name
+    m = _BANK_GENERIC.search(t)
+    if m:
+        name = _NOT_BANK_WORDS.sub("", m.group(1))
+        name = re.sub(r"^(?:[A-Z]{2,4}\s*(?:&\s*[A-Z]{2,4})?\s*-\s*)", "", name)   # "NRK & ANK - " owner initials
+        return re.sub(r"\s{2,}", " ", name).strip(" -&")
+    return ""
+
+
+async def _bank_directory(as_of: str) -> dict:
+    """{(entity, gl_code): bank, gl_code: bank} from the bank account records
+    the accounting app links to GL accounts. Read through its internal
+    dashboard API (never its database); an app that cannot answer leaves the
+    statement to read the bank from each account's title."""
+    async def read(params: dict) -> dict:
+        try:
+            return await accounting._acct_get("/api/internal/dashboard", params)
+        except HTTPException:
+            return {}
+    recon, tables = await asyncio.gather(read({"op": "recon-accounts", "scope": "ALL", "asof": as_of}),
+                                         read({"op": "tables", "period": as_of[:7]}))
+    by_entity: dict = {}
+    by_code: dict[str, set] = {}
+    code_of: dict[str, str] = {}
+
+    def note(entity: str, code: str, name: str) -> None:
+        if entity:
+            by_entity[(entity, code)] = name
+        by_code.setdefault(code, set()).add(name)
+
+    for r in recon.get("rows") if isinstance(recon.get("rows"), list) else []:
+        if not isinstance(r, dict) or not r.get("gl_code"):
+            continue
+        code = str(r["gl_code"])
+        code_of[str(r.get("account_id") or "")] = code
+        # The Intacct bank account linked to this GL and entity: its bank name
+        # when the app sends one, else its id ("CHASE-6532", "BOTW 2721").
+        name = bank_name(r.get("bank_name") or "") or (r.get("bank_name") or "").strip() or bank_name(r.get("intacct_ref") or "")
+        if name:
+            note(str(r.get("entity") or ""), code, name)
+    for b in tables.get("banks") if isinstance(tables.get("banks"), list) else []:
+        if not isinstance(b, dict):
+            continue
+        code = code_of.get(str(b.get("gl_account_id") or ""))
+        raw = (b.get("bank_name") or "").strip()
+        name = bank_name(raw) or raw or bank_name(b.get("nickname") or "")
+        if code and name:
+            note("", code, name)
+    # A GL code alone names a bank only when every record on it agrees: the
+    # chart of accounts is shared, and 10100 is a different bank per entity.
+    return {**by_entity, **{c: next(iter(n)) for c, n in by_code.items() if len(n) == 1}}
+
+
+def _institution(line: dict, books: dict[str, dict[str, dict]], banks: dict) -> str:
+    """The Institution printed for a line. Typed by hand: as typed. Read from
+    the ledger: the bank account record linked to its GL, else the bank its
+    account title names, else a bank in what was kept - never the entity or
+    the guarantor (the setup used to put the entity's name there)."""
+    d = line.get("details") or {}
+    if line["source"] != "ledger" or d.get("institutionManual"):
+        return line["institution"]
+    entity = line["ledgerEntity"]
+    for code in line["ledgerAccounts"]:
+        hit = banks.get((entity, code)) or banks.get(code)
+        if hit:
+            return hit
+    for code in line["ledgerAccounts"]:
+        hit = bank_name((books.get(entity, {}).get(code) or {}).get("title") or "")
+        if hit:
+            return hit
+    return bank_name(line["label"]) or bank_name(line["institution"])
 
 
 def _as_of(v: Optional[str]) -> str:
@@ -792,18 +1044,99 @@ def _schedule_entities(lines: list[dict]) -> list[str]:
                    if _schedule_entity(l) and (l["section"] == "real_estate" or (l["section"] == "asset" and l["category"] == "business"))})
 
 
-def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[str, dict]], pnls: Optional[dict[str, dict]] = None) -> dict:
+# ── The first page: a Statement of Financial Condition (Charmi, 10/04) ──────
+# "You need to build out the first page of our PFS": the one page a bank's
+# own form opens with - every line of it, in the bank's words, whether or not
+# anything is listed under it - built from the sections the statement keeps.
+CONDITION_ASSETS = [
+    ("cash", "Cash on Hand", ("cash",)),
+    ("bank", "Bank Accounts / Cash Equivalents", ("bank",)),
+    ("securities", "Marketable Securities", ("investment",)),
+    ("retirement", "Retirement Accounts", ("retirement",)),
+    ("real_estate", "Real Estate", ()),
+    ("business", "Business Interests / Closely Held", ("business",)),
+    ("notes_receivable", "Notes Receivable", ("notes_receivable",)),
+    ("insurance", "Cash Value of Life Insurance", ("insurance",)),
+    ("vehicles", "Vehicles", ("vehicles",)),
+    ("personal", "Personal Holdings", ("personal",)),
+    ("other", "Other Assets", ("other_holding",)),
+]
+CONDITION_LIABILITIES = [
+    ("notes_banks", "Notes Payable to Banks", ("business_loan", "loc", "international")),
+    ("mortgages", "Mortgages on Real Estate", ()),
+    ("credit_cards", "Credit Cards", ("credit_card",)),
+    ("auto", "Automobile Loans", ("auto",)),
+    ("insurance_loan", "Loans on Life Insurance", ("insurance_loan",)),
+    ("other", "Other Liabilities", ("other_liability",)),
+]
+
+
+def _ownership(rows: list[dict]) -> str:
+    """The share column of a first-page line: one percent when every row
+    under it is owned alike, "Various" when they differ, blank when empty."""
+    pcts = {round(float(r["ownershipPct"]), 2) for r in rows}
+    if not pcts:
+        return ""
+    if len(pcts) > 1:
+        return "Various"
+    p = pcts.pop()
+    return f"{p:g}%"
+
+
+def _condition(assets: list[dict], liabilities: list[dict], real_estate: list[dict], contingent: list[dict], schedules_: dict,
+               profile: dict) -> dict:
+    by_cat = {g["key"]: g for g in assets + liabilities}
+    re_rows = [r for g in real_estate for r in g["rows"]]
+
+    def lines(spec, real_key):
+        out = []
+        for key, label, cats in spec:
+            rows = [r for c in cats for r in (by_cat.get(c) or {}).get("rows", [])]
+            if key == real_key:
+                rows = re_rows
+                amount = _r2(sum(r["valueAdjusted"] if real_key == "real_estate" else r["loanAdjusted"] for r in rows))
+            else:
+                amount = _r2(sum(r["adjusted"] for r in rows))
+            out.append({"key": key, "label": label, "ownership": _ownership(rows), "count": len(rows), "amount": amount})
+        return out
+
+    a = lines(CONDITION_ASSETS, "real_estate")
+    liab = lines(CONDITION_LIABILITIES, "mortgages")
+    # Annual income: what the schedules hold for the calendar year, at the
+    # guarantor's share. Nothing is invented when there is no schedule.
+    income = []
+    if schedules_.get("e"):
+        income.append({"key": "rental", "label": "Net Rental Income (Schedule E)", "amount": _r2(sum(b["netAtShare"] for b in schedules_["e"]))})
+    if schedules_.get("c"):
+        income.append({"key": "business", "label": "Net Business Income (Schedule C)", "amount": _r2(sum(b["netAtShare"] for b in schedules_["c"]))})
+    # Contingent liabilities: the guarantees listed, and what the guarantor
+    # answered when asked whether there are others.
+    asked = next((h for h in profile.get("history") or [] if "guarantor" in (h.get("question") or "").lower()), None)
+    return {
+        "assets": a, "liabilities": liab,
+        "totals": {"assets": _r2(sum(x["amount"] for x in a)), "liabilities": _r2(sum(x["amount"] for x in liab))},
+        "contingent": [{"label": r["label"], "institution": r["institution"], "ownershipPct": r["ownershipPct"], "amount": r["adjusted"], "notes": r["notes"]}
+                       for r in contingent],
+        "contingentAnswer": {"answer": asked.get("answer", ""), "note": asked.get("note", "")} if asked else None,
+        "income": {"year": schedules_.get("year", ""), "lines": income, "total": _r2(sum(x["amount"] for x in income))} if income else None,
+    }
+
+
+def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[str, dict]], pnls: Optional[dict[str, dict]] = None,
+            banks: Optional[dict] = None) -> dict:
     """The statement for one date. Pure: the lines and the ledger balances in,
     the figures out. `books` is {entity: {gl_code: {amount, ...}}}; `pnls`
-    (optional) is {entity: pnl for the year} for the schedules."""
+    (optional) is {entity: pnl for the year} for the schedules; `banks`
+    (optional) is the bank account records by (entity, GL) and GL."""
     warnings: list[str] = []
+    banks = banks or {}
 
     def row(line: dict, spec: dict, what: str = "") -> dict:
         balance, source, missing = _figure(spec, books)
         if missing:
             warnings.append(f"{line['label']}{what}: account {', '.join(missing)} has no balance in entity {spec.get('entity')} as of this date.")
         pct = line["ownershipPct"]
-        return {"id": line["id"], "label": line["label"], "institution": line["institution"], "accountRef": line["accountRef"],
+        return {"id": line["id"], "label": line["label"], "institution": _institution(line, books, banks), "accountRef": line["accountRef"],
                 "ownershipPct": pct, "balance": balance, "adjusted": _r2(balance * pct / 100), "source": source,
                 "asOf": as_of if source == "ledger" else (line["manualAsOf"] or ""), "notes": line["notes"], "details": line["details"]}
 
@@ -816,7 +1149,10 @@ def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[
         return out
 
     assets = group("asset", ASSET_CATEGORIES)
-    liabilities = group("liability", LIABILITY_CATEGORIES)
+    # Guarantees are listed, never added in: they are what the guarantor may
+    # owe, not what they owe.
+    contingent = [r for g in group("liability", [c for c in LIABILITY_CATEGORIES if c[0] == "contingent"]) for r in g["rows"]]
+    liabilities = group("liability", [c for c in LIABILITY_CATEGORIES if c[0] != "contingent"])
 
     # The schedule of real estate: each property is a value and a loan, both
     # at the guarantor's share. Their totals join the assets and liabilities.
@@ -844,12 +1180,14 @@ def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[
         [{"label": g["label"], "amount": g["total"]} for g in liabilities]
     total_assets = _r2(sum(x["amount"] for x in summary_assets))
     total_liabilities = _r2(sum(x["amount"] for x in summary_liabilities))
+    sched = schedules(lines, as_of, pnls or {})
     return {
         "profile": {k: profile[k] for k in ("id", "name", "displayName", "kind", "details", "history", "executiveProfile")},
         "asOf": as_of, "assets": assets, "liabilities": liabilities, "realEstate": real_estate,
         "summary": {"assets": summary_assets, "liabilities": summary_liabilities},
         "totals": {"assets": total_assets, "liabilities": total_liabilities, "netWorth": _r2(total_assets - total_liabilities)},
-        "schedules": schedules(lines, as_of, pnls or {}),
+        "condition": _condition(assets, liabilities, real_estate, contingent, sched, profile),
+        "schedules": sched,
         "warnings": warnings,
     }
 
@@ -880,10 +1218,18 @@ async def _statement(profile_id: str, as_of: str) -> dict:
     profile, lines = await asyncio.to_thread(_load, profile_id)
     entities = _entities_of(lines)
     sched = _schedule_entities(lines)
-    fetched = await asyncio.gather(*[_balances(e, as_of) for e in entities], *[_pnl(e, as_of[:4]) for e in sched])
+    # The bank account records are read only when a line reads the ledger
+    # outside real estate - the lines whose Institution they name.
+    wants_banks = any(l["source"] == "ledger" and l["section"] != "real_estate" for l in lines)
+    fetched = await asyncio.gather(*[_balances(e, as_of) for e in entities], *[_pnl(e, as_of[:4]) for e in sched],
+                                   _bank_directory(as_of) if wants_banks else _nothing())
     books = dict(zip(entities, fetched[:len(entities)]))
-    pnls = {e: p for e, p in zip(sched, fetched[len(entities):]) if p.get("sections")}
-    return compute(profile, lines, as_of, books, pnls)
+    pnls = {e: p for e, p in zip(sched, fetched[len(entities):len(entities) + len(sched)]) if p.get("sections")}
+    return await asyncio.to_thread(pfs_affiliates.attach, profile_id, compute(profile, lines, as_of, books, pnls, fetched[-1]))
+
+
+async def _nothing() -> dict:
+    return {}
 
 
 @router.get("/profiles/{profile_id}/statement")
@@ -895,6 +1241,9 @@ async def statement(profile_id: str, asof: Optional[str] = None):
 class ProduceBody(BaseModel):
     asof: Optional[str] = None
     format: Optional[str] = "pdf"     # pdf | xlsx (Neil, 10/01: "in excel also") - what the audit says went out
+    # Oct 6 (Charmi: one Export menu, the one Reports has): where the file
+    # went - downloaded, emailed, or saved to Files. The audit says which.
+    delivery: Optional[str] = "download"
 
 
 @router.post("/profiles/{profile_id}/statements", status_code=201)
@@ -903,8 +1252,10 @@ async def produce(profile_id: str, body: ProduceBody, user: dict = Depends(_read
     exact figures stay on record and the audit log says who produced it."""
     as_of = _as_of(body.asof)
     payload = await _statement(profile_id, as_of)
-    fmt = body.format if body.format in ("pdf", "xlsx") else "pdf"
-    sid = await asyncio.to_thread(_save_statement, profile_id, as_of, payload, user, fmt)
+    fmt = {"excel": "xlsx"}.get(body.format or "", body.format)
+    fmt = fmt if fmt in ("pdf", "xlsx") else "pdf"
+    delivery = body.delivery if body.delivery in ("download", "email", "files") else "download"
+    sid = await asyncio.to_thread(_save_statement, profile_id, as_of, payload, user, fmt, delivery)
     return {"id": sid, **payload}
 
 

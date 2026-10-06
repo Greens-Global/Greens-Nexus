@@ -9,7 +9,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // Leasing tab and the rent roll reloads after a create.
 
 const proposals = {
-  from: '2025-10-01', to: '2026-09-30', entitiesScanned: 3, parentsSkipped: 1, entitiesWithRentAccounts: 2, lookedFor: ['Rent', 'Rental', 'Lease / Leasing', 'Tenant'],
+  from: '2025-10-01', to: '2026-09-30', entitiesScanned: 3, parentsSkipped: 1, historicalSkipped: 2, entitiesWithRentAccounts: 2, lookedFor: ['Rent', 'Rental', 'Lease / Leasing', 'Tenant'],
   rentAccounts: [{ entityCode: '15000', entityName: 'Greens Escondido, LLC.', code: '41101', title: 'Rental Income' }],
   setUp: 1, missing: 1,
   proposals: [
@@ -22,9 +22,14 @@ vi.mock('../../api', () => ({
   api: {
     getLeaseProposals: vi.fn(async () => proposals),
     createLeasesFromLedger: vi.fn(async ({ items }) => ({ created: items.map((i) => ({ ...proposals.proposals.find((p) => p.customerId === i.customerId), leaseId: 'L9' })), skipped: [] })),
-    getLeasingRentRoll: vi.fn(async () => ({ year: 2026, asOf: '2026-09-30', rows: [], totals: [], summary: { leases: 0, behind: 0, owed: 0, expectedToDate: 0, receivedToDate: 0 } })),
+    getLeasingRentRollFor: vi.fn(async () => ({ year: 2026, asOf: '2026-09-30', rows: [], totals: [], summary: { leases: 0, behind: 0, owed: 0, expectedToDate: 0, receivedToDate: 0 } })),
     getLeasingCustomers: vi.fn(async () => ({ customers: [] })),
     getAccountingLocations: vi.fn(async () => ({ entities: [] })),
+    getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
+    saveAccountingPrefs: vi.fn(async () => ({})),
+    getLeasingCustomer: vi.fn(async (code) => ({ code, name: 'Overstie Management', phone: '(949) 400-2788', email: 'ap@overstie.example', address: '100 Main St, San Clemente, CA 92672', active: true, source: 'intacct', leases: [] })),
+    setLeasingNote: vi.fn(async (id, note) => ({ text: note, by: 'charmi@greensglobal.com', byName: 'Charmi Desai', at: '2026-10-06T16:00:00Z' })),
+    syncLeasingFromLedger: vi.fn(async () => ({ linked: [], created: [], notes: [] })),
   },
 }));
 
@@ -43,7 +48,7 @@ describe('LeasingFromLedger', () => {
     const existing = within(dialog).getByText('Overstie Management').closest('tr');
     expect(within(existing).getByText('Set Up')).toBeTruthy();
     expect(within(existing).queryByRole('checkbox')).toBeNull();
-    expect(within(dialog).getByText('Entities scanned: 3 leaf entities (1 parent skipped - their figures roll up from the children)')).toBeTruthy();
+    expect(within(dialog).getByText('Entities scanned: 3 leaf entities (1 parent skipped - their figures roll up from the children); 2 historical (H) entities not read')).toBeTruthy();
     const fresh = within(dialog).getByText('Santos Blancas Jr.').closest('tr');
     expect(within(fresh).getByText('2,100.00')).toBeTruthy();
     expect(within(fresh).getByText('Nov 2025')).toBeTruthy();
@@ -59,7 +64,7 @@ describe('LeasingFromLedger', () => {
     api.getLeaseProposals.mockImplementation(async () => ({ ...proposals, proposals: [], entitiesWithRentAccounts: 1 }));
     render(<LeasingFromLedger onClose={() => {}} onCreated={() => {}} />);
     await screen.findByText('No rent postings found.');
-    expect(screen.getByText(/Rent, Rental, Lease \/ Leasing, Tenant in 3 entities/)).toBeTruthy();
+    expect(screen.getByText(/Rent, Rental, Lease \/ Leasing, Tenant in 3 active entities/)).toBeTruthy();
     expect(screen.getByText(/41101 Rental Income/)).toBeTruthy();
     expect(screen.getByText(/add the lease by hand with New Lease/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Create/ })).toBeNull();
@@ -104,7 +109,7 @@ describe('LeasingFromLedger', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Lease' }));
     await within(dialog).findByText('1 lease set up.');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(api.getLeasingRentRoll).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.getLeasingRentRollFor).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

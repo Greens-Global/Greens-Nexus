@@ -3,7 +3,7 @@ import { Building2, CalendarRange, ChevronLeft, ChevronRight, RefreshCw } from '
 import { monthLong, shiftKey } from '../../../accounting/dashboard/model/months';
 import { SCOPE_LABEL } from '../../../accounting/dashboard/model/scope';
 import { useDash } from './DashContext';
-import { input, pill } from './Bits';
+import { card, input, pill } from './Bits';
 
 // The dashboard's global filter row: scope (consolidation group or one
 // entity), month, and book. Pinned above every tab.
@@ -89,12 +89,15 @@ export function BookPills() {
   );
 }
 
-/** The pinned filter row. `right` holds tab-specific controls (view picker, scenario). */
+/** The pinned filter row. `right` holds tab-specific controls (view picker, scenario).
+ *  Oct 6 (Neil: "standardize this and the filters as well"): the same slim
+ *  card row, directly under the tabs and left aligned, that Reports, Budget,
+ *  Vendors & Customers and Allocations draw. */
 export function Toolbar({ right, hidePeriod }) {
   const { refetchAll, ix, scope } = useDash();
   const partners = ['ALL', 'CTL', 'NC'].includes(scope) ? '' : ix.byCode.get(scope)?.partners;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+    <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
       <ScopeSelect />
       {!hidePeriod ? <MonthStepper /> : null}
       <BookPills />

@@ -333,6 +333,11 @@ def _iso_plus_days(iso: str, days: int) -> str:
 # bad value from before this existed can still be patched on other fields
 # instead of becoming uneditable.
 BUILTIN_STATUSES = {"not_started", "in_progress", "completed", "recurring"}
+# A recurring occurrence the system closed because the next one came due before
+# it was done (Oct 2). Only the scheduler sets it: it is NOT in BUILTIN_STATUSES,
+# so _valid_statuses refuses it on create / update and nobody can pick it by
+# hand; the frontend shows its chip but never offers it in a status picker.
+MISSED = "missed"
 PRIORITIES = {"urgent", "high", "medium", "low"}
 # Deliberately permissive - the job is to catch "not-an-address-at-all", not to
 # adjudicate RFC 5322.
@@ -638,7 +643,7 @@ def _apply_completion(t: models.Task, new_completed: bool, prev_completed: bool)
             t.status = "completed"
     else:
         t.completed_at = ""
-        if t.status == "completed":
+        if t.status in ("completed", MISSED):
             t.status = "not_started"
 
 
@@ -747,7 +752,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     if until and next_due > until:
         return None  # past the series end date
 
-    new_rec = {k: v for k, v in rec.items() if k != "nextOccurrenceId"}
+    new_rec = {k: v for k, v in rec.items() if k not in ("nextOccurrenceId", "closedAsMissed")}
     if count is not None:
         new_rec["count"] = int(count) - 1
 
@@ -804,6 +809,26 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     return nxt
 
 
+def _close_as_missed(db: Session, t: models.Task, why: str) -> None:
+    """Close an occurrence nobody finished: Missed, not Completed. completed is
+    set so it leaves every open list and stops the overdue emails; completed_at
+    stays EMPTY, so no "completed since ..." count, briefing or dashboard ever
+    reports it as done work. Stamped on the rule (closedAsMissed) so a person
+    who reopens it to finish it late is not closed again by the next scan."""
+    t.completed, t.completed_at, t.status = True, "", MISSED
+    t.recurrence = {**(t.recurrence or {}), "closedAsMissed": now_iso()}
+    t.modified_at = now_iso()
+    log_activity(db, type="closed_missed", actor_email="system", entity_id=t.id, entity_code=t.code,
+                 entity_title=t.title, detail=f"Closed as Missed - {why}")
+
+
+def _us(iso: str) -> str:
+    try:
+        return datetime.strptime((iso or "")[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        return iso or ""
+
+
 # Series whose next date comes from the calendar. `periodic` is excluded on
 # purpose: its next date is N days after THIS one is completed, so it cannot
 # be scheduled ahead - it keeps rolling forward on completion only.
@@ -844,6 +869,7 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
         if isinstance(rec, dict) and rec.get("freq") in _SCHEDULED_FREQS and t.due_on:
             series.setdefault(_series_key(t), []).append(t)
     touched = False
+    closed: list[str] = []
     for members in series.values():
         dates = {(m.due_on or "")[:10]: m for m in members}
         # The series' newest occurrence carries it forward; among several on
@@ -856,6 +882,14 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
         for m in members:
             if m is not head and not (m.recurrence or {}).get("nextOccurrenceId"):
                 m.recurrence = {**m.recurrence, "nextOccurrenceId": head.id}
+                touched = True
+            # ONE open occurrence per series (Oct 2): an older copy still open -
+            # the stacks of overdue duplicates - closes as Missed. Once only: a
+            # copy someone reopened to finish late stays open.
+            if (m is not head and not m.completed and (m.due_on or "")[:10] < latest_due
+                    and not (m.recurrence or {}).get("closedAsMissed")):
+                _close_as_missed(db, m, f"a newer occurrence of this task is due {_us(latest_due)}")
+                closed.append(m.id)
                 touched = True
         rec = head.recurrence
         if rec.get("nextOccurrenceId"):
@@ -877,8 +911,16 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
         nxt = _spawn_next_occurrence(db, head, {"email": owner}, next_due_override=nd)
         if nxt is not None:
             spawned.append(nxt)
+            # The next date arrived before this one was done: it closes as
+            # Missed and the series carries on from the new occurrence (Oct 2:
+            # "jump to the next date anyway", one open copy at a time).
+            if not head.completed and not (head.recurrence or {}).get("closedAsMissed"):
+                _close_as_missed(db, head, f"the next occurrence {nxt.code} is due {_us(nd)}")
+                closed.append(head.id)
     if spawned or touched:
         db.commit()
+    for tid in closed:
+        fire_task_event(tid, "updated")
     return spawned
 
 
@@ -886,9 +928,10 @@ def _series_key(t: models.Task) -> tuple:
     """What makes two tasks occurrences of the same recurring series. There is
     no series id on a task, but every occurrence is a copy of the one before
     it (_spawn_next_occurrence): same title, project, assignees and rule. The
-    rule is compared without its server-side markers (nextOccurrenceId, and
+    rule is compared without its server-side markers (nextOccurrenceId,
+    closedAsMissed, and
     `count`, which counts down along the series)."""
-    rec = {k: v for k, v in (t.recurrence or {}).items() if k not in ("nextOccurrenceId", "count")}
+    rec = {k: v for k, v in (t.recurrence or {}).items() if k not in ("nextOccurrenceId", "count", "closedAsMissed")}
     return ((t.title or "").strip().lower(), t.project_id or "", tuple(sorted(task_assignees(t))),
             json.dumps(rec, sort_keys=True, default=str))
 
@@ -1006,7 +1049,7 @@ def export_tasks_excel(
 
     projects = {p.id: p.name for p in db.query(models.TaskProject).all()}
     status_label = {"not_started": "Not Started", "in_progress": "In Progress",
-                    "completed": "Completed", "recurring": "Recurring"}
+                    "completed": "Completed", "recurring": "Recurring", MISSED: "Missed"}
     for s in db.query(models.TaskCustomStatus).all():
         status_label[s.id] = s.label
     priority_label = {"low": "Low", "medium": "Medium", "high": "High", "urgent": "Urgent"}
@@ -1511,6 +1554,11 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
             nxt_id = (t.recurrence or {}).get("nextOccurrenceId") if isinstance(t.recurrence, dict) else None
             if nxt_id and "nextOccurrenceId" not in val:
                 val = {**val, "nextOccurrenceId": nxt_id}
+            # Same for closedAsMissed: without it a reopened Missed copy would be
+            # closed again by the next scan after any edit to its rule.
+            missed_at = (t.recurrence or {}).get("closedAsMissed") if isinstance(t.recurrence, dict) else None
+            if missed_at and "closedAsMissed" not in val:
+                val = {**val, "closedAsMissed": missed_at}
         setattr(t, field, val)
 
     # Assignment goes through the setter so the legacy mirror can never drift
