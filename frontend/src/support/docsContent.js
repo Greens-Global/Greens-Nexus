@@ -942,8 +942,8 @@ export const DOCS = [
       { name: 'Documents', desc: 'As-built plans and other documents, linked to their Egnyte location.' },
       { name: 'Flag for Review', desc: 'Mark a record for a colleague to check.' },
       { name: 'Export & Trash', desc: 'Export data, and restore anything deleted from Trash.' },
-      { name: 'Maintenance Tickets', desc: 'Maintenance has Open Tickets and Closed Tickets tabs for every ticket raised for the property (and its parcels). A closed ticket that was worked becomes a maintenance record in the Maintenance Log, with its vendor and cost counted in Total Spend; one closed as Duplicate or Won't Fix is listed under Closed Without Work. Export History CSV and the asset's Export CSV include them.' },
-      { name: 'Follow a Ticket', desc: 'Asset Management editors and the property's asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
+      { name: 'Maintenance Tickets', desc: 'Maintenance has Open Tickets and Closed Tickets tabs for every ticket raised for the property (and its parcels). A closed ticket that was worked becomes a maintenance record in the Maintenance Log, with its vendor and cost counted in Total Spend; one closed as Duplicate or Won\'t Fix is listed under Closed Without Work. Export History CSV and the asset\'s Export CSV include them.' },
+      { name: 'Follow a Ticket', desc: 'Asset Management editors and the property\'s asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
     ],
     manager: {
       title: 'Asset Managers',
