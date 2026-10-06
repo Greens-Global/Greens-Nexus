@@ -1926,6 +1926,9 @@ export const api = {
   getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
   setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
   syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
+  // Property Tickets (Neil, 10/05) - routers/property_tickets.py: the property
+  // picker for ticket forms (names only, open to anyone who can raise one).
+  getTicketProperties:    () => cachedGet('/ticket-properties', 120_000),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

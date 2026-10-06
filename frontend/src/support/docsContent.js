@@ -570,6 +570,8 @@ export const DOCS = [
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
+      { name: 'Property', desc: 'A ticket for a building or site team (Construction & Maintenance, Operations, site security) can name the Asset Management property it is about. The property\'s asset manager gets one bell about it. Other teams are never asked, so an HR or Payroll ticket can never show on a property.' },
+      { name: 'Vendor and Cost', desc: 'Resolving a ticket that is on a property asks for an optional vendor and cost. They go on the property\'s maintenance record and its Total Spend. A resolved or closed property ticket is part of that property\'s maintenance history, so it cannot be deleted or moved to another property until it is reopened.' },
       { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },

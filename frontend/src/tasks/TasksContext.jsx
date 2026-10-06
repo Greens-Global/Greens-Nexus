@@ -65,6 +65,8 @@ const CAMEL_TO_SNAKE = {
   includeCompleted: 'include_completed', includeAssignees: 'include_assignees',
   includeMembers: 'include_members', includeTeams: 'include_teams',
   includeDates: 'include_dates', resetStatus: 'reset_status',
+  // Property Tickets (Oct 6) - see backend TicketBody / TicketUpdate.
+  propertyAssetId: 'property_asset_id', maintenanceVendor: 'maintenance_vendor', maintenanceCost: 'maintenance_cost',
 };
 function toBody(patch) {
   const out = {};

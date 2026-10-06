@@ -53,6 +53,8 @@ import TicketDeflection from '../support/TicketDeflection';
 import { toViewUrl, toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
+import { PropertySelect } from './PropertySelect';
+import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 
@@ -1690,7 +1692,10 @@ const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(htm
 // names every required field the task could not supply, and on create the
 // server links the ticket to the task, copies its files and (when asked)
 // closes the task. `onCreated(ticket)` runs after a successful create.
-export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }) {
+// `forProperty` (Property Tickets, Neil 10/05): { id, name } - opened from a
+// property in Asset Management; the ticket is linked to it and the building
+// department is preselected, so a title and a category are all that is left.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
@@ -1736,6 +1741,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
     // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
     // A converted task is for whoever owns it - they asked for the work.
     requesterId: (fromTask?.ownerId || myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
+    propertyAssetId: forProperty?.id || '',
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
   const [closeSource, setCloseSource] = useState(true);
@@ -1787,6 +1793,19 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
     : allDepts).filter(offeredAtIntake);
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
+  // Ask "Which property?" only for a team that takes one - a building, site
+  // operations or site security team (the server enforces the same rule).
+  const deptTakesProperty = groupTakesProperty(helpGroupFor(deptName));
+  // Raised from a property (Asset Management): start on the team that handles
+  // buildings once the departments arrive - once, and never over a pick.
+  // Adjusting state while rendering (React's pattern for "derive once from
+  // async data"), guarded by the flag so it runs a single time.
+  const [pickBuildingDept, setPickBuildingDept] = useState(!!forProperty);
+  if (pickBuildingDept && deptOptions.length) {
+    setPickBuildingDept(false);
+    const building = deptOptions.find((d) => isBuildingGroup(helpGroupFor(d.name)));
+    if (building && !form.hrDepartmentId) set('hrDepartmentId', building.id);
+  }
   // intakeFieldsFor, not TYPE_FIELDS: retired fields stay in the definitions
   // so tickets that already captured one still render it, but nobody is asked
   // for them again; radios are asked as dropdowns; and the error-message
@@ -1934,6 +1953,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
+        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
@@ -1950,6 +1970,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
         }
       }
       onCreated?.(created);
+      if (created?.propertyAssetId) {
+        // A property's ticket tabs in Asset Management refresh on this.
+        window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
+      }
       onClose();
     } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };
@@ -2181,6 +2205,17 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
         </div>
       </div>
 
+      {deptTakesProperty && (
+        <div style={field}>
+          <label style={label}>Property</label>
+          <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)}
+            fallbackName={forProperty?.name} style={sel} />
+          {sub(forProperty
+            ? `Shows on ${forProperty.name}'s Maintenance in Asset Management.`
+            : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
           <label style={label}>Type {req}</label>
@@ -2256,13 +2291,20 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
 export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', onSubmit, onClose }) {
   const [note, setNote] = useState(ticket?.resolutionNote || '');
   const [resolution, setResolution] = useState(ticket?.resolution || 'fixed');
+  // The maintenance record's vendor and cost (Property Tickets) - only for a
+  // ticket linked to a property; kept from a previous resolve after a reopen.
+  const [vendor, setVendor] = useState(ticket?.maintenanceVendor || '');
+  const [cost, setCost] = useState(ticket?.maintenanceCost || '');
+  const onProperty = !!ticket?.propertyAssetId;
+  const costBad = onProperty && cost.trim() !== '' && !/^\$?(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$/.test(cost.trim());
+  const noteBad = !note.trim();
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
   const [comment, setComment] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
-  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1
+  const invalid = mode === 'resolve' ? (noteBad || costBad) : mode === 'confirm' ? rating < 1
     : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
     : mode === 'self_resolve' ? 'Mark Resolved'
@@ -2272,7 +2314,9 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
     if (invalid) { setShowErr(true); return; }
     setBusy(true);
     const patch = mode === 'resolve'
-      ? { status: targetStatus, resolution, resolutionNote: note.trim() }
+      ? { status: targetStatus, resolution, resolutionNote: note.trim(),
+          ...(onProperty && (vendor.trim() || ticket?.maintenanceVendor) ? { maintenanceVendor: vendor.trim() } : {}),
+          ...(onProperty && (cost.trim() || ticket?.maintenanceCost) ? { maintenanceCost: cost.trim() } : {}) }
       : mode === 'self_resolve'
         ? { status: 'resolved', ...(comment.trim() ? { comment: textToHtml(comment) } : {}) }
       : mode === 'confirm'
@@ -2301,14 +2345,32 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
           <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
-          {showErr && invalid && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && noteBad ? { borderColor: NX.red } : null) }} />
+          {showErr && noteBad && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
         </div>
         <div style={field}>
           <label style={label}>Outcome</label>
           <TicketSelect value={resolution} onChange={setResolution}
             options={TICKET_RESOLUTION.map((r) => [r.key, r.label])} />
         </div>
+        {onProperty && (<>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10 }}>
+            <div style={field}>
+              <label style={label}>Vendor</label>
+              <input value={vendor} onChange={(e) => setVendor(e.target.value)} maxLength={200}
+                placeholder="e.g. ABC Plumbing" style={{ ...inputStyle, fontFamily: FONT }} />
+            </div>
+            <div style={field}>
+              <label style={label}>Cost</label>
+              <input value={cost} onChange={(e) => setCost(e.target.value)} inputMode="decimal" placeholder="$0.00"
+                style={{ ...inputStyle, fontFamily: FONT, ...(showErr && costBad ? { borderColor: NX.red } : null) }} />
+              {showErr && costBad && <div style={requiredHint}>An amount like 1250.50</div>}
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 12 }}>
+            Optional - goes on {ticket.propertyName || 'the property'}'s maintenance record and its Total Spend.
+          </div>
+        </>)}
       </>)}
       {mode === 'self_resolve' && (
         <div style={field}>
@@ -2987,6 +3049,25 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
         </div>
+        {/* Property Tickets (Neil, 10/05). Same edit rule as Help With: the
+            backend leaves property_asset_id out of _WORKING_FIELDS. A
+            Resolved/Closed ticket is that property's maintenance record, so
+            it moves only after a reopen (the server refuses it too). */}
+        {(v.propertyAssetId || (fullAccess && groupTakesProperty(helpGroupFor(allDepts.find((d) => d.id === v.hrDepartmentId)?.name || '')))) && (
+          <div style={field}>
+            <label style={label}>Property</label>
+            {fullAccess ? (<>
+              <PropertySelect value={v.propertyAssetId || ''} fallbackName={v.propertyName || ''}
+                disabled={['resolved', 'closed'].includes(v.status)}
+                onChange={(id) => { if (id !== (v.propertyAssetId || '')) stage({ propertyAssetId: id }); }} />
+              {['resolved', 'closed'].includes(v.status) && v.propertyAssetId && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Part of this property's maintenance history - reopen the ticket to change it.</div>
+              )}
+            </>) : (
+              <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyName || '-'}</div>
+            )}
+          </div>
+        )}
         {/* Derived from the application by the server, and re-derived whenever
             it changes. A manager can still override it here for an app the
             directory has mapped wrongly - correcting the mapping itself is a
