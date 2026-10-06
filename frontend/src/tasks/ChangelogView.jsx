@@ -18,7 +18,7 @@ import {
   Sparkles, Clock, Tag, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
   ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
   Link2, Maximize2, Minimize2, Pencil, Send, Bug, Flame, ShieldAlert, TrendingUp,
-  Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2,
+  Wrench, ArrowUpCircle, Upload, Eye, GitPullRequest, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -180,7 +180,9 @@ export default function Changelog({ onClose }) {
       if (r?.created) flash(`Drafted ${r.created} update${r.created === 1 ? '' : 's'} from recent commits - review below.`);
       else flash(r?.message || 'No new commits to summarise.');
     } catch (e) {
-      flash(e?.message?.includes('not configured') ? 'AI is not configured on the server.' : 'Could not generate from git.');
+      // The server says why (a missing key, Claude refusing the model, ...) -
+      // pass it on rather than a generic line nobody can act on.
+      flash(e?.message || 'Could not generate from git.');
     }
   };
 
@@ -682,6 +684,42 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
   );
 }
 
+// Automatic drafting's health (GET /task-changelog/auto-status). A failing
+// sweep used to leave no trace outside the server log, so the queue just
+// stopped filling and looked like a quiet few weeks (Oct 2026).
+function AutoDraftStatus({ refreshKey }) {
+  const [st, setSt] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api.getTaskChangelogAutoStatus().then((s) => { if (live) setSt(s); }).catch(() => { if (live) setSt(null); });
+    return () => { live = false; };
+  }, [refreshKey]);
+  if (!st) return null;
+  const line = { margin: '-12px 0 20px', fontSize: 12, display: 'flex', alignItems: 'flex-start', gap: 6 };
+  if (!st.enabled) {
+    return <p style={{ ...line, color: NX.dim }}>Automatic drafting is turned off on this server.</p>;
+  }
+  if (st.lastError) {
+    return (
+      <p role="alert" style={{ ...line, color: NX.red }}>
+        <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>
+          Automatic drafting failed {formatDateTime(st.lastErrorAt)}: {st.lastError}
+          {st.nextRunAt && <> Next try {formatDateTime(st.nextRunAt)}.</>}
+        </span>
+      </p>
+    );
+  }
+  if (!st.lastRunAt) {
+    return <p style={{ ...line, color: NX.dim }}>Automatic drafting has not run on this server yet{st.nextRunAt ? ` - next run ${formatDateTime(st.nextRunAt)}` : ''}.</p>;
+  }
+  return (
+    <p style={{ ...line, color: NX.dim }}>
+      Automatic drafting last ran {formatDateTime(st.lastRunAt)} ({st.lastCreated} drafted) - next run {formatDateTime(st.nextRunAt)}.
+    </p>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Manage tab (admin) - pending-review queue + all updates
 // ═══════════════════════════════════════════════════════════════════════════
@@ -692,7 +730,11 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
   const pending = withStatus.filter((x) => x.status === 'Pending Review');
   const rest = withStatus.filter((x) => x.status !== 'Pending Review');
 
-  const generate = async () => { setGenerating(true); try { await onGenerate?.(); } finally { setGenerating(false); } };
+  const [statusKey, setStatusKey] = useState(0);
+  const generate = async () => {
+    setGenerating(true);
+    try { await onGenerate?.(); } finally { setGenerating(false); setStatusKey((k) => k + 1); }
+  };
 
   return (
     <div style={{ padding: '20px 16px' }}>
@@ -713,6 +755,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
         publish. Updates you add here from Manage publish immediately. Merged work is drafted into the review queue below a
         few minutes after it lands - <strong>Generate from git</strong> runs that same draft now instead of waiting.
       </p>
+      <AutoDraftStatus refreshKey={statusKey} />
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>Pending Review</h2>
