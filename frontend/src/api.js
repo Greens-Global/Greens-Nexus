@@ -1929,6 +1929,9 @@ export const api = {
   // Property Tickets (Neil, 10/05) - routers/property_tickets.py: the property
   // picker for ticket forms (names only, open to anyone who can raise one).
   getTicketProperties:    () => cachedGet('/ticket-properties', 120_000),
+  // Property Walkthrough (routers/ticket_walkthroughs.py). Never retried here
+  // (mutations aren't); the form's batch_id makes a manual retry safe instead.
+  createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

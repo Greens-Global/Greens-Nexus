@@ -1247,6 +1247,16 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Log a Property Walkthrough',
+        steps: [
+          'Walking a property and finding several issues? Click Property Walkthrough (the service desk, the Asset Management team and administrators see it). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
+          'Pick the property and the team (only building and site teams are offered).',
+          'Type the first issue and press Enter to start the next line. For each line pick what it is (HVAC, Plumbing, Painting...), the priority and a location, and take a photo or paste one with Ctrl+V.',
+          'Click Create Tickets. Every line becomes its own ticket on that property, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole walkthrough.',
+          'No signal? Your lines are kept on this device. If the submit could not be confirmed, the lines lock and Try Again sends exactly the same lines - nothing is ever filed twice.',
+        ],
+      },
+      {
         title: 'Report a Bug in Nexus',
         steps: [
           'Click Submit a Ticket and set the type to Bug Report.',

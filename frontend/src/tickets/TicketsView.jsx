@@ -15,7 +15,6 @@ import LiveView from '../components/LiveView';
 import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
-import { supabase } from '../lib/supabase';
 import { formatDateTime } from '../lib/datetime';
 import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import {
@@ -50,10 +49,11 @@ import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
-import { toViewUrl, toDownloadUrl } from '../lib/storageView';
+import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
 import { PropertySelect } from './PropertySelect';
+import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
@@ -1544,16 +1544,6 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
 // scheme it replaced (which silently dropped anything over 2MB; recordings
 // always would have). Bucket must exist on the Supabase project - public,
 // same as Testing's qa-evidence - create `ticket-evidence` there.
-async function uploadTicketEvidence(file, prefix = 'file') {
-  if (!supabase) throw new Error('Storage not configured');
-  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
-  const path = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { data, error } = await supabase.storage.from('ticket-evidence')
-    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
-  if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
-}
-
 function attachmentKindOf(f) {
   if (f.type.startsWith('image/')) return 'image';
   if (f.type.startsWith('video/')) return 'video';
@@ -1790,7 +1780,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // (the field is off, or on with nothing picked yet) or the one they chose.
   const deptOptions = (COMPANY_FIELD.enabled
     ? allDepts.filter((d) => d.companyId === form.companyId)
-    : allDepts).filter(offeredAtIntake);
+    : allDepts).filter(offeredAtIntake)
+    // Raised from a property in Asset Management: only property tickets, so
+    // only the building and site teams (Pranshu, 10/06).
+    .filter((d) => !forProperty || groupTakesProperty(helpGroupFor(d.name)));
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
   // Ask "Which property?" only for a team that takes one - a building, site
@@ -2208,8 +2201,12 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       {deptTakesProperty && (
         <div style={field}>
           <label style={label}>Property</label>
-          <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)}
-            fallbackName={forProperty?.name} style={sel} />
+          {forProperty ? (
+            // Raised from the property itself - fixed, not a choice.
+            <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2, color: NX.ink }}>{forProperty.name}</div>
+          ) : (
+            <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)} style={sel} />
+          )}
           {sub(forProperty
             ? `Shows on ${forProperty.name}'s Maintenance in Asset Management.`
             : 'Optional - pick it and the ticket shows on that property in Asset Management.')}

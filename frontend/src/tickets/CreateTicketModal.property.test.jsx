@@ -61,6 +61,11 @@ describe('Property on a ticket', () => {
     render(<CreateTicketModal onClose={onClose} forProperty={{ id: 'gst', name: 'Greens Storage Temecula' }} />);
     const title = await screen.findByPlaceholderText(/What is the issue\?/);
     expect(await screen.findByText(/Shows on Greens Storage Temecula's Maintenance/)).toBeTruthy();
+    // Fixed, not a picker - and only building or site teams are offered.
+    expect(screen.queryByText('Select property')).toBeNull();
+    fireEvent.click(screen.getByText('Facilities'));
+    expect(screen.queryByText('Human Resources')).toBeNull();
+    fireEvent.click(screen.getAllByText('Facilities').at(-1));
     fireEvent.change(title, { target: { value: 'Broken handrail' } });
     fireEvent.click(screen.getByText('Select one'));
     fireEvent.click(await screen.findByText('Painting'));
