@@ -5148,3 +5148,16 @@ class AccountingLoanSetting(Base):
     statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
     updated_by         = Column(String, default="")
     updated_at         = Column(String, default="")
+
+
+class NexusCounter(Base):
+    """One row per number sequence that must never repeat - "ticket_code" and
+    "task_code" today (Oct 2026). Bumped with an atomic UPDATE ... RETURNING
+    inside the caller's transaction; see code_sequence.py. Never decremented,
+    never reset: a number handed out stays handed out. New table - create_all
+    builds it; RLS by main.py's migration list and the startup sweep, and
+    enabled by hand on dev and prod at release."""
+    __tablename__ = "nexus_counters"
+    name       = Column(String, primary_key=True)
+    value      = Column(BigInteger, nullable=False, default=0)
+    updated_at = Column(String, default="")

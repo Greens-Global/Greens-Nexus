@@ -1872,6 +1872,9 @@ def _run_migrations():
         # principal, Internal / External and Egnyte folders per loan. New
         # table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
+        # Ticket numbers / task codes that never repeat (Oct 2026): one row per
+        # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
+        "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
