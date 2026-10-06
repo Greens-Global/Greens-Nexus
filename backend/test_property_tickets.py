@@ -8,6 +8,10 @@ property ticket is that property's maintenance record, so it cannot be
 deleted or moved off the property until it is reopened. Ticket codes are
 issued under a lock so concurrent creates never share one.
 
+A Property Walkthrough files many tickets at one property in ONE transaction:
+all-or-nothing, idempotent on batch_id AND its line fingerprint, one bell per
+person.
+
 Uses a throwaway sqlite file. No network: BackgroundTasks are never run.
 Run with: python -m unittest test_property_tickets
 """
@@ -15,12 +19,13 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import uuid
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 
-from fastapi import BackgroundTasks, HTTPException   # noqa: E402
+from fastapi import BackgroundTasks, HTTPException, Response   # noqa: E402
 
 import cache                                          # noqa: E402
 import database                                       # noqa: E402
@@ -28,10 +33,13 @@ import models                                         # noqa: E402
 from routers.task_util import gen_id                  # noqa: E402
 from routers import tickets as T                      # noqa: E402
 from routers import property_tickets as P             # noqa: E402
+from routers import ticket_walkthroughs as W          # noqa: E402
 
 ADMIN = {"email": "neil@greensglobal.com", "role": "administrator", "level": 4}
 PLAIN = {"email": "amy@greensglobal.com", "role": "employee", "level": 1}
 MANAGER = "ankush@greensglobal.com"
+WALKER = {"email": "pranshu@greensglobal.com", "role": "employee", "level": 2}
+DESK2 = "visesh@greensglobal.com"
 
 
 class PropertyTicketTests(unittest.TestCase):
@@ -49,15 +57,18 @@ class PropertyTicketTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskTicket, models.TaskActivity, models.TaskAttachment, models.TaskComment,
+        for m in (models.TaskTicket, models.TicketBatch, models.NexusGroup, models.NexusGroupMember, models.TaskActivity, models.TaskAttachment, models.TaskComment,
                   models.TaskNotification, models.NexusNotification, models.NexusEmployee, models.NexusRole,
                   models.PropertyAsset, models.HrDepartment, models.PropertyRecord,
                   models.PropertyActivityLog, models.PropertyWorkspaceMeta):
             self.db.query(m).delete()
-        for email in (ADMIN["email"], PLAIN["email"], MANAGER):
+        for email in (ADMIN["email"], PLAIN["email"], MANAGER, WALKER["email"], DESK2):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=email.split("@")[0], work_email=email,
                                              status="active", identity_type="internal"))
-        self.db.add(models.NexusRole(email=ADMIN["email"], role="administrator"))
+        for email in (ADMIN["email"], DESK2):   # no desk roster configured -> administrators
+            self.db.add(models.NexusRole(email=email, role="administrator"))
+        self.db.add(models.NexusGroup(id="g-asset", name="Asset Team", allowed_modules="property-asset:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="g-asset", email=WALKER["email"]))
         self.db.add(models.HrDepartment(id="d-fac", company_id="c1", name="Construction & Maintenance"))
         self.db.add(models.HrDepartment(id="d-hr", company_id="c1", name="Human Resources"))
         contacts = {"pm / asset manager": {"email": MANAGER}}
@@ -80,6 +91,16 @@ class PropertyTicketTests(unittest.TestCase):
         body = T.TicketBody(subject=kw.pop("subject", "Leak under sink"), application="Plumbing or Water Leak",
                             hr_department_id=kw.pop("hr_department_id", "d-fac"), **kw)
         return T.create_ticket(body, BackgroundTasks(), user=user, db=self.db)
+
+    def _walk(self, lines, user=WALKER, batch_id=None, prop="gst", dept="d-fac"):
+        body = W.WalkthroughBody(batch_id=batch_id or str(uuid.uuid4()), property_asset_id=prop,
+                                 hr_department_id=dept, lines=[W.WalkLine(**ln) for ln in lines])
+        resp = Response()
+        out = W.create_walkthrough(body, BackgroundTasks(), resp, user=user, db=self.db)
+        return out, resp
+
+    def _line(self, subject, app="Painting", **kw):
+        return {"subject": subject, "application": app, **kw}
 
     def _bells(self, email, kind=None):
         q = self.db.query(models.TaskNotification).filter(models.TaskNotification.for_email == email)
@@ -194,6 +215,112 @@ class PropertyTicketTests(unittest.TestCase):
                          db=self.db, user=ADMIN)
         row = self.db.get(models.TaskTicket, t["id"])
         self.assertEqual((row.property_asset_id, row.property_name), ("gst", "Greens Storage Temecula"))
+
+    # ── Property Walkthrough ──
+    def test_a_walkthrough_files_every_line_at_the_property_with_consecutive_codes(self):
+        self._one(user=ADMIN)                                 # an existing ticket: 000001
+        out, resp = self._walk([self._line("Repaint stairwell"),
+                                self._line("Broken handrail", "Railings or Stairs", location="Office", priority="high"),
+                                self._line("Flooring lifting", "Flooring or Tile")])
+        self.assertEqual([t["code"] for t in out["tickets"]], ["000002", "000003", "000004"])
+        self.assertTrue(all(t["propertyAssetId"] == "gst" and t["batchId"] == out["batchId"] for t in out["tickets"]))
+        self.assertEqual(out["tickets"][1]["typeFields"], {"svc_unit": "Office"})
+        self.assertEqual(out["tickets"][1]["priority"], "high")
+        self.assertEqual(self.db.get(models.TicketBatch, out["batchId"]).ticket_count, 3)
+        self.assertFalse(out["replayed"])
+        self.assertNotIn(MANAGER, out["tickets"][0]["watcherIds"])
+
+    def test_one_bad_line_files_nothing_and_names_the_line(self):
+        with self.assertRaises(HTTPException) as cm:
+            self._walk([self._line("Fine"), self._line("", "Painting"), self._line("No topic", "")])
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertEqual(sorted({e["index"] for e in cm.exception.detail["lines"]}), [1, 2])
+        self.assertEqual(self.db.query(models.TaskTicket).count(), 0)
+        self.assertEqual(self.db.query(models.TicketBatch).count(), 0)
+
+    def test_the_same_submit_twice_files_once(self):
+        bid = str(uuid.uuid4())
+        first, _ = self._walk([self._line("A"), self._line("B")], batch_id=bid)
+        again, resp = self._walk([self._line("A"), self._line("B")], batch_id=bid)
+        self.assertTrue(again["replayed"])
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([t["id"] for t in again["tickets"]], [t["id"] for t in first["tickets"]])
+        self.assertEqual(self.db.query(models.TaskTicket).count(), 2)
+
+    def test_a_retry_with_different_lines_is_never_a_silent_replay(self):
+        bid = str(uuid.uuid4())
+        self._walk([self._line("A"), self._line("B")], batch_id=bid)
+        with self.assertRaises(HTTPException) as cm:            # line C added after the lost response
+            self._walk([self._line("A"), self._line("B"), self._line("C")], batch_id=bid)
+        self.assertEqual(cm.exception.status_code, 409)
+        self.assertEqual(cm.exception.detail["code"], "batch_mismatch")
+        self.assertEqual([t["subject"] for t in cm.exception.detail["tickets"]], ["A", "B"])
+        self.assertEqual(self.db.query(models.TaskTicket).count(), 2)
+        again, _ = self._walk([self._line(" A "), self._line("B")], batch_id=bid)   # same text: replays
+        self.assertTrue(again["replayed"])
+
+    def test_someone_elses_batch_id_is_refused(self):
+        bid = str(uuid.uuid4())
+        self._walk([self._line("A")], batch_id=bid)
+        with self.assertRaises(HTTPException) as cm:
+            self._walk([self._line("A")], batch_id=bid, user=ADMIN)
+        self.assertEqual(cm.exception.status_code, 409)
+
+    def test_one_bell_per_person_per_walkthrough(self):
+        self._walk([self._line(f"Issue {i}") for i in range(12)])
+        self.assertEqual(len(self._bells(MANAGER)), 1)
+        self.assertEqual(self._bells(MANAGER)[0].title, "12 new tickets at Greens Storage Temecula")
+        for desk in (ADMIN["email"], DESK2):
+            self.assertEqual(len(self._bells(desk, "ticket_needs_assignment")), 1)
+        self.assertEqual(len(self._bells(WALKER["email"])), 0)   # nothing about your own action
+
+    def test_limits_access_and_assignment(self):
+        with self.assertRaises(HTTPException) as cm:            # a plain employee files one at a time
+            self._walk([self._line("x")], user=PLAIN)
+        self.assertEqual(cm.exception.status_code, 403)
+        with self.assertRaises(HTTPException) as cm:
+            self._walk([self._line(f"x{i}") for i in range(W.MAX_LINES + 1)])
+        self.assertEqual(cm.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as cm:            # only the desk assigns while filing
+            self._walk([self._line("x", assignee_email=DESK2)])
+        self.assertEqual(cm.exception.detail["lines"][0]["field"], "assignee_email")
+        with self.assertRaises(HTTPException):                  # base64 photos are refused
+            self._walk([self._line("x", images=["data:image/png;base64,AAAA"])])
+        with self.assertRaises(HTTPException) as cm:            # HR tickets never land on a property
+            self._walk([self._line("x")], dept="d-hr")
+        self.assertEqual(cm.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as cm:            # nor on a vehicle
+            self._walk([self._line("x")], prop="truck")
+        self.assertEqual(cm.exception.status_code, 400)
+
+    def test_the_desk_can_assign_while_filing(self):
+        out, _ = self._walk([self._line("Leak", "Plumbing or Water Leak", assignee_email=DESK2)], user=ADMIN)
+        t = out["tickets"][0]
+        self.assertEqual((t["assigneeId"], t["status"]), (DESK2, "in_progress"))
+        self.assertEqual(len(self._bells(DESK2, "ticket_assigned")), 1)
+        self.assertEqual(len(self._bells(DESK2, "ticket_needs_assignment")), 0)   # one bell, the actionable one
+
+    def test_a_gated_type_parks_for_approval_and_cannot_be_born_assigned(self):
+        out, _ = self._walk([self._line("Badge for contractor", "Gate Access", type="access_request")], user=ADMIN)
+        self.assertEqual(out["tickets"][0]["approvalStatus"], "pending")
+        with self.assertRaises(HTTPException):
+            self._walk([self._line("Badge", "Gate Access", type="access_request", assignee_email=DESK2)], user=ADMIN)
+
+    def test_the_walkthrough_email_goes_once_per_person(self):
+        import ticket_notify
+        sent = []
+        real = ticket_notify.graph_mail.send_mail
+        ticket_notify.graph_mail.send_mail = lambda **kw: sent.append(kw) or {}
+        try:
+            out, _ = self._walk([self._line(f"Issue {i}") for i in range(5)])
+            ticket_notify.notify_walkthrough(out["batchId"], WALKER["email"])
+            ticket_notify.notify_walkthrough(out["batchId"], WALKER["email"])   # a replayed submit: no second send
+        finally:
+            ticket_notify.graph_mail.send_mail = real
+        to = sorted(r for kw in sent for r in kw["to"])
+        self.assertEqual(to, sorted({MANAGER, ADMIN["email"], DESK2}))
+        self.assertTrue(all(kw["subject"] == "5 new tickets at Greens Storage Temecula - Property Walkthrough"
+                            for kw in sent))
 
 
 if __name__ == "__main__":

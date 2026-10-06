@@ -1890,6 +1890,9 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_cost VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+        # Property Walkthrough (Neil, 10/05): one row per batch submit. New
+        # table - RLS per CLAUDE.md (dev AND prod).
+        "ALTER TABLE ticket_batches ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2953,3 +2956,5 @@ app.include_router(pfs_access.router)              # Accounting > PFS: one-time 
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
 from routers import property_tickets  # noqa: E402
 app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
+from routers import ticket_walkthroughs  # noqa: E402
+app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrough - many tickets at one property in one submit (Neil, 10/05)
