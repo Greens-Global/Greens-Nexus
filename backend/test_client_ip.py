@@ -19,6 +19,7 @@ from client_ip import client_ip, strip_port
 CF_EDGE = "172.70.1.2"          # inside Cloudflare's 172.64.0.0/13
 VISITOR = "203.0.113.7"
 SPOOF = "6.6.6.6"
+WORKER = "2a06:98c0:3600::103"  # Cloudflare Workers subrequest address
 
 
 def _req(headers=None, peer="10.0.0.4"):
@@ -46,7 +47,19 @@ class ClientIpTests(unittest.TestCase):
         r = _req({"X-Forwarded-For": f"{VISITOR}:40000", "CF-Connecting-IP": SPOOF})
         self.assertEqual(client_ip(r), VISITOR)
 
-    def test_cloudflare_hop_without_the_header_falls_back_to_the_hop(self):
+    def test_through_cloudflare_without_the_header_the_last_non_cloudflare_hop(self):
+        r = _req({"X-Forwarded-For": f"{SPOOF}, {VISITOR}, {CF_EDGE}:443"})
+        self.assertEqual(client_ip(r), VISITOR)
+
+    def test_the_bff_pages_proxy(self):
+        # The /api Pages Function sets X-Forwarded-For to the visitor; the
+        # subrequest may carry Cloudflare's own Worker address as
+        # CF-Connecting-IP and reaches Azure from a Cloudflare address.
+        r = _req({"X-Forwarded-For": f"{VISITOR}, {WORKER}, {CF_EDGE}:443",
+                  "CF-Connecting-IP": WORKER})
+        self.assertEqual(client_ip(r), VISITOR)
+
+    def test_every_hop_cloudflare_falls_back_to_the_first(self):
         self.assertEqual(client_ip(_req({"X-Forwarded-For": CF_EDGE})), CF_EDGE)
 
     def test_ipv6_and_ports(self):
@@ -60,8 +73,8 @@ class ClientIpTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"NEXUS_CLOUDFLARE_IPS": "198.51.100.0/24"}):
             r = _req({"X-Forwarded-For": "198.51.100.9", "CF-Connecting-IP": VISITOR})
             self.assertEqual(client_ip(r), VISITOR)
-            r = _req({"X-Forwarded-For": CF_EDGE, "CF-Connecting-IP": VISITOR})
-            self.assertEqual(client_ip(r), CF_EDGE)
+            r = _req({"X-Forwarded-For": f"{SPOOF}, {CF_EDGE}", "CF-Connecting-IP": VISITOR})
+            self.assertEqual(client_ip(r), CF_EDGE)   # no longer trusted: just a hop
 
     def test_the_limiter_and_the_audit_trail_use_the_same_helper(self):
         r = _req({"X-Forwarded-For": f"{SPOOF}, {VISITOR}"})

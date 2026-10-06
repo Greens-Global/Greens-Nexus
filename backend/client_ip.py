@@ -5,14 +5,22 @@ end was written by somebody we trust. The left-hand end is whatever the caller
 sent: reading the FIRST hop (Sep 30 review) let anybody pick their own
 rate-limit bucket and write any IP they liked into the audit log.
 
-Deployment: Azure App Service. Its front end appends the address of whoever
-opened the TCP connection to it, so the LAST hop is trustworthy - that is the
-client, or Cloudflare when the request came through Cloudflare. Only in that
-second case is CF-Connecting-IP believed: Cloudflare overwrites that header
-with the visitor's address, but a caller who reaches the Azure origin directly
-can send any CF-Connecting-IP they like, so it counts only when the hop that
-reached Azure really is a Cloudflare address. Locally (no proxy) it is the
-socket peer.
+How requests reach the API:
+  - Azure App Service's front end appends the address that opened the TCP
+    connection to it, so the LAST hop is never the caller's own words.
+  - The hosted app (dev + prod) calls the API through the Cloudflare Pages
+    Function /api proxy (frontend/functions/api/[[path]].js), which sets
+    X-Forwarded-For to the visitor address Cloudflare gave IT, so the request
+    reaches Azure from a Cloudflare address carrying the real visitor.
+  - Anything else (curl at the azurewebsites.net origin, a local dev server)
+    arrives directly.
+
+So: walk X-Forwarded-For from the right, skipping Cloudflare addresses (the
+proxies we trust); the first other address is the caller. When the hop that
+reached Azure is Cloudflare, CF-Connecting-IP - set by Cloudflare, not by the
+caller - is preferred, unless it is itself a Cloudflare address (a Worker's
+subrequest can carry Cloudflare's own Worker address there). No header at all:
+the socket peer.
 
 Cloudflare's ranges are https://www.cloudflare.com/ips/ (they change rarely;
 NEXUS_CLOUDFLARE_IPS, comma-separated CIDRs, replaces the built-in list).
@@ -68,10 +76,22 @@ def is_cloudflare(addr: str) -> bool:
 
 def client_ip(request) -> str:
     """The best address we can vouch for (see the module docstring)."""
-    hops = [h.strip() for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
-    peer = strip_port(hops[-1]) if hops else (request.client.host if request.client else "")
-    if peer and is_cloudflare(peer):
+    hops = [strip_port(h) for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+    if not hops:
+        return request.client.host if request.client else ""
+    if is_cloudflare(hops[-1]):
         cf = strip_port(request.headers.get("cf-connecting-ip") or "")
-        if cf:
+        if cf and _is_ip(cf) and not is_cloudflare(cf):
             return cf
-    return peer
+    for hop in reversed(hops):
+        if not is_cloudflare(hop):
+            return hop
+    return hops[0]
+
+
+def _is_ip(addr: str) -> bool:
+    try:
+        ipaddress.ip_address(addr)
+        return True
+    except ValueError:
+        return False
