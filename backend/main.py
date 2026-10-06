@@ -862,6 +862,7 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN parent_ticket_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN service_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+            "ALTER TABLE ticket_maintenance_records ADD COLUMN currency VARCHAR DEFAULT 'USD'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1907,6 +1908,8 @@ def _run_migrations():
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
         "ALTER TABLE ticket_maintenance_records ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE property_maintenance_services ENABLE ROW LEVEL SECURITY",
+        # The record's cost in any world currency (ISO 4217), totals kept per currency.
+        "ALTER TABLE ticket_maintenance_records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

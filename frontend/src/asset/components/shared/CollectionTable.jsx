@@ -100,7 +100,10 @@ function rowIdentity(coll, row) {
  * export filenames), filters (map of coll -> free-text search string), onAdd, onEdit,
  * highlightItem (a row-identity string to scroll to + highlight), collapsible, onQuickAdd.
  */
-export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd }) {
+// Optional (Property Tickets, Oct 2026): a row with `_parentRowId` is shown nested, right under
+// that row (sorting and search move families together); `_readOnly` rows say View, not Edit.
+// `summaryOverride` replaces the record type's summary strip (e.g. totals kept per currency).
+export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null }) {
   const recordType = RECORD_TYPES[coll];
   const [exportOpen, setExportOpen] = useState(false);
   const [quickText, setQuickText] = useState('');
@@ -133,9 +136,18 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
   if (searchText) {
     displayRows = displayRows.filter((r) => JSON.stringify(r).toLowerCase().includes(searchText));
   }
+  if (displayRows.some((r) => r._parentRowId)) {
+    const shown = new Set(displayRows.map((r) => r.id));
+    const kids = displayRows.filter((r) => r._parentRowId && shown.has(r._parentRowId));
+    const kidIds = new Set(kids.map((r) => r.id));
+    displayRows = displayRows.filter((r) => !kidIds.has(r.id)).flatMap((r) => [
+      r, ...kids.filter((k) => k._parentRowId === r.id).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+        .map((k) => ({ ...k, _nested: true })),
+    ]);
+  }
 
   // Summary strip always reflects the FULL collection (rows), not the filtered/sorted displayRows.
-  const summary = recordType.summary ? recordType.summary(rows) : null;
+  const summary = summaryOverride || (recordType.summary ? recordType.summary(rows) : null);
   const quickAdd = QUICK_ADD_CONFIG[coll];
 
   const submitQuickAdd = () => {
@@ -340,8 +352,9 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                           if (!isHighlighted) e.currentTarget.style.background = '';
                         }}
                       >
-                        {recordType.cols.map((col) => (
-                          <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top' }}>
+                        {recordType.cols.map((col, ci) => (
+                          <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
+                            {ci === 0 && row._nested && <span style={{ color: 'var(--text-secondary)', marginRight: 4 }}>↳</span>}
                             {col.main ? (
                               <>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '-'}</div>
@@ -365,7 +378,7 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                             }}
                             style={{ padding: '4px 10px', fontSize: '0.74rem' }}
                           >
-                            Edit
+                            {row._readOnly ? 'View' : 'Edit'}
                           </button>
                         </td>
                       </tr>

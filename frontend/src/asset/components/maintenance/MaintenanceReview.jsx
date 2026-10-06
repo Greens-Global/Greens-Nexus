@@ -10,17 +10,18 @@
 // Writes go through the property ticket endpoints (backend property_tickets.py);
 // nothing here writes the Asset Management workspace.
 import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { api } from '../../../api.js';
 import { formatDate } from '../../../lib/datetime.js';
 import { filesFromPaste } from '../../../tasks/lib';
 import { uploadTicketEvidence } from '../../../tickets/evidenceUpload';
-import { RECORD_TYPES } from '../../lib/recordTypes.jsx';
 import { TICKET_STATUS, money } from '../../lib/propertyTickets.js';
+import { currencyOptions, formatTotals } from '../../lib/currency.js';
+import { readSchedule } from '../../lib/maintenanceLog.js';
 import { StatusBadge } from '../shared/StatusBadge.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { Modal } from '../shared/Modal.jsx';
 
-const SYSTEMS = RECORD_TYPES.maintenance.fields.find((f) => f.k === 'system')?.options || [];
 const UNITS = [['', 'One Time'], ['week', 'Weeks'], ['month', 'Months'], ['year', 'Years']];
 const todayYmd = () => {
   const d = new Date();
@@ -36,6 +37,8 @@ const localYmd = (iso) => {
 const repeatsLabel = (unit, every) => (!unit ? 'One Time'
   : `Every ${Number(every) > 1 ? `${every} ` : ''}${({ week: 'Week', month: 'Month', year: 'Year' })[unit]}${Number(every) > 1 ? 's' : ''}`);
 
+const readOnlyBox = { fontSize: '0.85rem', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed', display: 'flex', alignItems: 'center' };
+
 const Field = ({ label, req, full, children }) => (
   <div className={full ? 'form-group form-group-full' : 'form-group'}>
     <label>{label}{req && <span style={{ color: 'hsl(var(--color-red))' }}> *</span>}</label>
@@ -43,31 +46,52 @@ const Field = ({ label, req, full, children }) => (
   </div>
 );
 
+/** A native select that reads as a dropdown (chevron) in every theme. */
+function Dropdown({ value, onChange, children, style, ...rest }) {
+  return (
+    <div style={{ position: 'relative', ...style }}>
+      <select className="form-input" value={value} onChange={onChange} {...rest}
+        style={{ fontSize: '0.85rem', width: '100%', appearance: 'none', WebkitAppearance: 'none', paddingRight: 30, cursor: 'pointer' }}>
+        {children}
+      </select>
+      <ChevronDown size={15} aria-hidden="true"
+        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-secondary)' }} />
+    </div>
+  );
+}
+
 /** Next Service Due + how often it repeats - shared by the record form and Edit Schedule. */
 function ScheduleFields({ value, onChange, optional = true }) {
   const set = (k, v) => onChange({ ...value, [k]: v });
+  const unitLabel = UNITS.find(([v]) => v === value.unit)?.[1] || '';
   return (<>
     <Field label="Next Service Due" req={!optional}>
       <input type="date" className="form-input" min={todayYmd()} value={value.nextDue || ''}
         onChange={(e) => set('nextDue', e.target.value)} style={{ fontSize: '0.85rem' }} />
     </Field>
     <Field label="Repeats">
-      <div style={{ display: 'flex', gap: 8 }}>
-        {value.unit && (
-          <input type="number" min={1} max={52} className="form-input" value={value.every || 1} aria-label="Repeat every"
-            onChange={(e) => set('every', Math.max(1, Math.min(52, Number(e.target.value) || 1)))}
-            style={{ fontSize: '0.85rem', width: 76 }} disabled={!value.nextDue} />
-        )}
-        <select className="form-input" value={value.unit || ''} onChange={(e) => set('unit', e.target.value)}
-          style={{ fontSize: '0.85rem', flex: 1 }} disabled={!value.nextDue}>
-          {UNITS.map(([v, l]) => <option key={v} value={v}>{v ? `Every ${l}` : l}</option>)}
-        </select>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {value.unit && (<>
+          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Every</span>
+          {/* A string while typing, so it can be cleared and retyped; checked on save. */}
+          <input type="text" inputMode="numeric" className="form-input" value={value.every ?? ''} aria-label="Repeat every"
+            onChange={(e) => set('every', e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+            style={{ fontSize: '0.85rem', width: 60, textAlign: 'center' }} />
+        </>)}
+        <Dropdown value={value.unit || ''} onChange={(e) => set('unit', e.target.value)} style={{ flex: 1 }} aria-label="Repeats">
+          {UNITS.map(([v, l]) => <option key={v} value={v}>{v ? (value.unit ? l : `Every ${l.replace(/s$/, '')}`) : l}</option>)}
+        </Dropdown>
       </div>
     </Field>
+    {value.unit && !value.nextDue && (
+      <div className="form-group form-group-full" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: -6 }}>
+        Pick the Next Service Due - it repeats every {value.every || 'N'} {unitLabel.toLowerCase()} from that date.
+      </div>
+    )}
     {value.nextDue && (
       <div className="form-group form-group-full" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: -6 }}>
         You are reminded 15 days before. If no ticket is opened by {formatDate(value.nextDue)}, one opens
-        automatically with these details{value.unit ? `, and the next one is scheduled ${repeatsLabel(value.unit, value.every).toLowerCase()} after that` : ''}.
+        automatically with these details{value.unit ? `, and the next one is scheduled ${repeatsLabel(value.unit, value.every || 1).toLowerCase()} after that` : ''}.
       </div>
     )}
   </>);
@@ -75,11 +99,12 @@ function ScheduleFields({ value, onChange, optional = true }) {
 
 export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
   const isChild = !!t.parentTicketId;
+  // Service Date and System / Area come from the ticket (its resolve day, its
+  // category) - shown, not editable; the server derives them the same way.
+  const serviceDate = localYmd(t.resolvedAt) || todayYmd();
   const [v, setV] = useState({
-    date: localYmd(t.resolvedAt) || todayYmd(),
-    system: SYSTEMS.includes(t.system) ? t.system : 'General Repair',
     description: t.resolutionNote ? `${t.subject} - ${t.resolutionNote}` : t.subject,
-    vendor: t.vendor || '', cost: t.cost || '', notes: '',
+    vendor: t.vendor || '', cost: t.cost || '', currency: 'USD', notes: '',
   });
   const [schedule, setSchedule] = useState({ nextDue: '', unit: '', every: 1 });
   const [doc, setDoc] = useState(null);              // { name, url, status }
@@ -97,17 +122,15 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
   };
   const save = async () => {
     setErr('');
-    if (!v.date) { setErr('Service Date is required.'); return; }
-    if (!v.system) { setErr('System / Area is required.'); return; }
+    const sched = isChild ? {} : readSchedule(schedule);
+    if (sched.error) { setErr(sched.error); return; }
     if (doc?.status === 'uploading') { setErr('The invoice is still uploading.'); return; }
     if (doc?.status === 'failed') { setErr('The invoice did not upload - remove it or attach it again.'); return; }
     setBusy(true);
     try {
       await api.addMaintenanceRecord(propertyId, t.id, {
-        service_date: v.date, system: v.system, description: v.description.trim(), vendor: v.vendor.trim(),
-        cost: v.cost.trim(), notes: v.notes.trim(), doc_url: doc?.url || '', doc_name: doc?.name || '',
-        ...(!isChild && schedule.nextDue
-          ? { next_service_due: schedule.nextDue, recurrence_unit: schedule.unit, recurrence_every: schedule.every } : {}),
+        description: v.description.trim(), vendor: v.vendor.trim(), cost: v.cost.trim(), currency: v.currency,
+        notes: v.notes.trim(), doc_url: doc?.url || '', doc_name: doc?.name || '', ...sched,
       });
       onSaved();
     } catch (e) { setErr(e.message || 'Could not add it to the maintenance record.'); setBusy(false); }
@@ -124,13 +147,11 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
         Adding it closes the ticket.
       </div>
       <div className="form-grid" onPaste={(e) => { const f = filesFromPaste(e); if (f.length) { e.preventDefault(); attach(f[0]); } }}>
-        <Field label="Service Date" req>
-          <input type="date" className="form-input" value={v.date} onChange={set('date')} style={{ fontSize: '0.85rem' }} />
+        <Field label="Service Date">
+          <div className="form-input" style={readOnlyBox} title="From the ticket - the day it was resolved">{formatDate(serviceDate)}</div>
         </Field>
-        <Field label="System / Area" req>
-          <select className="form-input" value={v.system} onChange={set('system')} style={{ fontSize: '0.85rem' }}>
-            {SYSTEMS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
+        <Field label="System / Area">
+          <div className="form-input" style={readOnlyBox} title="From the ticket's category">{t.system || 'General Repair'}</div>
         </Field>
         <Field label="Work Performed" full>
           <textarea className="form-input" rows={2} value={v.description} onChange={set('description')} maxLength={2000} style={{ fontSize: '0.85rem' }} />
@@ -139,7 +160,12 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
           <input className="form-input" value={v.vendor} onChange={set('vendor')} maxLength={200} style={{ fontSize: '0.85rem' }} />
         </Field>
         <Field label="Cost">
-          <input className="form-input" inputMode="decimal" placeholder="$0.00" value={v.cost} onChange={set('cost')} style={{ fontSize: '0.85rem' }} />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Dropdown value={v.currency} onChange={set('currency')} style={{ flex: '0 0 104px' }} aria-label="Currency" title="Currency">
+              {currencyOptions().map((c) => <option key={c.code} value={c.code} title={c.label}>{c.code}</option>)}
+            </Dropdown>
+            <input className="form-input" inputMode="decimal" placeholder="0.00" value={v.cost} onChange={set('cost')} style={{ fontSize: '0.85rem', flex: 1 }} aria-label="Cost" />
+          </div>
         </Field>
         {isChild ? (
           <div className="form-group form-group-full" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -202,10 +228,13 @@ function EditScheduleModal({ propertyId, svc, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const save = async () => {
+    const sched = readSchedule(value);
+    if (sched.error) { setErr(sched.error); return; }
     setBusy(true); setErr('');
     try {
       await api.updateMaintenanceService(propertyId, svc.id, {
-        next_due: value.nextDue, recurrence_unit: value.unit, recurrence_every: value.every, ...(svc.active ? {} : { active: true }),
+        next_due: sched.next_service_due, recurrence_unit: sched.recurrence_unit, recurrence_every: sched.recurrence_every,
+        ...(svc.active ? {} : { active: true }),
       });
       onSaved();
     } catch (e) { setErr(e.message || 'Could not save the schedule.'); setBusy(false); }
@@ -249,7 +278,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
               {s.system} · from {s.parentCodeLabel}
-              {s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''} · Total {money(s.totalCost) || '$0.00'}
+              {s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''} · Total {formatTotals(s.totals) || '$0.00'}
             </div>
           </div>
           {data?.canManage && (<>
@@ -277,11 +306,11 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
                     <td style={td}>{formatDate(r.date) || '-'}</td>
                     <td style={td}><StatusBadge tone={r.logged ? 'green' : sTone}>{r.logged ? 'Recorded' : sLabel}</StatusBadge></td>
                     <td style={td}>{r.vendor || '-'}</td>
-                    <td style={{ ...td, textAlign: 'right' }}>{money(r.cost) || '-'}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{money(r.cost, r.currency) || '-'}</td>
                   </tr>
                 );
               })}
-              <tr><td style={{ ...td, fontWeight: 600 }} colSpan={4}>Total</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{money(s.totalCost) || '$0.00'}</td></tr>
+              <tr><td style={{ ...td, fontWeight: 600 }} colSpan={4}>Total</td><td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{formatTotals(s.totals) || '$0.00'}</td></tr>
             </tbody>
           </table>
         </div>

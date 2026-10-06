@@ -4,6 +4,8 @@ import { ManageUnitsModal } from './ManageUnitsModal.jsx';
 import { PropertyTicketsPanel, TicketSummaryModal } from './PropertyTicketsPanel.jsx';
 import { PropertyTicketComposer, PropertyTicketDrawer, PropertyWalkthroughMount } from './ticketMounts.jsx';
 import { AddToMaintenanceModal, NeedsActionPanel, RecurringServicesPanel } from './MaintenanceReview.jsx';
+import { MaintenanceLogFilters } from './MaintenanceLogFilters.jsx';
+import { EMPTY_LOG_FILTER, applyLogFilter, logSummary } from '../../lib/maintenanceLog.js';
 import { usePropertyTickets, ticketMaintenanceRows } from '../../lib/propertyTickets.js';
 import { api } from '../../../api.js';
 
@@ -26,6 +28,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
   const [walking, setWalking] = useState(false);
   const [opened, setOpened] = useState(null);          // a ticket summary row
   const [recording, setRecording] = useState(null);    // a Needs Action row being added to the record
+  const [logFilter, setLogFilter] = useState(EMPTY_LOG_FILTER);
   const tickets = usePropertyTickets(property.id);
   const data = tickets.data;
 
@@ -43,8 +46,9 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
   }, [data, opened?.pending, opened?.id]);
 
   const allRows = [...rows, ...ticketMaintenanceRows(data, property)];
-  const filteredRows =
+  const unitRows =
     unitFilter === 'all' ? allRows : unitFilter === 'common' ? allRows.filter((r) => !r.unit) : allRows.filter((r) => r.unit === unitFilter);
+  const filteredRows = applyLogFilter(unitRows, logFilter);
   const editRow = (id) => {
     if (String(id).startsWith('ticket:')) {
       const tid = String(id).slice(7);
@@ -151,8 +155,10 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
           </button>
         )}
 
+        <MaintenanceLogFilters rows={unitRows} value={logFilter} onChange={setLogFilter} />
         <CollectionTable
           coll="maintenance"
+          summaryOverride={logSummary(filteredRows)}
           rows={filteredRows}
           active={property}
           filters={filters}

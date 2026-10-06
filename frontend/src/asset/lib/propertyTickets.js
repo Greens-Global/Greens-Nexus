@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api.js';
 import { formatDate } from '../../lib/datetime.js';
 import { nexusCsvEsc } from './csvExport.js';
+import { formatCost } from './currency.js';
 
 export const TICKET_STATUS = {
   open: ['Open', 'red'], reopened: ['Reopened', 'red'], in_progress: ['In Progress', 'orange'],
@@ -14,7 +15,7 @@ export const TICKET_STATUS = {
   resolved: ['Resolved', 'green'], closed: ['Closed', 'mut'],
 };
 export const TICKET_PRIORITY = { urgent: ['Urgent', 'red'], high: ['High', 'orange'], medium: ['Medium', 'blue'], low: ['Low', 'mut'] };
-export const money = (v) => (v ? `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '');
+export const money = (v, currency = 'USD') => (v ? formatCost(v, currency) : '');
 export function usePropertyTickets(propertyId) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const load = useCallback(() => {
@@ -37,19 +38,24 @@ export function usePropertyTickets(propertyId) {
 }
 
 /** Tickets the asset manager added to THIS property's maintenance record, as
- * read-only Maintenance Log rows (id "ticket:<ticketId>"). */
+ * read-only Maintenance Log rows (id "ticket:<ticketId>"). A ticket a recurring
+ * service opened carries `_parentRowId`, so the log shows it nested under the
+ * original; each row keeps its own currency. */
 export function ticketMaintenanceRows(data, property) {
   const units = new Set((property?.tenantUnits || []).map((u) => u.label));
   const byId = Object.fromEntries([...(data?.open || []), ...(data?.history || [])].map((t) => [t.id, t]));
   const nextDue = Object.fromEntries((data?.services || []).filter((s) => s.active).map((s) => [s.parentTicketId, s.nextDue]));
+  const recorded = new Set((data?.records || []).map((r) => r.ticketId));
   return (data?.records || [])
     .filter((r) => r.propertyId === property?.id)
     .map((r) => ({
       id: `ticket:${r.ticketId}`, propertyId: r.propertyId, date: r.date, system: r.system,
-      description: r.description, vendor: r.vendor, cost: money(r.cost), status: 'Completed',
-      nextDue: nextDue[r.ticketId] || '', notes: r.notes, docFile: r.docUrl, docFileName: r.docName
-        || (r.parentCodeLabel ? `${r.codeLabel} (service from ${r.parentCodeLabel})` : r.codeLabel),
-      unit: units.has(byId[r.ticketId]?.location) ? byId[r.ticketId].location : '', source: 'Ticket',
+      description: `${r.codeLabel} · ${r.description || r.subject}`, vendor: r.vendor,
+      cost: formatCost(r.cost, r.currency), currency: r.currency || 'USD', amount: r.cost, status: 'Completed',
+      nextDue: nextDue[r.ticketId] || '', notes: r.notes, docFileName: r.docName || '',
+      unit: units.has(byId[r.ticketId]?.location) ? byId[r.ticketId].location : '', source: 'Ticket', _readOnly: true,
+      _parentRowId: r.parentTicketId && r.parentTicketId !== r.ticketId && recorded.has(r.parentTicketId)
+        ? `ticket:${r.parentTicketId}` : undefined,
     }));
 }
 

@@ -16,8 +16,10 @@ READ-ONLY against Asset Management: nothing here touches the workspace blob
 A lead property's roll-up includes only the parcels the caller could open
 themselves (property_links.group_ids).
 """
-from datetime import date
+import re
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -120,7 +122,7 @@ def _record_out(r, by_id: dict) -> dict:
     return {"id": r.id, "ticketId": r.ticket_id, "codeLabel": ticket_no(t.code) if t else "",
             "subject": t.subject if t else "", "propertyId": r.property_asset_id,
             "date": r.service_date, "system": r.system, "description": r.description, "vendor": r.vendor,
-            "cost": r.cost, "docUrl": r.doc_url, "docName": r.doc_name, "notes": r.notes,
+            "cost": r.cost, "currency": r.currency or "USD", "docUrl": r.doc_url, "docName": r.doc_name, "notes": r.notes,
             "parentTicketId": r.parent_ticket_id or "", "parentCodeLabel": ticket_no(parent.code) if parent else ""}
 
 
@@ -138,10 +140,13 @@ def _service_out(svc, by_id: dict, records: dict) -> dict:
         return {"id": t.id, "codeLabel": ticket_no(t.code), "subject": t.subject, "status": status,
                 "isParent": t.id == svc.parent_ticket_id,
                 "date": (rec.service_date if rec else "") or (t.resolved_at or t.created_at or "")[:10],
-                "cost": (rec.cost if rec else "") or (t.maintenance_cost or ""), "vendor": (rec.vendor if rec else "") or (t.maintenance_vendor or ""),
+                "cost": (rec.cost if rec else "") or (t.maintenance_cost or ""),
+                "currency": (rec.currency if rec else "") or "USD",
+                "vendor": (rec.vendor if rec else "") or (t.maintenance_vendor or ""),
                 "logged": rec is not None}
     rows = [row(t) for t in family]
-    total = sum((property_links.cost_value(r["cost"]) for r in rows), Decimal("0"))
+    totals = _totals((r["cost"], r["currency"]) for r in rows)
+    usd = next((x["amount"] for x in totals if x["currency"] == "USD"), "0.00")
     return {"id": svc.id, "parentTicketId": svc.parent_ticket_id,
             "parentCodeLabel": ticket_no(parent.code) if parent else "",
             "subject": (svc.template or {}).get("subject") or (parent.subject if parent else ""),
@@ -149,7 +154,7 @@ def _service_out(svc, by_id: dict, records: dict) -> dict:
             "nextDue": svc.next_due, "recurrenceUnit": svc.recurrence_unit or "",
             "recurrenceEvery": svc.recurrence_every or 1,
             "recurrenceLabel": maintenance_services.recurrence_label(svc.recurrence_unit or "", svc.recurrence_every or 1),
-            "active": bool(svc.active), "tickets": rows, "totalCost": str(total.quantize(Decimal("0.01")))}
+            "active": bool(svc.active), "tickets": rows, "totals": totals, "totalCost": usd}
 
 
 @router.get("/property-assets/{property_id}/tickets")
@@ -189,8 +194,9 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
                    key=lambda s: (_PRIORITY_RANK.get(s["priority"], 9), s["createdAt"]))
     history = sorted([s for s in summaries if s["status"] in property_links.CLOSED_STATES],
                      key=lambda s: s["resolvedAt"] or s["createdAt"], reverse=True)
-    # Spend = what the asset manager put in the maintenance record.
-    spend = sum((property_links.cost_value(r.cost) for r in recs), Decimal("0"))
+    # Spend = what the asset manager put in the maintenance record, per currency.
+    spend_totals = _totals((r.cost, r.currency) for r in recs)
+    spend = next((x["amount"] for x in spend_totals if x["currency"] == "USD"), "0.00")
     return {"property": {"id": prop.id, "name": property_links.display_name(prop),
                          "parcels": [{"id": p.id, "name": prop_names[p.id]} for p in props if p.id != prop.id]},
             "open": open_, "history": history,
@@ -198,7 +204,7 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
             "records": sorted([_record_out(r, by_id) for r in recs], key=lambda r: r["date"], reverse=True),
             "services": sorted([_service_out(s, by_id, records) for s in services],
                                key=lambda s: (not s["active"], s["nextDue"])),
-            "spend": str(spend.quantize(Decimal("0.01"))),
+            "spend": spend, "spendTotals": spend_totals,
             "canWalkthrough": property_links.may_walkthrough(db, user),
             "canFollow": can_manage, "canManage": can_manage}
 
@@ -243,17 +249,46 @@ def follow_property_ticket(property_id: str, ticket_id: str, user: dict = Depend
 # date if nobody did, every child shown under the parent.
 
 class MaintenanceRecordBody(BaseModel):
-    service_date: str
-    system: str
+    # Service Date and System / Area are NOT taken from the client - they come
+    # from the ticket itself (its resolve date, its category) (Pranshu, 10/06).
+    # Accepted for older clients and ignored.
+    service_date: Optional[str] = None
+    system: Optional[str] = None
     description: Optional[str] = ""
     vendor: Optional[str] = ""
     cost: Optional[str] = ""
+    currency: Optional[str] = "USD"
     notes: Optional[str] = ""
     doc_url: Optional[str] = ""
     doc_name: Optional[str] = ""
     next_service_due: Optional[str] = ""
     recurrence_unit: Optional[str] = ""      # "" one time | week | month | year
     recurrence_every: Optional[int] = 1
+
+
+_CURRENCY = re.compile(r"^[A-Z]{3}$")
+
+
+def _business_date(iso: str):
+    """The calendar day a UTC timestamp falls on for the business (Pacific),
+    so an evening resolve is not recorded as the next day."""
+    try:
+        dt = datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo("America/Los_Angeles")).date()
+
+
+def _totals(pairs) -> list:
+    """[(amount_str, currency)] -> [{currency, amount}] - one total per
+    currency, never dollars and euros added together."""
+    out: dict = {}
+    for amount, cur in pairs:
+        if amount:
+            out[cur or "USD"] = out.get(cur or "USD", Decimal("0")) + property_links.cost_value(amount)
+    return [{"currency": c, "amount": str(v.quantize(Decimal("0.01")))} for c, v in sorted(out.items())]
 
 
 class ServicePatch(BaseModel):
@@ -303,12 +338,11 @@ def add_maintenance_record(property_id: str, ticket_id: str, body: MaintenanceRe
         raise HTTPException(409, "This ticket was closed without work - there is nothing to record.")
     if db.query(models.TicketMaintenanceRecord).filter(models.TicketMaintenanceRecord.ticket_id == t.id).first():
         raise HTTPException(409, "This ticket is already in the maintenance record.")
-    sdate = maintenance_services.parse_ymd(body.service_date)
-    if sdate is None:
-        raise HTTPException(400, "Service Date is required.")
-    system = " ".join((body.system or "").split())[:60]
-    if not system:
-        raise HTTPException(400, "System / Area is required.")
+    sdate = _business_date(t.resolved_at) or date.today()
+    system = property_links.system_for(t.application)
+    currency = (body.currency or "USD").strip().upper()
+    if not _CURRENCY.match(currency):
+        raise HTTPException(400, "Pick the cost's currency.")
     doc_url = (body.doc_url or "").strip()
     if doc_url and not W._photo_ok(doc_url):
         raise HTTPException(400, "The invoice did not upload - attach it again.")
@@ -329,7 +363,7 @@ def add_maintenance_record(property_id: str, ticket_id: str, body: MaintenanceRe
         id=gen_id(), ticket_id=t.id, property_asset_id=t.property_asset_id,
         parent_ticket_id=t.parent_ticket_id or (t.id if schedule else ""),
         service_date=sdate.isoformat(), system=system, description=(body.description or "").strip()[:2000],
-        vendor=vendor, cost=cost, doc_url=doc_url, doc_name=(body.doc_name or "").strip()[:200],
+        vendor=vendor, cost=cost, currency=currency, doc_url=doc_url, doc_name=(body.doc_name or "").strip()[:200],
         notes=(body.notes or "").strip()[:2000], created_by_email=me, created_at=now, updated_at=now)
     db.add(rec)
     # The ticket carries what was paid, and logging it is the sign-off: closed.

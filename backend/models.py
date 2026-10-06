@@ -5219,6 +5219,7 @@ class TicketMaintenanceRecord(Base):
     description       = Column(String, default="")   # work performed
     vendor            = Column(String, default="")
     cost              = Column(String, default="")   # normalized decimal, "1250.00"
+    currency          = Column(String, default="USD")   # ISO 4217 code of `cost` (any world currency)
     doc_url           = Column(String, default="")   # invoice / report (private ticket-evidence bucket)
     doc_name          = Column(String, default="")
     notes             = Column(String, default="")

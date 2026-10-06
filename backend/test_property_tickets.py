@@ -436,11 +436,20 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual((row.status, row.maintenance_cost), ("closed", "300.00"))
         view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
         self.assertEqual(view["needsAction"], [])
-        self.assertEqual([(r["system"], r["cost"]) for r in view["records"]], [("HVAC", "300.00")])
+        # System and date come from the ticket (its category, its resolve day) - not the form.
+        self.assertEqual([(r["system"], r["cost"], r["currency"]) for r in view["records"]], [("Plumbing", "300.00", "USD")])
         self.assertEqual(view["spend"], "300.00")
         with self.assertRaises(HTTPException) as cm:            # once only
             self._record(tid)
         self.assertEqual(cm.exception.status_code, 409)
+
+    def test_costs_keep_their_currency_and_totals_never_mix(self):
+        self._record(self._resolved(), cost="300")
+        self._record(self._resolved(subject="Roof repair"), cost="200", currency="eur")
+        view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
+        self.assertEqual(view["spendTotals"], [{"currency": "EUR", "amount": "200.00"}, {"currency": "USD", "amount": "300.00"}])
+        with self.assertRaises(HTTPException):
+            self._record(self._resolved(subject="x"), currency="dollars")
 
     def test_only_the_manager_or_an_editor_keeps_the_record(self):
         tid = self._resolved()

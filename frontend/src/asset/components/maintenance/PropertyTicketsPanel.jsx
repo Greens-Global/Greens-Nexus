@@ -9,6 +9,7 @@ import { api } from '../../../api.js';
 import { formatDate } from '../../../lib/datetime.js';
 import AsyncSection, { SkeletonBlocks } from '../../../components/AsyncState.jsx';
 import { TICKET_STATUS, TICKET_PRIORITY, money, historyCsv, downloadCsv } from '../../lib/propertyTickets.js';
+import { formatTotals } from '../../lib/currency.js';
 import { StatusBadge } from '../shared/StatusBadge.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { Modal } from '../shared/Modal.jsx';
@@ -70,7 +71,7 @@ export function PropertyTicketsPanel({ mode, tickets, onOpen, onFollowAll, prope
           <span>Recorded <b style={{ color: 'var(--text-primary)' }}>{records.filter((t) => t.logged).length}</b></span>
           <span>Needs Action <b style={{ color: 'var(--text-primary)' }}>{records.filter((t) => t.needsAction).length}</b></span>
           <span>Last Closed <b style={{ color: 'var(--text-primary)' }}>{formatDate(records[0]?.resolvedAt) || '-'}</b></span>
-          <span>Recorded Spend <b style={{ color: 'var(--text-primary)' }}>{Number(data?.spend) > 0 ? money(data.spend) : '-'}</b></span>
+          <span>Recorded Spend <b style={{ color: 'var(--text-primary)' }}>{formatTotals(data?.spendTotals) || '-'}</b></span>
           <button className="secondary-btn" style={{ marginLeft: 'auto' }}
             onClick={() => downloadCsv(historyCsv(data, propertyName), `${propertyName || 'property'} - maintenance history.csv`)}>
             Export History CSV
