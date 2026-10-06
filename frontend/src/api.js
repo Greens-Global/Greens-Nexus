@@ -1928,6 +1928,30 @@ export const api = {
   getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
   setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
   syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
+  // Marketing > Google Business Profile (backend/routers/marketing_gbp.py).
+  // A location is addressed by its Google number (the 123 of locations/123).
+  getGbpStatus: () => req('/marketing/gbp/status'),
+  startGbpConnect: () => req('/marketing/gbp/oauth/start', { method: 'POST' }),
+  disconnectGbp: () => req('/marketing/gbp/connection', { method: 'DELETE' }),
+  syncGbp: () => req('/marketing/gbp/sync', { method: 'POST', timeoutMs: 180_000 }),   // may wait on a running sync, then pull performance
+  getGbpLocations: () => req('/marketing/gbp/locations'),
+  mapGbpLocation: (key, facility) => req(`/marketing/gbp/locations/${key}/facility`, { method: 'PATCH', body: JSON.stringify({ facility }) }),
+  updateGbpListing: (key, changes) => req(`/marketing/gbp/locations/${key}/listing`, { method: 'PATCH', body: JSON.stringify(changes) }),
+  getGbpReviews: ({ replied = '', location = '', limit = 200, offset = 0 } = {}) =>
+    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, limit: String(limit), offset: String(offset) })}`),
+  replyGbpReview: (id, text) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'PUT', body: JSON.stringify({ text }) }),
+  deleteGbpReply: (id) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'DELETE' }),
+  getGbpListingHistory: (key) => req(`/marketing/gbp/locations/${key}/history`),
+  getGbpReviewHistory: (id) => req(`/marketing/gbp/reviews/${id}/history`),
+  getGbpSummary: () => req('/marketing/gbp/summary'),
+  getGbpPerformance: ({ start, end, location = '' }) => req(`/marketing/gbp/performance?${new URLSearchParams({ start, end, location })}`),
+  getGbpPosts: (key) => req(`/marketing/gbp/locations/${key}/posts`),
+  createGbpPost: (key, d) => req(`/marketing/gbp/locations/${key}/posts`, { method: 'POST', body: JSON.stringify(d) }),
+  updateGbpPost: (key, id, d) => req(`/marketing/gbp/locations/${key}/posts/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  deleteGbpPost: (key, id) => req(`/marketing/gbp/locations/${key}/posts/${id}`, { method: 'DELETE' }),
+  getGbpPhotos: (key) => req(`/marketing/gbp/locations/${key}/photos`),
+  addGbpPhoto: (key, file, category) => { const fd = new FormData(); fd.append('file', file); fd.append('category', category); return req(`/marketing/gbp/locations/${key}/photos`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  deleteGbpPhoto: (key, id) => req(`/marketing/gbp/locations/${key}/photos/${id}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
