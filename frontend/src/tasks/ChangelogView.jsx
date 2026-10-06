@@ -145,12 +145,17 @@ export default function Changelog({ onClose }) {
   const [tab, setTab] = useState('whats-new');
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null); // entry being edited
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState(null);   // { text, error }
 
   const reload = () => api.getTaskChangelog().then((r) => setEntries(r || [])).catch(() => {});
   useEffect(() => { reload(); }, []);
 
-  const flash = (msg) => { setToast(msg); window.setTimeout(() => setToast(''), 3200); };
+  // An error stays red and up longer: it usually needs reading (a server
+  // reason such as an Anthropic billing refusal), unlike "Update published."
+  const flash = (msg, error = false) => {
+    setToast({ text: msg, error });
+    window.setTimeout(() => setToast(null), error ? 8000 : 3200);
+  };
 
   // Self-contained data layer (the free-form payload has no camel keys the Tasks
   // context would remap, so we call api.js directly and reconcile locally).
@@ -182,7 +187,7 @@ export default function Changelog({ onClose }) {
     } catch (e) {
       // The server says why (a missing key, Claude refusing the model, ...) -
       // pass it on rather than a generic line nobody can act on.
-      flash(e?.message || 'Could not generate from git.');
+      flash(e?.message || 'Could not generate from git.', true);
     }
   };
 
@@ -262,9 +267,9 @@ export default function Changelog({ onClose }) {
       )}
 
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 4100,
-          background: NX.primary, color: '#fff', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 500,
-          boxShadow: '0 12px 32px rgba(0,0,0,0.28)', maxWidth: '90vw' }}>{toast}</div>
+        <div role={toast.error ? 'alert' : 'status'} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 4100,
+          background: toast.error ? NX.red : NX.primary, color: '#fff', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+          boxShadow: '0 12px 32px rgba(0,0,0,0.28)', maxWidth: '90vw' }}>{toast.text}</div>
       )}
     </div>,
     document.body,

@@ -180,8 +180,8 @@ def _claude(text="", status=200, stop="end_turn", body=None):
 
 class DraftingFailureTests(unittest.TestCase):
     """A failed Claude call must be an ERROR the sweep records and retries - it
-    used to come back as an empty list, so a model Anthropic stopped serving
-    (claude-opus-4-8, Oct 2026) looked like weeks of "nothing to draft"."""
+    used to come back as an empty list, so an Anthropic account out of credit
+    (Jul-Oct 2026) looked like months of "nothing to draft"."""
 
     @classmethod
     def setUpClass(cls):
@@ -255,6 +255,46 @@ class DraftingFailureTests(unittest.TestCase):
         out = self._generate()
         self.assertNotIn("error", out)
         self.assertEqual(out["created"], 0)
+        # Said plainly - the screen used to fall back to "No new commits".
+        self.assertEqual(out["message"], "Nothing user-facing in the 1 new commit.")
+
+    def _click(self):
+        """Generate from git, as the Manage button calls it."""
+        db = database.SessionLocal()
+        try:
+            return task_config.generate_changelog(user={"email": "admin@greensglobal.com"}, db=db)
+        finally:
+            db.close()
+
+    def _status(self):
+        db = database.SessionLocal()
+        try:
+            return changelog_auto.status(db)
+        finally:
+            db.close()
+
+    def test_a_failed_click_shows_on_the_status_line_and_leaves_the_schedule(self):
+        db = database.SessionLocal()
+        changelog_auto._write_state(db, {"next_run_at": "2026-10-08T02:05:00+00:00"})
+        db.close()
+        _FakeClient.answer = _claude(status=400, body={"error": {"message": "Your credit balance is too low"}})
+        with self.assertRaises(task_config.HTTPException) as cm:
+            self._click()
+        self.assertEqual(cm.exception.status_code, 503)
+        self.assertIn("credit balance", cm.exception.detail)
+        st = self._status()
+        self.assertIn("credit balance", st["lastError"])
+        self.assertEqual(st["nextRunAt"], "2026-10-08T02:05:00+00:00")
+
+    def test_a_good_click_clears_the_error(self):
+        db = database.SessionLocal()
+        changelog_auto._write_state(db, {"last_error": "old trouble"})
+        db.close()
+        _FakeClient.answer = _claude("[]")
+        self._click()
+        st = self._status()
+        self.assertEqual((st["lastError"], st["lastReason"], st["lastCreated"]), ("", "manual", 0))
+        self.assertTrue(st["lastRunAt"])
 
     def test_a_good_answer_files_pending_review_drafts(self):
         _FakeClient.answer = _claude('```json\n[{"title": "Google reviews in Nexus", "description": "Reply to '

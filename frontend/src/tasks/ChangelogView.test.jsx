@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // What's New > Manage shows whether automatic drafting is healthy. It used to
-// fail silently (a model Anthropic stopped serving, Oct 2026), so the review
-// queue just stopped filling and looked like a few quiet weeks.
+// fail silently (the Anthropic account ran out of credit, Jul-Oct 2026), so
+// the review queue just stopped filling and looked like a few quiet months.
 
 vi.mock('../api', () => ({
   api: {
     getTaskChangelog: vi.fn(),
     getTaskChangelogAutoStatus: vi.fn(),
+    generateTaskChangelog: vi.fn(),
     getRolesDirectory: vi.fn(),
     getPeopleDirectory: vi.fn(),
     markTaskChangelogSeen: vi.fn(),
@@ -55,5 +56,17 @@ describe("What's New automatic drafting status", () => {
     expect(alert.textContent).toContain('Automatic drafting failed');
     expect(alert.textContent).toContain('claude-opus-4-8');
     expect(alert.textContent).toContain('Next try');
+  });
+
+  it('a failed Generate from git shows the reason in red and refreshes the status line', async () => {
+    api.getTaskChangelogAutoStatus.mockResolvedValue(healthy);
+    api.generateTaskChangelog.mockRejectedValue(new Error('Claude could not draft the update: HTTP 400: Your credit balance is too low'));
+    await openManage();
+    await screen.findByText(/Automatic drafting last ran/);
+    fireEvent.click(screen.getByRole('button', { name: /Generate from git/ }));
+    const toast = await screen.findByRole('alert');
+    expect(toast.textContent).toContain('credit balance is too low');
+    expect(toast.style.background).not.toBe('');
+    await waitFor(() => expect(api.getTaskChangelogAutoStatus).toHaveBeenCalledTimes(2));
   });
 });

@@ -698,8 +698,10 @@ def add_changelog_comment(entry_id: str, body: ChangelogCommentBody,
 # in prod, local `git log` in dev), ask Claude to cluster them into a few
 # user-facing, plain-English "What's New" entries, and file them as origin='pr'
 # / status='Pending Review'. They then flow through the normal review → publish.
-# claude-opus-4-8 (July) stopped answering and every draft failed silently
-# (Oct 2026) - NEXUS_CHANGELOG_MODEL moves it without a code change next time.
+# Drafting stopped for months (Jul-Oct 2026) because the Anthropic account ran
+# out of credit and every refusal was swallowed - see _cluster_commits. The
+# model moved from claude-opus-4-8 to Opus 5 at the same time; set
+# NEXUS_CHANGELOG_MODEL to change it without a code change.
 # Opus 5 thinks by default and max_tokens covers thinking + the answer, so the
 # budget below is sized for both.
 _AI_MODEL = os.getenv("NEXUS_CHANGELOG_MODEL", "").strip() or "claude-opus-5"
@@ -823,8 +825,8 @@ def _api_error_text(r: httpx.Response) -> str:
 def _cluster_commits(commits: list[dict]) -> list[dict]:
     """Ask Claude to fold the commits into a few plain-English feature entries.
     [] means Claude found nothing user-facing; any failure RAISES
-    ChangelogAIError - it used to return [] too, which made a dead model look
-    like a quiet week (the auto-sweep logged "found nothing to draft" and
+    ChangelogAIError - it used to return [] too, which made an Anthropic
+    billing refusal look like a quiet week (the auto-sweep logged "found nothing to draft" and
     counted it a success, every day, for weeks)."""
     if not commits:
         return []
@@ -944,13 +946,24 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     db.commit()
     for e in created:
         db.refresh(e)
-    return {"created": len(created), "scanned": len(fresh), "source": source,
-            "entries": [changelog_entry_to_dict(e) for e in created]}
+    out = {"created": len(created), "scanned": len(fresh), "source": source,
+           "entries": [changelog_entry_to_dict(e) for e in created]}
+    if not created:
+        # Claude read them and found nothing a user would notice - say so,
+        # rather than letting the screen fall back to "no new commits".
+        out["message"] = f"Nothing user-facing in the {len(fresh)} new commit{'' if len(fresh) == 1 else 's'}."
+    return out
 
 
 @router.post("/task-changelog/generate")
 def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
     result = generate_changelog_from_commits(db, user["email"])
+    try:
+        import changelog_auto
+        changelog_auto.record_manual(db, result)
+    except Exception as e:  # noqa: BLE001 - the status line must never fail the click
+        db.rollback()
+        print(f"[changelog] could not record the manual run: {e}")
     if "error" in result:
         raise HTTPException(503, result["error"])
     return result
