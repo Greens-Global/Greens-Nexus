@@ -59,7 +59,7 @@ class PropertyTicketTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskTicket, models.TicketBatch, models.NexusGroup, models.NexusGroupMember, models.TaskActivity, models.TaskAttachment, models.TaskComment,
+        for m in (models.TaskTicket, models.TicketBatch, models.TicketMaintenanceRecord, models.PropertyMaintenanceService, models.NexusGroup, models.NexusGroupMember, models.TaskActivity, models.TaskAttachment, models.TaskComment,
                   models.TaskNotification, models.NexusNotification, models.NexusEmployee, models.NexusRole,
                   models.PropertyAsset, models.HrDepartment, models.PropertyRecord,
                   models.PropertyActivityLog, models.PropertyWorkspaceMeta):
@@ -347,7 +347,9 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertTrue(recs[leak]["maintenanceRecord"])
         self.assertEqual(recs[leak]["system"], "Plumbing")
         self.assertFalse(recs[dup]["maintenanceRecord"])
-        self.assertEqual(view["spend"], "180.00")
+        self.assertTrue(recs[leak]["needsAction"])                 # resolved: the asset manager reviews it
+        self.assertFalse(recs[dup]["needsAction"])                 # closed without work: nothing to record
+        self.assertEqual(view["spend"], "0.00")                    # nothing logged yet
         # Reopened: back in Open, out of history; vendor/cost kept for the next resolve.
         T.update_ticket(leak, T.TicketUpdate(status="reopened", reopen_reason="Dripping again"),
                         BackgroundTasks(), user=ADMIN, db=self.db)
@@ -397,6 +399,112 @@ class PropertyTicketTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as cm:
             P.follow_property_ticket("gst", t["id"], user=EDITOR, db=self.db)
         self.assertEqual(cm.exception.status_code, 404)
+
+    # ── Maintenance record + recurring services (Pranshu, 10/06) ──
+    def _resolved(self, user=ADMIN, prop="gst", subject="HVAC quarterly service", **kw):
+        t = self._one(user=user, property_asset_id=prop, subject=subject, **kw)
+        T.update_ticket(t["id"], T.TicketUpdate(status="resolved", resolution_note="Serviced the unit",
+                                                maintenance_vendor="CoolAir", maintenance_cost="300"),
+                        BackgroundTasks(), user=ADMIN, db=self.db)
+        return t["id"]
+
+    def _record(self, tid, user=MANAGER_USER, **kw):
+        body = P.MaintenanceRecordBody(**{"service_date": "2026-10-01", "system": "HVAC",
+                                          "description": "Serviced the unit", "vendor": "CoolAir", "cost": "$300", **kw})
+        return P.add_maintenance_record("gst", tid, body, user=user, db=self.db)
+
+    def test_a_ticket_raised_from_the_property_keeps_it(self):
+        t = self._one(property_asset_id="gst", property_locked=True)
+        self.assertTrue(t["propertyLocked"])
+        with self.assertRaises(HTTPException) as cm:
+            T.update_ticket(t["id"], T.TicketUpdate(property_asset_id="gst-p2"), BackgroundTasks(), user=ADMIN, db=self.db)
+        self.assertEqual(cm.exception.status_code, 409)
+        out, _ = self._walk([self._line("Paint")], user=ADMIN)        # a walkthrough from Support: not locked
+        self.assertFalse(out["tickets"][0]["propertyLocked"])
+
+    def test_resolving_tells_the_asset_manager_to_review_it(self):
+        tid = self._resolved()
+        bells = [b for b in self._bells(MANAGER) if "is resolved" in b.title]
+        self.assertEqual(len(bells), 1)
+        view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
+        self.assertEqual([t["id"] for t in view["needsAction"]], [tid])
+
+    def test_adding_to_the_record_closes_the_ticket_and_counts_the_spend(self):
+        tid = self._resolved()
+        self._record(tid)
+        row = self.db.get(models.TaskTicket, tid)
+        self.assertEqual((row.status, row.maintenance_cost), ("closed", "300.00"))
+        view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
+        self.assertEqual(view["needsAction"], [])
+        self.assertEqual([(r["system"], r["cost"]) for r in view["records"]], [("HVAC", "300.00")])
+        self.assertEqual(view["spend"], "300.00")
+        with self.assertRaises(HTTPException) as cm:            # once only
+            self._record(tid)
+        self.assertEqual(cm.exception.status_code, 409)
+
+    def test_only_the_manager_or_an_editor_keeps_the_record(self):
+        tid = self._resolved()
+        with self.assertRaises(HTTPException) as cm:
+            self._record(tid, user=WALKER)                       # a plain asset viewer
+        self.assertEqual(cm.exception.status_code, 403)
+        self._record(tid, user=EDITOR)
+
+    def test_a_recurring_service_reminds_opens_and_rolls_forward(self):
+        import maintenance_services as MS
+        from datetime import date, timedelta
+        tid = self._resolved(type_fields={"svc_unit": "Office"})
+        due = (date.today() + timedelta(days=30)).isoformat()
+        out = self._record(tid, next_service_due=due, recurrence_unit="year", recurrence_every=1)
+        svc = self.db.get(models.PropertyMaintenanceService, out["serviceId"])
+        # 20 days out: nothing. 15 days out: one reminder, never twice.
+        self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=10)), {"reminded": 0, "opened": 0})
+        self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=16))["reminded"], 1)
+        self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=17))["reminded"], 0)
+        self.assertEqual(len([b for b in self._bells(MANAGER) if b.title.startswith("Service due")]), 1)
+        # Due and nobody opened it: a child ticket opens with the parent's details.
+        self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=30))["opened"], 1)
+        self.db.commit()
+        child = self.db.query(models.TaskTicket).filter(models.TaskTicket.parent_ticket_id == tid).one()
+        self.assertEqual((child.subject, child.property_asset_id, child.property_locked, child.status),
+                         ("HVAC quarterly service", "gst", 1, "open"))
+        self.assertEqual(child.type_fields, {"svc_unit": "Office"})
+        self.assertEqual(svc.next_due, MS.advance(date.fromisoformat(due), "year", 1).isoformat())
+        self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=31))["opened"], 0)   # never twice
+
+    def test_open_now_moves_the_schedule_on_and_a_child_sets_no_schedule(self):
+        from datetime import date, timedelta
+        tid = self._resolved()
+        due = (date.today() + timedelta(days=60)).isoformat()
+        sid = self._record(tid, next_service_due=due, recurrence_unit="month", recurrence_every=3)["serviceId"]
+        out = P.open_service_now("gst", sid, user=MANAGER_USER, db=self.db)
+        with self.assertRaises(HTTPException):
+            P.open_service_now("gst", sid, user=MANAGER_USER, db=self.db)                 # same due date: once
+        child = out["ticketId"]
+        T.update_ticket(child, T.TicketUpdate(status="resolved", resolution_note="Done again", maintenance_cost="320"),
+                        BackgroundTasks(), user=ADMIN, db=self.db)
+        with self.assertRaises(HTTPException) as cm:            # children never set a schedule
+            self._record(child, next_service_due=(date.today() + timedelta(days=90)).isoformat(), recurrence_unit="year")
+        self.assertEqual(cm.exception.status_code, 400)
+        self._record(child, cost="320")
+        view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
+        svc = view["services"][0]
+        self.assertEqual(svc["recurrenceLabel"], "Every 3 Months")
+        self.assertEqual([(r["isParent"], r["cost"]) for r in svc["tickets"]], [(True, "300.00"), (False, "320.00")])
+        self.assertEqual(svc["totalCost"], "620.00")
+
+    def test_a_one_time_service_ends_once_its_ticket_opens_and_can_be_stopped(self):
+        from datetime import date, timedelta
+        tid = self._resolved()
+        sid = self._record(tid, next_service_due=(date.today() + timedelta(days=5)).isoformat())["serviceId"]
+        P.open_service_now("gst", sid, user=MANAGER_USER, db=self.db)
+        self.assertFalse(self.db.get(models.PropertyMaintenanceService, sid).active)
+        tid2 = self._resolved(subject="Roof inspection")
+        sid2 = self._record(tid2, next_service_due=(date.today() + timedelta(days=5)).isoformat(),
+                            recurrence_unit="week", recurrence_every=2)["serviceId"]
+        P.update_service("gst", sid2, P.ServicePatch(active=False), user=MANAGER_USER, db=self.db)
+        self.assertFalse(self.db.get(models.PropertyMaintenanceService, sid2).active)
+        with self.assertRaises(HTTPException):                  # dates in the past are refused
+            self._record(self._resolved(subject="x"), next_service_due="2020-01-01")
 
 
 if __name__ == "__main__":

@@ -857,6 +857,11 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN maintenance_cost VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+            # Property maintenance records + recurring services (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_locked INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN parent_ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN service_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1893,6 +1898,15 @@ def _run_migrations():
         # Property Walkthrough (Neil, 10/05): one row per batch submit. New
         # table - RLS per CLAUDE.md (dev AND prod).
         "ALTER TABLE ticket_batches ENABLE ROW LEVEL SECURITY",
+        # Property maintenance records + recurring services (Pranshu, 10/06):
+        # a ticket raised from the property keeps it; a child ticket opened by
+        # a recurring service points at its parent. Two new tables - RLS.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_locked INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS parent_ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+        "ALTER TABLE ticket_maintenance_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE property_maintenance_services ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

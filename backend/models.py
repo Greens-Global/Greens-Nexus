@@ -3253,6 +3253,14 @@ class TaskTicket(Base):
     # log's own cost field, so Total Spend adds both the same way.
     maintenance_vendor  = Column(String, default="")
     maintenance_cost    = Column(String, default="")
+    # Raised from the property itself in Asset Management (its Create New
+    # Ticket / Start Walkthrough, or opened by a recurring service): the
+    # property is fixed for the ticket's life (Pranshu, 10/06).
+    property_locked     = Column(Integer, default=0)
+    # A ticket opened by a recurring service: the original ("parent") ticket
+    # whose maintenance record set the schedule, and the schedule itself.
+    parent_ticket_id    = Column(String, default="", index=True)
+    service_id          = Column(String, default="", index=True)
 
 
 class TicketEmailLog(Base):
@@ -5190,3 +5198,55 @@ class TicketBatch(Base):
     ticket_count        = Column(Integer, default=0)
     note                = Column(String, default="")
     created_at          = Column(String, default="")
+
+
+class TicketMaintenanceRecord(Base):
+    """A resolved property ticket, added to the property's maintenance record by
+    its asset manager (Pranshu, 10/06: resolved -> "Needs Action" -> "Add to
+    Maintenance Record"). One per ticket. Kept here, not in the Asset
+    Management workspace blob: the workspace PUT deletes and re-inserts every
+    row, so a server-written row there would be erased by the next stale save.
+    The Maintenance Log merges these rows in. New table - RLS (main.py list)."""
+    __tablename__ = "ticket_maintenance_records"
+    id                = Column(String, primary_key=True)
+    ticket_id         = Column(String, default="", index=True, unique=True)
+    property_asset_id = Column(String, default="", index=True)
+    # The recurring-service family this belongs to: the parent ticket's id
+    # (the parent itself, or a child the service opened). Blank otherwise.
+    parent_ticket_id  = Column(String, default="", index=True)
+    service_date      = Column(String, default="")   # YYYY-MM-DD
+    system            = Column(String, default="")   # the Maintenance Log's System / Area
+    description       = Column(String, default="")   # work performed
+    vendor            = Column(String, default="")
+    cost              = Column(String, default="")   # normalized decimal, "1250.00"
+    doc_url           = Column(String, default="")   # invoice / report (private ticket-evidence bucket)
+    doc_name          = Column(String, default="")
+    notes             = Column(String, default="")
+    created_by_email  = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class PropertyMaintenanceService(Base):
+    """A recurring (or one-time) service set from a parent ticket's maintenance
+    record - "Next Service Due" + how often (Pranshu, 10/06). 15 days before
+    next_due the asset manager is reminded; on next_due, if nobody opened the
+    service ticket, one opens automatically with the parent's details, and
+    next_due moves on by the recurrence (a one-time service then ends). See
+    maintenance_services.py. New table - RLS (main.py list)."""
+    __tablename__ = "property_maintenance_services"
+    id                 = Column(String, primary_key=True)
+    property_asset_id  = Column(String, default="", index=True)
+    parent_ticket_id   = Column(String, default="", index=True, unique=True)
+    template           = Column(JSON, default=dict)   # what each opened ticket copies from the parent
+    next_due           = Column(String, default="")   # YYYY-MM-DD
+    recurrence_unit    = Column(String, default="")   # "" one time | week | month | year
+    recurrence_every   = Column(Integer, default=1)
+    reminder_sent_for  = Column(String, default="")   # the next_due the 15-day reminder went out for
+    last_opened_for    = Column(String, default="")   # the next_due a ticket was last opened for
+    last_ticket_id     = Column(String, default="")
+    active             = Column(Integer, default=1)
+    created_by_email   = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_by_email   = Column(String, default="")
+    updated_at         = Column(String, default="")

@@ -185,6 +185,8 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "propertyAssetId": _nz(t.property_asset_id), "propertyName": _nz(t.property_name),
             "batchId": _nz(t.batch_id),
             "maintenanceVendor": _nz(t.maintenance_vendor), "maintenanceCost": _nz(t.maintenance_cost),
+            "propertyLocked": bool(t.property_locked), "parentTicketId": _nz(t.parent_ticket_id),
+            "serviceId": _nz(t.service_id),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -467,6 +469,9 @@ class TicketBody(BaseModel):
     # about. Validated by property_links.require_linkable; the name is
     # snapshotted server-side, never taken from the client.
     property_asset_id: Optional[str] = ""
+    # Raised from the property itself in Asset Management: the property is
+    # then fixed for the ticket's life (Pranshu, 10/06). Only ever restricts.
+    property_locked: Optional[bool] = False
 
 
 class TicketUpdate(BaseModel):
@@ -859,6 +864,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # later status move / comment bells every watcher (property_links rule 6).
     if prop is not None:
         t.property_asset_id, t.property_name = prop.id, property_links.display_name(prop)
+        t.property_locked = 1 if body.property_locked else 0
     # Approval gate, decided by the TYPE's admin switch (requiresApproval in the
     # ticket taxonomy, read at this moment) and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -1193,6 +1199,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         pid = (data["property_asset_id"] or "").strip()
         if pid == (t.property_asset_id or ""):
             data.pop("property_asset_id")      # unchanged - nothing to check or log
+        elif t.property_locked:
+            # Raised from the property in Asset Management (or opened by its
+            # recurring service): the property is part of what the ticket is.
+            raise HTTPException(409, f"This ticket was raised from {t.property_name or 'its property'} in "
+                                     "Asset Management - its property can't be changed.")
         else:
             # A closed property ticket is that property's maintenance record:
             # it moves only after a (logged) reopen. Also refused in the same
@@ -1370,6 +1381,21 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
              else "removed the property link")
         if new_prop is not None:
             _tell_asset_manager(db, t, property_links.manager_email(db, new_prop), user["email"])
+    # Resolved (or closed) after real work at a property: its asset manager
+    # reviews it and adds it to the maintenance record (Pranshu, 10/06) - one
+    # bell, straight to the property's Maintenance > Needs Action.
+    if (t.property_asset_id and prev_status not in property_links.CLOSED_STATES
+            and t.status in property_links.CLOSED_STATES and property_links.is_maintenance_record(t)
+            and not db.query(models.TicketMaintenanceRecord)
+                     .filter(models.TicketMaintenanceRecord.ticket_id == t.id).first()):
+        prop_row = db.get(models.PropertyAsset, t.property_asset_id)
+        mgr = property_links.manager_email(db, prop_row) if prop_row is not None else ""
+        if mgr and mgr != user["email"].lower():
+            task_notify(db, kind="ticket_property", for_email=mgr,
+                        title=f"{ticket_no(t.code)} at {t.property_name} is resolved",
+                        body=f"{t.subject} - add it to the maintenance record (Maintenance > Needs Action)."[:500],
+                        nexus_action={"view": "property-asset", "sub": f"needs-action:{t.property_asset_id}:{t.id}",
+                                      "label": "Review"})
     if (t.maintenance_vendor or "") != prev_vendor or (t.maintenance_cost or "") != prev_cost:
         _log("maintenance_changed", "set the maintenance vendor / cost to "
              f"{t.maintenance_vendor or '-'} / {('$' + t.maintenance_cost) if t.maintenance_cost else '-'}")

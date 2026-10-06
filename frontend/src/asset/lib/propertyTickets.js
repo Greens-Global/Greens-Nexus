@@ -15,15 +15,6 @@ export const TICKET_STATUS = {
 };
 export const TICKET_PRIORITY = { urgent: ['Urgent', 'red'], high: ['High', 'orange'], medium: ['Medium', 'blue'], low: ['Low', 'mut'] };
 export const money = (v) => (v ? `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '');
-// The resolve date in the VIEWER's day - slicing the UTC ISO string would put
-// an evening resolve on the next day.
-const localYmd = (iso) => {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
-
 export function usePropertyTickets(propertyId) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const load = useCallback(() => {
@@ -45,16 +36,20 @@ export function usePropertyTickets(propertyId) {
   return { ...state, reload: load };
 }
 
-/** Closed tickets of THIS property as maintenance-log rows (read-only; id "ticket:<id>"). */
+/** Tickets the asset manager added to THIS property's maintenance record, as
+ * read-only Maintenance Log rows (id "ticket:<ticketId>"). */
 export function ticketMaintenanceRows(data, property) {
   const units = new Set((property?.tenantUnits || []).map((u) => u.label));
-  return (data?.history || [])
-    .filter((t) => t.maintenanceRecord && t.propertyId === property?.id)
-    .map((t) => ({
-      id: `ticket:${t.id}`, propertyId: t.propertyId, date: localYmd(t.resolvedAt), system: t.system,
-      description: t.resolutionNote ? `${t.subject} - ${t.resolutionNote}` : t.subject,
-      vendor: t.vendor, cost: money(t.cost), status: 'Completed',
-      unit: units.has(t.location) ? t.location : '', docFileName: t.codeLabel, source: 'Ticket',
+  const byId = Object.fromEntries([...(data?.open || []), ...(data?.history || [])].map((t) => [t.id, t]));
+  const nextDue = Object.fromEntries((data?.services || []).filter((s) => s.active).map((s) => [s.parentTicketId, s.nextDue]));
+  return (data?.records || [])
+    .filter((r) => r.propertyId === property?.id)
+    .map((r) => ({
+      id: `ticket:${r.ticketId}`, propertyId: r.propertyId, date: r.date, system: r.system,
+      description: r.description, vendor: r.vendor, cost: money(r.cost), status: 'Completed',
+      nextDue: nextDue[r.ticketId] || '', notes: r.notes, docFile: r.docUrl, docFileName: r.docName
+        || (r.parentCodeLabel ? `${r.codeLabel} (service from ${r.parentCodeLabel})` : r.codeLabel),
+      unit: units.has(byId[r.ticketId]?.location) ? byId[r.ticketId].location : '', source: 'Ticket',
     }));
 }
 

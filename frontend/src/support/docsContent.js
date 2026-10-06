@@ -930,6 +930,17 @@ export const DOCS = [
           'Open the property and go to Maintenance.',
           'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
           'Open Tickets lists everything still being worked at the property, including tickets raised from Support or Tickets for it. Closed Tickets is its maintenance history.',
+          'The property stays fixed on those tickets - in Support and Tickets too.',
+        ],
+      },
+      {
+        title: 'Add a Resolved Ticket to the Maintenance Record',
+        steps: [
+          'When a ticket at your property is resolved you get a bell. Open the property > Maintenance > Needs Action.',
+          'Click Add to Maintenance Record. The form is filled in from the ticket: service date, system, work performed, vendor and cost. Attach the invoice (or press Ctrl+V to paste it) and add notes.',
+          'There is no status - adding it closes the ticket and it joins the Maintenance Log and Total Spend.',
+          'On the original ticket you can set Next Service Due and how often it repeats (one time, or every so many weeks, months or years). You are reminded 15 days before; if nobody opens the ticket by the due date, one opens automatically with the same details, and the next date is scheduled.',
+          'Recurring Services shows each service: the original ticket and every ticket it opened underneath, with date and cost and a total. Edit the schedule, Stop it, or Open Ticket Now to start early.',
         ],
       },
     ],
@@ -942,7 +953,7 @@ export const DOCS = [
       { name: 'Documents', desc: 'As-built plans and other documents, linked to their Egnyte location.' },
       { name: 'Flag for Review', desc: 'Mark a record for a colleague to check.' },
       { name: 'Export & Trash', desc: 'Export data, and restore anything deleted from Trash.' },
-      { name: 'Maintenance Tickets', desc: 'Maintenance has Open Tickets and Closed Tickets tabs for every ticket raised for the property (and its parcels). A closed ticket that was worked becomes a maintenance record in the Maintenance Log, with its vendor and cost counted in Total Spend; one closed as Duplicate or Won\'t Fix is listed under Closed Without Work. Export History CSV and the asset\'s Export CSV include them.' },
+      { name: 'Maintenance Tickets', desc: 'Maintenance has Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Recurring Services for every ticket raised for the property and its parcels. A ticket the asset manager adds to the maintenance record joins the Maintenance Log with its vendor and cost counted in Total Spend; one closed as Duplicate or Won\'t Fix is listed under Closed Without Work. Export History CSV and the asset\'s Export CSV include them.' },
       { name: 'Follow a Ticket', desc: 'Asset Management editors and the property\'s asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
     ],
     manager: {

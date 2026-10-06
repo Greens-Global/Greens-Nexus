@@ -26,6 +26,9 @@ function Row({ t, closed, onOpen }) {
         {t.approvalStatus === 'pending' && <StatusBadge tone="blue">Awaiting Approval</StatusBadge>}
         <StatusBadge tone={sTone}>{sLabel}</StatusBadge>
         {!closed && <StatusBadge tone={pTone}>{pLabel}</StatusBadge>}
+        {closed && t.logged && <StatusBadge tone="green">Recorded</StatusBadge>}
+        {closed && t.needsAction && <StatusBadge tone="red">Needs Action</StatusBadge>}
+        {t.parentTicketId && <StatusBadge tone="blue">Service From {t.parentCodeLabel}</StatusBadge>}
       </div>
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
         {meta && <span>{meta} · </span>}
@@ -64,9 +67,10 @@ export function PropertyTicketsPanel({ mode, tickets, onOpen, onFollowAll, prope
         {rows.map((t) => <Row key={t.id} t={t} onOpen={onOpen} />)}
       </>) : (<>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 18, marginBottom: 12, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          <span>Maintenance Records <b style={{ color: 'var(--text-primary)' }}>{records.length}</b></span>
+          <span>Recorded <b style={{ color: 'var(--text-primary)' }}>{records.filter((t) => t.logged).length}</b></span>
+          <span>Needs Action <b style={{ color: 'var(--text-primary)' }}>{records.filter((t) => t.needsAction).length}</b></span>
           <span>Last Closed <b style={{ color: 'var(--text-primary)' }}>{formatDate(records[0]?.resolvedAt) || '-'}</b></span>
-          <span>Ticket Spend <b style={{ color: 'var(--text-primary)' }}>{Number(data?.spend) > 0 ? money(data.spend) : '-'}</b></span>
+          <span>Recorded Spend <b style={{ color: 'var(--text-primary)' }}>{Number(data?.spend) > 0 ? money(data.spend) : '-'}</b></span>
           <button className="secondary-btn" style={{ marginLeft: 'auto' }}
             onClick={() => downloadCsv(historyCsv(data, propertyName), `${propertyName || 'property'} - maintenance history.csv`)}>
             Export History CSV

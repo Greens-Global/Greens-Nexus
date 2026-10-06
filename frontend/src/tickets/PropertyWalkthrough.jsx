@@ -210,6 +210,8 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     try {
       const r = await api.createTicketWalkthrough({
         batch_id: batchId, property_asset_id: propertyId, hr_department_id: deptId,
+        // Started from the property in Asset Management: every ticket keeps it.
+        ...(property && property.id === propertyId ? { property_locked: true } : {}),
         lines: filled.map((l) => ({
           subject: l.subject.trim(), application: topicOf(l), priority: l.priority, type: l.type,
           location: l.location.trim(), description: l.description.trim(),

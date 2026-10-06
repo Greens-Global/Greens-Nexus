@@ -66,19 +66,19 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const [lastManageVisit, setLastManageVisit] = useState(() => { try { return localStorage.getItem('nexus_manage_seen') || ''; } catch { return ''; } });
   const [highlight, setHighlight] = useState(null);
   // Ticket bells and emails deep-link here (Property Tickets, Oct 2026): sub
-  // "tickets:<propertyId>[:<ticketId>]" opens that property's Maintenance >
-  // Open Tickets, and the ticket. Consumed once (onSubChange(null)), so the
+  // "tickets|needs-action|services:<propertyId>[:<ticketId>]" opens that
+  // property's Maintenance on that tab (and the ticket). Consumed once (onSubChange(null)), so the
   // next visit to Asset Management starts at the portfolio as usual.
   const [ticketFocus, setTicketFocus] = useState(null);
   const [subSeen, setSubSeen] = useState(null);
   const [subMissing, setSubMissing] = useState(false);
-  const ticketSub = /^tickets:([^:]+)(?::(.+))?$/.exec(activeSub || '');
+  const ticketSub = /^(tickets|needs-action|services):([^:]+)(?::(.+))?$/.exec(activeSub || '');
   if (ticketSub && !loading && activeSub !== subSeen) {
     setSubSeen(activeSub);
-    if (store.properties.some((p) => p.id === ticketSub[1] && !p.deleted)) {
-      setActiveId(ticketSub[1]);
+    if (store.properties.some((p) => p.id === ticketSub[2] && !p.deleted)) {
+      setActiveId(ticketSub[2]);
       setView('maintenance');
-      setTicketFocus((f) => ({ propertyId: ticketSub[1], ticketId: ticketSub[2] || null, at: (f?.at || 0) + 1 }));
+      setTicketFocus((f) => ({ propertyId: ticketSub[2], ticketId: ticketSub[3] || null, tab: ticketSub[1], at: (f?.at || 0) + 1 }));
     } else {
       setSubMissing(true);
     }

@@ -92,6 +92,8 @@ class WalkthroughBody(BaseModel):
     requester_email: Optional[str] = ""
     watcher_emails: Optional[List[str]] = None
     note: Optional[str] = ""
+    # Started from the property in Asset Management: every ticket keeps it.
+    property_locked: Optional[bool] = False
     lines: List[WalkLine] = []
 
 
@@ -332,7 +334,7 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
             component="", csat_rating=0, csat_comment="", application=c["application"],
             service_area=service_areas[c["application"]], sla_due_on=sla[c["priority"]], resolved_at="",
             created_at=now, modified_at=now, property_asset_id=prop.id, property_name=prop_name,
-            batch_id=batch_id, approver_email="",
+            batch_id=batch_id, approver_email="", property_locked=1 if body.property_locked else 0,
             approval_status="pending" if c["type"] in gated else "none")
         if t.assignee_email:
             t.status = "in_progress"   # born assigned = already being worked (create_ticket's rule)

@@ -1935,6 +1935,10 @@ export const api = {
   // A property's tickets for Asset Management > Maintenance, and Follow.
   getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
+  // Maintenance record + recurring services (Pranshu, 10/06).
+  addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
+  updateMaintenanceService: (id, serviceId, body) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  openMaintenanceServiceNow: (id, serviceId) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}/open-now`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

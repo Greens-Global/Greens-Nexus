@@ -1947,6 +1947,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
         ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
+        // Raised from the property itself: it stays that property's ticket.
+        ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
@@ -3053,16 +3055,19 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         {(v.propertyAssetId || (fullAccess && groupTakesProperty(helpGroupFor(allDepts.find((d) => d.id === v.hrDepartmentId)?.name || '')))) && (
           <div style={field}>
             <label style={label}>Property</label>
-            {fullAccess ? (<>
+            {fullAccess && !v.propertyLocked ? (<>
               <PropertySelect value={v.propertyAssetId || ''} fallbackName={v.propertyName || ''}
                 disabled={['resolved', 'closed'].includes(v.status)}
                 onChange={(id) => { if (id !== (v.propertyAssetId || '')) stage({ propertyAssetId: id }); }} />
               {['resolved', 'closed'].includes(v.status) && v.propertyAssetId && (
                 <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Part of this property's maintenance history - reopen the ticket to change it.</div>
               )}
-            </>) : (
+            </>) : (<>
               <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyName || '-'}</div>
-            )}
+              {v.propertyLocked && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>Raised from this property in Asset Management - it can't be changed.</div>
+              )}
+            </>)}
           </div>
         )}
         {/* Derived from the application by the server, and re-derived whenever
