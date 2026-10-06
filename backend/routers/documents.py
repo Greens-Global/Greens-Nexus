@@ -31,7 +31,7 @@ from typing import Optional, List
 from sqlalchemy import or_, cast, func, String as SqlString
 
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_module_grant
 from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTemplateVersion,
                     DocLetterhead, HrSignRequest, HrSignParty, NexusEmployee)
 from services.merge_fields import (BUILTIN_VARIABLES, group_label, is_auto_token,
@@ -1629,12 +1629,51 @@ def _egnyte_configured() -> bool:
     return egnyte_svc.configured()
 
 
+# Sep 30 review: these two routes read with the SERVICE token and took any
+# absolute path from any signed-in employee - the whole Egnyte domain, private
+# folders included. They now take the same access as the Documents screen they
+# serve (administrator+, or an Access Group grant on "documents" - App.jsx
+# ProtectedView), and only reach paths under the configured import roots.
+_require_documents_access = require_module_grant("documents", "viewer")
+
+
+def _egnyte_import_roots() -> list[str]:
+    """Wiring slot documents.import-roots (Egnyte module - Wiring tab), else
+    EGNYTE_IMPORT_ROOTS, else /Shared. Never the domain root."""
+    from egnyte_wiring import effective
+    raw, _src = effective("documents.import-roots")
+    roots = [egnyte_svc.norm(p) for p in (raw or "").split(",") if p.strip()]
+    return [r for r in roots if r != "/"] or ["/Shared"]
+
+
+def _egnyte_import_path(path: str) -> str | None:
+    """The normalized path if it lies inside an import root; None when it is
+    the domain root or a folder ABOVE a root (the picker then shows the roots,
+    so its "root" crumb keeps working). Anything else is 403; a '.' or '..'
+    segment is 400 - Egnyte resolves those, which would walk out of a root
+    that a plain prefix check had let through."""
+    if any(seg in (".", "..") for seg in (path or "").replace("\\", "/").split("/")):
+        raise HTTPException(400, "Invalid Egnyte path")
+    p = egnyte_svc.norm(path)
+    roots = _egnyte_import_roots()
+    if any(p == r or p.startswith(r + "/") for r in roots):
+        return p
+    if p == "/" or any(r.startswith(p + "/") for r in roots):
+        return None
+    raise HTTPException(403, "That Egnyte folder is outside what Documents can import from")
+
+
 @router.get("/egnyte/browse")
-def egnyte_browse(path: str = "", user: dict = Depends(get_current_user)):
+def egnyte_browse(path: str = "", user: dict = Depends(_require_documents_access)):
     if not _egnyte_configured():
         raise HTTPException(503, "Egnyte not configured - set EGNYTE_DOMAIN and EGNYTE_TOKEN")
+    target = _egnyte_import_path(path)
+    if target is None:
+        return {"path": "/", "description": "", "files": [],
+                "folders": [{"name": r.lstrip("/"), "path": r, "modified": ""}
+                            for r in _egnyte_import_roots()]}
     try:
-        data = egnyte_svc.list_folder(path)
+        data = egnyte_svc.list_folder(target)
     except egnyte_svc.EgnyteError as exc:
         raise HTTPException(exc.status, str(exc))
     # `supported` is this importer's OWN policy (it can only convert these
@@ -1646,13 +1685,16 @@ def egnyte_browse(path: str = "", user: dict = Depends(get_current_user)):
 
 
 @router.get("/egnyte/file")
-def egnyte_file(path: str, user: dict = Depends(get_current_user)):
+def egnyte_file(path: str, user: dict = Depends(_require_documents_access)):
     if not _egnyte_configured():
         raise HTTPException(503, "Egnyte not configured - set EGNYTE_DOMAIN and EGNYTE_TOKEN")
     if not path.lower().endswith(_EGNYTE_IMPORT_EXTS):
         raise HTTPException(400, "Unsupported file type")
+    target = _egnyte_import_path(path)
+    if target is None:
+        raise HTTPException(403, "That Egnyte folder is outside what Documents can import from")
     try:
-        content = egnyte_svc.read_file(path)
+        content = egnyte_svc.read_file(target)
     except egnyte_svc.EgnyteError as exc:
         raise HTTPException(exc.status, str(exc))
     name = egnyte_svc.norm(path).rsplit("/", 1)[-1] or "document"
