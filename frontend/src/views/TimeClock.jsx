@@ -5,9 +5,9 @@ import {
   ChevronDown, Check, ClipboardCheck, ArrowRight,
 } from 'lucide-react';
 import { api } from '../api';
-import { useRole } from '../contexts/RoleContext';
 import TimesheetsToReview from '../components/TimesheetsToReview';
-import { openNotificationTarget } from '../lib/openTarget';
+import MyTeamTimesheets from '../components/MyTeamTimesheets';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { reasonLook, REQUEST_TIMEOFF_TYPES } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
@@ -896,9 +896,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // not have; Agree / Send Back themselves only need manager level. The count
   // is read once for the whole Workday (the badge, and the tab for a
   // time-tracking-exempt reviewer, who otherwise has no Time Sheet tab).
-  // `|| {}`: the role context is null outside RoleProvider (render tests).
-  const { can = () => false, myGrantedModules } = useRole() || {};
-  const mayOpenTime = can('administrator') || !!myGrantedModules?.has('hr');
   const [toReview, setToReview] = useState(0);
   useEffect(() => {
     let live = true;
@@ -914,12 +911,17 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
   const showReview = tab === 'timesheet' && toReview > 0;
   const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  // Review opens that employee's full timecard in People > Time - only for
-  // those who can open it (administrator, or the HR grant - App.jsx's gate).
-  const openTimecardFor = mayOpenTime ? (r) => {
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-time' } }));
-    openNotificationTarget({ timecard: r.employeeEmail, start: r.periodStart, payType: r.payType });
-  } : undefined;
+  // Review opens that employee's timecard RIGHT HERE in Workday (Pranshu, 10/06)
+  // - for every manager, People module or not. Access is the reporting line,
+  // checked by the server (/timesheet-review/{id}/timecard), and a manager
+  // without the HR grant sees hours only, never pay.
+  const [reviewing, setReviewing] = useState(() => takePendingOpen('timesheetReview') || '');
+  useEffect(() => {
+    const onOpen = (e) => { takePendingOpen('timesheetReview'); if (e.detail?.id) { setReviewing(e.detail.id); setTab('timesheet'); } };
+    window.addEventListener('nexus:open-timesheet-review', onOpen);
+    return () => window.removeEventListener('nexus:open-timesheet-review', onOpen);
+  }, []);
+  const openTimecardFor = (r) => { setReviewing(r.id); window.scrollTo?.({ top: 0, behavior: 'smooth' }); };
 
   // ── The Time Clock widget (top of Overview, Oct 2) ─────────────────────────
   // The page's one headline: a greeting with today's scheduled shift, the
@@ -1252,10 +1254,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
           for exempt reviewers too. Renders nothing when nothing is waiting. */}
-      {tab === 'timesheet' && (
+      {tab === 'timesheet' && reviewing && (
+        <div style={{ marginBottom: 16 }}>
+          <button type="button" className="secondary-btn" onClick={() => setReviewing('')}
+            style={{ fontSize: 12.5, marginBottom: 10, display: 'inline-flex', alignItems: 'center', gap: 4 }}>‹ Back to Time Sheet</button>
+          <PayrollTimecard key={reviewing} reviewId={reviewing} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />
+        </div>
+      )}
+      {tab === 'timesheet' && !reviewing && (
         <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
           <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
             onCount={onReviewCount} onOpen={openTimecardFor} />
+          <MyTeamTimesheets onOpen={(id) => { setReviewing(id); window.scrollTo?.({ top: 0, behavior: 'smooth' }); }} />
         </div>
       )}
       {tab === 'timesheet' && status?.timeTrackingExempt && toReview === 0 && (

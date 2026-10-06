@@ -1446,6 +1446,9 @@ export const api = {
   timeShiftAssign:   (data)      => req('/timeclock/shift-assign', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftAssignments: ()       => req('/timeclock/shift-assignments'),
   timeMyChat:        ()          => req('/timeclock/my-chat'),
+  // A manager's review of a report's timesheet, without the People module (Oct 6).
+  timesheetReviewTimecard: (id) => req(`/timesheet-review/${encodeURIComponent(id)}/timecard`),
+  timesheetReviewTeam: () => req('/timesheet-review/team'),
   timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
   timeMySchedule:    (start, end) => req(`/timeclock/my-schedule?start=${start}&end=${end}`),
   // Shift self-service (Sep 29): open-shift requests, swaps, offers, manager inbox.

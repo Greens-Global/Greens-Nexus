@@ -48,7 +48,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability, TimecardNote, PayrollRateHistory)
+                    ShiftAvailability, TimecardNote, PayrollRateHistory, TimesheetReview)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -1247,6 +1247,42 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
                                  "Check the times - a clock-out has to come after the clock-in it closes.")
 
 
+def require_team_write_or_reviewer(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Who may change an employee's hours: the team-write audience as before
+    (manager level, or an HR editor grant), OR - without either - the manager
+    a timesheet is with for review (Pranshu, 10/06: managers review their
+    reports' timesheets without the People module). The latter is marked
+    `_review_only`, and every route using this calls _check_edit_scope, which
+    then limits them to that one employee-period while it is with them."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level
+    if user["level"] >= _LEVELS["manager"] or _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"]:
+        return user
+    me = (user.get("email") or "").lower()
+    if db.query(TimesheetReview).filter(TimesheetReview.manager_email == me,
+                                        TimesheetReview.status == "with_manager").first():
+        return {**user, "_review_only": True}
+    raise HTTPException(401, "Insufficient permissions")
+
+
+def _check_edit_scope(db: Session, user: dict, email: str, *local_dates: str,
+                      outside: str = "That employee isn't on your team.") -> None:
+    """May this caller change `email`'s hours on these days? The team-write
+    audience: anyone in their team scope, as before. A reviewer-only manager:
+    only days inside a timesheet that is with THEM for review right now."""
+    email = (email or "").lower()
+    if user.get("_review_only"):
+        import timesheet_review
+        me = (user.get("email") or "").lower()
+        for d in local_dates:
+            r = timesheet_review.review_covering(db, email, (d or "")[:10])
+            if not r or r.status != "with_manager" or (r.manager_email or "").lower() != me:
+                raise HTTPException(403, "You can change hours only on a timesheet that is with you for review.")
+        return
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, outside)
+
+
 def _guard_review(db: Session, email: str, local_date: str, actor_email: str, *,
                   employee_request: bool = False) -> None:
     """Timesheet review (timesheet_review.py): one side edits at a time while a
@@ -1773,13 +1809,13 @@ def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: st
 
 @router.patch("/punches/{punch_id}")
 def adjust_punch(punch_id: str, body: PunchAdjust,
-                 user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+                 user: dict = Depends(require_team_write_or_reviewer), db: Session = Depends(get_db)):
     row = db.query(TimePunch).filter(TimePunch.id == punch_id).first()
     if not row:
         raise HTTPException(404, "Punch not found")
-    scope = _visible_emails(db, user)
-    if scope is not None and row.employee_email not in scope:
-        raise HTTPException(403, "You can only adjust your own team's punches.")
+    moved_to = [_local_date(body.at[:19], row.tz_offset_min or 0)] if body.at and _parse_iso(body.at) else []
+    _check_edit_scope(db, user, row.employee_email, row.local_date, *moved_to,
+                      outside="You can only adjust your own team's punches.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
     _guard_review(db, row.employee_email, row.local_date, user["email"])
     if body.at is not None:
@@ -1848,15 +1884,14 @@ class ManagerPunchIn(BaseModel):
 
 
 @router.post("/punches")
-def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_write),
+def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_write_or_reviewer),
                       db: Session = Depends(get_db)):
     if body.kind not in KINDS:
         raise HTTPException(400, f"kind must be one of {KINDS}")
     if _parse_iso(body.at) is None:
         raise HTTPException(400, "at must be an ISO timestamp")
-    scope = _visible_emails(db, user)
-    if scope is not None and body.employee_email.strip().lower() not in scope:
-        raise HTTPException(403, "You can only add punches for your own team.")
+    _check_edit_scope(db, user, body.employee_email, _local_date(body.at, body.tz_offset_min or 0),
+                      outside="You can only add punches for your own team.")
     _guard_not_finalized(db, body.employee_email.strip().lower(),
                          _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, body.employee_email.strip().lower(),
@@ -2790,13 +2825,15 @@ def _pending_partners(db: Session, r) -> list:
 
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
-                         user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+                         user: dict = Depends(require_team_write_or_reviewer), db: Session = Depends(get_db)):
     r = db.query(PunchRequest).filter(PunchRequest.id == req_id).with_for_update().first()
     if not r:
         raise HTTPException(404, "Request not found")
     if r.status != "pending":
         raise HTTPException(409, f"This request was already {r.status}.")
-    visible = _visible_emails(db, user)
+    if user.get("_review_only"):
+        _check_edit_scope(db, user, r.employee_email, r.local_date)
+    visible = None if user.get("_review_only") else _visible_emails(db, user)
     if visible is not None and r.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
@@ -2931,7 +2968,7 @@ class PunchEditDecision(BaseModel):
 
 @router.patch("/punch-edits/{punch_id}")
 def decide_punch_edit(punch_id: str, body: PunchEditDecision,
-                      user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+                      user: dict = Depends(require_team_write_or_reviewer), db: Session = Depends(get_db)):
     """Approver accepts or rejects an employee's pending punch-time edit. On
     approve, the proposed time becomes the pay-effective `at` (it now counts toward
     hours). On reject, the proposal is discarded and `at` is unchanged."""
@@ -2940,9 +2977,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
         raise HTTPException(404, "Punch not found")
     if row.edit_status != "pending" or not row.pending_at:
         raise HTTPException(409, "There is no pending edit on this punch.")
-    visible = _visible_emails(db, user)
-    if visible is not None and row.employee_email not in visible:
-        raise HTTPException(403, "That employee isn't on your team.")
+    _check_edit_scope(db, user, row.employee_email, row.local_date)
     _guard_not_finalized(db, row.employee_email, row.local_date)
     _guard_review(db, row.employee_email, row.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
@@ -7948,7 +7983,7 @@ class TimecardNoteIn(BaseModel):
 
 
 @router.put("/timecard-notes")
-def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_write),
+def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_write_or_reviewer),
                       db: Session = Depends(get_db)):
     """Write (or clear) the Notes cell for one day of one person's timecard
     (Charmi, Sep 29). Managers/HR inside their team scope only. A note never
@@ -7961,9 +7996,8 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
         raise HTTPException(400, "date must be YYYY-MM-DD")
     if not em:
         raise HTTPException(400, "email is required")
-    scope = _visible_emails(db, user)
-    if scope is not None and em not in scope:
-        raise HTTPException(403, "Outside your team")
+    # The reviewing manager (Oct 6) may note days of the timesheet with them.
+    _check_edit_scope(db, user, em, day, outside="Outside your team")
     text = (body.note or "").strip()[:2000]
     rid = f"{em}|{day}"
     row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()

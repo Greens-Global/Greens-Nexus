@@ -21,6 +21,13 @@ export function openNotificationTarget(action) {
     fire('nexus:open-punch-request', { id: action.punchRequestId });
     return;
   }
+  // A timesheet review (Oct 6): the manager's bell opens THAT timesheet in
+  // Workday > Time Sheet - no People module needed.
+  if (action.review) {
+    setPendingOpen('timesheetReview', action.review);
+    fire('nexus:open-timesheet-review', { id: action.review });
+    return;
+  }
   if (action.timecard) {
     const detail = { email: action.timecard, start: action.start || '', payType: action.payType || '' };
     setPendingOpen('timecard', detail);

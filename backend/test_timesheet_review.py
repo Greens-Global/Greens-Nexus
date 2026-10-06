@@ -601,11 +601,12 @@ class WaitingOnReviewerTests(ReviewCase):
 
     def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
         """Oct 1: Workday > Time Sheet, where the Timesheets to Review list is -
-        People > Time needs the HR grant, which a reviewing manager may lack."""
-        tsr.submit(self.db, EMP, ANCHOR)
+        People > Time needs the HR grant, which a reviewing manager may lack.
+        Oct 6: the bell names the review, so Workday opens it directly."""
+        r = tsr.submit(self.db, EMP, ANCHOR)
         import json as _json
         action = _json.loads(self._bells(MGR)[-1].action)
-        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet"})
+        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet", "review": r.id})
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
 

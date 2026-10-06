@@ -4,16 +4,18 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // Timesheets to Review on Workday > Time Sheet (Oct 1): the list of
 // timesheets submitted to me sits on my own Time Sheet tab - where the
 // "Timesheet to review" bell lands - with a header button that jumps to it.
-// Agree / Send Back work for any reviewer; Review (the full timecard in
-// People > Time) only shows to those who can open People > Time. A
-// time-tracking-exempt reviewer gets the Time Sheet tab while something waits.
+// Agree / Send Back work for any reviewer, and Review opens that timesheet
+// right here in Workday for every manager - no People module (Oct 6); the
+// server keeps it to the reporting line and strips pay. A bell naming a
+// review opens it directly. A time-tracking-exempt reviewer gets the Time
+// Sheet tab while something waits.
 
 const role = { level: 'manager', granted: new Set() };
 const RANK = ['employee', 'supervisor', 'manager', 'administrator', 'owner'];
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({ can: (min) => RANK.indexOf(role.level) >= RANK.indexOf(min), myGrantedModules: role.granted }),
 }));
-vi.mock('../components/PayrollTimecard', () => ({ default: () => <div>Timecard</div> }));
+vi.mock('../components/PayrollTimecard', () => ({ default: ({ reviewId }) => <div>{reviewId ? `Reviewing ${reviewId}` : 'Timecard'}</div> }));
 vi.mock('../api', () => {
   const api = new Proxy({}, {
     get: (_, key) => () => Promise.resolve(
@@ -47,20 +49,30 @@ describe('Timesheets to Review on the Time Sheet tab', () => {
     await waitFor(() => expect(screen.getByLabelText('2 waiting')).toBeTruthy());
     fireEvent.click(btn);
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-    // Agree / Send Back for a manager without the HR grant; no Review link.
+    // Agree / Send Back, and Review, for a manager without the HR grant.
     expect(screen.getAllByRole('button', { name: /Agree/ }).length).toBe(2);
-    expect(screen.queryByRole('button', { name: /^Review/ })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /^Review/ }).length).toBe(2);
   }, SLOW);
 
-  it('offers Review to someone who can open People > Time', async () => {
+  it('Review opens the timesheet in Workday, never People > Time, for any manager', async () => {
     globalThis.__waiting = [ROW];
-    role.granted = new Set(['hr']);
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
     await renderTab();
     fireEvent.click(await screen.findByRole('button', { name: /^Review/ }));
-    expect(nav.mock.calls[0][0].detail).toEqual({ view: 'hr', sub: 'hr-time' });
+    expect(await screen.findByText('Reviewing r1')).toBeTruthy();
+    expect(nav).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Back to Time Sheet/ }));
+    expect(await screen.findByText('Valinda Cranfill')).toBeTruthy();
     window.removeEventListener('nexus:navigate', nav);
+  }, SLOW);
+
+  it('a bell that names a review opens it', async () => {
+    const { openNotificationTarget } = await import('../lib/openTarget');
+    await renderTab();
+    await screen.findByText('Timecard');
+    openNotificationTarget({ view: 'timeclock', sub: 'timesheet', review: 'r9' });
+    expect(await screen.findByText('Reviewing r9')).toBeTruthy();
   }, SLOW);
 
   it('shows no button and no list when nothing is waiting', async () => {

@@ -215,19 +215,18 @@ def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str =
 
 
 def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> None:
-    """The employee lands on their own timecard. The manager, while the
-    timesheet is waiting on THEM (submitted, handed back, signing cancelled),
-    lands on Workday > Time Sheet, whose Timesheets to Review list sits at the
-    top (Oct 1) - reachable without the HR grant People > Time needs, and the
-    list's Agree / Send Back only need manager level. Anyone else (HR, a
-    manager told for information) opens THAT employee's card for THAT period
-    in People > Time > Payroll (Sep 29)."""
+    """The employee lands on their own timecard. The manager lands on Workday >
+    Time Sheet with this review opened (Oct 6) - no People module needed, the
+    reporting line is enough. Anyone else (HR) opens THAT employee's card for
+    THAT period in People > Time > Payroll (Sep 29)."""
     if not to:
         return
     if to.lower() == r.employee_email:
         action = {"view": "timeclock", "sub": "timecard", "email": r.employee_email, "start": r.period_start}
-    elif to.lower() == (r.manager_email or "").lower() and r.status == "with_manager":
-        action = {"view": "timeclock", "sub": "timesheet"}
+    elif to.lower() == (r.manager_email or "").lower():
+        # The manager - whatever the state - opens THIS review in Workday >
+        # Time Sheet, which needs no People module (Pranshu, 10/06).
+        action = {"view": "timeclock", "sub": "timesheet", "review": r.id}
     else:
         action = {"view": "hr", "sub": "hr-time", "timecard": r.employee_email,
                   "start": r.period_start, "payType": r.pay_type}

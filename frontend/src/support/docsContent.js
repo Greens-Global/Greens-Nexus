@@ -225,6 +225,15 @@ export const DOCS = [
           'Use the Previous Week and Next Week arrows to move between weeks.',
         ],
       },
+      {
+        title: "Review Your Team's Timesheets",
+        steps: [
+          'Managers: open Workday > Time Sheet. Timesheets to Review lists every timesheet submitted to you - no People access is needed.',
+          "Click Review to open that person's timecard for the period: their hours, punches, breaks and notes. Pay is not shown to managers.",
+          'While it is with you, fix any time directly (click a time, or add a missing punch) and add a note on the day. Then click Send Back with a note so they recheck it, or Agree to send it for signature.',
+          "My Team's Timesheets, below, lists every timesheet of the people who report to you - waiting on you, back with them, signing or completed - and who has not submitted the current period. Click one to open it.",
+        ],
+      },
     ],
     features: [
       { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
@@ -237,7 +246,7 @@ export const DOCS = [
       title: 'Managers & Admins',
       points: [
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
-        'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Shifts.',
+        "Reviewing your reports' timesheets happens in Workday > Time Sheet (hours only, no pay). Team hours, punch fixes and payroll time cards for HR live in People > Time. The schedule itself is built in Shifts.",
         'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
       ],
     },
