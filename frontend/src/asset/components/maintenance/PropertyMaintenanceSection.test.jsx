@@ -27,10 +27,15 @@ vi.mock('../../../api.js', () => {
   return { api: new Proxy({}, { get: (_, k) => named[k] || (() => Promise.resolve([])) }) };
 });
 vi.mock('../shared/CollectionTable.jsx', () => ({
-  CollectionTable: ({ rows, onEdit, summaryOverride }) => (
+  CollectionTable: ({ rows, onEdit, summaryOverride, leadColumn }) => (
     <div data-testid="log">
       {(summaryOverride || []).map(([k, v]) => <span key={k}>{`${k}: ${v}`}</span>)}
-      {rows.map((r) => <button key={r.id} onClick={() => onEdit(r.id)}>{r.description}</button>)}
+      {rows.map((r) => (
+        <div key={r.id} data-testid="log-row">
+          <span>{leadColumn?.render(r)}</span>
+          <button onClick={() => onEdit(r.id)}>{r.description}</button>
+        </div>
+      ))}
     </div>
   ),
 }));
@@ -51,7 +56,8 @@ afterEach(() => { cleanup(); addMaintenanceRecord.mockClear(); });
 describe('Property Maintenance with tickets', () => {
   it('shows recorded tickets in the log as read-only rows, next to hand-logged ones', async () => {
     render(<PropertyMaintenanceSection {...props} />);
-    const row = await screen.findByText('Ticket #100 · Leak under sink - Replaced the trap');
+    const row = await screen.findByText('Leak under sink - Replaced the trap');
+    expect(screen.getByText('Ticket #100')).toBeTruthy();           // the Ticket column
     expect(screen.getByText('Replaced HVAC filter')).toBeTruthy();
     expect(screen.queryByText(/Office AC warm/)).toBeNull();       // resolved but not recorded: not in the log
     expect(screen.getByText('Total Spend: $420.00')).toBeTruthy();  // hand-logged $240 + recorded $180
@@ -64,15 +70,16 @@ describe('Property Maintenance with tickets', () => {
     DATA.records.push({ id: 'r9', ticketId: 't9', codeLabel: 'Ticket #140', subject: 'Leak under sink', propertyId: 'gst', date: '2027-10-02', system: 'Plumbing', description: 'Yearly check', vendor: 'Pipe Pros', cost: '200.00', currency: 'EUR', docUrl: '', docName: 'invoice.pdf', notes: '', parentTicketId: 't2', parentCodeLabel: 'Ticket #100' });
     try {
       render(<PropertyMaintenanceSection {...props} />);
-      await screen.findByText('Ticket #140 · Yearly check');
+      await screen.findByText('Yearly check');
+      expect(screen.getByText('(Original)')).toBeTruthy();          // #100 is the original of #140's service
       expect(screen.getByText('Total Spend: $420.00 · €200.00')).toBeTruthy();   // never added together
       fireEvent.change(screen.getByDisplayValue('All Vendors'), { target: { value: 'Pipe Pros' } });
       expect(screen.queryByText('Replaced HVAC filter')).toBeNull();
-      expect(screen.getByText('Ticket #140 · Yearly check')).toBeTruthy();
+      expect(screen.getByText('Yearly check')).toBeTruthy();
       fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
       fireEvent.change(screen.getByPlaceholderText('Search work performed…'), { target: { value: 'filter' } });
       expect(screen.getByText('Replaced HVAC filter')).toBeTruthy();
-      expect(screen.queryByText('Ticket #140 · Yearly check')).toBeNull();
+      expect(screen.queryByText('Yearly check')).toBeNull();
     } finally { DATA.records.pop(); }
   });
 

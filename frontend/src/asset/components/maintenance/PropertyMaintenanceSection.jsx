@@ -19,6 +19,17 @@ import { api } from '../../../api.js';
  * Create New Ticket and Start Walkthrough raise tickets for THIS property only - it is fixed in
  * both (Pranshu, 10/06). `ticketFocus` ({ propertyId, ticketId, tab, at }) comes from a bell deep link.
  */
+// The Maintenance Log's first column: which ticket a record came from - the
+// original of a recurring service in bold with "(Original)", the tickets its
+// service opened nested under it (CollectionTable indents them); "-" for a
+// hand-logged record.
+const TICKET_COLUMN = {
+  label: 'Ticket',
+  render: (row) => (row.ticketLabel
+    ? <span><b style={{ color: 'var(--text-primary)' }}>{row.ticketLabel}</b>{row.isOriginal && <span style={{ color: 'var(--text-secondary)', marginLeft: 4 }}>(Original)</span>}</span>
+    : <span style={{ color: 'var(--text-secondary)' }}>-</span>),
+};
+
 export function PropertyMaintenanceSection({ p: property, rows, filters, setFilters, highlightItem, onAdd, onEdit, onSaveUnits, onQuickAdd, ticketFocus = null }) {
   const units = property.tenantUnits || [];
   const [unitFilter, setUnitFilter] = useState('all');
@@ -159,6 +170,7 @@ export function PropertyMaintenanceSection({ p: property, rows, filters, setFilt
         <CollectionTable
           coll="maintenance"
           summaryOverride={logSummary(filteredRows)}
+          leadColumn={TICKET_COLUMN}
           rows={filteredRows}
           active={property}
           filters={filters}

@@ -8,49 +8,15 @@ import { useState } from 'react';
 import { api } from '../../../api.js';
 import { formatDate } from '../../../lib/datetime.js';
 import AsyncSection, { SkeletonBlocks } from '../../../components/AsyncState.jsx';
-import { TICKET_STATUS, TICKET_PRIORITY, money, historyCsv, downloadCsv } from '../../lib/propertyTickets.js';
+import { TICKET_STATUS, money, historyCsv, downloadCsv } from '../../lib/propertyTickets.js';
 import { formatTotals } from '../../lib/currency.js';
-import { StatusBadge } from '../shared/StatusBadge.jsx';
 import { EmptyState } from '../shared/EmptyState.jsx';
 import { Modal } from '../shared/Modal.jsx';
-
-function Row({ t, closed, onOpen }) {
-  const [sLabel, sTone] = TICKET_STATUS[t.status] || [t.status, 'mut'];
-  const [pLabel, pTone] = TICKET_PRIORITY[t.priority] || [t.priority, 'mut'];
-  const meta = [t.category, t.location, t.onParcel ? `Parcel: ${t.propertyName}` : ''].filter(Boolean).join(' · ');
-  return (
-    <button type="button" onClick={() => onOpen(t)}
-      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '12px 14px', marginBottom: 8, cursor: 'pointer', border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)', fontFamily: 'inherit' }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{t.codeLabel}</span>
-        <span style={{ fontWeight: 600, color: 'var(--text-primary)', flex: '1 1 200px' }}>{t.subject}</span>
-        {t.approvalStatus === 'pending' && <StatusBadge tone="blue">Awaiting Approval</StatusBadge>}
-        <StatusBadge tone={sTone}>{sLabel}</StatusBadge>
-        {!closed && <StatusBadge tone={pTone}>{pLabel}</StatusBadge>}
-        {closed && t.logged && <StatusBadge tone="green">Recorded</StatusBadge>}
-        {closed && t.needsAction && <StatusBadge tone="red">Needs Action</StatusBadge>}
-        {t.parentTicketId && <StatusBadge tone="blue">Service From {t.parentCodeLabel}</StatusBadge>}
-      </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-        {meta && <span>{meta} · </span>}
-        {closed
-          ? <>Closed {formatDate(t.resolvedAt) || '-'}{t.vendor ? ` · ${t.vendor}` : ''}{t.cost ? ` · ${money(t.cost)}` : ''}</>
-          : <>{t.assigneeName ? `Assigned to ${t.assigneeName}` : 'Unassigned'} · Opened {formatDate(t.createdAt) || '-'}</>}
-        {t.photoCount > 0 && ` · ${t.photoCount} photo${t.photoCount > 1 ? 's' : ''}`}
-      </div>
-      {closed && t.resolutionNote && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 4, whiteSpace: 'pre-wrap' }}>{t.resolutionNote}</div>
-      )}
-    </button>
-  );
-}
+import { PropertyTicketsTable } from './PropertyTicketsTable.jsx';
 
 export function PropertyTicketsPanel({ mode, tickets, onOpen, onFollowAll, propertyName = '' }) {
   const { data, loading, error, reload } = tickets;
   const rows = mode === 'open' ? (data?.open || []) : (data?.history || []);
-  const records = rows.filter((t) => t.maintenanceRecord);
-  const noWork = rows.filter((t) => !t.maintenanceRecord);
-  const [showNoWork, setShowNoWork] = useState(false);
   const unfollowed = (data?.open || []).filter((t) => !t.canOpen);
   return (
     <AsyncSection loading={loading && !data} error={error && !data ? error : null} onRetry={reload} isEmpty={!rows.length}
@@ -58,33 +24,26 @@ export function PropertyTicketsPanel({ mode, tickets, onOpen, onFollowAll, prope
       skeleton={<SkeletonBlocks count={3} height={64} />}
       emptyContent={<EmptyState>{mode === 'open'
         ? 'No open tickets at this property. Create one, or start a walkthrough to log several at once.'
-        : 'No closed tickets yet. Closed tickets become this property\'s maintenance history.'}</EmptyState>}>
+        : "No closed tickets yet. Closed tickets become this property's maintenance history."}</EmptyState>}>
       {mode === 'open' ? (<>
         {data?.canFollow && unfollowed.length > 1 && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
             <button className="secondary-btn" onClick={() => onFollowAll(unfollowed)}>Follow All Open</button>
           </div>
         )}
-        {rows.map((t) => <Row key={t.id} t={t} onOpen={onOpen} />)}
+        <PropertyTicketsTable rows={rows} onOpen={onOpen} tableKey="property-open-tickets" />
       </>) : (<>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 18, marginBottom: 12, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          <span>Recorded <b style={{ color: 'var(--text-primary)' }}>{records.filter((t) => t.logged).length}</b></span>
-          <span>Needs Action <b style={{ color: 'var(--text-primary)' }}>{records.filter((t) => t.needsAction).length}</b></span>
-          <span>Last Closed <b style={{ color: 'var(--text-primary)' }}>{formatDate(records[0]?.resolvedAt) || '-'}</b></span>
+          <span>Recorded <b style={{ color: 'var(--text-primary)' }}>{rows.filter((t) => t.logged).length}</b></span>
+          <span>Needs Action <b style={{ color: 'var(--text-primary)' }}>{rows.filter((t) => t.needsAction).length}</b></span>
+          <span>Last Closed <b style={{ color: 'var(--text-primary)' }}>{formatDate(rows[0]?.resolvedAt) || '-'}</b></span>
           <span>Recorded Spend <b style={{ color: 'var(--text-primary)' }}>{formatTotals(data?.spendTotals) || '-'}</b></span>
           <button className="secondary-btn" style={{ marginLeft: 'auto' }}
             onClick={() => downloadCsv(historyCsv(data, propertyName), `${propertyName || 'property'} - maintenance history.csv`)}>
             Export History CSV
           </button>
         </div>
-        {records.map((t) => <Row key={t.id} t={t} closed onOpen={onOpen} />)}
-        {noWork.length > 0 && (<>
-          <button type="button" onClick={() => setShowNoWork((v) => !v)}
-            style={{ border: 'none', background: 'none', padding: '6px 0', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-            {showNoWork ? 'Hide' : 'Show'} Closed Without Work ({noWork.length})
-          </button>
-          {showNoWork && noWork.map((t) => <Row key={t.id} t={t} closed onOpen={onOpen} />)}
-        </>)}
+        <PropertyTicketsTable rows={rows} onOpen={onOpen} tableKey="property-closed-tickets" />
       </>)}
     </AsyncSection>
   );

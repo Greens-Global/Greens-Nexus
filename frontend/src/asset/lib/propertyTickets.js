@@ -46,11 +46,14 @@ export function ticketMaintenanceRows(data, property) {
   const byId = Object.fromEntries([...(data?.open || []), ...(data?.history || [])].map((t) => [t.id, t]));
   const nextDue = Object.fromEntries((data?.services || []).filter((s) => s.active).map((s) => [s.parentTicketId, s.nextDue]));
   const recorded = new Set((data?.records || []).map((r) => r.ticketId));
+  // An original whose service has opened (and recorded) children of its own.
+  const originals = new Set((data?.records || []).filter((r) => r.parentTicketId && r.parentTicketId !== r.ticketId)
+    .map((r) => r.parentTicketId));
   return (data?.records || [])
     .filter((r) => r.propertyId === property?.id)
     .map((r) => ({
       id: `ticket:${r.ticketId}`, propertyId: r.propertyId, date: r.date, system: r.system,
-      description: `${r.codeLabel} · ${r.description || r.subject}`, vendor: r.vendor,
+      description: r.description || r.subject, vendor: r.vendor, ticketLabel: r.codeLabel, isOriginal: originals.has(r.ticketId),
       cost: formatCost(r.cost, r.currency), currency: r.currency || 'USD', amount: r.cost, status: 'Completed',
       nextDue: nextDue[r.ticketId] || '', notes: r.notes, docFileName: r.docName || '',
       unit: units.has(byId[r.ticketId]?.location) ? byId[r.ticketId].location : '', source: 'Ticket', _readOnly: true,

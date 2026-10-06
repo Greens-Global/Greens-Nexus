@@ -103,7 +103,8 @@ function rowIdentity(coll, row) {
 // Optional (Property Tickets, Oct 2026): a row with `_parentRowId` is shown nested, right under
 // that row (sorting and search move families together); `_readOnly` rows say View, not Edit.
 // `summaryOverride` replaces the record type's summary strip (e.g. totals kept per currency).
-export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null }) {
+// `leadColumn` ({ label, render(row) }) adds a first column; nested rows indent there.
+export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null, leadColumn = null }) {
   const recordType = RECORD_TYPES[coll];
   const [exportOpen, setExportOpen] = useState(false);
   const [quickText, setQuickText] = useState('');
@@ -306,6 +307,9 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
               <table className="coll-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr>
+                    {leadColumn && (
+                      <th style={{ ...LABEL_STYLE, textAlign: 'left', padding: '10px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>{leadColumn.label}</th>
+                    )}
                     {recordType.cols.map((col, ci) => (
                       <th
                         key={col.label}
@@ -352,9 +356,15 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
                           if (!isHighlighted) e.currentTarget.style.background = '';
                         }}
                       >
+                        {leadColumn && (
+                          <td data-label={leadColumn.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', whiteSpace: 'nowrap', ...(row._nested ? { paddingLeft: 30 } : null) }}>
+                            {row._nested && <span style={{ color: 'var(--text-secondary)', marginRight: 5 }}>↳</span>}
+                            {leadColumn.render(row)}
+                          </td>
+                        )}
                         {recordType.cols.map((col, ci) => (
-                          <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
-                            {ci === 0 && row._nested && <span style={{ color: 'var(--text-secondary)', marginRight: 4 }}>↳</span>}
+                          <td key={col.label} data-label={col.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(!leadColumn && ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
+                            {!leadColumn && ci === 0 && row._nested && <span style={{ color: 'var(--text-secondary)', marginRight: 4 }}>↳</span>}
                             {col.main ? (
                               <>
                                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row) || '-'}</div>

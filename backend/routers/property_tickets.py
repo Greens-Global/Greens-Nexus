@@ -95,6 +95,8 @@ def _summary(t, prop_names: dict, lead_id: str, photos: dict, names: dict, desk:
         "propertyId": pid, "propertyName": prop_names.get(pid) or t.property_name or "",
         "onParcel": pid != lead_id,
         "assigneeName": names.get((t.assignee_email or "").lower(), t.assignee_email or ""),
+        "assigneeEmail": (t.assignee_email or "").lower(),
+        "modifiedAt": t.modified_at or "",
         # Who raised it is for the people who may act on it, not every viewer.
         "requesterName": (names.get((t.requester_email or "").lower(), t.requester_email or "")
                           if full else ""),
@@ -114,6 +116,25 @@ def _summary(t, prop_names: dict, lead_id: str, photos: dict, names: dict, desk:
         "canOpen": desk or me in T._ticket_participants(t),
         "watching": me in watchers,
     }
+
+
+def _latest_public(db: Session, ids: list) -> dict:
+    """The newest PUBLIC reply on each of these tickets - the Support table's
+    Latest Comment column. Internal notes never leave the desk, and Asset
+    Management viewers are not the desk."""
+    if not ids:
+        return {}
+    C = models.TaskComment
+    public = (C.internal.is_(False)) | (C.internal.is_(None))
+    newest = (db.query(C.task_id.label("tid"), func.max(C.created_at).label("mx"))
+              .filter(C.task_id.in_(ids), public).group_by(C.task_id).subquery())
+    out: dict = {}
+    for tid, author, body, created in (db.query(C.task_id, C.author_email, C.body, C.created_at)
+                                       .join(newest, (C.task_id == newest.c.tid) & (C.created_at == newest.c.mx))
+                                       .filter(public).all()):
+        out.setdefault(tid, {"authorId": (author or "").lower(), "preview": T._comment_preview(body or "", 160),
+                             "createdAt": created or "", "internal": False})
+    return out
 
 
 def _record_out(r, by_id: dict) -> dict:
@@ -187,9 +208,13 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
     summaries = [_summary(t, prop_names, prop.id, photos, names, desk, me, full=desk or can_manage,
                           logged=set(records), service_parents={s.parent_ticket_id for s in services})
                  for t in rows]
+    latest = _latest_public(db, list(by_id))
+    names.update(_names(db, {c["authorId"] for c in latest.values()} - set(names)))
     for s in summaries:
         par = by_id.get(s["parentTicketId"]) if s["parentTicketId"] else None
         s["parentCodeLabel"] = ticket_no(par.code) if par else ""
+        c = latest.get(s["id"])
+        s["latestComment"] = {**c, "authorName": names.get(c["authorId"], c["authorId"])} if c else None
     open_ = sorted([s for s in summaries if s["status"] not in property_links.CLOSED_STATES],
                    key=lambda s: (_PRIORITY_RANK.get(s["priority"], 9), s["createdAt"]))
     history = sorted([s for s in summaries if s["status"] in property_links.CLOSED_STATES],

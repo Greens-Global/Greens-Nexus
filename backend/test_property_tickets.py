@@ -443,6 +443,19 @@ class PropertyTicketTests(unittest.TestCase):
             self._record(tid)
         self.assertEqual(cm.exception.status_code, 409)
 
+    def test_the_table_shows_the_newest_public_reply_never_an_internal_note(self):
+        t = self._one(user=ADMIN, property_asset_id="gst")
+        self.db.add_all([
+            models.TaskComment(id=gen_id(), task_id=t["id"], author_email=MANAGER, body="<p>Vendor booked for Friday</p>",
+                               created_at="2026-10-06T10:00:00", internal=False),
+            models.TaskComment(id=gen_id(), task_id=t["id"], author_email=ADMIN["email"], body="<p>Owner says cheapest quote</p>",
+                               created_at="2026-10-06T11:00:00", internal=True)])
+        self.db.commit()
+        row = P.property_tickets("gst", user=WALKER, db=self.db)["open"][0]
+        self.assertEqual(row["latestComment"]["preview"], "Vendor booked for Friday")
+        self.assertEqual(row["latestComment"]["authorName"], "ankush")
+        self.assertTrue(row["modifiedAt"])
+
     def test_costs_keep_their_currency_and_totals_never_mix(self):
         self._record(self._resolved(), cost="300")
         self._record(self._resolved(subject="Roof repair"), cost="200", currency="eur")
