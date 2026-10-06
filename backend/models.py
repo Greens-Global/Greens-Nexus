@@ -3272,6 +3272,12 @@ class TaskTicket(Base):
     # whose maintenance record set the schedule, and the schedule itself.
     parent_ticket_id    = Column(String, default="", index=True)
     service_id          = Column(String, default="", index=True)
+    # Soft delete (Oct 2026): deleting a ticket marks it instead of dropping it
+    # with its conversation, files and activity, so it can be restored and the
+    # trail survives. Non-empty deleted_at = hidden everywhere by the hook in
+    # database.py; .execution_options(include_deleted=True) sees it.
+    deleted_at          = Column(String, default="", index=True)
+    deleted_by          = Column(String, default="")
 
 
 class TicketEmailLog(Base):

@@ -156,8 +156,18 @@ def create_ticket_view(body: SavedViewBody, user: dict = Depends(get_current_use
 
 
 @router.delete("/task-ticket-views/{view_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
-def delete_ticket_view(view_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
+def delete_ticket_view(view_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # A saved view is its owner's. This used to delete any row by id - any
+    # desk agent could remove a colleague's views, or a TASK saved view (same
+    # table) - so it is now confined to the caller's own ticket views. Someone
+    # else's view, or one that is not a ticket view, reads as not found.
+    v = (db.query(models.TaskSavedView)
+         .filter(models.TaskSavedView.id == view_id,
+                 models.TaskSavedView.owner_email == (user.get("email") or "").lower(),
+                 models.TaskSavedView.scope == "ticket").first())
+    if not v:
+        raise HTTPException(404, "Saved view not found")
+    db.delete(v)
     db.commit()
 
 
@@ -573,7 +583,9 @@ def _next_ticket_code(db: Session) -> str:
 def _highest_ticket_no(db: Session) -> int:
     """The highest number issued so far (0 = none). Legacy codes count."""
     highest = 0
-    for (code,) in db.query(models.TaskTicket.code).all():
+    # include_deleted: a deleted ticket keeps its number (it can be restored),
+    # so the sequence must never hand that number out again.
+    for (code,) in db.query(models.TaskTicket.code).execution_options(include_deleted=True).all():
         digits = "".join(ch for ch in (code or "") if ch.isdigit())
         if digits:
             highest = max(highest, int(digits))
@@ -1552,23 +1564,86 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
 
 @router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Soft delete (Oct 2026). The ticket is marked, not dropped: it vanishes
+    from every list, count and notification scan (the hook in database.py),
+    while its conversation, files and activity stay exactly as they were so
+    POST /task-tickets/{id}/restore can put it back. This used to hard-delete
+    the comments, attachment rows and the whole activity trail with it - the
+    one record of who did what to the ticket was the first thing to go.
+    Storage objects are left alone for the same reason (restore needs them)."""
     t = _ticket_or_404(db, ticket_id)
-    # Independent of the in_progress/assignee edit lock above - deleting stays
-    # with whoever raised it or owns the queue, never just the assignee.
-    is_requester = (t.requester_email or "").lower() == user["email"].lower()
-    if not (_ticket_privileged(db, t, user) or is_requester):
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    if not _may_delete_ticket(db, t, user):
         raise HTTPException(403, "Only the requester or a manager can delete a ticket")
     # Property Tickets: a closed property ticket is that property's maintenance
-    # record (derived from this row) - deleting it would erase the repair from
-    # the history and Total Spend with no trace. Open ones delete as before.
+    # record - deleting it would erase the repair from the history and Total
+    # Spend. Open ones soft-delete as below.
     property_links.guard_record(t, "delete")
-    # clean up the ticket's conversation / attachments / activity too
-    db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).delete()
-    db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).delete()
-    db.query(models.TaskActivity).filter(models.TaskActivity.entity_kind == "ticket",
-                                         models.TaskActivity.entity_id == ticket_id).delete()
-    db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).delete()
+    t.deleted_at = now_iso()
+    t.deleted_by = (user.get("email") or "").lower()
+    log_activity(db, type="deleted", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="deleted this ticket")
     db.commit()
+
+
+def _may_delete_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
+    """Who may delete - and so restore - a ticket. Independent of the
+    in_progress/assignee edit lock above - deleting stays with whoever raised
+    it or owns the queue, never just the assignee."""
+    is_requester = (t.requester_email or "").lower() == (user.get("email") or "").lower()
+    return _ticket_privileged(db, t, user) or is_requester
+
+
+def _deleted_ticket_or_404(db: Session, ticket_id: str) -> models.TaskTicket:
+    t = (db.query(models.TaskTicket).execution_options(include_deleted=True)
+         .filter(models.TaskTicket.id == ticket_id).first())
+    if not t or not (t.deleted_at or ""):
+        raise HTTPException(404, "That ticket isn't deleted")
+    return t
+
+
+@router.get("/task-tickets/deleted", dependencies=[Depends(require_ticket_desk)])
+def list_deleted_tickets(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Deleted tickets the caller could restore, newest-deleted first: every
+    one in their companies for a manager, otherwise the ones they raised."""
+    import auth
+    rows = (db.query(models.TaskTicket).execution_options(include_deleted=True)
+            .filter(models.TaskTicket.deleted_at != "", models.TaskTicket.deleted_at.isnot(None))
+            .order_by(models.TaskTicket.deleted_at.desc()).all())
+    cscope = auth.company_scope(user, db)
+    if cscope is not None:
+        rows = [t for t in rows if (t.company_id or "") in cscope]
+    out = []
+    for t in rows:
+        if not _may_delete_ticket(db, t, user):
+            continue
+        d = ticket_to_dict(t)
+        d["deletedAt"] = t.deleted_at or ""
+        d["deletedBy"] = _nz(t.deleted_by)
+        out.append(d)
+    return out
+
+
+@router.post("/task-tickets/{ticket_id}/restore", dependencies=[Depends(require_ticket_desk)])
+def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Put a deleted ticket back exactly as it was - conversation, files and
+    activity never left. Same people who may delete it: the requester or a
+    manager, inside the company wall."""
+    t = _deleted_ticket_or_404(db, ticket_id)
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    if not _may_delete_ticket(db, t, user):
+        raise HTTPException(403, "Only the requester or a manager can restore a ticket")
+    t.deleted_at = ""
+    t.deleted_by = ""
+    log_activity(db, type="restored", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="restored this ticket")
+    db.commit()
+    db.refresh(t)
+    return ticket_to_dict(t)
 
 
 # ── Ticket conversation / attachments / activity (reuse the task tables, keyed
@@ -1726,8 +1801,33 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
 
 
 @router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
-def delete_ticket_comment(comment_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).delete()
+def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """The author, or a manager moderating the thread - the same bar the task
+    thread uses (routers/tasks.delete_comment). This used to delete any row in
+    the shared comment table by id: another company's ticket, a colleague's
+    reply, even a TASK comment, with nothing left to show it had happened.
+    The comment must belong to a live ticket the caller can reach, and the
+    removal is logged - without the text, so an internal note's words never
+    reach the activity feed."""
+    c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
+    if not c:
+        raise HTTPException(404, "Comment not found")
+    t = _ticket_or_404(db, c.task_id)   # a task's comment is not this endpoint's
+    _require_ticket_participant(db, user, t)   # company wall (404) + access
+    me = (user.get("email") or "").lower()
+    if (c.author_email or "").lower() != me and not _ticket_privileged(db, t, user):
+        raise HTTPException(403, "Only the author or a manager can delete a comment")
+    internal = bool(getattr(c, "internal", False))
+    # JSON detail, like the "commented" row: `internal` keeps the line on the
+    # desk side of the internal-note rule, `text` is what the feed shows.
+    log_activity(db, type="comment_deleted", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=json.dumps({"internal": internal,
+                                    "text": "deleted an internal note" if internal else "deleted a comment",
+                                    "author": (c.author_email or "").lower(),
+                                    "createdAt": c.created_at or ""}))
+    db.delete(c)
     db.commit()
 
 
@@ -1773,8 +1873,25 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
 
 
 @router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
-def delete_ticket_attachment(attachment_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).delete()
+def delete_ticket_attachment(attachment_id: str, user: dict = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """Whoever attached it, or a manager. Was unguarded: any desk agent could
+    remove any row in the shared attachment table by id (another company's
+    ticket, a task's evidence). The row goes; the stored file is left in place
+    (purging orphaned files is a separate, deliberate job) and the removal is
+    logged on the ticket."""
+    a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
+    if not a:
+        raise HTTPException(404, "Attachment not found")
+    t = _ticket_or_404(db, a.task_id)   # a task's attachment is not this endpoint's
+    _require_ticket_participant(db, user, t)   # company wall (404) + access
+    me = (user.get("email") or "").lower()
+    if (a.added_by or "").lower() != me and not _ticket_privileged(db, t, user):
+        raise HTTPException(403, "Only whoever attached it or a manager can remove an attachment")
+    log_activity(db, type="attachment_removed", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=f'removed attachment "{a.name}"')
+    db.delete(a)
     db.commit()
 
 
@@ -2130,8 +2247,17 @@ def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
 
 
 @router.delete("/task-ticket-components/{component_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
-def delete_ticket_component(component_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskTicketComponent).filter(models.TaskTicketComponent.id == component_id).delete()
+def delete_ticket_component(component_id: str, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    # Components are desk-wide configuration with no owner, so removing one
+    # takes a manager (the same manager+ bar as _ticket_privileged) - not any
+    # agent with a tickets grant. Tickets filed under it keep the name.
+    if (user.get("level") or 0) < 3:
+        raise HTTPException(403, "Only a manager can delete a component")
+    c = db.query(models.TaskTicketComponent).filter(models.TaskTicketComponent.id == component_id).first()
+    if not c:
+        raise HTTPException(404, "Component not found")
+    db.delete(c)
     db.commit()
 
 

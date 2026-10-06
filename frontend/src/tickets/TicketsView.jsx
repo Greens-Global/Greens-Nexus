@@ -901,7 +901,7 @@ export default function TicketsView() {
     await Promise.all(selIds.map((id) => updateTicket(id, patch).catch(() => {}))); clearSel();
   };
   const bulkDelete = async () => {
-    if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? Their history is kept and a manager can restore them.`)) return;
     await Promise.all(selIds.map((id) => deleteTicket(id).catch(() => {}))); clearSel();
   };
 
@@ -2957,7 +2957,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const overdue = slaBreached && !CLOSED_STATES.includes(t.status);
 
   const remove = () => {
-    if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? Its history is kept and a manager can restore it.`)) return;
     deleteTicket(t.id).then(onClose).catch((e) => alert(`Could not delete ticket: ${e.message || e}`));
   };
 
@@ -4153,15 +4153,21 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         if (a.type === 'commented') {
           try { comment = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
         }
+        // A deleted comment is logged as JSON too ({internal, text, ...}) -
+        // never with the comment's words; show its `text` and the Internal chip.
+        let removed = null;
+        if (a.type === 'comment_deleted') {
+          try { removed = JSON.parse(a.detail); } catch { /* plain-text row */ }
+        }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
               <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
               <span style={{ color: NX.dim }}>
-                {snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : a.detail}
+                {snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : removed ? (removed.text || 'deleted a comment') : a.detail}
               </span>
-              {comment?.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
+              {(comment?.internal || removed?.internal) && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
               <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
             </div>
             {snapshot && <CreatedSnapshotCard snapshot={snapshot} nameOf={nameOf} companies={companies} allDepts={allDepts} />}

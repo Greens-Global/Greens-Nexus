@@ -873,6 +873,10 @@ def _run_migrations():
             "ALTER TABLE shift_groups ADD COLUMN teams_team_id VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_team_name VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN target_type VARCHAR DEFAULT 'chat'",
+            # Ticket soft delete (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1946,6 +1950,12 @@ def _run_migrations():
         "ALTER TABLE marketing_ads_daily ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_ads_keywords ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_ad_budgets ENABLE ROW LEVEL SECURITY",
+        # Ticket soft delete (Oct 6): DELETE /task-tickets/{id} marks the row
+        # instead of dropping it and its conversation/files/activity; restore
+        # is POST /task-tickets/{id}/restore. models.TaskTicket.deleted_at.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
