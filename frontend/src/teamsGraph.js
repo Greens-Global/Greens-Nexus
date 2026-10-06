@@ -157,11 +157,18 @@ export async function listMyChannels(tok) {
   return out;
 }
 
+// The quiet "Sent by Nexus" line every Nexus post to Teams ends with - the
+// same one the server adds (teams_post.with_signature), so a message Nexus
+// posts as a person never reads as something they typed (Neil, 10/07).
+export const SIGNATURE_MARK = 'data-nexus-sig';
+const SIGNATURE_HTML = `<p ${SIGNATURE_MARK}="1"><span style="color:#8a8886;font-size:12px"><em>Sent by Nexus</em></span></p>`;
+export const withSignature = (html) => (String(html || '').includes(SIGNATURE_MARK) ? String(html || '') : `${html || ''}${SIGNATURE_HTML}`);
+
 export async function postChatMessage(tok, chatId, html) {
   const r = await fetch(`${GRAPH}/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ body: { contentType: 'html', content: html } }),
+    body: JSON.stringify({ body: { contentType: 'html', content: withSignature(html) } }),
   });
   if (!r.ok) throw new Error(`Graph ${r.status}: ${(await r.text()).slice(0, 180)}`);
   return true;

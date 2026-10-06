@@ -396,8 +396,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
                 <Spinner size={12} /> Finding your team chat…
               </div>
             ) : bound ? (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
-                <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
+                  <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
+                </div>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Posted as you, with a small "Sent by Nexus" line at the bottom.</span>
               </div>
             ) : chatErr ? (
               // Couldn't confirm the chat here, but the server resolves it on send -
