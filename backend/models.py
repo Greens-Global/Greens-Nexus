@@ -2163,6 +2163,10 @@ class TimeBod(Base):
     team_name      = Column(String, default="")
     channel_id     = Column(String, default="")
     channel_name   = Column(String, default="")
+    # What channel_id is: a Teams group chat ("chat", every row before Oct 6)
+    # or a channel in team_id ("channel") - teams_post.deliver_row posts to
+    # whichever it names.
+    target_type    = Column(String, default="chat")
     sent           = Column(Integer, default=0)         # 1 = landed in Teams
     send_error     = Column(String, default="")
     created_at     = Column(String, default="")
@@ -2384,8 +2388,15 @@ class ShiftGroup(Base):
     __tablename__ = "shift_groups"
     id              = Column(String, primary_key=True)   # uuid
     name            = Column(String, default="")
-    teams_chat_id   = Column(String, default="")         # bound Teams group chat
+    teams_chat_id   = Column(String, default="")         # bound Teams group chat - or channel id (teams_target)
     teams_chat_name = Column(String, default="")
+    # Where this group's BOD / EOD / Break messages post (Pranshu, 10/06): a
+    # Teams group chat (the original binding) or a channel in a team, for an
+    # organization that runs a channel per department. For "channel",
+    # teams_chat_id/_name hold the CHANNEL and teams_team_* its team.
+    teams_target    = Column(String, default="chat")     # chat | channel
+    teams_team_id   = Column(String, default="")
+    teams_team_name = Column(String, default="")
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     # People who may build THIS group's schedule without team-wide access
