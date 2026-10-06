@@ -1183,6 +1183,8 @@ export const api = {
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
   getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
   getGeofence:       (id)       => req(`/hr/employees/${id}/geofence`),
+  // The Access tab, read only, for a manager looking at their team (Oct 6).
+  getEmployeeAccessRead: (id)   => req(`/hr/employees/${id}/access`),
   setGeofence:       (id, data) => req(`/hr/employees/${id}/geofence`, { method: 'PUT', body: JSON.stringify(data) }),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
