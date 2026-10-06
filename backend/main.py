@@ -849,6 +849,14 @@ def _run_migrations():
             "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
+            # Property Tickets (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN property_name VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN batch_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_cost VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1872,6 +1880,16 @@ def _run_migrations():
         # principal, Internal / External and Egnyte folders per loan. New
         # table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
+        # Property Tickets (Neil, 10/05): a ticket's Asset Management property
+        # (soft link + name snapshot), the walkthrough it was filed in, and its
+        # maintenance vendor/cost. See property_links.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_name VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS batch_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_cost VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2933,3 +2951,5 @@ app.include_router(accounting_mre.router)          # Accounting > Reporting > MR
 from routers import pfs_access, pfs_affiliates  # noqa: E402
 app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
+from routers import property_tickets  # noqa: E402
+app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)

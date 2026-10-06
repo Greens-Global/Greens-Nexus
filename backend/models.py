@@ -3239,6 +3239,20 @@ class TaskTicket(Base):
     # it in. Stamped server-side from the caller, never taken from the payload.
     # Blank on tickets raised before this existed (creator == requester then).
     created_by_email    = Column(String, default="", index=True)
+    # Property Tickets (Neil, 10/05/2026). The Asset Management property this
+    # ticket is about: a SOFT link to PropertyAsset.id (no FK - the workspace
+    # PUT deletes and re-inserts every property row; same as
+    # IrFund.property_asset_id). property_name is the name when linked, shown
+    # after the property is gone. See property_links.py.
+    property_asset_id   = Column(String, default="", index=True)
+    property_name       = Column(String, default="")
+    # The Property Walkthrough this ticket was filed in (TicketBatch.id).
+    batch_id            = Column(String, default="", index=True)
+    # The maintenance record's vendor and cost (optional, set at Resolve).
+    # Cost is a normalized decimal string ("1250.00") like the maintenance
+    # log's own cost field, so Total Spend adds both the same way.
+    maintenance_vendor  = Column(String, default="")
+    maintenance_cost    = Column(String, default="")
 
 
 class TicketEmailLog(Base):
