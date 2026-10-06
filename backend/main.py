@@ -1882,6 +1882,15 @@ def _run_migrations():
         "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_error VARCHAR DEFAULT ''",
         "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
         "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS last_photo_at VARCHAR DEFAULT ''",
+        # Marketing > Google Business Profile (Oct 2026). New tables - RLS per
+        # CLAUDE.md (the token table holds the sealed Google refresh token).
+        "ALTER TABLE marketing_integration_tokens ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_locations ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_reviews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_review_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_listing_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_keywords ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
