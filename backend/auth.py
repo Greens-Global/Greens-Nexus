@@ -653,8 +653,9 @@ def hr_scope(user: dict, db: Session):
 # only the employee-level helpers (hr._in_scope / _scoped / _assert_scope,
 # timeclock._visible_emails) read. On top of that, team_people_gate() lets a
 # manager reach only an allowlist of /hr routes (the People list and profile
-# tabs Overview / Assets / Work Mode / Access / Work Logs, read only), and the
-# manager tier never sees pay - not even with the Compensation grant.
+# tabs Overview / Assets / Work Mode / Access / Work Logs, read only). Pay: the
+# manager tier sees none in Time; Pay & Benefits opens read only for DIRECT
+# reports only, without bank accounts (Oct 7, hr.require_comp_read_or_manager).
 
 
 class TeamScope(frozenset):
@@ -707,6 +708,9 @@ TEAM_ALLOWED_HR_ROUTES = frozenset({
     ("GET", "/hr/employees/{eid}/geofence"),        # Work Mode tab
     ("GET", "/hr/employees/{eid}/bod"),             # Work Logs tab
     ("GET", "/hr/employees/{eid}/access"),          # Access tab, read only
+    ("GET", "/hr/employees/{eid}/compensation"),    # Pay & Benefits, read only - DIRECT reports only,
+    ("GET", "/hr/employees/{eid}/paystubs"),        # no bank accounts (hr.py checks each record; Oct 7)
+    ("GET", "/hr/documents/{did}/url"),             # opening one of those paystubs - nothing else
     ("GET", "/hr/entities"),                        # company names on the cards
     ("GET", "/hr/work-sites"),                      # site names on Work Mode
     ("GET", "/hr/public-holidays"),

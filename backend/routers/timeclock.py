@@ -4872,7 +4872,10 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "schedulers": _schedulers(g), "archived": bool(getattr(g, "archived", 0)),
                         "sortOrder": int(getattr(g, "sort_order", 0) or 0),
-                        "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
+                        "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or "",
+                        # chat | channel; for a channel, chatId/chatName are the CHANNEL.
+                        "teamsTarget": _target_of(g), "teamId": g.teams_team_id or "",
+                        "teamName": g.teams_team_name or ""}
                        for g in _ordered_groups(db)],
             # Groups are changed company-wide only (_require_unscoped_team), so
             # the screen offers New / Edit / Delete to those who can use them.
@@ -4884,8 +4887,33 @@ class GroupIn(BaseModel):
     members: List[str] = []
     teams_chat_id: Optional[str] = None
     teams_chat_name: Optional[str] = None
+    # Channel binding (Oct 6): teams_target "channel" + the channel's team.
+    # teams_chat_id/_name then carry the channel. None = leave as is.
+    teams_target: Optional[str] = None
+    teams_team_id: Optional[str] = None
+    teams_team_name: Optional[str] = None
     schedulers: Optional[List[str]] = None   # None = leave as is
     sort_order: Optional[int] = None         # None = leave as is
+
+
+def _target_of(g) -> str:
+    return "channel" if (getattr(g, "teams_target", "") or "") == "channel" else "chat"
+
+
+def _apply_teams_binding(g, body: "GroupIn") -> None:
+    """Set the group's BOD/EOD destination from the body - a group chat, a
+    channel (which must name its team), or nothing."""
+    if body.teams_chat_id is None:
+        return
+    target = "channel" if (body.teams_target or "chat") == "channel" else "chat"
+    cid = body.teams_chat_id[:200]
+    team_id = (body.teams_team_id or "")[:200]
+    if cid and target == "channel" and not team_id:
+        raise HTTPException(400, "Pick the channel again - its team is missing.")
+    g.teams_chat_id, g.teams_chat_name = cid, (body.teams_chat_name or "")[:200]
+    g.teams_target = target if cid else "chat"
+    g.teams_team_id = team_id if (cid and target == "channel") else ""
+    g.teams_team_name = (body.teams_team_name or "")[:200] if (cid and target == "channel") else ""
 
 
 def _clean_schedulers(db: Session, emails: list) -> str:
@@ -4909,9 +4937,9 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
         raise HTTPException(400, "Name is required")
     members = _clean_members(db, body.members)
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
-                   teams_chat_id=(body.teams_chat_id or "")[:200],
-                   teams_chat_name=(body.teams_chat_name or "")[:200],
+                   teams_chat_id="", teams_chat_name="", teams_target="chat",
                    created_by=user["email"], created_at=_now_iso())
+    _apply_teams_binding(g, body)
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
     g.sort_order = (int(body.sort_order) if body.sort_order is not None
@@ -4932,9 +4960,7 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     members = _clean_members(db, body.members)
     if body.name.strip():
         g.name = body.name.strip()[:80]
-    if body.teams_chat_id is not None:
-        g.teams_chat_id = body.teams_chat_id[:200]
-        g.teams_chat_name = (body.teams_chat_name or "")[:200]
+    _apply_teams_binding(g, body)
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
     if body.sort_order is not None:
@@ -5021,19 +5047,23 @@ def reorder_groups(body: GroupOrderIn, user: dict = Depends(require_shift_manage
     return {"ok": True}
 
 
-def _resolve_group_chat(db: Session, email: str):
-    """The Teams chat bound to this person's first group that has one, as
-    (chat_id, chat_name, group_name). The SERVER-SIDE source of truth, so a
-    client that couldn't fetch it (a network blip) never loses the routing."""
+def _resolve_group_target(db: Session, email: str) -> dict:
+    """Where this person's BOD/EOD/Break posts go: the Teams chat OR channel
+    bound to their first group that has one. The SERVER-SIDE source of truth,
+    so a client that couldn't fetch it (a network blip) never loses the
+    routing. {} when nothing is bound."""
     email = (email or "").lower()
     group_ids = [m.group_id for m in db.query(ShiftGroupMember)
                  .filter(ShiftGroupMember.employee_email == email).all()]
     if not group_ids:
-        return "", "", ""
+        return {}
     g = (db.query(ShiftGroup)
          .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
          .order_by(ShiftGroup.name).first())
-    return (g.teams_chat_id, g.teams_chat_name, g.name) if g else ("", "", "")
+    if not g:
+        return {}
+    return {"type": _target_of(g), "id": g.teams_chat_id, "name": g.teams_chat_name or "",
+            "teamId": g.teams_team_id or "", "teamName": g.teams_team_name or "", "group": g.name}
 
 
 @router.get("/my-chat")
@@ -5041,8 +5071,9 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
     """The Teams group chat this employee's group is bound to - where their
     BOD/EOD/Break messages should route. First group (with a binding) they belong
     to wins. Empty chatId means no binding → the client falls back to a picker."""
-    cid, cname, gname = _resolve_group_chat(db, user["email"])
-    return {"chatId": cid, "chatName": cname, "groupName": gname}
+    t = _resolve_group_target(db, user["email"])
+    return {"chatId": t.get("id", ""), "chatName": t.get("name", ""), "groupName": t.get("group", ""),
+            "targetType": t.get("type", "chat"), "teamId": t.get("teamId", ""), "teamName": t.get("teamName", "")}
 
 
 @router.delete("/shift-groups/{group_id}")
@@ -8359,6 +8390,8 @@ class BodIn(BaseModel):
     team_name: Optional[str] = ""
     channel_id: Optional[str] = ""
     channel_name: Optional[str] = ""
+    # chat | channel (Oct 6). Older clients send nothing = chat, as before.
+    target_type: Optional[str] = "chat"
     sent: Optional[bool] = False     # legacy clients: True = they posted client-side
     send_error: Optional[str] = ""
     tz_offset_min: Optional[int] = 0
@@ -8392,14 +8425,20 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
         row_id = str(uuid.uuid4())
     chan_id = (body.channel_id or "")[:120]
     chan_name = (body.channel_name or "")[:120]
+    target_type = "channel" if (body.target_type or "") == "channel" else "chat"
+    team_id, team_name = (body.team_id or "")[:120], (body.team_name or "")[:120]
+    if target_type == "channel" and chan_id and not team_id:
+        target_type, chan_id, chan_name = "chat", "", ""   # a channel without its team can't post - re-resolve
     # Server-side chat resolution fallback: if the client didn't hand us a chat
     # (its /my-chat lookup blipped - a real prod bug where the BOD then silently
     # posted nowhere), resolve the person's bound chat here so the post still
     # lands. Only for a genuine post, never the "already sent elsewhere" skip.
     if not chan_id and not body.sent:
-        rid, rname, _gn = _resolve_group_chat(db, user["email"])
-        if rid:
-            chan_id, chan_name = rid[:120], (rname or "")[:120]
+        t = _resolve_group_target(db, user["email"])
+        if t.get("id"):
+            chan_id, chan_name = t["id"][:120], (t.get("name") or "")[:120]
+            target_type = t["type"]
+            team_id, team_name = (t.get("teamId") or "")[:120], (t.get("teamName") or "")[:120]
     # Filed under the WORKDAY it reports on (Oct 2, shift_day.py): the day of
     # the shift being worked, so a 2:30 AM End-of-day for a shift that began at
     # 6:30 PM lands on the evening's date, in any time zone. An EOD composed
@@ -8412,8 +8451,8 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
                   local_date=workday,
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],
-                  team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
-                  channel_id=chan_id, channel_name=chan_name,
+                  team_id=team_id, team_name=team_name,
+                  channel_id=chan_id, channel_name=chan_name, target_type=target_type,
                   sent=1 if body.sent else 0,
                   # A stale "no chat" note from the client is wrong once we've resolved one.
                   send_error=("" if chan_id else (body.send_error or "")[:300]),
@@ -8508,6 +8547,50 @@ def my_chats(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     return {"chats": out, "reason": ""}
 
 
+@router.get("/my-channels")
+def my_channels(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's Teams channels - every channel of every team they belong
+    to - for binding a group's BOD/EOD to a channel (Pranshu, 10/06). Listed
+    SERVER-SIDE with the channel token (bff_session.GRAPH_CHANNEL_SCOPES), the
+    same way /my-chats lists chats. {"channels": [...], "reason": ""}; reason
+    set when no token can be minted (usually: admin consent for the channel
+    permissions not granted yet) so the client can fall back to MSAL and say
+    why. Sync def: outbound HTTP stays off the event loop."""
+    import bff_session
+    email = (user.get("email") or "").lower()
+    try:
+        tok = bff_session.graph_token_for_email(db, email, bff_session.GRAPH_CHANNEL_SCOPES)
+    except Exception as e:  # noqa: BLE001 - a failed mint is a reason, not a 500
+        return {"channels": [], "reason": f"could not mint a Graph channel token from your session ({type(e).__name__})"}
+    if not tok:
+        return {"channels": [], "reason": "no channel permission yet - an admin must consent to ChannelMessage.Send, "
+                                          "Team.ReadBasic.All and Channel.ReadBasic.All"}
+    hdr = {"Authorization": f"Bearer {tok}"}
+    try:
+        r = httpx.get("https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id,displayName", headers=hdr, timeout=15)
+    except Exception as e:  # noqa: BLE001
+        return {"channels": [], "reason": f"Graph unreachable ({type(e).__name__})"}
+    if r.status_code >= 400:
+        return {"channels": [], "reason": f"Graph {r.status_code}: {r.text[:160]}"}
+    out = []
+    teams = sorted((r.json() or {}).get("value", []), key=lambda t: (t.get("displayName") or "").lower())[:60]
+    for t in teams:
+        try:
+            c = httpx.get(f"https://graph.microsoft.com/v1.0/teams/{t['id']}/channels"
+                          "?$select=id,displayName,membershipType", headers=hdr, timeout=15)
+        except Exception:  # noqa: BLE001 - one team failing never hides the rest
+            continue
+        if c.status_code >= 400:
+            continue
+        chans = sorted((c.json() or {}).get("value", []),
+                       key=lambda x: (x.get("displayName") != "General", (x.get("displayName") or "").lower()))
+        for ch in chans:
+            out.append({"teamId": t["id"], "teamName": t.get("displayName") or "Team",
+                        "channelId": ch.get("id"), "channelName": ch.get("displayName") or "Channel",
+                        "membershipType": ch.get("membershipType") or "standard"})
+    return {"channels": out, "reason": ""}
+
+
 @router.get("/bod/last")
 def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The employee's previous BOD post - prefills the channel picker."""
@@ -8516,7 +8599,8 @@ def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     if not row:
         return None
     return {"teamId": row.team_id, "teamName": row.team_name,
-            "channelId": row.channel_id, "channelName": row.channel_name}
+            "channelId": row.channel_id, "channelName": row.channel_name,
+            "targetType": getattr(row, "target_type", "") or "chat"}
 
 
 # Sensible starters used until a person has posted their first BOD/EOD, after

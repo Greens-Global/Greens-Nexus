@@ -1051,7 +1051,9 @@ function StatCard({ label, value, sub, tone }) {
 
 // Restricted read view of pay/benefits/bank; edit opens the full CompensationModal.
 // reloadToken bumps after the modal closes so saved changes show without a reload.
-function PayTab({ employee, reloadToken, onEdit }) {
+// `readOnly` (Oct 7): a manager viewing a direct report - no Edit, no upload
+// or delete, and no bank accounts (the server sends none to them either).
+function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   const [data, setData] = useState(null);
   const [stubs, setStubs] = useState([]);
   const [stubPeriod, setStubPeriod] = useState('');
@@ -1109,8 +1111,8 @@ function PayTab({ employee, reloadToken, onEdit }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> Restricted · compensation grant</span>
-        <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> {readOnly ? 'Read only · your direct report' : 'Restricted · compensation grant'}</span>
+        {!readOnly && <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>}
       </div>
       {!data ? (
         <SkeletonBlocks count={4} height={44} />
@@ -1154,13 +1156,13 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {(data.comp.benefits || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.comp.benefits.map((bn, i) => row2(`bn${i}`, label(BENEFIT_TYPES, bn.type), [bn.plan, bn.deduction && `${money(bn.deduction, data.comp.currency)}/paycheck`, bn.note].filter(Boolean).join(' · ')))}
-          {sectionLabel('Bank accounts')}
-          {data.bank.length === 0
+          {!readOnly && sectionLabel('Bank accounts')}
+          {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
-            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · ')))}
+            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
 
           {sectionLabel('Paystubs')}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          {!readOnly && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
             <input className="form-input" placeholder='Pay period, e.g. "Jun 16 – Jun 30, 2026"' value={stubPeriod}
               onChange={e => setStubPeriod(e.target.value)} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
             <input ref={stubFileRef} type="file" accept="application/pdf" style={{ display: 'none' }}
@@ -1169,9 +1171,9 @@ function PayTab({ employee, reloadToken, onEdit }) {
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               {stubBusy ? 'Uploading…' : 'Upload PDF'}
             </button>
-          </div>
+          </div>}
           {stubs.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None uploaded. The employee sees these under My HR.</div>
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{readOnly ? 'None uploaded.' : 'None uploaded. The employee sees these under My HR.'}</div>
             : stubs.map(s => (
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
                 <FileText size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -1179,9 +1181,9 @@ function PayTab({ employee, reloadToken, onEdit }) {
                   {s.fileName}
                 </button>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
-                <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                {!readOnly && <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                   <Trash2 size={13} />
-                </button>
+                </button>}
               </div>
             ))}
         </>
@@ -1593,9 +1595,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
     </div>
   );
-  // A manager looking at their team (Oct 6) gets five tabs, read only.
+  // A manager looking at their team (Oct 6) gets five tabs, read only - plus
+  // Pay & Benefits, read only, for their DIRECT reports (Oct 7).
+  const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
   const tabs = (teamView ? [
     ['overview', 'Overview', Contact],
+    directReport && ['pay', 'Pay & Benefits', Wallet],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['access', 'Access', Shield],
@@ -1727,7 +1732,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
-        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
+        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : mgrEmail ? `reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : 'no manager'} />
         <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
         {teamView ? null : expiry
           ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
@@ -1768,7 +1773,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
-              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
+              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
               {e.notes && row(FileText, 'Notes', e.notes)}
             </div>
@@ -1790,8 +1795,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           </>
         )}
 
-        {tab === 'pay' && canSeeComp && (
-          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} />
+        {tab === 'pay' && (canSeeComp || directReport) && (
+          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} readOnly={teamView} />
         )}
 
         {tab === 'compliance' && (

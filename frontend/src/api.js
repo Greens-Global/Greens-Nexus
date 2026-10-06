@@ -1359,6 +1359,8 @@ export const api = {
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
+  // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
+  timeMyChannels:    ()          => req('/timeclock/my-channels', { timeoutMs: 45000 }),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
   policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
@@ -1952,6 +1954,19 @@ export const api = {
   getGbpPhotos: (key) => req(`/marketing/gbp/locations/${key}/photos`),
   addGbpPhoto: (key, file, category) => { const fd = new FormData(); fd.append('file', file); fd.append('category', category); return req(`/marketing/gbp/locations/${key}/photos`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
   deleteGbpPhoto: (key, id) => req(`/marketing/gbp/locations/${key}/photos/${id}`, { method: 'DELETE' }),
+  // Property Tickets (Neil, 10/05) - routers/property_tickets.py: the property
+  // picker for ticket forms (names only, open to anyone who can raise one).
+  getTicketProperties:    () => cachedGet('/ticket-properties', 120_000),
+  // Property Walkthrough (routers/ticket_walkthroughs.py). Never retried here
+  // (mutations aren't); the form's batch_id makes a manual retry safe instead.
+  createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
+  // A property's tickets for Asset Management > Maintenance, and Follow.
+  getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
+  followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
+  // Maintenance record + recurring services (Pranshu, 10/06).
+  addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
+  updateMaintenanceService: (id, serviceId, body) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  openMaintenanceServiceNow: (id, serviceId) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}/open-now`, { method: 'POST' }),
   // Marketing > Google Ads, read-only (backend/routers/marketing_ads.py).
   getAdsStatus: () => req('/marketing/ads/status'),
   startAdsConnect: () => req('/marketing/ads/oauth/start', { method: 'POST' }),

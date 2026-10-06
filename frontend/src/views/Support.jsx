@@ -16,7 +16,7 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 import {
   Ticket, Users, ArrowUpRight, Shield, FileSignature, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw,
+  Pencil, CheckCircle2, RotateCcw, ClipboardList,
 } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
@@ -79,6 +79,10 @@ const TicketComposer = lazy(async () => {
 // auto-scoped server-side to "my tickets" for anyone without the desk grant -
 // so mounting it directly here shows exactly what the Ticket module would,
 // without needing the module's own access grant.
+// Property Walkthrough (Neil, 10/05) - shown only to people who may run one
+// (the desk, the Asset Management team, admins; /ticket-properties says).
+// Needs no TasksProvider: it saves through api directly.
+const WalkthroughComposer = lazy(() => import('../tickets/PropertyWalkthrough'));
 const TicketDetail = lazy(async () => {
   const [{ TasksProvider }, { TicketDrawer }] = await Promise.all([
     import('../tasks/TasksContext'),
@@ -155,6 +159,13 @@ export default function Support({ activeSub, onSubChange }) {
   const tab = activeSub === 'documentation' ? 'documentation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
+  const [walking, setWalking] = useState(false);
+  const [canWalk, setCanWalk] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.getTicketProperties().then((r) => { if (live) setCanWalk(!!r?.canWalkthrough); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
   // { id, edit } - `edit` opens the drawer straight into its editor (the pencil).
   const [viewing, setViewing] = useState(null);
   const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), []);
@@ -250,6 +261,9 @@ export default function Support({ activeSub, onSubChange }) {
   const OPTIONS = [
     { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
+    ...(canWalk ? [{ icon: ClipboardList, title: 'Property Walkthrough',
+      desc: 'Walking a property? Log every issue line by line - each one becomes its own ticket.',
+      onOpen: () => setWalking(true) }] : []),
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
     // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
@@ -531,6 +545,12 @@ export default function Support({ activeSub, onSubChange }) {
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
           <TicketComposer onClose={() => { setSubmitting(false); load(); }} />
+        </Suspense>
+      )}
+
+      {walking && (
+        <Suspense fallback={<ModalLoading />}>
+          <WalkthroughComposer onClose={() => { setWalking(false); load(); }} />
         </Suspense>
       )}
 
