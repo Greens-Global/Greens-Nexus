@@ -138,6 +138,19 @@ KNOWN_SLOTS = [
         "default": "",
         "overrides": None,
     },
+    {
+        "slot": "documents.import-roots",
+        "group": "Documents",
+        "label": "Import from Egnyte roots",
+        "description": "The only folders the Documents and E-Sign 'Import from Egnyte' picker "
+                       "can browse or read, with everything beneath them. It reads with the "
+                       "service account, so anything outside these is off limits to it.",
+        "kind": "csv",
+        "placeholders": [],
+        "env": ["EGNYTE_IMPORT_ROOTS"],
+        "default": "/Shared",
+        "overrides": None,
+    },
 ]
 
 _SLOT_IDS = {s["slot"] for s in KNOWN_SLOTS}
