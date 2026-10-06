@@ -35,7 +35,8 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import require_level, require_level_or_module, scoped_ids, invalidate_role_cache
+from auth import (require_level_or_module, scoped_ids, invalidate_role_cache,
+                  get_current_user, _module_level, _MODULE_LEVEL_RANK)
 from models import (
     IrCapitalCall,
     IrCapitalCallAllocation,
@@ -57,13 +58,32 @@ router = APIRouter(prefix="/investor-relations", tags=["Investor Relations"])
 
 _LEVELS = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 
-# Supervisors+ can view; managers (or an "investor-relations" editor grant) can
-# edit; administrators (or a "full" grant) can delete/seed - mirrors items.py.
+# Viewing takes an explicit "investor-relations" grant at supervisor+ (or an
+# administrator role); managers (or an editor grant) can edit; administrators
+# (or a "full" grant) can delete/seed - mirrors items.py.
 # These are the GP-admin gates ONLY - an investor-portal grant (below) never
 # satisfies them, so a portal account can never reach the admin endpoints that
 # list every investor/deal. See "Investor portal" section further down for the
 # separate, deliberately narrower gate those endpoints use instead.
-require_ir_view  = require_level(_LEVELS["supervisor"])
+def require_ir_view(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Read access to the GP side: investor PII, KYC, commitments, capital
+    accounts, data-room links (Sep 30 review: it was every supervisor, no grant).
+
+    Admits exactly who can open the Investor Relations screen (App.jsx
+    ProtectedView: administrator+, or an Access Group grant on the module),
+    keeping the supervisor floor. That floor is what keeps portal investors
+    out: the "Investor" group hands them the same viewer grant, but they are
+    external accounts and so always level 1 (auth.apply_external_policy).
+    """
+    level = user.get("level", 0)
+    if level >= _LEVELS["administrator"]:
+        return user
+    if (level >= _LEVELS["supervisor"] and not user.get("external")
+            and _module_level(user["email"], "investor-relations", db) >= _MODULE_LEVEL_RANK["viewer"]):
+        return user
+    raise HTTPException(status_code=403, detail="You don't have access to Investor Relations")
+
+
 require_ir_edit  = require_level_or_module(_LEVELS["manager"], "investor-relations", "editor")
 require_ir_admin = require_level_or_module(_LEVELS["administrator"], "investor-relations", "full")
 
