@@ -3239,6 +3239,12 @@ class TaskTicket(Base):
     # it in. Stamped server-side from the caller, never taken from the payload.
     # Blank on tickets raised before this existed (creator == requester then).
     created_by_email    = Column(String, default="", index=True)
+    # Soft delete (Oct 2026): deleting a ticket marks it instead of dropping it
+    # with its conversation, files and activity, so it can be restored and the
+    # trail survives. Non-empty deleted_at = hidden everywhere by the hook in
+    # database.py; .execution_options(include_deleted=True) sees it.
+    deleted_at          = Column(String, default="", index=True)
+    deleted_by          = Column(String, default="")
 
 
 class TicketEmailLog(Base):

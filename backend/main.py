@@ -849,6 +849,10 @@ def _run_migrations():
             "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
+            # Ticket soft delete (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1872,6 +1876,12 @@ def _run_migrations():
         # principal, Internal / External and Egnyte folders per loan. New
         # table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
+        # Ticket soft delete (Oct 6): DELETE /task-tickets/{id} marks the row
+        # instead of dropping it and its conversation/files/activity; restore
+        # is POST /task-tickets/{id}/restore. models.TaskTicket.deleted_at.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
