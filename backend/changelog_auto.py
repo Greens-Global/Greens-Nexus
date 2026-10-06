@@ -213,6 +213,18 @@ def status(db) -> dict:
     }
 
 
+def record_manual(db, result: dict) -> None:
+    """Generate from git runs the same generation by hand: record its outcome
+    where the status line reads it, so a click shows the same health as the
+    scheduled sweep. The schedule (next_run_at) is left alone."""
+    now = _now().isoformat()
+    if result.get("error"):
+        _write_state(db, {"last_error": str(result["error"])[:300], "last_error_at": now})
+    else:
+        _write_state(db, {"last_run_at": now, "last_created": result.get("created", 0),
+                          "last_reason": "manual", "last_error": ""})
+
+
 # ── One sweep (sync - always called via asyncio.to_thread) ─────────────────
 
 def _sweep() -> dict | None:
