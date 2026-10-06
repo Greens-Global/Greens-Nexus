@@ -849,6 +849,30 @@ def _run_migrations():
             "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
+            # Marketing > Google Business Profile performance sync (Oct 2026)
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_synced_at VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_error VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN photo_count INTEGER DEFAULT 0",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN last_photo_at VARCHAR DEFAULT ''",
+            # Property Tickets (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN property_name VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN batch_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_cost VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+            # Property maintenance records + recurring services (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_locked INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN parent_ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN service_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+            "ALTER TABLE ticket_maintenance_records ADD COLUMN currency VARCHAR DEFAULT 'USD'",
+            # BOD/EOD to a Teams channel (Oct 6) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN teams_target VARCHAR DEFAULT 'chat'",
+            "ALTER TABLE shift_groups ADD COLUMN teams_team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN teams_team_name VARCHAR DEFAULT ''",
+            "ALTER TABLE time_bod ADD COLUMN target_type VARCHAR DEFAULT 'chat'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1872,6 +1896,56 @@ def _run_migrations():
         # principal, Internal / External and Egnyte folders per loan. New
         # table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
+        # Marketing > Google Business Profile performance sync (Oct 2026)
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_synced_at VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_error VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS last_photo_at VARCHAR DEFAULT ''",
+        # Marketing > Google Business Profile (Oct 2026). New tables - RLS per
+        # CLAUDE.md (the token table holds the sealed Google refresh token).
+        "ALTER TABLE marketing_integration_tokens ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_locations ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_reviews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_review_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_listing_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_keywords ENABLE ROW LEVEL SECURITY",
+        # Property Tickets (Neil, 10/05): a ticket's Asset Management property
+        # (soft link + name snapshot), the walkthrough it was filed in, and its
+        # maintenance vendor/cost. See property_links.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_name VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS batch_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_cost VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+        # Property Walkthrough (Neil, 10/05): one row per batch submit. New
+        # table - RLS per CLAUDE.md (dev AND prod).
+        "ALTER TABLE ticket_batches ENABLE ROW LEVEL SECURITY",
+        # Property maintenance records + recurring services (Pranshu, 10/06):
+        # a ticket raised from the property keeps it; a child ticket opened by
+        # a recurring service points at its parent. Two new tables - RLS.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_locked INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS parent_ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+        "ALTER TABLE ticket_maintenance_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE property_maintenance_services ENABLE ROW LEVEL SECURITY",
+        # The record's cost in any world currency (ISO 4217), totals kept per currency.
+        "ALTER TABLE ticket_maintenance_records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD'",
+        # BOD/EOD to a Teams channel (Pranshu, 10/06): a group binds a group
+        # chat OR a channel; each queued post records which it targets.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_target VARCHAR DEFAULT 'chat'",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_team_name VARCHAR DEFAULT ''",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS target_type VARCHAR DEFAULT 'chat'",
+        # Marketing > Google Ads (Oct 2026). New tables - RLS per CLAUDE.md.
+        "ALTER TABLE marketing_ads_accounts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_campaigns ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_keywords ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ad_budgets ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2188,6 +2262,10 @@ async def lifespan(app: FastAPI):
                 file=_sys.stderr,
             )
             _sys.exit(1)
+    # Same rule for the session/token encryption key: no repo-known fallback
+    # on a deployed instance (secret_box.py, Sep 30 review).
+    import secret_box as _secret_box
+    _secret_box.require_key_on_azure()
 
     try:
         models.Base.metadata.create_all(bind=engine)
@@ -2523,6 +2601,29 @@ async def lifespan(app: FastAPI):
                 print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
+        # Google Business Profile mirror (Marketing, Oct 2026): locations and
+        # reviews every 30 minutes. Deployed worker only - one connected Google
+        # account, and a laptop must not spend its quota or race the deploy.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from gbp import gbp_sync_loop
+                _tasks.append(_a.create_task(gbp_sync_loop()))
+            else:
+                print("[startup] Google Business Profile sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Business Profile sync skipped: {e}")
+        # Google Ads mirror (Marketing, Oct 2026): spend per campaign per day,
+        # every 2 hours. Deployed worker only, for the same reasons.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from google_ads import google_ads_sync_loop
+                _tasks.append(_a.create_task(google_ads_sync_loop()))
+            else:
+                print("[startup] Google Ads sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Ads sync skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -2950,3 +3051,13 @@ app.include_router(accounting_mre.router)          # Accounting > Reporting > MR
 from routers import pfs_access, pfs_affiliates  # noqa: E402
 app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
 app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
+from routers import marketing_gbp  # noqa: E402
+app.include_router(marketing_gbp.router)           # Marketing > Google Business Profile: listings, reviews, replies (Oct 2026)
+app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import property_tickets  # noqa: E402
+app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
+from routers import ticket_walkthroughs  # noqa: E402
+app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrough - many tickets at one property in one submit (Neil, 10/05)
+from routers import marketing_ads  # noqa: E402
+app.include_router(marketing_ads.router)           # Marketing > Google Ads: spend per campaign, budgets (read-only, Oct 2026)
+app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token

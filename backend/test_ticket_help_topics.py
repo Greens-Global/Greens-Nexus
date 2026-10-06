@@ -198,6 +198,22 @@ class HelpTopicsAndOrderTests(unittest.TestCase):
         self.assertEqual(list(self._it_topics()), ["Sage Intacct"])
         self.assertNotIn("options", self._it_topics()["Sage Intacct"])
 
+    def test_a_saved_v2_list_gains_only_the_v3_maintenance_topics(self):
+        """Property Walkthrough (Oct 2026): a v2 config gets Painting, Flooring
+        or Tile, Appliances and Railings or Stairs on its building group - and
+        nothing else is re-applied (an IT topic's removed options stay removed)."""
+        import json
+        self.db.add(models.NexusSetting(key="ticket_taxonomy_config", value=json.dumps({
+            "helpTopicsVersion": 2, "helpTopics": [
+                {"label": "IT", "departments": ["it"], "topics": [{"name": "Sage Intacct", "area": "finance"}]},
+                {"label": "Maintenance", "departments": ["maintenance"],
+                 "topics": [{"name": "Signs", "area": "facilities"}, {"name": "Painting", "area": "facilities"}]}]})))
+        self.db.commit()
+        groups = ticket_taxonomy.get_config(self.db)["helpTopics"]
+        self.assertEqual(groups[0]["topics"], [{"name": "Sage Intacct", "area": "finance"}])
+        self.assertEqual([tp["name"] for tp in groups[1]["topics"]],
+                         ["Signs", "Painting", "Flooring or Tile", "Appliances", "Railings or Stairs"])
+
     def test_tickets_under_a_renamed_topic_keep_their_area(self):
         self.assertEqual(ticket_taxonomy.topic_area(self.db, "Cameras or Gate Access"), "security")
         self.assertEqual(ticket_taxonomy.topic_area(self.db, "Microsoft 365 (Outlook, Teams, OneDrive)"), "email")

@@ -408,7 +408,7 @@ export default function TimeclockWidget() {
   const right = 18;
 
   return (
-    <div ref={wrapRef} style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
+    <div ref={wrapRef} className="tc-capsule" style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 232,

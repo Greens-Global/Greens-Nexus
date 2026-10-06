@@ -1774,9 +1774,12 @@ mark.search-hit {
 
   /* Dialogs become BOTTOM SHEETS on phones â€” slide up from the bottom edge,
      full width, rounded top, scrollable. Every modal positions itself with
-     inline styles, so !important is required to win the cascade. */
-  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) { align-items: flex-end !important; padding: 0 !important; }
-  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div {
+     inline styles, so !important is required to win the cascade.
+     Skipped: .nx-sheet (tasks/components.jsx Modal and tasks/MobileTaskBar.jsx
+     BottomSheet put role="dialog" on a panel they already shape for phones)
+     and .guided-tour (a spotlight overlay, not a sheet). */
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu):not(.nx-sheet):not(.guided-tour) { align-items: flex-end !important; padding: 0 !important; }
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu):not(.nx-sheet):not(.guided-tour) > div {
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -1786,7 +1789,7 @@ mark.search-hit {
     animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
   }
   /* grab-bar affordance, like native sheets */
-  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div::before {
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu):not(.nx-sheet):not(.guided-tour) > div::before {
     content: '';
     display: block;
     width: 44px;
@@ -1863,8 +1866,25 @@ html { overflow-x: hidden; }
   .mobile-nav-item:active { background: var(--mist); transform: scale(0.94); }
   .mobile-nav-item.active { color: var(--ink); }
   .mobile-nav-item.active svg { color: hsl(var(--color-green)); }
-  /* content must never hide behind the bar */
-  .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* content must never hide behind the bar - reserved only when the bar is
+     actually there. MobileNav renders nothing on screens without bottom
+     actions (Tickets, Dashboard...), and the old unconditional padding left a
+     dead strip at the foot of those. The <nav> is an earlier sibling of
+     <main> in App.jsx's .app-container, so a sibling selector sees it.
+     A screen with a floating round + button (.fab - Purchase's request log)
+     keeps the room too, or its last rows end under the button. So does the
+     Time Clock capsule (.tc-capsule, components/TimeclockWidget.jsx: fixed
+     18px off the bottom-right corner while someone is clocked in), which
+     otherwise sits on the right end of the last row of Tickets, Support...
+     It renders outside .app-container (an earlier sibling in App.jsx), so
+     body:has() is what sees it. */
+  .mobile-nav ~ .main-content,
+  .main-content:has(.fab),
+  body:has(.tc-capsule) .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* A floating module bar with no nav under it (Tickets) sits at the screen
+     edge; with the capsule in the corner it lifts above it instead of
+     covering it (tasks/MobileTaskBar.jsx reads this). */
+  body:has(.tc-capsule) { --nx-float-lift: 56px; }
 }
 
 /* ── adidas-style mobile chrome ──────────────────────────────────────────────
@@ -2996,8 +3016,13 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-card-grid { gap: 10px !important; }
 
   /* Page bodies across both modules (My Tasks, Projects, Portfolios, Teams,
-     Changelog, Tickets). */
-  .nx-gutter { padding: 8px 0 !important; }
+     Changelog, Tickets). Top and sides only: the bottom is the body's own
+     inline padding. My Tasks and Tickets set it to clear the floating bar
+     (MobileTaskBar) so the last rows can scroll out from under it, and the
+     old `padding: 8px 0 !important` flattened that to 8px and hid them.
+     The other bodies keep their inline bottom too (12-76px, a little more
+     room after the last card than the 8px they had). */
+  .nx-gutter { padding-top: 8px !important; padding-left: 0 !important; padding-right: 0 !important; }
 
   /* A full-width card has nothing to round against, so square the corners and
      drop the side borders - it reads as a native list rather than a card that
@@ -3110,6 +3135,11 @@ button, [role="button"], select { touch-action: manipulation; }
 /* Task description editor (tasks/RichDescription.jsx). Scoped to .nx-rich so it
    can't reach the Document Builder's own .doc-editor ProseMirror styles. */
 .nx-rich .ProseMirror { outline: none; font-size: 13.5px; line-height: 1.55; color: var(--ink, #111827); }
+/* Phones: 16px, or iOS zooms the page when the reply / description editor
+   takes focus. */
+@media (max-width: 640px) {
+  .nx-rich .ProseMirror { font-size: 16px; }
+}
 .nx-rich .ProseMirror > *:first-child { margin-top: 0; }
 .nx-rich .ProseMirror > *:last-child { margin-bottom: 0; }
 .nx-rich .ProseMirror p { margin: 0 0 8px; }

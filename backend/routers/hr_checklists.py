@@ -42,8 +42,11 @@ router = APIRouter(prefix="/hr/checklists", tags=["hr-checklists"])
 
 
 def _is_hr_editor(user: dict, db: Session) -> bool:
+    # The manager tier works only its own steps here, People grant or not (Oct 6).
+    from auth import hr_team_limited
     return (user.get("level", 0) >= _LEVELS["administrator"]
-            or _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"])
+            or (not hr_team_limited(user)
+                and _module_level(user["email"], "hr", db) >= _MODULE_LEVEL_RANK["editor"]))
 
 
 def _employee_in_scope(db: Session, eid: str, user: dict) -> NexusEmployee:

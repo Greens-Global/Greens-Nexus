@@ -208,7 +208,9 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         try {
           const my = await api.timeMyChat();
           if (!live) return;
-          if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
+          // A group chat, or a channel in a team (Oct 6) - the server says which.
+          if (my?.chatId) setBound({ id: my.chatId, name: my.targetType === 'channel' ? `${my.teamName || 'Team'} › ${my.chatName}` : my.chatName,
+            channelName: my.chatName, type: my.targetType || 'chat', teamId: my.teamId || '', teamName: my.teamName || '' });
           setChatErr(false); setLoading(false);
           return;
         } catch (_) {
@@ -291,7 +293,8 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // while the punch seconds later went through (Amy and Vicki, 09/16/2026).
     const r = await bodDurable({
       id: msgId,
-      kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
+      kind: mode, message, tasks, channel_id: targetId, channel_name: bound?.channelName || targetName,
+      target_type: bound?.type || 'chat', team_id: bound?.teamId || '', team_name: bound?.teamName || '',
       // ALWAYS send the composed message. If our chat lookup blipped (targetId
       // empty), the SERVER resolves the person's bound chat and posts it - a
       // transient client failure can no longer silently drop the Teams post.

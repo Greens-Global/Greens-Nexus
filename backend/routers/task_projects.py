@@ -920,12 +920,56 @@ def create_team(body: TeamBody, user: dict = Depends(get_current_user),
     return team_to_dict(d)
 
 
+def _require_team_edit(db: Session, user: dict, d: models.TaskTeam, data: dict) -> None:
+    """Who may PATCH a team (Sep 30 review: the endpoint had no check at all).
+
+    - A manager may change any team - the same cutoff list_teams and
+      create_team use to tell a workspace team from a personal one.
+    - The creator may change their own team while it is unapproved (personal
+      or pending) - the same person request_team_approval accepts.
+    - Anybody else may only move the team on or off projects they OWN: that is
+      the project Share panel and the project form attaching a workspace team
+      to their project. They may not touch its name, members or icon, and may
+      not change its access_role, which applies on every project the team
+      serves (resending the current role is not a change).
+
+    Whatever the route, a non-manager can only ADD a project they own: a team
+    hands its members access to its projects, so listing somebody else's
+    restricted project would be a way in.
+    """
+    if is_manager(user):
+        return
+    me = (user.get("email") or "").lower()
+    is_creator = bool(me) and (d.created_by or "").lower() == me and not team_is_approved(d)
+    if not is_creator:
+        allowed = {"project_ids", "project_id"}
+        if data.get("access_role") in (None, d.access_role or "editor"):
+            allowed.add("access_role")
+        if set(data) - allowed:
+            raise HTTPException(403, "Only a manager or the team's creator can change this team.")
+    if "project_ids" not in data and "project_id" not in data:
+        return
+    new_ids = data["project_ids"] if "project_ids" in data else [data["project_id"]]
+    new_ids = {(p or "").strip() for p in (new_ids or []) if (p or "").strip()}
+    old_ids = set(team_project_ids(d))
+    # The creator of an unapproved team may drop a project from it (that only
+    # withdraws grants); everybody else answers for each project they move.
+    changed = (new_ids - old_ids) if is_creator else (new_ids ^ old_ids)
+    for pid in changed:
+        proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+        if not proj:
+            raise HTTPException(404, "Project not found")
+        require_project_role(db, user, proj, "owner")
+
+
 @router.patch("/task-teams/{team_id}")
-def update_team(team_id: str, body: TeamBody, db: Session = Depends(get_db)):
+def update_team(team_id: str, body: TeamBody, user: dict = Depends(get_current_user),
+                db: Session = Depends(get_db)):
     d = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
     if not d:
         raise HTTPException(404, "Team not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    _require_team_edit(db, user, d, data)
     # Projects go through _set_team_projects so the legacy mirror can never
     # drift from the list; a lone project_id from an old client is treated as
     # "this team's projects are exactly [that one]", which is what it meant.
