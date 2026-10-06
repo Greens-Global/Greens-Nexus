@@ -40,6 +40,8 @@ PLAIN = {"email": "amy@greensglobal.com", "role": "employee", "level": 1}
 MANAGER = "ankush@greensglobal.com"
 WALKER = {"email": "pranshu@greensglobal.com", "role": "employee", "level": 2}
 DESK2 = "visesh@greensglobal.com"
+EDITOR = {"email": "sagar@greensglobal.com", "role": "employee", "level": 2}
+MANAGER_USER = {"email": MANAGER, "role": "employee", "level": 2}
 
 
 class PropertyTicketTests(unittest.TestCase):
@@ -62,13 +64,16 @@ class PropertyTicketTests(unittest.TestCase):
                   models.PropertyAsset, models.HrDepartment, models.PropertyRecord,
                   models.PropertyActivityLog, models.PropertyWorkspaceMeta):
             self.db.query(m).delete()
-        for email in (ADMIN["email"], PLAIN["email"], MANAGER, WALKER["email"], DESK2):
+        for email in (ADMIN["email"], PLAIN["email"], MANAGER, WALKER["email"], DESK2, EDITOR["email"]):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=email.split("@")[0], work_email=email,
                                              status="active", identity_type="internal"))
         for email in (ADMIN["email"], DESK2):   # no desk roster configured -> administrators
             self.db.add(models.NexusRole(email=email, role="administrator"))
         self.db.add(models.NexusGroup(id="g-asset", name="Asset Team", allowed_modules="property-asset:viewer"))
         self.db.add(models.NexusGroupMember(group_id="g-asset", email=WALKER["email"]))
+        self.db.add(models.NexusGroupMember(group_id="g-asset", email=MANAGER))
+        self.db.add(models.NexusGroup(id="g-asset-ed", name="Asset Editors", allowed_modules="property-asset:editor"))
+        self.db.add(models.NexusGroupMember(group_id="g-asset-ed", email=EDITOR["email"]))
         self.db.add(models.HrDepartment(id="d-fac", company_id="c1", name="Construction & Maintenance"))
         self.db.add(models.HrDepartment(id="d-hr", company_id="c1", name="Human Resources"))
         contacts = {"pm / asset manager": {"email": MANAGER}}
@@ -81,6 +86,11 @@ class PropertyTicketTests(unittest.TestCase):
         self.db.add(models.PropertyAsset(id="truck", name="F-250", asset_type="Vehicle", payload={"kind": "vehicle"}))
         self.db.add(models.PropertyAsset(id="old", name="Sold Lot", payload={"kind": "property", "deleted": True}))
         self.db.add(models.PropertyAsset(id="vault", name="Private Deal", payload={"kind": "property", "private": True}))
+        # Parcels of GST a plain viewer must not see through the roll-up.
+        self.db.add(models.PropertyAsset(id="gst-secret", name="Secret Parcel", parent_id="gst",
+                                         payload={"kind": "property", "private": True}))
+        self.db.add(models.PropertyAsset(id="gst-sold", name="Sold Parcel", parent_id="gst",
+                                         payload={"kind": "property", "deleted": True}))
         self.db.commit()
         cache.module_grants.invalidate()
 
@@ -321,6 +331,72 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(to, sorted({MANAGER, ADMIN["email"], DESK2}))
         self.assertTrue(all(kw["subject"] == "5 new tickets at Greens Storage Temecula - Property Walkthrough"
                             for kw in sent))
+
+    # ── Asset Management: a property's tickets ──
+    def test_open_history_and_closed_without_work(self):
+        out, _ = self._walk([self._line("Leak", "Plumbing or Water Leak"), self._line("Dup"), self._line("Paint")],
+                            user=ADMIN)
+        leak, dup, _paint = (t["id"] for t in out["tickets"])
+        T.update_ticket(leak, T.TicketUpdate(status="resolved", resolution_note="Replaced trap", maintenance_cost="180"),
+                        BackgroundTasks(), user=ADMIN, db=self.db)
+        T.update_ticket(dup, T.TicketUpdate(status="closed", resolution="duplicate", resolution_note="Same as the leak"),
+                        BackgroundTasks(), user=ADMIN, db=self.db)
+        view = P.property_tickets("gst", user=ADMIN, db=self.db)
+        self.assertEqual(len(view["open"]), 1)
+        recs = {h["id"]: h for h in view["history"]}
+        self.assertTrue(recs[leak]["maintenanceRecord"])
+        self.assertEqual(recs[leak]["system"], "Plumbing")
+        self.assertFalse(recs[dup]["maintenanceRecord"])
+        self.assertEqual(view["spend"], "180.00")
+        # Reopened: back in Open, out of history; vendor/cost kept for the next resolve.
+        T.update_ticket(leak, T.TicketUpdate(status="reopened", reopen_reason="Dripping again"),
+                        BackgroundTasks(), user=ADMIN, db=self.db)
+        view = P.property_tickets("gst", user=ADMIN, db=self.db)
+        self.assertIn(leak, [o["id"] for o in view["open"]])
+        self.assertEqual(self.db.get(models.TaskTicket, leak).maintenance_cost, "180.00")
+
+    def test_a_ticket_raised_from_support_shows_on_the_property(self):
+        t = self._one(property_asset_id="gst", subject="Gate keypad dead")   # a plain employee, from Support
+        self.assertIn(t["id"], [o["id"] for o in P.property_tickets("gst", user=ADMIN, db=self.db)["open"]])
+
+    def test_a_lead_property_rolls_up_its_parcels(self):
+        self._one(user=ADMIN, property_asset_id="gst-p2", subject="Fence down")
+        self.assertTrue(P.property_tickets("gst", user=ADMIN, db=self.db)["open"][0]["onParcel"])
+        self.assertFalse(P.property_tickets("gst-p2", user=ADMIN, db=self.db)["open"][0]["onParcel"])
+
+    def test_the_roll_up_hides_private_and_deleted_parcels(self):
+        secret = models.TaskTicket(id=gen_id(), code="000900", subject="Vault leak", status="open",
+                                   property_asset_id="gst-secret", property_name="Secret Parcel", company_id="")
+        sold = models.TaskTicket(id=gen_id(), code="000901", subject="Old fence", status="open",
+                                 property_asset_id="gst-sold", property_name="Sold Parcel", company_id="")
+        self.db.add_all([secret, sold])
+        self.db.commit()
+        view = P.property_tickets("gst", user=WALKER, db=self.db)
+        self.assertEqual(view["open"], [])
+        self.assertEqual(view["property"]["parcels"], [{"id": "gst-p2", "name": "Temecula Parcel 2"}])
+        owner = {**ADMIN, "level": 5}                          # can see private: sees the private parcel only
+        self.assertEqual([o["id"] for o in P.property_tickets("gst", user=owner, db=self.db)["open"]], [secret.id])
+
+    def test_follow_is_for_editors_and_the_manager_never_a_viewer(self):
+        t = self._one(user=ADMIN, property_asset_id="gst")
+        view = P.property_tickets("gst", user=WALKER, db=self.db)
+        self.assertFalse(view["canFollow"])
+        self.assertEqual(view["open"][0]["requesterName"], "")    # viewers never see who raised it
+        with self.assertRaises(HTTPException) as cm:
+            P.follow_property_ticket("gst", t["id"], user=WALKER, db=self.db)
+        self.assertEqual(cm.exception.status_code, 403)
+        for who in (EDITOR, MANAGER_USER):
+            self.assertFalse(P.property_tickets("gst", user=who, db=self.db)["open"][0]["canOpen"])
+            P.follow_property_ticket("gst", t["id"], user=who, db=self.db)
+            self.assertTrue(P.property_tickets("gst", user=who, db=self.db)["open"][0]["canOpen"])
+        acts = [a.detail for a in self.db.query(models.TaskActivity).filter_by(entity_id=t["id"], type="watcher_added")]
+        self.assertEqual(len(acts), 2)                          # each Follow is on the record
+
+    def test_a_ticket_at_another_property_cannot_be_followed_through_this_one(self):
+        t = self._one(user=ADMIN)                              # no property
+        with self.assertRaises(HTTPException) as cm:
+            P.follow_property_ticket("gst", t["id"], user=EDITOR, db=self.db)
+        self.assertEqual(cm.exception.status_code, 404)
 
 
 if __name__ == "__main__":

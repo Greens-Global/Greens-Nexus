@@ -1932,6 +1932,9 @@ export const api = {
   // Property Walkthrough (routers/ticket_walkthroughs.py). Never retried here
   // (mutations aren't); the form's batch_id makes a manual retry safe instead.
   createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
+  // A property's tickets for Asset Management > Maintenance, and Follow.
+  getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
+  followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

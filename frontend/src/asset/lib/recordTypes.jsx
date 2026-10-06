@@ -32,7 +32,7 @@ export const RECORD_TYPES = {
     empty: 'No maintenance records yet - log repairs, inspections and preventive work, or upload an invoice or report.',
     fields: [
       { k: 'date', label: 'Service Date', type: 'date', req: true },
-      { k: 'system', label: 'System / Area', type: 'select', req: true, options: ['HVAC', 'Roofing', 'Plumbing', 'Electrical', 'Elevator', 'Fire / Life Safety', 'Landscaping / Grounds', 'Pest Control', 'Painting', 'Parking / Pavement', 'Structural', 'Appliance', 'Security / Access', 'General Repair', 'Preventive Maintenance', 'Inspection', 'Other'] },
+      { k: 'system', label: 'System / Area', type: 'select', req: true, options: ['HVAC', 'Roofing', 'Plumbing', 'Electrical', 'Elevator', 'Fire / Life Safety', 'Landscaping / Grounds', 'Pest Control', 'Painting', 'Parking / Pavement', 'Structural', 'Appliance', 'Security / Access', 'General Repair', 'Preventive Maintenance', 'Inspection', 'Other', 'Flooring'] },
       { k: 'description', label: 'Work Performed', full: true },
       { k: 'vendor', label: 'Contractor / Vendor' },
       { k: 'cost', label: 'Cost' },

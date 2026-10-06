@@ -924,6 +924,14 @@ export const DOCS = [
           'Click Save Changes. Leaving with unsaved changes asks first.',
         ],
       },
+      {
+        title: 'Raise Tickets for a Property',
+        steps: [
+          'Open the property and go to Maintenance.',
+          'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
+          'Open Tickets lists everything still being worked at the property, including tickets raised from Support or Tickets for it. Closed Tickets is its maintenance history.',
+        ],
+      },
     ],
     features: [
       { name: 'Portfolio', desc: 'Property cards with type, status and key numbers. Filter by category and view on a map.' },
@@ -934,11 +942,13 @@ export const DOCS = [
       { name: 'Documents', desc: 'As-built plans and other documents, linked to their Egnyte location.' },
       { name: 'Flag for Review', desc: 'Mark a record for a colleague to check.' },
       { name: 'Export & Trash', desc: 'Export data, and restore anything deleted from Trash.' },
+      { name: 'Maintenance Tickets', desc: 'Maintenance has Open Tickets and Closed Tickets tabs for every ticket raised for the property (and its parcels). A closed ticket that was worked becomes a maintenance record in the Maintenance Log, with its vendor and cost counted in Total Spend; one closed as Duplicate or Won't Fix is listed under Closed Without Work. Export History CSV and the asset's Export CSV include them.' },
+      { name: 'Follow a Ticket', desc: 'Asset Management editors and the property's asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
     ],
     manager: {
       title: 'Asset Managers',
       points: [
-        'Each property has a PM / Asset Manager who gets its reminders.',
+        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or walkthrough at the property.',
         'Link a property to another (for example, a parcel to its project).',
       ],
     },
