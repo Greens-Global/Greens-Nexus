@@ -1891,6 +1891,12 @@ def _run_migrations():
         "ALTER TABLE marketing_listing_actions ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_gbp_daily ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_gbp_keywords ENABLE ROW LEVEL SECURITY",
+        # Marketing > Google Ads (Oct 2026). New tables - RLS per CLAUDE.md.
+        "ALTER TABLE marketing_ads_accounts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_campaigns ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_keywords ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ad_budgets ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2537,6 +2543,17 @@ async def lifespan(app: FastAPI):
                 print("[startup] Google Business Profile sync skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Google Business Profile sync skipped: {e}")
+        # Google Ads mirror (Marketing, Oct 2026): spend per campaign per day,
+        # every 2 hours. Deployed worker only, for the same reasons.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from google_ads import google_ads_sync_loop
+                _tasks.append(_a.create_task(google_ads_sync_loop()))
+            else:
+                print("[startup] Google Ads sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Ads sync skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -2967,3 +2984,6 @@ app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliat
 from routers import marketing_gbp  # noqa: E402
 app.include_router(marketing_gbp.router)           # Marketing > Google Business Profile: listings, reviews, replies (Oct 2026)
 app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import marketing_ads  # noqa: E402
+app.include_router(marketing_ads.router)           # Marketing > Google Ads: spend per campaign, budgets (read-only, Oct 2026)
+app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token

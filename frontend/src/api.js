@@ -1952,6 +1952,17 @@ export const api = {
   getGbpPhotos: (key) => req(`/marketing/gbp/locations/${key}/photos`),
   addGbpPhoto: (key, file, category) => { const fd = new FormData(); fd.append('file', file); fd.append('category', category); return req(`/marketing/gbp/locations/${key}/photos`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
   deleteGbpPhoto: (key, id) => req(`/marketing/gbp/locations/${key}/photos/${id}`, { method: 'DELETE' }),
+  // Marketing > Google Ads, read-only (backend/routers/marketing_ads.py).
+  getAdsStatus: () => req('/marketing/ads/status'),
+  startAdsConnect: () => req('/marketing/ads/oauth/start', { method: 'POST' }),
+  disconnectAds: () => req('/marketing/ads/connection', { method: 'DELETE' }),
+  syncAds: () => req('/marketing/ads/sync', { method: 'POST', timeoutMs: 240_000 }),   // a new account backfills ~14 months
+  getAdsSummary: () => req('/marketing/ads/summary'),
+  getAdsReport: ({ start, end, facility = '' }) => req(`/marketing/ads/report?${new URLSearchParams({ start, end, facility })}`),
+  getAdsCampaigns: () => req('/marketing/ads/campaigns'),
+  mapAdsCampaigns: (changes) => req('/marketing/ads/campaigns/facilities', { method: 'PUT', body: JSON.stringify({ changes }) }),
+  getAdBudgets: () => req('/marketing/ads/budgets'),
+  setAdBudgets: (budgets) => req('/marketing/ads/budgets', { method: 'PUT', body: JSON.stringify({ budgets }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

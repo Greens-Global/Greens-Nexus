@@ -18,12 +18,15 @@ import { filterByRange as insFilterByRange, sumLeadTotals } from '../insights/ag
 // When Google is connected, the review and listing alerts come from it
 // instead of the sample reviews; Google retired Business Profile Q&A, so
 // that alert only exists for the sample data.
-export function computeAlerts({ monthlyBudget, leadGoal, gbp = null }) {
+//
+// `ads` is the real Google Ads summary (GET /marketing/ads/summary): when
+// Google Ads is connected, budget pacing uses this month's real spend.
+export function computeAlerts({ monthlyBudget, leadGoal, gbp = null, ads = null }) {
   const real = gbp?.connected ? gbp : null
   const alerts = []
   const month = thisMonth()
 
-  const gaTotals = gaSumTotals(gaFilterRange(dailyMetrics, month))
+  const gaTotals = ads?.connected ? { spend: ads.monthSpend || 0 } : gaSumTotals(gaFilterRange(dailyMetrics, month))
   const budgetPct = monthlyBudget > 0 ? (gaTotals.spend / monthlyBudget) * 100 : 0
   if (budgetPct >= 100) {
     alerts.push({

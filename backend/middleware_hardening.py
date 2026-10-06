@@ -176,7 +176,7 @@ class RequestRateLimit(BaseHTTPMiddleware):
     IP_CEILING = int(os.getenv("NEXUS_RL_IP", "3000"))
     SENSITIVE_PREFIXES = ("/auth/login", "/auth/callback", "/external-auth/", "/esign/public/",
                           "/client-errors/boot", "/stepup/", "/pfs-access/",
-                          "/marketing/gbp/oauth/callback")
+                          "/marketing/gbp/oauth/callback", "/marketing/ads/oauth/callback")
     EXEMPT_PREFIXES = ("/health", "/version")
     ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
 

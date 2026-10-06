@@ -5273,3 +5273,76 @@ class MarketingGbpKeyword(Base):
     keyword         = Column(String, default="")
     impressions     = Column(Integer, default=0)
     below_threshold = Column(Boolean, default=False)
+
+
+# ── Marketing: Google Ads (Oct 2026, read-only) ──────────────────────────────
+# Plan Phase 3. The connection is a MarketingIntegrationToken row with id
+# "google_ads"; google_ads.py syncs these every 6 hours. Google Ads stays the
+# source of truth - Nexus never creates or changes a campaign.
+
+class MarketingAdsAccount(Base):
+    """A Google Ads account (customer) the connection reads."""
+    __tablename__ = "marketing_ads_accounts"
+    id         = Column(String, primary_key=True)      # customer id, digits only
+    name       = Column(String, default="")
+    currency   = Column(String, default="")
+    manager_id = Column(String, default="")            # the manager account it is read through ('' = directly)
+    active     = Column(Boolean, default=True)         # False once it no longer appears under the connection
+    synced_at  = Column(String, default="")
+
+
+class MarketingAdsCampaign(Base):
+    """A campaign, and the facility Nexus counts it toward (Google has no
+    notion of our facilities - someone with the full grant maps it)."""
+    __tablename__ = "marketing_ads_campaigns"
+    id            = Column(String, primary_key=True)   # "<customer>|<campaign>"
+    customer_id   = Column(String, default="", index=True)
+    campaign_id   = Column(String, default="")
+    name          = Column(String, default="")
+    status        = Column(String, default="")         # ENABLED | PAUSED | REMOVED (Google's)
+    serving       = Column(String, default="")         # campaign.serving_status: SERVING | ENDED | ...
+    channel       = Column(String, default="")         # SEARCH | DISPLAY | PERFORMANCE_MAX | ...
+    daily_budget  = Column(Float, default=0)
+    facility_name = Column(String, default="", index=True)
+    mapped_by     = Column(String, default="")
+    mapped_at     = Column(String, default="")
+    synced_at     = Column(String, default="")
+
+
+class MarketingAdsDaily(Base):
+    """One campaign's figures for one day. Cost is in the account currency."""
+    __tablename__ = "marketing_ads_daily"
+    id          = Column(String, primary_key=True)     # "<customer>|<campaign>|<date>"
+    customer_id = Column(String, default="", index=True)
+    campaign_id = Column(String, default="", index=True)
+    date        = Column(String, default="", index=True)   # YYYY-MM-DD
+    impressions = Column(Integer, default=0)
+    clicks      = Column(Integer, default=0)
+    conversions = Column(Float, default=0)
+    cost        = Column(Float, default=0)
+
+
+class MarketingAdsKeyword(Base):
+    """One bought keyword's figures for one day (keyword_view)."""
+    __tablename__ = "marketing_ads_keywords"
+    id           = Column(String, primary_key=True)    # "<customer>|<campaign>|<criterion>|<date>"
+    customer_id  = Column(String, default="", index=True)
+    campaign_id  = Column(String, default="", index=True)
+    criterion_id = Column(String, default="")
+    keyword      = Column(String, default="")
+    match_type   = Column(String, default="")          # EXACT | PHRASE | BROAD
+    date         = Column(String, default="", index=True)
+    impressions  = Column(Integer, default=0)
+    clicks       = Column(Integer, default=0)
+    conversions  = Column(Float, default=0)
+    cost         = Column(Float, default=0)
+
+
+class MarketingAdBudget(Base):
+    """The monthly Google Ads budget Nexus paces spend against, per facility
+    (was browser state, reset on every reload)."""
+    __tablename__ = "marketing_ad_budgets"
+    facility_name  = Column(String, primary_key=True)
+    monthly_budget = Column(Float, default=0)
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")

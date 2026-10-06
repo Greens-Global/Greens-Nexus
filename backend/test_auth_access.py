@@ -136,6 +136,7 @@ KNOWN_PUBLIC = {
     # sealed with secret_box, bound to the admin who started it and expires;
     # rate-limited as a SENSITIVE_PREFIX.
     "/marketing/gbp/oauth/callback",
+    "/marketing/ads/oauth/callback",       # Google Ads, the same sealed-state model (routers/marketing_ads.py)
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")
