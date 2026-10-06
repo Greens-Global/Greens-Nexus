@@ -16,7 +16,7 @@ import re
 import html as html_lib
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -31,6 +31,7 @@ from ticket_notify import (notify_ticket_event, get_settings as get_notify_setti
                            _name_of)
 import ticket_taxonomy
 import ticket_mail_templates as tmpl
+import property_links
 from app_url import app_url
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
@@ -180,6 +181,12 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "lastCommentAt": _nz(t.last_comment_at),
             "requesterUpdateAt": _nz(t.requester_update_at), "requesterSeenAt": _nz(t.requester_seen_at),
             "resolutionNote": _nz(t.resolution_note),
+            # Property Tickets (Oct 2026) - see property_links.py.
+            "propertyAssetId": _nz(t.property_asset_id), "propertyName": _nz(t.property_name),
+            "batchId": _nz(t.batch_id),
+            "maintenanceVendor": _nz(t.maintenance_vendor), "maintenanceCost": _nz(t.maintenance_cost),
+            "propertyLocked": bool(t.property_locked), "parentTicketId": _nz(t.parent_ticket_id),
+            "serviceId": _nz(t.service_id),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -458,6 +465,13 @@ class TicketBody(BaseModel):
     # pointing at the ticket, and is closed when close_source_task is set.
     from_task_id: Optional[str] = ""
     close_source_task: Optional[bool] = False
+    # Property Tickets (Neil, 10/05): the Asset Management property this is
+    # about. Validated by property_links.require_linkable; the name is
+    # snapshotted server-side, never taken from the client.
+    property_asset_id: Optional[str] = ""
+    # Raised from the property itself in Asset Management: the property is
+    # then fixed for the ticket's life (Pranshu, 10/06). Only ever restricts.
+    property_locked: Optional[bool] = False
 
 
 class TicketUpdate(BaseModel):
@@ -502,6 +516,11 @@ class TicketUpdate(BaseModel):
     # for the reply. Not columns: recorded as a comment row, then discarded.
     comment: Optional[str] = None
     comment_internal: Optional[bool] = None
+    # Property Tickets: re-point or unlink ("") the property, and the
+    # maintenance record's vendor and cost (set at Resolve, editable after).
+    property_asset_id: Optional[str] = None
+    maintenance_vendor: Optional[str] = None
+    maintenance_cost: Optional[str] = None
 
 
 def _next_ticket_code(db: Session) -> str:
@@ -514,12 +533,76 @@ def _next_ticket_code(db: Session) -> str:
 
     Legacy "TKT-nnn" codes are read for their digits too, so the sequence
     continues past them rather than restarting into numbers already in use."""
+    _lock_ticket_codes(db)
+    return f"{_highest_ticket_no(db) + 1:0{TICKET_CODE_DIGITS}d}"
+
+
+def _highest_ticket_no(db: Session) -> int:
+    """The highest number issued so far (0 = none). Legacy codes count."""
     highest = 0
     for (code,) in db.query(models.TaskTicket.code).all():
         digits = "".join(ch for ch in (code or "") if ch.isdigit())
         if digits:
             highest = max(highest, int(digits))
-    return f"{highest + 1:0{TICKET_CODE_DIGITS}d}"
+    return highest
+
+
+# Two creates in flight read the same "highest" and issue the same code - and
+# a Property Walkthrough makes that window many codes wide. Taken right before
+# the read of the highest code and held to the request's commit/rollback, so
+# callers do ALL validation and lookups first - every ticket create in the
+# company, Convert to Ticket included, queues on it.
+#   Postgres: a transaction-scoped advisory lock.
+#   SQLite (local dev, tests): a deferred transaction reads BEFORE it holds
+#   the write lock, so two creates can both read 000041. A zero-row UPDATE
+#   makes this connection take SQLite's write lock now; a second writer then
+#   waits (busy timeout) until this one commits, and only then reads max(code).
+_TICKET_CODE_LOCK = 7310052
+
+
+def _lock_ticket_codes(db: Session) -> None:
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _TICKET_CODE_LOCK})
+    elif dialect == "sqlite":
+        db.execute(text("UPDATE task_tickets SET code = code WHERE 1 = 0"))
+
+
+def _intake_company(db: Session, user: dict, requested: str | None, requester_email: str) -> str:
+    """The company a new ticket files under - moved out of create_ticket
+    unchanged so a Property Walkthrough applies the identical rule.
+
+    Company on intake (Sep 19, Pranshu: "End user don't have the ability to
+    choose company but here it is showing the ticket is raised for GGcon
+    company"). A desk-grant caller (raising on someone else's behalf, or an
+    agent correcting it) keeps the existing unrestricted override. A plain
+    requester's own choice is only honoured when an admin has actually
+    turned the company field on AND picked that exact company to offer -
+    otherwise (the setting is off, or off a stray/manipulated value) it
+    silently falls back to their own People-record company."""
+    company_id = (requested or "").strip()
+    if company_id and not _has_desk_grant(user, db):
+        cfg = ticket_taxonomy.company_field(db)
+        if not (cfg.get("enabled") and company_id in (cfg.get("companyIds") or [])):
+            company_id = ""
+    return company_id or company_for(db, requester_email)
+
+
+def _tell_asset_manager(db: Session, t: models.TaskTicket, manager: str, actor: str) -> None:
+    """The property's asset manager hears about a new ticket at their property
+    (Neil, 10/05: "it should be here for the asset manager to see"). This is
+    their one "new ticket" bell - they are deliberately NOT made a watcher
+    (every later status move would bell them; property_links rule 6) - and
+    it opens the property's Open Tickets in Asset Management. No ticket_id on
+    purpose: that would make the bell also fire nexus:open-ticket into the
+    Tickets module (NotificationBell), which they may not even open."""
+    m = (manager or "").strip().lower()
+    if not m or m in ((actor or "").lower(), (t.requester_email or "").lower()):
+        return
+    task_notify(db, kind="ticket_property", for_email=m, title=f"New ticket at {t.property_name}",
+                body=f"{ticket_no(t.code)} · {t.subject}"[:500],
+                nexus_action={"view": "property-asset", "sub": f"tickets:{t.property_asset_id}:{t.id}",
+                              "label": "View Property"})
 
 
 def _ticket_participants(t: models.TaskTicket) -> set:
@@ -540,6 +623,7 @@ _REQUESTER_FIELD_LABELS = (
     ("application_changed", "application"), ("service_area_changed", "service area"),
     ("field_changed", "request details"), ("resolution_changed", "resolution"),
     ("resolution_note", "resolution"),
+    ("property_changed", "property"),
 )
 
 
@@ -745,22 +829,15 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     source = _source_task(db, user, body.from_task_id) if body.from_task_id else None
     if source is not None:
         body.linked_task_id = source.id
-    # Company on intake (Sep 19, Pranshu: "End user don't have the ability to
-    # choose company but here it is showing the ticket is raised for GGcon
-    # company"). A desk-grant caller (raising on someone else's behalf, or an
-    # agent correcting it) keeps the existing unrestricted override. A plain
-    # requester's own choice is only honoured when an admin has actually
-    # turned the company field on AND picked that exact company to offer -
-    # same never-trust-the-client-alone posture requester_email just got
-    # above - otherwise (the setting is off, or off a stray/manipulated
-    # value) it silently falls back to their own People-record company,
-    # same as before this setting existed.
-    company_id = (body.company_id or "").strip()
-    if company_id and not _has_desk_grant(user, db):
-        cfg = ticket_taxonomy.company_field(db)
-        if not (cfg.get("enabled") and company_id in (cfg.get("companyIds") or [])):
-            company_id = ""
-    company_id = company_id or company_for(db, (body.requester_email or user["email"]))
+    # Property Tickets (Neil, 10/05): only building tickets reach the asset
+    # team (property_links rule 4). Validated before anything is written.
+    prop = (property_links.require_linkable(db, body.property_asset_id, user)
+            if (body.property_asset_id or "").strip() else None)
+    if prop is not None:
+        property_links.require_department_takes_property(db, body.hr_department_id)
+    prop_manager = property_links.manager_email(db, prop) if prop is not None else ""
+    # Same never-trust-the-client-alone posture requester_email just got above.
+    company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
@@ -783,6 +860,11 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # at submit time is just a same-request UI preview.
         sla_due_on=_sla_due_from_priority(db, now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
     )
+    # The asset manager is TOLD (one bell below), not made a watcher: every
+    # later status move / comment bells every watcher (property_links rule 6).
+    if prop is not None:
+        t.property_asset_id, t.property_name = prop.id, property_links.display_name(prop)
+        t.property_locked = 1 if body.property_locked else 0
     # Approval gate, decided by the TYPE's admin switch (requiresApproval in the
     # ticket taxonomy, read at this moment) and never trusted from the client, so a
     # caller cannot post approval_status="approved" to skip it.
@@ -823,6 +905,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     if t.requester_email and t.requester_email != user["email"].lower():
         task_notify(db, kind="ticket_received", for_email=t.requester_email,
                     title="We received your ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+    if prop is not None:
+        _tell_asset_manager(db, t, prop_manager, user["email"])
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
@@ -1107,6 +1191,43 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # back for a fresh decision).
     if (data.get("assignee_email") or "") and (t.approval_status or "none") in ("pending", "rejected"):
         raise HTTPException(409, "This request is awaiting approval - it can be assigned once approved.")
+    # Property link (Property Tickets, Oct 2026): validated like create, name
+    # snapshotted here. Field-level permission is the same _ticket_edit_scope
+    # every other field went through above.
+    new_prop = None
+    if "property_asset_id" in data:
+        pid = (data["property_asset_id"] or "").strip()
+        if pid == (t.property_asset_id or ""):
+            data.pop("property_asset_id")      # unchanged - nothing to check or log
+        elif t.property_locked:
+            # Raised from the property in Asset Management (or opened by its
+            # recurring service): the property is part of what the ticket is.
+            raise HTTPException(409, f"This ticket was raised from {t.property_name or 'its property'} in "
+                                     "Asset Management - its property can't be changed.")
+        else:
+            # A closed property ticket is that property's maintenance record:
+            # it moves only after a (logged) reopen. Also refused in the same
+            # patch that closes it, so the record is born where it stays.
+            property_links.guard_record(t, "repoint")
+            if (data.get("status") or "") in property_links.CLOSED_STATES:
+                raise HTTPException(409, "Change the property first, then resolve the ticket.")
+            data["property_asset_id"] = pid
+            if pid:
+                new_prop = property_links.require_linkable(db, pid, user)
+                data["property_name"] = property_links.display_name(new_prop)
+            else:
+                data["property_name"] = ""
+    # Only building tickets may sit on a property - also when the DEPARTMENT
+    # changes under an existing link (moved from Maintenance to HR).
+    final_pid = data.get("property_asset_id", t.property_asset_id or "")
+    if final_pid and ("property_asset_id" in data or "hr_department_id" in data):
+        property_links.require_department_takes_property(db, data.get("hr_department_id", t.hr_department_id))
+    if "maintenance_cost" in data:
+        data["maintenance_cost"] = property_links.normalize_cost(data["maintenance_cost"])
+    if "maintenance_vendor" in data:
+        data["maintenance_vendor"] = " ".join((data["maintenance_vendor"] or "").split())[:200]
+    prev_property = t.property_asset_id or ""
+    prev_vendor, prev_cost = (t.maintenance_vendor or ""), (t.maintenance_cost or "")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
     prev_type, prev_approval = (t.type or ""), (t.approval_status or "none")
     prev_due = t.sla_due_on
@@ -1255,6 +1376,29 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
     if (t.resolution_note or "") != prev_resolution_note and t.resolution_note:
         _log("resolution_note", f"resolution: {_comment_preview(t.resolution_note)}")
+    if (t.property_asset_id or "") != prev_property:
+        _log("property_changed", f"linked the ticket to {t.property_name}" if t.property_asset_id
+             else "removed the property link")
+        if new_prop is not None:
+            _tell_asset_manager(db, t, property_links.manager_email(db, new_prop), user["email"])
+    # Resolved (or closed) after real work at a property: its asset manager
+    # reviews it and adds it to the maintenance record (Pranshu, 10/06) - one
+    # bell, straight to the property's Maintenance > Needs Action.
+    if (t.property_asset_id and prev_status not in property_links.CLOSED_STATES
+            and t.status in property_links.CLOSED_STATES and property_links.is_maintenance_record(t)
+            and not db.query(models.TicketMaintenanceRecord)
+                     .filter(models.TicketMaintenanceRecord.ticket_id == t.id).first()):
+        prop_row = db.get(models.PropertyAsset, t.property_asset_id)
+        mgr = property_links.manager_email(db, prop_row) if prop_row is not None else ""
+        if mgr and mgr != user["email"].lower():
+            task_notify(db, kind="ticket_property", for_email=mgr,
+                        title=f"{ticket_no(t.code)} at {t.property_name} is resolved",
+                        body=f"{t.subject} - add it to the maintenance record (Maintenance > Needs Action)."[:500],
+                        nexus_action={"view": "property-asset", "sub": f"needs-action:{t.property_asset_id}:{t.id}",
+                                      "label": "Review"})
+    if (t.maintenance_vendor or "") != prev_vendor or (t.maintenance_cost or "") != prev_cost:
+        _log("maintenance_changed", "set the maintenance vendor / cost to "
+             f"{t.maintenance_vendor or '-'} / {('$' + t.maintenance_cost) if t.maintenance_cost else '-'}")
     # Per-question diff, not "type fields updated" - a requester's wrong answer
     # getting corrected is exactly the kind of change this audit trail exists
     # to make provable (Pranshu, Sept 8 2026), so which question and what it
@@ -1385,6 +1529,10 @@ def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Se
     is_requester = (t.requester_email or "").lower() == user["email"].lower()
     if not (_ticket_privileged(db, t, user) or is_requester):
         raise HTTPException(403, "Only the requester or a manager can delete a ticket")
+    # Property Tickets: a closed property ticket is that property's maintenance
+    # record (derived from this row) - deleting it would erase the repair from
+    # the history and Total Spend with no trace. Open ones delete as before.
+    property_links.guard_record(t, "delete")
     # clean up the ticket's conversation / attachments / activity too
     db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).delete()
     db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).delete()

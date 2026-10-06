@@ -571,6 +571,8 @@ export const DOCS = [
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
+      { name: 'Property', desc: 'A ticket for a building or site team (Construction & Maintenance, Operations, site security) can name the Asset Management property it is about. The property\'s asset manager gets one bell about it. Other teams are never asked, so an HR or Payroll ticket can never show on a property.' },
+      { name: 'Vendor and Cost', desc: 'Resolving a ticket that is on a property asks for an optional vendor and cost. They go on the property\'s maintenance record and its Total Spend. A resolved or closed property ticket is part of that property\'s maintenance history, so it cannot be deleted or moved to another property until it is reopened.' },
       { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },
@@ -923,6 +925,25 @@ export const DOCS = [
           'Click Save Changes. Leaving with unsaved changes asks first.',
         ],
       },
+      {
+        title: 'Raise Tickets for a Property',
+        steps: [
+          'Open the property and go to Maintenance.',
+          'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
+          'Open Tickets lists everything still being worked at the property, including tickets raised from Support or Tickets for it. Closed Tickets is its maintenance history.',
+          'The property stays fixed on those tickets - in Support and Tickets too.',
+        ],
+      },
+      {
+        title: 'Add a Resolved Ticket to the Maintenance Record',
+        steps: [
+          'When a ticket at your property is resolved you get a bell. Open the property > Maintenance > Needs Action.',
+          'Click Add to Maintenance Record. The form is filled in from the ticket: service date, system, work performed, vendor and cost. Attach the invoice (or press Ctrl+V to paste it) and add notes.',
+          'There is no status - adding it closes the ticket and it joins the Maintenance Log and Total Spend.',
+          'On the original ticket you can set Next Service Due and how often it repeats (one time, or every so many weeks, months or years). You are reminded 15 days before; if nobody opens the ticket by the due date, one opens automatically with the same details, and the next date is scheduled.',
+          'Recurring Services shows each service: the original ticket and every ticket it opened underneath, with date and cost and a total. Edit the schedule, Stop it, or Open Ticket Now to start early.',
+        ],
+      },
     ],
     features: [
       { name: 'Portfolio', desc: 'Property cards with type, status and key numbers. Filter by category and view on a map.' },
@@ -933,11 +954,13 @@ export const DOCS = [
       { name: 'Documents', desc: 'As-built plans and other documents, linked to their Egnyte location.' },
       { name: 'Flag for Review', desc: 'Mark a record for a colleague to check.' },
       { name: 'Export & Trash', desc: 'Export data, and restore anything deleted from Trash.' },
+      { name: 'Maintenance Tickets', desc: 'Maintenance has Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Recurring Services for every ticket raised for the property and its parcels. A ticket the asset manager adds to the maintenance record joins the Maintenance Log with its vendor and cost counted in Total Spend; one closed as Duplicate or Won\'t Fix is listed under Closed Without Work. Export History CSV and the asset\'s Export CSV include them.' },
+      { name: 'Follow a Ticket', desc: 'Asset Management editors and the property\'s asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
     ],
     manager: {
       title: 'Asset Managers',
       points: [
-        'Each property has a PM / Asset Manager who gets its reminders.',
+        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or walkthrough at the property.',
         'Link a property to another (for example, a parcel to its project).',
       ],
     },
@@ -1254,6 +1277,16 @@ export const DOCS = [
           'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it.',
           'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words. If a Which One? list appears (for example Outlook or Teams), pick the one it is about - it is optional.',
           'The type starts as Incident, which fits most problems. Change it if this is a request, a bug or something else, answer its questions, and click Create Ticket.',
+        ],
+      },
+      {
+        title: 'Log a Property Walkthrough',
+        steps: [
+          'Walking a property and finding several issues? Click Property Walkthrough (the service desk, the Asset Management team and administrators see it). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
+          'Pick the property and the team (only building and site teams are offered).',
+          'Type the first issue and press Enter to start the next line. For each line pick what it is (HVAC, Plumbing, Painting...), the priority and a location, and take a photo or paste one with Ctrl+V.',
+          'Click Create Tickets. Every line becomes its own ticket on that property, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole walkthrough.',
+          'No signal? Your lines are kept on this device. If the submit could not be confirmed, the lines lock and Try Again sends exactly the same lines - nothing is ever filed twice.',
         ],
       },
       {

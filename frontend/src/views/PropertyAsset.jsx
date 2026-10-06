@@ -2,6 +2,7 @@
 // Kept as a thin wrapper so the App.jsx route (property-asset) stays unchanged.
 import AssetModule from './AssetModule';
 
-export default function PropertyAsset() {
-  return <AssetModule />;
+// activeSub carries a deep link from a ticket bell or email ("tickets:<propertyId>[:<ticketId>]").
+export default function PropertyAsset({ activeSub = null, onSubChange = null }) {
+  return <AssetModule activeSub={activeSub} onSubChange={onSubChange} />;
 }

@@ -854,6 +854,20 @@ def _run_migrations():
             "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_error VARCHAR DEFAULT ''",
             "ALTER TABLE marketing_gbp_locations ADD COLUMN photo_count INTEGER DEFAULT 0",
             "ALTER TABLE marketing_gbp_locations ADD COLUMN last_photo_at VARCHAR DEFAULT ''",
+            # Property Tickets (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN property_name VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN batch_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_cost VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+            # Property maintenance records + recurring services (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_locked INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN parent_ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN service_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+            "ALTER TABLE ticket_maintenance_records ADD COLUMN currency VARCHAR DEFAULT 'USD'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1891,6 +1905,30 @@ def _run_migrations():
         "ALTER TABLE marketing_listing_actions ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_gbp_daily ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_gbp_keywords ENABLE ROW LEVEL SECURITY",
+        # Property Tickets (Neil, 10/05): a ticket's Asset Management property
+        # (soft link + name snapshot), the walkthrough it was filed in, and its
+        # maintenance vendor/cost. See property_links.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_name VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS batch_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_cost VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+        # Property Walkthrough (Neil, 10/05): one row per batch submit. New
+        # table - RLS per CLAUDE.md (dev AND prod).
+        "ALTER TABLE ticket_batches ENABLE ROW LEVEL SECURITY",
+        # Property maintenance records + recurring services (Pranshu, 10/06):
+        # a ticket raised from the property keeps it; a child ticket opened by
+        # a recurring service points at its parent. Two new tables - RLS.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_locked INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS parent_ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+        "ALTER TABLE ticket_maintenance_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE property_maintenance_services ENABLE ROW LEVEL SECURITY",
+        # The record's cost in any world currency (ISO 4217), totals kept per currency.
+        "ALTER TABLE ticket_maintenance_records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2967,3 +3005,7 @@ app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliat
 from routers import marketing_gbp  # noqa: E402
 app.include_router(marketing_gbp.router)           # Marketing > Google Business Profile: listings, reviews, replies (Oct 2026)
 app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import property_tickets  # noqa: E402
+app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
+from routers import ticket_walkthroughs  # noqa: E402
+app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrough - many tickets at one property in one submit (Neil, 10/05)
