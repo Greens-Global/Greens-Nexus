@@ -332,9 +332,18 @@ def get_session(db, sid: str):
 GRAPH_CHAT_SCOPES = ("https://graph.microsoft.com/Chat.ReadBasic "
                      "https://graph.microsoft.com/Chat.Create "
                      "https://graph.microsoft.com/ChatMessage.Send offline_access")
+# Posting BOD/EOD into a Teams CHANNEL (Oct 6) needs channel scopes the chat
+# token never carried. Kept as its OWN scope set, minted separately: a refresh
+# asking for a scope the tenant has not consented to fails outright, so mixing
+# these into GRAPH_CHAT_SCOPES would take every group-chat post down with it
+# until an admin consents. Requires admin consent for ChannelMessage.Send,
+# Team.ReadBasic.All and Channel.ReadBasic.All on the Entra app.
+GRAPH_CHANNEL_SCOPES = ("https://graph.microsoft.com/Team.ReadBasic.All "
+                        "https://graph.microsoft.com/Channel.ReadBasic.All "
+                        "https://graph.microsoft.com/ChannelMessage.Send offline_access")
 
 
-def graph_token_for_email(db, email: str) -> str:
+def graph_token_for_email(db, email: str, scopes: str = GRAPH_CHAT_SCOPES) -> str:
     """Mint a delegated Graph chat token for this user from their most recent
     live session. Persists the rotated refresh token back onto the session so
     the chain keeps extending. Returns '' when no session can produce one (user
@@ -355,7 +364,7 @@ def graph_token_for_email(db, email: str) -> str:
                 "client_secret": CLIENT_SECRET,
                 "grant_type": "refresh_token",
                 "refresh_token": rt,
-                "scope": GRAPH_CHAT_SCOPES,
+                "scope": scopes,
             })
             if resp.get("refresh_token"):            # Entra rotates refresh tokens
                 row.refresh_token_enc = secret_box.encrypt(resp["refresh_token"])

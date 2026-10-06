@@ -330,6 +330,7 @@ export const DOCS = [
           'Administrators: open Settings > Global Settings > Shifts.',
           'Under Shift Types, add one: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. Click Save.',
           'Under Groups, add one: name it, pick its members from the People list, then click Save.',
+          'To send the group\'s BOD, EOD and break messages to Microsoft Teams, choose Group Chat or Channel under Microsoft Teams. Click Bind A Chat (or Bind A Channel, then pick the team\'s channel) and Save. Members must be in that chat, or in that team and channel, for their messages to post; in a channel each message is a new post.',
         ],
       },
       {
@@ -566,10 +567,13 @@ export const DOCS = [
     ],
     features: [
       { name: 'Tabs', desc: 'All, My Requests, Assigned to Me, and (only when something is waiting) To Route and To Approve.' },
-      { name: 'Tiles', desc: 'Live counts for Open, Unassigned, SLA Breached, Resolved and Closed. Click one to filter the list.' },
+      { name: 'Tiles', desc: 'Live counts for Unassigned (first, in yellow - tickets nobody is working), Open, SLA Breached, Resolved and Closed. Click one to filter the list.' },
+      { name: 'Screen Recordings', desc: "Raising a ticket, the Show Us the Problem card under the description records your screen (with your voice if you like) or attaches a file. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
+      { name: 'Property', desc: 'A ticket for a building or site team (Construction & Maintenance, Operations, site security) can name the Asset Management property it is about. The property\'s asset manager gets one bell about it. Other teams are never asked, so an HR or Payroll ticket can never show on a property.' },
+      { name: 'Vendor and Cost', desc: 'Resolving a ticket that is on a property asks for an optional vendor and cost. They go on the property\'s maintenance record and its Total Spend. A resolved or closed property ticket is part of that property\'s maintenance history, so it cannot be deleted or moved to another property until it is reopened.' },
       { name: 'Ratings', desc: 'Every confirmed ticket carries the requester\'s 1 to 5 star rating. Reports show the average.' },
       { name: 'Approvals', desc: 'Some types go to an approver before anyone can be assigned.' },
       { name: 'Linking', desc: 'Link related tickets (blocks, blocked by, duplicate) or create a task from a ticket.' },
@@ -922,6 +926,25 @@ export const DOCS = [
           'Click Save Changes. Leaving with unsaved changes asks first.',
         ],
       },
+      {
+        title: 'Raise Tickets for a Property',
+        steps: [
+          'Open the property and go to Maintenance.',
+          'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
+          'Open Tickets lists everything still being worked at the property, including tickets raised from Support or Tickets for it. Closed Tickets is its maintenance history.',
+          'The property stays fixed on those tickets - in Support and Tickets too.',
+        ],
+      },
+      {
+        title: 'Add a Resolved Ticket to the Maintenance Record',
+        steps: [
+          'When a ticket at your property is resolved you get a bell. Open the property > Maintenance > Needs Action.',
+          'Click Add to Maintenance Record. The form is filled in from the ticket: service date, system, work performed, vendor and cost. Attach the invoice (or press Ctrl+V to paste it) and add notes.',
+          'There is no status - adding it closes the ticket and it joins the Maintenance Log and Total Spend.',
+          'On the original ticket you can set Next Service Due and how often it repeats (one time, or every so many weeks, months or years). You are reminded 15 days before; if nobody opens the ticket by the due date, one opens automatically with the same details, and the next date is scheduled.',
+          'Recurring Services shows each service: the original ticket and every ticket it opened underneath, with date and cost and a total. Edit the schedule, Stop it, or Open Ticket Now to start early.',
+        ],
+      },
     ],
     features: [
       { name: 'Portfolio', desc: 'Property cards with type, status and key numbers. Filter by category and view on a map.' },
@@ -932,11 +955,13 @@ export const DOCS = [
       { name: 'Documents', desc: 'As-built plans and other documents, linked to their Egnyte location.' },
       { name: 'Flag for Review', desc: 'Mark a record for a colleague to check.' },
       { name: 'Export & Trash', desc: 'Export data, and restore anything deleted from Trash.' },
+      { name: 'Maintenance Tickets', desc: 'Maintenance has Needs Action (resolved tickets waiting for the asset manager), Open Tickets, Closed Tickets and Recurring Services for every ticket raised for the property and its parcels. A ticket the asset manager adds to the maintenance record joins the Maintenance Log with its vendor and cost counted in Total Spend; one closed as Duplicate or Won\'t Fix is listed under Closed Without Work. Export History CSV and the asset\'s Export CSV include them.' },
+      { name: 'Follow a Ticket', desc: 'Asset Management editors and the property\'s asset manager can Follow a ticket to open it, reply and hear about updates. Viewers see a summary only.' },
     ],
     manager: {
       title: 'Asset Managers',
       points: [
-        'Each property has a PM / Asset Manager who gets its reminders.',
+        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or walkthrough at the property.',
         'Link a property to another (for example, a parcel to its project).',
       ],
     },
@@ -1077,6 +1102,17 @@ export const DOCS = [
           'Steps marked Auto-Ticks are marked done by Nexus itself when it sees it happen, for example a finished provisioning run or the status changing to Left.',
         ],
       },
+      {
+        title: 'Give a Manager Their Team in People',
+        steps: [
+          'Administrators: give the person the Manager tier and the People grant (through their job role or a group). Nothing else to switch on.',
+          'They see only the people below them in the reporting line - their direct reports and everyone who reports to those people - set by Reports To on each profile.',
+          "In People they get the team's list and five read-only profile tabs: Overview, Assets, Work Mode, Access and Work Logs. Hiring, Org Chart, Leave, Checklists, Add Person, documents and compliance are hidden.",
+          "For their DIRECT reports (Reports To is the manager) there is also a read-only Pay & Benefits tab: base pay, pay history, benefits and deductions, and paystubs to open. No Edit, no uploads, and no bank accounts. People further down the chain do not show it.",
+          "In Time they see the team's hours, timecards (Payroll), attendance, punch requests, missing punches, screenshots, locations and time off - never pay or wage figures, and no payroll files. They can fix their team's time (add a missing punch, correct a time, decide punch requests) except while a timesheet is back with the employee, out for signature or finalized.",
+          'HR staff who need everyone should be Global Admins (administrator and up), which is never limited.',
+        ],
+      },
     ],
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status.' },
@@ -1096,6 +1132,7 @@ export const DOCS = [
       title: 'HR & Admins',
       points: [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
+        'The Manager tier with the People grant sees only their own team (everyone below them in Reports To), read only. Pay shows only on the Pay & Benefits tab of their DIRECT reports, read only and without bank accounts - never in Time, and the Compensation grant does not widen it. HR staff who need everyone should be Global Admins.',
         'Offboarding: start the offboarding checklist the day notice is received, hand over their tasks, set mailbox handling, then mark them Left. Left logs them out of Nexus on every device straight away and, when the mailbox is removed or shared, ends their Microsoft 365 sessions too (Outlook and Teams on their phone stop working).',
         'Changing a status asks for a reason, and every change is kept in history.',
         'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
@@ -1242,6 +1279,16 @@ export const DOCS = [
           'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it.',
           'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words. If a Which One? list appears (for example Outlook or Teams), pick the one it is about - it is optional.',
           'The type starts as Incident, which fits most problems. Change it if this is a request, a bug or something else, answer its questions, and click Create Ticket.',
+        ],
+      },
+      {
+        title: 'Log a Property Walkthrough',
+        steps: [
+          'Walking a property and finding several issues? Click Property Walkthrough (the service desk, the Asset Management team and administrators see it). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
+          'Pick the property and the team (only building and site teams are offered).',
+          'Type the first issue and press Enter to start the next line. For each line pick what it is (HVAC, Plumbing, Painting...), the priority and a location, and take a photo or paste one with Ctrl+V.',
+          'Click Create Tickets. Every line becomes its own ticket on that property, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole walkthrough.',
+          'No signal? Your lines are kept on this device. If the submit could not be confirmed, the lines lock and Try Again sends exactly the same lines - nothing is ever filed twice.',
         ],
       },
       {

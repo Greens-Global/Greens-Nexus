@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import GbpTab from '../gbp/GbpTab'
 import ReputationHeader from './ReputationHeader'
 import StatCards from './StatCards'
 import ReviewsFeedCard from './ReviewsFeedCard'
@@ -38,7 +39,7 @@ const COMPARISON_COLUMNS = [
   { key: 'pending', label: 'Pending Replies', value: (r) => r.pending, format: (r) => String(r.pending) },
 ]
 
-export default function ReputationPage({ range, onRangeChange, property, onPropertyChange, onNavigate, alerts, insights, onClearAlert }) {
+function SampleReputationPage({ banner, range, onRangeChange, property, onPropertyChange, onNavigate, alerts, insights, onClearAlert }) {
   const [reviews, setReviews] = useState(allReviews)
   const [selectedStat, setSelectedStat] = useState(null)
   const [compareSelection, setCompareSelection] = useState(null)
@@ -184,6 +185,7 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
         insights={insights}
         onClearAlert={onClearAlert}
       />
+      {banner}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,minmax(0,1fr))', gap: 16, alignItems: 'start' }}>
         <div style={{ gridColumn: 'span 10' }}>
@@ -251,5 +253,18 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
         />
       )}
     </div>
+  )
+}
+
+// Real Google data once Google Business Profile is connected; the sample
+// page above until then (marketing/gbp/GbpTab.jsx).
+export default function ReputationPage(props) {
+  const { onNavigate, alerts, insights, onClearAlert } = props
+  return (
+    <GbpTab
+      tab="reputation"
+      tabBarProps={{ onNavigate, alerts, insights, onClearAlert }}
+      renderSample={(banner) => <SampleReputationPage {...props} banner={banner} />}
+    />
   )
 }

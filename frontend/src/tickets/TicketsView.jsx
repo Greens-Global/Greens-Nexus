@@ -15,7 +15,6 @@ import LiveView from '../components/LiveView';
 import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
-import { supabase } from '../lib/supabase';
 import { formatDateTime } from '../lib/datetime';
 import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import {
@@ -50,9 +49,12 @@ import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
-import { toViewUrl, toDownloadUrl } from '../lib/storageView';
+import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
+import { PropertySelect } from './PropertySelect';
+import { uploadTicketEvidence } from './evidenceUpload';
+import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 
@@ -76,26 +78,30 @@ const TICKET_VIEW_TABS = [
 // resize kit the Task List uses) owns them, persisted to the user's profile
 // under table:"tickets" so an arrangement follows them between devices.
 // checkbox/type/resolved are `fixed`: structure, not data - they never move.
+// `shrink` (Oct 6): how narrow a column may get. Until someone drags a width,
+// every data column is elastic - minmax(shrink, width as a share) - so the
+// table fills the screen it is on and only scrolls sideways once every column
+// is at its floor (Pranshu: "no horizontal scroll bar at the bottom").
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
   // minWidth: a floor even under a width someone dragged - the title is what
   // the row IS, and it must never be squeezed to nothing to make room for
   // another column (Neil, Oct 1).
-  { key: 'title', label: 'Title', width: 260, minWidth: 200, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
+  { key: 'title', label: 'Title', width: 260, minWidth: 200, shrink: 200, sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'company', label: 'Company', width: 130, shrink: 80, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
   // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'Status', width: 180, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', width: 180, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  { key: 'due', label: 'Due Date', width: 110, sort: (t) => t.slaDueOn || '' },
-  { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assigned To', width: 150, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
+  { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  { key: 'due', label: 'Due Date', width: 110, shrink: 92, sort: (t) => t.slaDueOn || '' },
+  { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
+  { key: 'assignee', label: 'Assigned To', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created Date', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
   // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
   // enough by default for a name and a line of the preview; sorts by when.
-  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, sort: (t) => t.latestComment?.createdAt || '' },
+  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── What do you need help with? ──────────────────────────────────────────────
@@ -632,7 +638,8 @@ export default function TicketsView() {
   // column set entirely on My Requests (rather than being hidden per-row), so
   // the grid template - and the reorder/resize state - never has to know about it.
   const columnDefs = useMemo(
-    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester')),
+    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester'))
+      .map((c) => (c.shrink ? { ...c, template: `minmax(${c.shrink}px, ${c.width}fr)` } : c)),
     [scope],
   );
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
@@ -922,9 +929,9 @@ export default function TicketsView() {
         // ticket having no assignee is not work waiting for someone.
         const unassignedCount = tickets.filter(
           (t) => !t.assigneeId && !CLOSED_STATES.includes(t.status)).length;
-        const tile = (label, bandBg, bandFg, n, sub, onGo, active) => (
+        const tile = (label, bandBg, bandFg, n, sub, onGo, active, bodyBg) => (
           <button key={label} onClick={onGo}
-            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
+            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: bodyBg || NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? `0 0 0 1px ${bandFg}` : 'none'; }}>
             <span style={{ display: 'block', padding: '6px 14px', background: bandBg, color: bandFg, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
@@ -942,17 +949,15 @@ export default function TicketsView() {
                 broken. */}
             {/* The Open status color (ticketMeta's TICKET_STATUS_META) - not
                 blue, which no status uses any more (Neil, Oct 1). */}
+            {/* Unassigned leads the row, in yellow (Pranshu, Oct 6): the major
+                item - tickets nobody is working - so it is the first thing
+                the desk sees, the whole card tinted, not only its band. */}
+            {tile('Unassigned', 'rgba(245,158,11,0.24)', '#b45309', unassignedCount, 'nobody working them',
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
+              statusFilter === 'unassigned', 'rgba(245,158,11,0.09)')}
             {tile('Open', TICKET_STATUS_META.open.tint, TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
-            {/* Red once there's actually a backlog - purple read as "just an
-                info card" and nobody's eye caught it climbing (Pranshu, Sept
-                8 2026). Same red the SLA-breached tile uses, so red already
-                means one thing across this row: something needs a person. */}
-            {tile('Unassigned', unassignedCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(124,58,237,0.14)',
-              unassignedCount > 0 ? NX.red : '#7c3aed', unassignedCount, 'nobody working them',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
-              statusFilter === 'unassigned')}
             {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
               () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
               slaFilter === 'breached')}
@@ -1035,7 +1040,13 @@ export default function TicketsView() {
                 div's actual width to its grid content, so there's nothing
                 left over to paint; still never shrinks below it either, so
                 a narrow screen scrolls horizontally exactly as before. */}
-            <div ref={wrapRef} style={{ width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }}>
+            {/* Elastic columns (Oct 6) fill the width; the table scrolls only
+                below every column's floor (min-content). Once EVERY data
+                column carries a dragged px width, fit-content again, so there
+                is no blank strip past the last column. */}
+            <div ref={wrapRef} style={cols.every((c) => c.fixed || widths[c.key])
+              ? { width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }
+              : { width: '100%', minWidth: 'min-content', '--nx-grid': template }}>
               <TicketListHeader cols={cols} widths={widths} startResize={startResize} resetWidth={resetWidth} autofitWidth={autofitWidth}
                 dragProps={dragProps} sort={sort} onSort={onSort} allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} />
               {groups.map((g) => (
@@ -1542,16 +1553,6 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
 // scheme it replaced (which silently dropped anything over 2MB; recordings
 // always would have). Bucket must exist on the Supabase project - public,
 // same as Testing's qa-evidence - create `ticket-evidence` there.
-async function uploadTicketEvidence(file, prefix = 'file') {
-  if (!supabase) throw new Error('Storage not configured');
-  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
-  const path = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { data, error } = await supabase.storage.from('ticket-evidence')
-    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
-  if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
-}
-
 function attachmentKindOf(f) {
   if (f.type.startsWith('image/')) return 'image';
   if (f.type.startsWith('video/')) return 'video';
@@ -1659,10 +1660,32 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
         style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <UploadIcon size={13} /> {compact ? 'Upload Attachment' : 'Upload'}
+        <UploadIcon size={13} /> Upload Attachment
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
+    </div>
+  );
+}
+
+// The Create a Ticket evidence card (Oct 6): a recording (where the type takes
+// one) or a file, made impossible to miss.
+function EvidenceCard({ canRecord, children }) {
+  return (
+    <div style={{ marginTop: 10, borderRadius: 12, padding: '14px 16px',
+      border: `1.5px dashed ${canRecord ? 'rgba(220,38,38,0.45)' : NX.border}`,
+      background: canRecord ? 'rgba(220,38,38,0.04)' : NX.surface2 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+        {canRecord ? <Video size={16} style={{ color: NX.red }} /> : <Paperclip size={16} style={{ color: NX.dim }} />}
+        <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{canRecord ? 'Show Us the Problem' : 'Attach Files'}</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12, lineHeight: 1.45 }}>
+        {canRecord
+          ? 'A short screen recording is the fastest way to get this fixed - record what happens (add your voice if it helps), or attach a screenshot or file.'
+          : 'Attach a screenshot or a document if it helps explain the request.'}
+      </div>
+      {children}
+      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 10 }}>or press Ctrl+V to paste a screenshot</div>
     </div>
   );
 }
@@ -1690,7 +1713,10 @@ const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(htm
 // names every required field the task could not supply, and on create the
 // server links the ticket to the task, copies its files and (when asked)
 // closes the task. `onCreated(ticket)` runs after a successful create.
-export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }) {
+// `forProperty` (Property Tickets, Neil 10/05): { id, name } - opened from a
+// property in Asset Management; the ticket is linked to it and the building
+// department is preselected, so a title and a category are all that is left.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
@@ -1736,6 +1762,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
     // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
     // A converted task is for whoever owns it - they asked for the work.
     requesterId: (fromTask?.ownerId || myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
+    propertyAssetId: forProperty?.id || '',
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
   const [closeSource, setCloseSource] = useState(true);
@@ -1784,9 +1811,25 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
   // (the field is off, or on with nothing picked yet) or the one they chose.
   const deptOptions = (COMPANY_FIELD.enabled
     ? allDepts.filter((d) => d.companyId === form.companyId)
-    : allDepts).filter(offeredAtIntake);
+    : allDepts).filter(offeredAtIntake)
+    // Raised from a property in Asset Management: only property tickets, so
+    // only the building and site teams (Pranshu, 10/06).
+    .filter((d) => !forProperty || groupTakesProperty(helpGroupFor(d.name)));
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
+  // Ask "Which property?" only for a team that takes one - a building, site
+  // operations or site security team (the server enforces the same rule).
+  const deptTakesProperty = groupTakesProperty(helpGroupFor(deptName));
+  // Raised from a property (Asset Management): start on the team that handles
+  // buildings once the departments arrive - once, and never over a pick.
+  // Adjusting state while rendering (React's pattern for "derive once from
+  // async data"), guarded by the flag so it runs a single time.
+  const [pickBuildingDept, setPickBuildingDept] = useState(!!forProperty);
+  if (pickBuildingDept && deptOptions.length) {
+    setPickBuildingDept(false);
+    const building = deptOptions.find((d) => isBuildingGroup(helpGroupFor(d.name)));
+    if (building && !form.hrDepartmentId) set('hrDepartmentId', building.id);
+  }
   // intakeFieldsFor, not TYPE_FIELDS: retired fields stay in the definitions
   // so tickets that already captured one still render it, but nobody is asked
   // for them again; radios are asked as dropdowns; and the error-message
@@ -1934,6 +1977,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
+        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
+        // Raised from the property itself: it stays that property's ticket.
+        ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
@@ -1950,6 +1996,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
         }
       }
       onCreated?.(created);
+      if (created?.propertyAssetId) {
+        // A property's ticket tabs in Asset Management refresh on this.
+        window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
+      }
       onClose();
     } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };
@@ -2105,18 +2155,20 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
         <label style={label}>Description</label>
         <RichDescription value={form.description} onChange={(html) => set('description', html)} minHeight={isMobile ? 90 : 110}
           placeholder="What is happening? What were you doing, and what did you expect?" />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          <RecordUploadButtons compact showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+        {/* Its own card (Pranshu, Oct 6: "too small and hard to find"): a
+            recording shows the desk more than any description, so it gets a
+            heading, a line on why, and the full-size red Record button. */}
+        <EvidenceCard canRecord={!NO_RECORDING_TYPES.includes(form.type)}>
+          <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
             onFile={addFile} onRecordingChange={onRecChange} />
-          <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
-        </div>
-        {attachments.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {attachments.map((f, i) => (
-              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
-            ))}
-          </div>
-        )}
+          {attachments.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {attachments.map((f, i) => (
+                <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+              ))}
+            </div>
+          )}
+        </EvidenceCard>
       </div>
 
       {/* Self-service before a ticket (Neil, Sep 26): guide articles that
@@ -2180,6 +2232,21 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
           {sub(helpGroupFor(deptName) ? 'Pick the closest match, or Other to type it.' : 'Name it in a few words.')}
         </div>
       </div>
+
+      {deptTakesProperty && (
+        <div style={field}>
+          <label style={label}>Property</label>
+          {forProperty ? (
+            // Raised from the property itself - fixed, not a choice.
+            <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2, color: NX.ink }}>{forProperty.name}</div>
+          ) : (
+            <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)} style={sel} />
+          )}
+          {sub(forProperty
+            ? `Shows on ${forProperty.name}'s Maintenance in Asset Management.`
+            : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -2256,13 +2323,20 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }
 export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', onSubmit, onClose }) {
   const [note, setNote] = useState(ticket?.resolutionNote || '');
   const [resolution, setResolution] = useState(ticket?.resolution || 'fixed');
+  // The maintenance record's vendor and cost (Property Tickets) - only for a
+  // ticket linked to a property; kept from a previous resolve after a reopen.
+  const [vendor, setVendor] = useState(ticket?.maintenanceVendor || '');
+  const [cost, setCost] = useState(ticket?.maintenanceCost || '');
+  const onProperty = !!ticket?.propertyAssetId;
+  const costBad = onProperty && cost.trim() !== '' && !/^\$?(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$/.test(cost.trim());
+  const noteBad = !note.trim();
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
   const [comment, setComment] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
-  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1
+  const invalid = mode === 'resolve' ? (noteBad || costBad) : mode === 'confirm' ? rating < 1
     : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
     : mode === 'self_resolve' ? 'Mark Resolved'
@@ -2272,7 +2346,9 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
     if (invalid) { setShowErr(true); return; }
     setBusy(true);
     const patch = mode === 'resolve'
-      ? { status: targetStatus, resolution, resolutionNote: note.trim() }
+      ? { status: targetStatus, resolution, resolutionNote: note.trim(),
+          ...(onProperty && (vendor.trim() || ticket?.maintenanceVendor) ? { maintenanceVendor: vendor.trim() } : {}),
+          ...(onProperty && (cost.trim() || ticket?.maintenanceCost) ? { maintenanceCost: cost.trim() } : {}) }
       : mode === 'self_resolve'
         ? { status: 'resolved', ...(comment.trim() ? { comment: textToHtml(comment) } : {}) }
       : mode === 'confirm'
@@ -2301,14 +2377,32 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
           <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
-          {showErr && invalid && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && noteBad ? { borderColor: NX.red } : null) }} />
+          {showErr && noteBad && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
         </div>
         <div style={field}>
           <label style={label}>Outcome</label>
           <TicketSelect value={resolution} onChange={setResolution}
             options={TICKET_RESOLUTION.map((r) => [r.key, r.label])} />
         </div>
+        {onProperty && (<>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10 }}>
+            <div style={field}>
+              <label style={label}>Vendor</label>
+              <input value={vendor} onChange={(e) => setVendor(e.target.value)} maxLength={200}
+                placeholder="e.g. ABC Plumbing" style={{ ...inputStyle, fontFamily: FONT }} />
+            </div>
+            <div style={field}>
+              <label style={label}>Cost</label>
+              <input value={cost} onChange={(e) => setCost(e.target.value)} inputMode="decimal" placeholder="$0.00"
+                style={{ ...inputStyle, fontFamily: FONT, ...(showErr && costBad ? { borderColor: NX.red } : null) }} />
+              {showErr && costBad && <div style={requiredHint}>An amount like 1250.50</div>}
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 12 }}>
+            Optional - goes on {ticket.propertyName || 'the property'}'s maintenance record and its Total Spend.
+          </div>
+        </>)}
       </>)}
       {mode === 'self_resolve' && (
         <div style={field}>
@@ -2987,6 +3081,28 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
         </div>
+        {/* Property Tickets (Neil, 10/05). Same edit rule as Help With: the
+            backend leaves property_asset_id out of _WORKING_FIELDS. A
+            Resolved/Closed ticket is that property's maintenance record, so
+            it moves only after a reopen (the server refuses it too). */}
+        {(v.propertyAssetId || (fullAccess && groupTakesProperty(helpGroupFor(allDepts.find((d) => d.id === v.hrDepartmentId)?.name || '')))) && (
+          <div style={field}>
+            <label style={label}>Property</label>
+            {fullAccess && !v.propertyLocked ? (<>
+              <PropertySelect value={v.propertyAssetId || ''} fallbackName={v.propertyName || ''}
+                disabled={['resolved', 'closed'].includes(v.status)}
+                onChange={(id) => { if (id !== (v.propertyAssetId || '')) stage({ propertyAssetId: id }); }} />
+              {['resolved', 'closed'].includes(v.status) && v.propertyAssetId && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Part of this property's maintenance history - reopen the ticket to change it.</div>
+              )}
+            </>) : (<>
+              <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyName || '-'}</div>
+              {v.propertyLocked && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>Raised from this property in Asset Management - it can't be changed.</div>
+              )}
+            </>)}
+          </div>
+        )}
         {/* Derived from the application by the server, and re-derived whenever
             it changes. A manager can still override it here for an app the
             directory has mapped wrongly - correcting the mapping itself is a
@@ -3091,7 +3207,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
 
         </>)}
         {tab === 'conversation' && (
-          <TicketConversation ticketId={t.id} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
+          <TicketConversation ticketId={t.id} ticketType={t.type} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
             reply={reply} onReplyChange={setReply} onDone={done}
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
@@ -3514,8 +3630,9 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
+  const [attaching, setAttaching] = useState(false);
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
   const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
@@ -3533,6 +3650,25 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
+
+  // Record / attach from the conversation (Pranshu, Oct 6: "if the same issue
+  // happens again there's no option to add a recording again"). The file goes
+  // to the ticket's Attachments straight away, and a link to it is added to
+  // the reply being written, so it is sent with the message on Done.
+  const attach = async (f) => {
+    setAttaching(true);
+    const kind = attachmentKindOf(f);
+    let url = '';
+    try { url = await uploadTicketEvidence(f, kind); } catch (e) {
+      alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
+    }
+    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(() => {});
+    setAttaching(false);
+    if (!url) return;
+    const text = kind === 'video' ? 'Screen recording' : f.name;
+    const link = `<p>${kind === 'video' ? 'Attached a screen recording' : 'Attached'}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
+    onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
+  };
 
   return (
     <div>
@@ -3586,6 +3722,12 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
           minHeight={64}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
+          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+        {attaching && <Spinner size={14} />}
+        <span style={{ fontSize: 11, color: NX.faint }}>Saved to Attachments and linked in your reply. Ctrl+V pastes a screenshot straight into the reply.</span>
       </div>
       <div style={{ fontSize: 11, color: NX.faint, marginTop: 8 }}>
         {isEmptyDoc(body) ? (
@@ -3644,6 +3786,16 @@ function AttachmentViewer({ att, onClose }) {
   );
 }
 
+// After a recording made from an EXISTING ticket stops, bring the person back
+// to that ticket if they wandered off mid-recording (shared by the Attachments
+// tab and the Conversation, Oct 6). Links in a reply use escapeHtml (above).
+const returnToTicketAfterRecording = (ticketId) => (v) => {
+  if (v || isTicketDrawerOpen(ticketId)) return;
+  setPendingOpen('ticket', ticketId);
+  window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
+};
+
 // ── Attachments ──────────────────────────────────────────────────────────────
 // Card size for the attachment gallery - wide/tall enough for a video thumbnail
 // to actually read as a preview rather than an icon, narrow enough that a
@@ -3688,12 +3840,7 @@ function TicketAttachments({ ticketId, ticketType }) {
   // fire both the live event (drawer already mounted, showing something
   // else) and the module navigate (TicketsView itself unmounted) so
   // whichever one applies brings this exact ticket back up.
-  const onRecChange = (v) => {
-    if (v || isTicketDrawerOpen(ticketId)) return;
-    setPendingOpen('ticket', ticketId);
-    window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
-  };
+  const onRecChange = returnToTicketAfterRecording(ticketId);
 
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
