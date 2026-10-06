@@ -2264,6 +2264,23 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Ticket desk access rule (Oct 2026, ticket_roles.py): pinned once, the
+    # first time this database starts without one. Existing data (tickets,
+    # tasks or a tasks/tickets grant) -> "legacy", so nobody on the desk loses
+    # access; an empty database (a new customer) -> "explicit". A no-op on
+    # every later boot.
+    try:
+        from database import SessionLocal
+        import ticket_roles
+        db = SessionLocal()
+        try:
+            seeded = ticket_roles.seed_desk_access_mode(db)
+            if seeded:
+                print(f"[startup] ticket desk access set to '{seeded}'")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket desk access seed skipped: {e}")
     # Company holidays used to get a SEPARATE row per country picked for the
     # same company+date+name (Sep 21, Pranshu: "it should have 1 date, 1
     # company... IN, US, GE like this") - the create endpoint now merges onto

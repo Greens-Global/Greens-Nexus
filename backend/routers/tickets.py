@@ -23,13 +23,15 @@ from typing import Optional, Any
 
 import models
 from database import get_db
-from auth import get_current_user, require_manager, require_any_module_grant
+from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify, extract_mentions
 from ticket_code import TICKET_CODE_DIGITS, ticket_no
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents,
                            _name_of)
 import ticket_taxonomy
+import ticket_roles
+from ticket_roles import require_ticket_agent, require_ticket_supervisor
 import ticket_mail_templates as tmpl
 from app_url import app_url
 
@@ -53,7 +55,15 @@ router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 # server-side instead - see list_tickets and _require_ticket_participant. Scoped,
 # not trusted: `mine=true` decided in the browser would be one query parameter
 # away from the whole company's queue.
-require_ticket_desk = require_any_module_grant("tasks", "tickets")
+#
+# Desk roles (Oct 2026, ticket_roles.py): WHO is on the desk, and whether as an
+# agent or a supervisor, is decided there - from the tickets/tasks module
+# grants and the company's deskAccess setting (legacy / explicit). Endpoints
+# that work the queue carry require_ticket_desk (= agent or above); deleting
+# and running the desk carry require_ticket_supervisor. In code, ask the named
+# checks (ticket_roles.can_work_queue / can_read_internal / can_delete /
+# can_manage_desk), never a raw grant lookup.
+require_ticket_desk = require_ticket_agent
 
 
 # ── SLA policy - the due date is DERIVED from priority, not chosen freely.
@@ -80,18 +90,14 @@ def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> s
 
 
 def _has_desk_grant(user: dict, db: Session) -> bool:
-    """Whether this caller may see the desk side. The dependency form raises;
-    this is the boolean the scoped endpoints branch on."""
-    from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
-    # External (B2B guest) users are NEVER desk agents, whatever their grant
-    # level says - the unscoped list is the whole company's queue. Their grant
-    # opens the module; here they stay participants-only (their own tickets).
-    if user.get("external"):
-        return False
-    if user.get("level", 0) >= _LEVELS["administrator"]:
-        return True
-    grants = _grants_for(user.get("email") or "", db)
-    return any(grants.get(m, 0) >= _MODULE_LEVEL_RANK["viewer"] for m in ("tasks", "tickets"))
+    """Whether this caller may see the desk side - an agent or supervisor
+    (ticket_roles.can_work_queue). The dependency form raises; this is the
+    boolean the scoped endpoints branch on. Kept under its old name for the
+    call sites that read internal notes through _sees_internal.
+
+    External (B2B guest) users are NEVER desk agents, whatever their grant
+    level says - ticket_role answers "requester" for them."""
+    return ticket_roles.can_work_queue(user, db)
 
 
 def _require_ticket_participant(db: Session, user: dict, t) -> None:
@@ -947,14 +953,10 @@ def _requester_self_resolve(db: Session, t: models.TaskTicket, user: dict, data:
 
 def _may_patch_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
     """The desk (same test require_ticket_desk applies) or the ticket's own
-    requester. A plain employee has no tasks/tickets grant, and without this
-    they could not edit their open ticket, confirm a resolution or reopen it
-    from Support - _ticket_edit_scope still decides WHAT they may change."""
-    from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
-    if user.get("level", 0) >= _LEVELS["administrator"]:
-        return True
-    grants = _grants_for(user.get("email") or "", db)
-    if any(grants.get(m, 0) >= _MODULE_LEVEL_RANK["viewer"] for m in ("tasks", "tickets")):
+    requester. A plain employee has no desk role, and without this they could
+    not edit their open ticket, confirm a resolution or reopen it from
+    Support - _ticket_edit_scope still decides WHAT they may change."""
+    if ticket_roles.can_work_queue(user, db):
         return True
     return (t.requester_email or "").lower() == (user.get("email") or "").lower()
 
@@ -1295,7 +1297,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             news.append("updated the " + _and_list(list(dict.fromkeys(edited))))
         if "approval_reset" in changed:
             news.append("sent back for approval")
-        public_reply = comment_body and not (comment_internal and _has_desk_grant(user, db))
+        public_reply = comment_body and not (comment_internal and ticket_roles.can_read_internal(user, db))
         if public_reply and (status_changed or news):
             # One bell for the whole save: the reply rides along here and the
             # comment's own bell skips the requester (below).
@@ -1377,7 +1379,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
-@router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
+@router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     # Independent of the in_progress/assignee edit lock above - deleting stays
@@ -1460,7 +1462,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     Returns (comment, internal) - internal only sticks for a desk-grant author.
     `quiet`: people already told about this save in another bell (update_ticket's
     requester notice), so the reply does not reach them twice."""
-    internal = bool(internal) and _has_desk_grant(user, db)
+    internal = bool(internal) and ticket_roles.can_read_internal(user, db)
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)
@@ -1543,7 +1545,7 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     return _tcomment(c)
 
 
-@router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
+@router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket_comment(comment_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).delete()
     db.commit()
@@ -1590,7 +1592,7 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     return _tattachment(a)
 
 
-@router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
+@router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket_attachment(attachment_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).delete()
     db.commit()
@@ -1835,7 +1837,7 @@ class TicketDepartmentIn(BaseModel):
 # Adding, renaming and deleting moved to the global list (see the section
 # comment above). The routes stay, answering 410 with where to go instead, so
 # an old open tab gets a sentence rather than a 404/405.
-@router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_desk)])
+@router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_supervisor)])
 def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     raise HTTPException(410, _MANAGED_GLOBALLY)
 
@@ -1847,7 +1849,7 @@ class TicketDepartmentUpdate(BaseModel):
     enabled:      Optional[bool] = None
 
 
-@router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+@router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_supervisor)])
 def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
                              user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """The Tickets module's settings for one global department: who gets the
@@ -1877,7 +1879,7 @@ class TicketDepartmentOrder(BaseModel):
     ids: list[str]
 
 
-@router.put("/ticket-departments/order", dependencies=[Depends(require_ticket_desk)])
+@router.put("/ticket-departments/order", dependencies=[Depends(require_ticket_supervisor)])
 def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends(require_manager),
                                db: Session = Depends(get_db)):
     """Saves a company's department order, as dragged in Settings - the order
@@ -1896,7 +1898,7 @@ def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends
     return _dept_list(db, body.company_id)
 
 
-@router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+@router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket_department(dept_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """Gone with the merge - turn the department off for tickets instead, or
     delete it from the company's global list."""
@@ -1930,7 +1932,7 @@ def list_ticket_components(db: Session = Depends(get_db)):
     return [{"id": c.id, "name": c.name} for c in db.query(models.TaskTicketComponent).order_by(models.TaskTicketComponent.name).all()]
 
 
-@router.post("/task-ticket-components", status_code=201, dependencies=[Depends(require_ticket_desk)])
+@router.post("/task-ticket-components", status_code=201, dependencies=[Depends(require_ticket_supervisor)])
 def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Component name is required")
@@ -1941,7 +1943,7 @@ def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     return {"id": c.id, "name": c.name}
 
 
-@router.delete("/task-ticket-components/{component_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
+@router.delete("/task-ticket-components/{component_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket_component(component_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskTicketComponent).filter(models.TaskTicketComponent.id == component_id).delete()
     db.commit()
@@ -1960,7 +1962,7 @@ class ApprovalRequestBody(BaseModel):
     note: Optional[str] = ""
 
 
-@router.post("/task-tickets/{ticket_id}/request-approval", dependencies=[Depends(require_ticket_desk)])
+@router.post("/task-tickets/{ticket_id}/request-approval", dependencies=[Depends(require_ticket_supervisor)])
 def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks: BackgroundTasks,
                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """IT Admin routes a parked request to the person who signs it off."""
@@ -2165,17 +2167,54 @@ def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depen
     `canAct`  - you may step in on a ticket (drives Send for Approval).
 
     They differ for an administrator who is not on the roster: they can still
-    unstick a ticket, but the desk's queues are not their inbox."""
-    return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user)}
+    unstick a ticket, but the desk's queues are not their inbox.
+
+    Plus the caller's desk ROLE and its named capabilities (ticket_roles.py) -
+    `role`, `deskAccess`, `canWorkQueue`, `canReadInternal`, `canAssign`,
+    `canDelete`, `canManageDesk` - so the screens show exactly what the server
+    will allow instead of re-deriving it from the module grants."""
+    return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user),
+            **ticket_roles.capabilities(user, db)}
+
+
+# ── Desk access rule (admin): legacy / explicit - see ticket_roles.py ─────────
+class DeskAccessBody(BaseModel):
+    deskAccess: str
+
+
+def _require_administrator(user: dict) -> None:
+    import auth
+    if user.get("level", 0) < auth._LEVELS["administrator"]:
+        raise HTTPException(403, "Only an administrator can change who works the service desk.")
+
+
+@router.get("/task-tickets/desk-access")
+def get_desk_access(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The current rule, and who would lose desk access (or drop from
+    supervisor to agent) if it were switched to explicit."""
+    _require_administrator(user)
+    mode = ticket_roles.desk_access_mode(db)
+    changes = ticket_roles.access_changes(db, ticket_roles.EXPLICIT) if mode != ticket_roles.EXPLICIT else []
+    return {"deskAccess": mode, "explicitChanges": changes}
+
+
+@router.put("/task-tickets/desk-access")
+def put_desk_access(body: DeskAccessBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_administrator(user)
+    try:
+        ticket_roles.set_desk_access_mode(db, body.deskAccess, user["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return get_desk_access(user=user, db=db)
 
 
 # ── Notification settings + delivery log (admin) ──────────────────────────────
-@router.get("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
+@router.get("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return get_notify_settings(db)
 
 
-@router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
+@router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_supervisor)])
 def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return save_notify_settings(db, patch, user["email"])
 
@@ -2193,13 +2232,19 @@ def get_ticket_taxonomy_settings(user: dict = Depends(get_current_user), db: Ses
 
 @router.put("/task-tickets/taxonomy/settings")
 def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    # Desk settings belong to supervisors. Under the legacy rule this stays
+    # what it always was (any manager); under explicit the manager must also
+    # supervise the desk.
+    if (ticket_roles.desk_access_mode(db) == ticket_roles.EXPLICIT
+            and not ticket_roles.can_manage_desk(user, db)):
+        raise HTTPException(403, "Only a ticket supervisor can change the desk's settings.")
     try:
         return ticket_taxonomy.save_config(db, patch, user["email"])
     except ticket_taxonomy.TaxonomyError as e:
         raise HTTPException(400, str(e))
 
 
-@router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])
+@router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     q = db.query(models.TicketEmailLog)
@@ -2218,7 +2263,7 @@ def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20
     } for r in rows], "total": total}
 
 
-@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
+@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 200,
                             user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """Same shape as get_ticket_notify_log, for the Teams DM queue

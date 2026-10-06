@@ -55,6 +55,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
+import { useTicketAccess } from './ticketAccess';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -511,6 +512,8 @@ export default function TicketsView() {
   // false while it loads - the queues appear a beat later rather than flashing
   // for someone who should not see them. The backend re-checks every action.
   const [itAdmin, setItAdmin] = useState(false);
+  // Bulk Delete is a supervisor's (ticket_roles.can_delete on the server).
+  const { canDelete: canBulkDelete } = useTicketAccess();
   useEffect(() => {
     let alive = true;
     // onDesk, not canAct: the queues are shown to the people whose work they
@@ -1104,7 +1107,7 @@ export default function TicketsView() {
             options={[['', 'Unassign'], ...people.map((p) => [p.email, p.name || p.email])]}
             style={{ ...compactSelStyle, maxWidth: 140 }} onChange={(v) => bulkPatch({ assigneeId: v })} />
           <button style={compactBtnStyle} onClick={() => bulkPatch({ status: 'resolved' })}><CheckCircle2 size={13} /> Resolve</button>
-          <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>
+          {canBulkDelete && <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>}
           <button style={{ ...compactBtnStyle, background: 'transparent', padding: 6 }} onClick={clearSel} title="Clear selection"><X size={14} /></button>
         </div>
       )}
@@ -2433,6 +2436,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
+  // The desk role the server gives this person (ticket_roles.py) - internal
+  // notes and deleting follow it, not the raw module grants.
+  const deskAccess = useTicketAccess();
   // initialTab: the list's Latest Comment cell lands on the Conversation.
   const [tab, setTab] = useState(initialTab || 'overview');
   // Up here with the other hooks, and NOT next to canRequestControl where it is
@@ -2617,7 +2623,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // the requester lock: once someone else is acting on a ticket, its own
   // requester deleting it out from under them is exactly the kind of change
   // this lock exists to prevent.
-  const canDelete = privileged || (!requesterLocked && isRequester);
+  // And only for a desk supervisor - the server's delete route requires one
+  // (ticket_roles.can_delete), so offering it to anybody else is a dead button.
+  const canDelete = deskAccess.canDelete && (privileged || (!requesterLocked && isRequester));
   // Escalate is a distress flare, not a priority bump: it mails the ticket's
   // department head that it needs instant care. The assignee or a manager -
   // whoever is actually working it - can raise it any time it's open,
@@ -3096,9 +3104,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
-            canInternal={(privileged || isAssignee || !isRequester) && (canAccessModule('tickets', 'administrator') || canAccessModule('tasks', 'administrator'))} />
+            canInternal={(privileged || isAssignee || !isRequester) && deskAccess.canReadInternal}
+            canDelete={deskAccess.canDelete} />
         )}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
@@ -3147,7 +3156,8 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
     let alive = true;
     // canAct here, not onDesk - an administrator must be able to unstick a
     // request whose desk was mis-configured.
-    api.getMyTicketAccess().then((r) => { if (alive) setItAdmin(!!r?.canAct); }).catch(() => {});
+    // ...and a desk supervisor's: routing for approval is ticket_roles.can_manage_desk.
+    api.getMyTicketAccess().then((r) => { if (alive) setItAdmin(!!r?.canAct && r?.canManageDesk !== false); }).catch(() => {});
     return () => { alive = false; };
   }, []);
   const status = t.approvalStatus || 'none';
@@ -3514,7 +3524,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
+function TicketConversation({ ticketId, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
@@ -3552,7 +3562,7 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
                       <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 10.5 }}>New</span>
                     )}
                     <span style={{ fontSize: 11, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>
-                    {canInternal && (
+                    {canDelete && (
                       <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
                     )}
                   </div>
@@ -3651,7 +3661,7 @@ function AttachmentViewer({ att, onClose }) {
 const ATT_CARD_W = 138;
 const ATT_THUMB_H = 84;
 
-function TicketAttachments({ ticketId, ticketType }) {
+function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
@@ -3759,7 +3769,7 @@ function TicketAttachments({ ticketId, ticketType }) {
                 {showActions && (
                   <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
                     {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
-                    <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>
+                    {canDelete && <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>}
                   </div>
                 )}
               </div>
