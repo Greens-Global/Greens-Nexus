@@ -453,6 +453,11 @@ class TicketBody(BaseModel):
     # Accepted for backward compatibility but ignored - see create_ticket,
     # which always derives it from priority server-side now.
     sla_due_on: Optional[str] = ""
+    # Convert to Ticket (Neil, 10/05): the task this ticket was raised from.
+    # The ticket links back to it and takes its files; the task gets a note
+    # pointing at the ticket, and is closed when close_source_task is set.
+    from_task_id: Optional[str] = ""
+    close_source_task: Optional[bool] = False
 
 
 class TicketUpdate(BaseModel):
@@ -738,6 +743,9 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # checked against the curated People list instead - see _valid_requester.
     body.requester_email = _valid_requester(db, user, body.requester_email)
     _check_images(body.images)
+    source = _source_task(db, user, body.from_task_id) if body.from_task_id else None
+    if source is not None:
+        body.linked_task_id = source.id
     # Company on intake (Sep 19, Pranshu: "End user don't have the ability to
     # choose company but here it is showing the ticket is raised for GGcon
     # company"). A desk-grant caller (raising on someone else's behalf, or an
@@ -797,6 +805,8 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail=json.dumps(_ticket_snapshot(t)))
+    if source is not None:
+        _copy_task_files(db, source, t, user["email"])
     tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
@@ -819,7 +829,79 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
     # No approval email here: a gated ticket has no approver yet, so there is
     # nobody to send one to. request_approval sends it once an IT Admin names one.
-    return ticket_to_dict(t)
+    out = ticket_to_dict(t)
+    if source is not None:
+        out["sourceTaskClosed"] = _finish_source_task(db, source, t, user, bool(body.close_source_task),
+                                                      background_tasks)
+    return out
+
+
+# ── Convert to Ticket (Neil, 10/05) ─────────────────────────────────────────
+# "There should be a button that says convert to ticket ... it's extracting the
+# title, extracting the detail ... you still have to fill in all the different
+# missing fields." The ticket form opens pre-filled from the task and the
+# person completes what a task does not have; on create, the ticket links
+# back to the task (linked_task_id - the drawer's Linked Tasks) and takes its
+# files, and the task says where the work went.
+
+def _source_task(db: Session, user: dict, task_id: str):
+    """The task being converted - live, and one the caller can at least see."""
+    from routers.task_util import require_task_role
+    task = (db.query(models.Task).filter(models.Task.id == task_id,
+                                         (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
+            .first())
+    if not task:
+        raise HTTPException(404, "The task to convert no longer exists.")
+    require_task_role(db, user, task, "viewer")
+    return task
+
+
+def _copy_task_files(db: Session, task, t: models.TaskTicket, actor: str) -> None:
+    """The task's files, filed on the ticket too - the same stored copies
+    (each row points at the existing storage URL, nothing is re-uploaded).
+    One activity line for the lot, not one per file."""
+    files = (db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == task.id)
+             .order_by(models.TaskAttachment.added_at).all())
+    for a in files:
+        db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=a.name, size=a.size or "",
+                                     kind=a.kind or "other", url=a.url or "", added_at=now_iso(), added_by=actor))
+    if files:
+        log_activity(db, type="attached", actor_email=actor, entity_kind="ticket", entity_id=t.id,
+                     entity_code=t.code, entity_title=t.subject,
+                     detail=f"attached {len(files)} file{'' if len(files) == 1 else 's'} from the task")
+
+
+def _finish_source_task(db: Session, task, t: models.TaskTicket, user: dict, close: bool,
+                        background_tasks: BackgroundTasks) -> bool:
+    """A note on the task pointing at the new ticket, then - when asked - the
+    task closed, so the work is not tracked twice. Both go through the Tasks
+    module's own code (comment and completion side effects included). Closing
+    needs edit rights on the task; someone who can only see it still gets the
+    note, and the ticket is never undone over it. Returns whether it closed."""
+    from routers.task_util import create_comment, require_task_role
+    link = f"{app_url()}/tickets?ticket={t.id}"
+    note = (f'<p>Converted to <a href="{html_lib.escape(link)}">{html_lib.escape(ticket_no(t.code))}</a>'
+            + (" - this task is closed; follow the work on the ticket.</p>" if close else ".</p>"))
+    closed = False
+    if close:
+        try:
+            from routers import tasks as tasks_router
+            require_task_role(db, user, task, "editor")
+            if not task.completed:
+                tasks_router.update_task(task.id, tasks_router.TaskUpdate(completed=True), background_tasks,
+                                         user=user, db=db)
+            closed = True
+        except HTTPException:
+            db.rollback()
+            note = note.replace(" - this task is closed; follow the work on the ticket.", ".")
+    try:
+        require_task_role(db, user, task, "commenter")
+        db.refresh(task)
+        create_comment(db, task, actor_email=user["email"], body=note, notify=False,
+                       defer=background_tasks.add_task)
+    except HTTPException:
+        db.rollback()
+    return closed
 
 
 # Fields left open to whoever is just working a ticket (the assignee, or

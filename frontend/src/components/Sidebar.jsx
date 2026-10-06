@@ -153,6 +153,7 @@ export const NAV = [
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
       { subview: "hr-org",    label: "Org Chart", icon: Files },
       { subview: "hr-leave",  label: "Leave",     icon: PenTool },
+      { subview: "hr-checklists", label: "Checklists", icon: CheckSquare },
     ],
   },
   {

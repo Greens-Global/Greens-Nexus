@@ -1742,7 +1742,12 @@ function PendingFileChip({ file, onRemove }) {
 const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
 
 // ── Create ───────────────────────────────────────────────────────────────────
-export function CreateTicketModal({ onClose }) {
+// `fromTask` (Convert to Ticket, Neil 10/05): { id, title, description,
+// priority, ownerId, fileCount } - the form opens pre-filled from the task,
+// names every required field the task could not supply, and on create the
+// server links the ticket to the task, copies its files and (when asked)
+// closes the task. `onCreated(ticket)` runs after a successful create.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
@@ -1775,21 +1780,30 @@ export function CreateTicketModal({ onClose }) {
   // form when it reopens - possibly after the user navigated to another view
   // and back. Consumed exactly once per mount via the ref guard.
   const seedRef = useRef(undefined);
-  if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
+  // A conversion starts from the task, never from a recording draft (which
+  // stays stashed for the form it belongs to).
+  if (seedRef.current === undefined) seedRef.current = fromTask ? null : (takeDraft() || null);
   const seed = seedRef.current;
   // Opens on Incident (Neil, Oct 1 2026: "nine times out of ten it is simply
   // an incident") - preselected, still changeable. See defaultIntakeType.
   const initialType = useRef(defaultIntakeType()).current;
   const [form, setForm] = useState(seed?.form || {
-    subject: '', description: '', type: initialType, priority: 'medium', status: 'open',
+    subject: fromTask?.title || '', description: fromTask?.description || '', type: initialType,
+    priority: PRIORITY_ORDER.includes(fromTask?.priority) ? fromTask.priority : 'medium', status: 'open',
     // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
-    requesterId: (myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
+    // A converted task is for whoever owns it - they asked for the work.
+    requesterId: (fromTask?.ownerId || myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
   });
+  // Close the task once the ticket exists, so the work is not tracked twice.
+  const [closeSource, setCloseSource] = useState(true);
   // Per-type field values (keyed by field key), pre-answered where the
   // question has a sensible default - Who is affected? = One User, When did
   // it start? = now.
   const [tf, setTf] = useState(() => seed?.tf || intakeDefaults(initialType));
-  const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
+  // Only nag after a failed submit - except on a conversion, where showing
+  // what the task could not fill in is the point (Neil: "this is missing,
+  // this is missing").
+  const [showErrors, setShowErrors] = useState(!!fromTask);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
@@ -1850,6 +1864,13 @@ export function CreateTicketModal({ onClose }) {
     return [...mine, ...extra, ...others];
   }, [people, me, requester]);
   const onBehalf = !!requester && !!me && requester !== me;
+  // A converted task's owner who is not on the People list (an external
+  // collaborator) cannot be a requester - fall back to me once the list is in.
+  useEffect(() => {
+    if (fromTask && people.length && form.requesterId && form.requesterId !== me
+        && !people.some((p) => p.email === form.requesterId && !p.external)) set('requesterId', me || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [people.length]);
 
   // ── Validation ──
   // One step now (Neil, Sep 30: "consolidate step one and step 2... there's
@@ -1969,6 +1990,7 @@ export function CreateTicketModal({ onClose }) {
         application: form.application.trim(),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
+        ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
@@ -1984,6 +2006,7 @@ export function CreateTicketModal({ onClose }) {
           alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
       }
+      onCreated?.(created);
       onClose();
     } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
   };
@@ -2045,7 +2068,13 @@ export function CreateTicketModal({ onClose }) {
   // Order per Neil (Sep 30): a title, a brief description, then the team and
   // the thing, then the type - the choices that shape the rest of the form
   // come before the questions they add.
-  return shell('Create a Ticket', {
+  // Convert to Ticket: what came across, and each required field still empty.
+  const fieldLabel = (k) => ({ subject: 'Title', companyId: 'Company', hrDepartmentId: 'Department',
+    application: 'What Do You Need Help With?' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
+  const carried = fromTask ? ['title', 'description', 'priority', 'requester',
+    ...(fromTask.fileCount ? [`${fromTask.fileCount} file${fromTask.fileCount > 1 ? 's' : ''}`] : [])] : [];
+
+  return shell(fromTask ? 'Convert to Ticket' : 'Create a Ticket', {
     // Phone only - same trio as Create a Task, so raising a ticket from a phone
     // can capture a photo of the problem without leaving the form.
     extras: (<>
@@ -2080,11 +2109,30 @@ export function CreateTicketModal({ onClose }) {
             {missing.size} required field{missing.size > 1 ? 's' : ''} still empty
           </span>
         )}
+        {fromTask && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim, cursor: 'pointer' }}>
+            <input type="checkbox" checked={closeSource} onChange={(e) => setCloseSource(e.target.checked)} />
+            Close the task
+          </label>
+        )}
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Ticket'}</button>
+        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>
+          {busy ? (fromTask ? 'Converting…' : 'Creating…') : (fromTask ? 'Convert to Ticket' : 'Create Ticket')}
+        </button>
       </>
     ),
     children: (<div onPaste={onFormPaste} style={{ display: 'contents' }}>
+      {fromTask && (
+        <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10,
+          padding: '10px 12px', marginBottom: 14, fontSize: 12.5, lineHeight: 1.5, color: NX.dim }}>
+          <div>From the task <b style={{ color: NX.ink }}>{fromTask.title}</b>: {carried.join(', ')} filled in.</div>
+          {missing.size > 0
+            ? <div style={{ color: NX.red, fontWeight: 600, marginTop: 4 }}>
+                Still needed: {[...missing].map(fieldLabel).join(', ')}
+              </div>
+            : <div style={{ color: NX.green, fontWeight: 600, marginTop: 4 }}>Everything required is filled in - check the Type, then convert.</div>}
+        </div>
+      )}
       <div style={field}>
         <label style={label}>Title {req}</label>
         <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue? e.g. Light out in the front office"

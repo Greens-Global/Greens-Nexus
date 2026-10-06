@@ -57,6 +57,8 @@ const CAMEL_TO_SNAKE = {
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles', serviceArea: 'service_area',
   resolutionNote: 'resolution_note',
+  // Convert to Ticket (Oct 6) - see backend TicketBody.from_task_id.
+  fromTaskId: 'from_task_id', closeSourceTask: 'close_source_task',
   // Project-template options (save-as-template / use / duplicate) - see
   // backend ProjectTemplateBody, UseTemplateBody and DuplicateProjectBody.
   includeTasks: 'include_tasks', includeSubtasks: 'include_subtasks',

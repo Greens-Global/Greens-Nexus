@@ -8,6 +8,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
+  ListChecks,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -44,6 +45,7 @@ import { googleMapsUrl } from '../lib/addressSearch';
 import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
+import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -1487,7 +1489,7 @@ function ExternalLifecycle({ e, toastOk, toastErr, onChanged, onRemoved }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1498,7 +1500,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [statusOpen, setStatusOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(initialTab);
+  // Checklist steps: HR editors start, cancel and reassign; viewers only read.
+  const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
+  const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const [restoreBusy, setRestoreBusy] = useState(false);
   // Nexus-only removal - separate from offboarding (which deprovisions M365).
@@ -1545,6 +1550,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['documents', 'Documents', FileText],
+    ['checklist', 'Checklist', ListChecks],
     isAdmin && ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ].filter(Boolean);
@@ -1600,6 +1606,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           {sm.label} <Pencil size={10} />
         </button>
+        {/* Open onboarding / offboarding / leave checklist at a glance. */}
+        {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('checklist')} />)}
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
@@ -1766,6 +1774,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
+
+        {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'documents' && (
           <>
@@ -4675,6 +4685,16 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const [status, setStatus] = useState(employee.status || 'active');
   const [reason, setReason] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
+  // Leaving or going on leave is when the matching checklist matters most.
+  // null = still loading the person's checklists; then { offboarding, inactive }.
+  const [openKinds, setOpenKinds] = useState(null);
+  const [startChecklistToo, setStartChecklistToo] = useState(true);
+  const [exitType, setExitType] = useState('resignation');
+  useEffect(() => {
+    api.getEmployeeChecklists(employee.id)
+      .then(r => setOpenKinds(Object.fromEntries((r.checklists || []).filter(c => c.status === 'open').map(c => [c.kind, true]))))
+      .catch(() => setOpenKinds({}));
+  }, [employee.id]);
   const [leftChoice, setLeftChoice] = useState('remove');   // offboarded: 'remove' | 'share'
   const [exportRequested, setExportRequested] = useState(false);
   // Task handover: who inherits this person's work, and whether their
@@ -4688,6 +4708,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const isInactive = status === 'inactive';
   const isLeft = status === 'offboarded';
   const showOff = isInactive || isLeft;
+  const checklistKind = isLeft ? 'offboarding' : isInactive ? 'inactive' : '';
+  const offerChecklist = changed && !!checklistKind && openKinds !== null && !openKinds[checklistKind];
   const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
   const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
   // Allow Apply when the status changed OR - for someone already inactive/left -
@@ -4741,9 +4763,19 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
     try {
       const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
       onSaved(saved);
+      if (offerChecklist && startChecklistToo) {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        try {
+          const cl = await api.startChecklist(employee.id, {
+            kind: checklistKind, anchor_date: effectiveDate || todayIso, exit_type: isLeft ? exitType : '' });
+          toastOk(`${cl.kindLabel} checklist started - ${cl.total - cl.done} steps, ${cl.overdue} already due. Open the Checklist tab to work through them.`);
+        } catch (err) { toastErr(`Status saved, but the checklist did not start: ${err?.message || 'unknown error'}`); }
+      }
       const m = saved.m365;
       const bits = [];
       if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
+      if (m?.sessions) bits.push(`M365 sessions ${m.sessions}`);
+      if (m?.nexusSessions) bits.push(`logged out of Nexus on ${m.nexusSessions} device${m.nexusSessions === 1 ? '' : 's'}`);
       if (m?.licenses) bits.push(`license ${m.licenses}`);
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
@@ -4831,6 +4863,36 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
           </div>
           <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
           <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+
+          {offerChecklist && (
+            <div style={{ border: '1px solid var(--wk-brand)', borderRadius: 12, padding: '12px 14px', background: 'var(--wk-brand-tint)', display: 'grid', gap: 10 }}>
+              <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input type="checkbox" checked={startChecklistToo} onChange={e => setStartChecklistToo(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--wk-brand)' }} />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>
+                    Also Start The {isLeft ? 'Offboarding' : 'Leave Or Suspension'} Checklist
+                  </span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.5, marginTop: 2 }}>
+                    {isLeft
+                      ? `${employee.firstName || 'This person'} has no offboarding checklist yet. It counts from the effective date (or today); steps already past are due now, so nothing like final pay or collecting the laptop gets missed.`
+                      : `Lists who blocks access, covers the inbox and re-routes approvals while ${employee.firstName || 'they'} are away.`}
+                  </span>
+                </span>
+              </label>
+              {isLeft && startChecklistToo && (
+                <div><label style={FL}>EXIT TYPE</label>
+                  <select className="form-input" style={{ width: '100%' }} value={exitType} onChange={e => setExitType(e.target.value)}>
+                    <option value="resignation">Resignation</option>
+                    <option value="resignation_no_notice">Resignation Without Notice</option>
+                    <option value="termination">Termination</option>
+                    <option value="end_of_contract">End Of Contract</option>
+                    <option value="retirement">Retirement</option>
+                    <option value="death">Death Of An Employee</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
 
           {showOff && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
@@ -5570,7 +5632,7 @@ export default function HR({ activeSub, onSubChange }) {
   // Dashboard tiles open the Time tab on a specific inner list.
   const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-attendance': 'attendance', 'hr-time-requests': 'requests' };
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
-    : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
+    : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
@@ -5617,6 +5679,11 @@ export default function HR({ activeSub, onSubChange }) {
   const [entities,  setEntities]  = useState([]);
   const [sites,     setSites]     = useState([]);
   const [toast,     setToast]     = useState(null);
+  // Open checklists per person ({employeeId: [progress]}) for the directory
+  // and profile chips; refreshed when People or Checklists is opened.
+  const [clProgress, setClProgress] = useState({});
+  const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
+  const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
@@ -5681,6 +5748,11 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
+  useEffect(() => {
+    if (sub !== 'hr-people' && sub !== 'hr-checklists') return;
+    api.getChecklistProgress().then(r => setClProgress(r.progress || {})).catch(() => {});
+  }, [sub, selectedId]);
+  const openChecklistOf = (id) => { setOpenTab('checklist'); setSelectedId(id); onSubChange?.('hr-people'); };
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   // Department filter choices are the departments actually in use, scoped to the
@@ -5779,6 +5851,7 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
+    { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
@@ -5859,6 +5932,22 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-checklists' && (
+        <>
+          <div role="tablist" aria-label="Checklists" style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', marginBottom: 16 }}>
+            {[['overview', 'Overview'], ['settings', 'Owners & Templates']].map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={clView === k} onClick={() => setClView(k)}
+                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
+                  background: clView === k ? 'var(--wk-card)' : 'transparent', color: clView === k ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: clView === k ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {clView === 'overview'
+            ? <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
+            : <ChecklistSettings entities={entities} toastOk={toastOk} toastErr={toastErr} />}
+        </>
+      )}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
@@ -5884,6 +5973,7 @@ export default function HR({ activeSub, onSubChange }) {
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
+            initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
             onExternalChanged={load}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -5971,7 +6061,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {paged.map(e => {
                     const sm = STATUS_META[e.status] || STATUS_META.active;
                     return (
-                      <tr key={e.id} onClick={() => setSelectedId(e.id)}>
+                      <tr key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
                             <Avatar e={e} card={false} />
@@ -5989,6 +6079,7 @@ export default function HR({ activeSub, onSubChange }) {
                         <td className="ppl-col-secondary">{e.department || '-'}</td>
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact /></div>)}
                         </td>
                         <td><ChevronRight size={14} style={{ color: 'var(--wk-faint)' }} /></td>
                       </tr>
@@ -6017,7 +6108,7 @@ export default function HR({ activeSub, onSubChange }) {
                       const sm = STATUS_META[e.status] || STATUS_META.active;
                       const active = selectedId === e.id;
                       return (
-                        <button key={e.id} onClick={() => setSelectedId(e.id)}
+                        <button key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
                           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -6025,6 +6116,11 @@ export default function HR({ activeSub, onSubChange }) {
                               {fullName(e)}{isExtRow(e) && <ExternalBadge />}
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {(clProgress[e.id] || []).length > 0 && (
+                              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact />)}
+                              </div>
+                            )}
                           </div>
                           <span title={sm.label} style={{ width: 8, height: 8, borderRadius: '50%', background: sm.fg, flexShrink: 0 }} />
                           <ChevronRight size={13} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
@@ -6046,6 +6142,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {selected ? (
                     <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
+                      initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
                       onExternalChanged={load}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}

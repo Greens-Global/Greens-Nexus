@@ -573,9 +573,85 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                 })
     rows.extend(_timecard_rows(db, email))
     rows.extend(_timesheet_review_rows(db, email))
+    rows.extend(_punch_fix_rows(db, my_reports))
+    rows.extend(_shift_request_rows(db, email, my_reports))
     rows.extend(_item_action_rows(db, email, bool(my_reports)))
     rows.extend(_ticket_action_rows(db, email))
     rows.extend(_esign_action_rows(db, email))
+    return rows
+
+
+_PUNCH_KIND = {"in": "clock-in", "out": "clock-out", "break_start": "break start", "break_end": "break end"}
+
+
+def _punch_fix_rows(db: Session, my_reports: dict) -> list:
+    """A direct report's timesheet fixes waiting on their manager (Neil, 10/01:
+    every module's pending actions, not just tasks): requests to add or remove
+    a punch, and proposed new times for a punch. One row per person, like
+    their time off. Decided in Nexus - each one may need a look at the card."""
+    if not my_reports:
+        return []
+    reports = list(my_reports)
+    by_person: dict = {}
+    for r in (db.query(models.PunchRequest)
+              .filter(models.PunchRequest.status == "pending",
+                      func.lower(models.PunchRequest.employee_email).in_(reports)).all()):
+        what = (f"add a {_PUNCH_KIND.get(r.punch_kind, r.punch_kind)}" if r.action == "add" else "remove a punch")
+        by_person.setdefault((r.employee_email or "").lower(), {"req": [], "edit": []})["req"].append(
+            (r.local_date or "", f"{what} on {_fmt_date(r.local_date)}"))
+    for p in (db.query(models.TimePunch)
+              .filter(models.TimePunch.edit_status == "pending",
+                      func.lower(models.TimePunch.employee_email).in_(reports)).all()):
+        if p.voided:
+            continue
+        by_person.setdefault((p.employee_email or "").lower(), {"req": [], "edit": []})["edit"].append(
+            (p.local_date or "", f"a new {_PUNCH_KIND.get(p.kind, p.kind)} time on {_fmt_date(p.local_date)}"))
+    rows = []
+    for em, got in by_person.items():
+        emp = my_reports.get(em)
+        name = (f"{emp.first_name or ''} {emp.last_name or ''}".strip() if emp else "") or em
+        items = sorted(got["req"] + got["edit"])
+        n = len(items)
+        rows.append({
+            "title": f"Approve: {name}'s timesheet fix" + (f"es ({n})" if n > 1 else ""),
+            "detail": ("Asked to " + items[0][1]) if n == 1 else "; ".join(t for _, t in items[:3]) +
+                      (f"; and {n - 3} more" if n > 3 else ""),
+            # People > Time > Punch requests (the bell's own target) when there
+            # is a request; a proposed time sits on the person's time card.
+            "url": f"{app_url()}/hr/{'hr-time-requests' if got['req'] else 'hr-time'}",
+            "module": "timecard",
+        })
+    return rows
+
+
+def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
+    """Shift requests waiting on this person (Neil, 10/01): a direct report's
+    open-shift ask, swap or offer for the manager to approve, and a teammate's
+    swap or offer for them to accept. Only shifts still ahead - a request for
+    a day that has passed can no longer be acted on."""
+    from routers import shift_requests as sr
+    today = datetime.now(timezone.utc).date().isoformat()
+    me = email.lower()
+    reports = set(my_reports) - {me}
+    pending = (db.query(models.ShiftRequest)
+               .filter(models.ShiftRequest.status.in_(sr.PENDING),
+                       models.ShiftRequest.shift_date >= today).all())
+    mine = [r for r in pending if
+            (r.status == "pending_manager" and ({(r.requester_email or "").lower(),
+                                                  (r.target_email or "").lower()} & reports))
+            or (r.status == "pending_peer" and (r.target_email or "").lower() == me)]
+    if not mine:
+        return []
+    names = sr._names(db)
+    rows = []
+    for r in sorted(mine, key=lambda x: (x.shift_date or "", x.shift_start or "")):
+        label = sr._KIND_LABEL.get(r.kind, r.kind)
+        if r.status == "pending_peer":
+            rows.append({"title": f"Respond: shift {label} from {names.get(r.requester_email, r.requester_email)}",
+                         "detail": sr._describe(r, names), "url": f"{app_url()}/shifts/mine", "module": "shifts"})
+        else:
+            rows.append({"title": f"Approve: {label} request", "detail": sr._describe(r, names),
+                         "url": f"{app_url()}/shifts/schedule", "module": "shifts"})
     return rows
 
 
@@ -699,35 +775,78 @@ def _attach_task_comment_previews(db: Session, rows: list) -> None:
         } for c in bucket]
 
 
+_UPDATE_LINES_PER_TASK = 3
+
+
+def _is_person_update(a: "models.TaskActivity") -> bool:
+    """Something a PERSON did to the task. The system's own bookkeeping -
+    reminder emails sent or failed ("Recurring email sent to ..."), a recurring
+    copy scheduled, an occurrence closed as Missed, an Asana-era due change -
+    is logged under "system" / "asana", and counting it is how Neil got 41-56
+    "updates" on tasks nobody had touched (call of 10/01)."""
+    actor = (a.actor_email or "").strip().lower()
+    return "@" in actor and not (a.type or "").startswith("notify_")
+
+
+def _update_line(a: "models.TaskActivity", names: dict, status_labels) -> str:
+    """'Neil Kadakia changed status to In Progress' - who did what, so the
+    email itself says what the update was (Neil, 10/01: "It's just listing a
+    bunch of tasks, but it's not actually giving me the update")."""
+    actor = (a.actor_email or "").strip().lower()
+    who = names.get(actor) or actor.split("@")[0].replace(".", " ").title()
+    what = a.detail or (a.type or "").replace("_", " ")
+    if a.type == "status_changed" and what.startswith("changed status to "):
+        what = f"changed status to {status_labels(what[len('changed status to '):])}"
+    return f"{who} {what}"
+
+
 def _amber_rows(db: Session, email: str, since_iso: str, my_reports: dict) -> list:
-    activity = (db.query(models.TaskActivity)
-                .filter(models.TaskActivity.entity_kind == "task",
-                        models.TaskActivity.at >= since_iso)
-                .order_by(models.TaskActivity.at.desc())
-                .limit(500).all())
+    activity = [a for a in (db.query(models.TaskActivity)
+                            .filter(models.TaskActivity.entity_kind == "task",
+                                    models.TaskActivity.at >= since_iso)
+                            .order_by(models.TaskActivity.at.desc())
+                            .limit(500).all())
+                if _is_person_update(a) and (a.actor_email or "").strip().lower() != email.lower()]
     task_ids = {a.entity_id for a in activity}
     tasks = {t.id: t for t in db.query(models.Task).filter(models.Task.id.in_(task_ids)).all()} if task_ids else {}
-    rows, seen_tasks = [], set()
+    # Every update on a task since the last briefing, newest first - not just
+    # the latest one - one line each, so several people's changes all show.
+    by_task: dict = {}
     for a in activity:
         t = tasks.get(a.entity_id)
-        if not t or t.id in seen_tasks:
-            continue
-        if email.lower() not in _collaborator_emails(t) or (a.actor_email or "").lower() == email.lower():
-            continue
-        seen_tasks.add(t.id)
+        if t and email.lower() in _collaborator_emails(t):
+            by_task.setdefault(t.id, []).append(a)
+    actors = {(a.actor_email or "").strip().lower() for acts in by_task.values() for a in acts}
+    names = ({(e.work_email or "").lower(): f"{e.first_name or ''} {e.last_name or ''}".strip()
+              for e in db.query(models.NexusEmployee)
+              .filter(func.lower(models.NexusEmployee.work_email).in_(actors)).all()} if actors else {})
+    label_cache: dict = {}
+
+    def labels_for(project_id: str):
+        if project_id not in label_cache:
+            opts = task_mail_actions.status_options(db, project_id)
+            label_cache[project_id] = lambda key: task_mail_actions.status_label(key, opts)
+        return label_cache[project_id]
+
+    rows = []
+    for tid, acts in by_task.items():   # dicts keep insertion order: most recent update first
+        t = tasks[tid]
+        lines = []
+        for a in acts:
+            line = _update_line(a, names, labels_for(t.project_id or ""))
+            if line not in lines:
+                lines.append(line)
+        shown, more = lines[:_UPDATE_LINES_PER_TASK], len(lines) - _UPDATE_LINES_PER_TASK
         rows.append({
-            "title": a.entity_title or t.title,
-            # Activity text is stored lowercase ("completed this task") and the
-            # bare type is a snake_case key - both need to read as a sentence.
-            "detail": _sentence(a.detail or (a.type or "").replace("_", " ")),
+            "title": acts[0].entity_title or t.title,
+            "detail": "; ".join(shown) + (f"; and {more} more" if more > 0 else ""),
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
-            # Open task, not yet a decided approval or already-closed-out row -
-            # the one place "act on it" plausibly means change status/complete
-            # it, not just comment/react. Approval rows have their own
-            # Approve/Reject; a completed row needs neither.
-            "task_open": not bool(t.completed),
-            # For the Outlook card's Change Status list (briefing_card.py).
+            # Toggle Completion (Neil, 10/01): completes an open task, reopens
+            # a finished one. An approval is decided with Approve / Reject,
+            # never toggled.
+            "task_open": not bool(t.completed) and t.type != "approval",
+            "task_done": bool(t.completed) and t.type != "approval",
             "project_id": t.project_id or "", "task_status": t.status or "",
         })
     _attach_task_comment_previews(db, rows)
@@ -775,6 +894,7 @@ def _green_rows(db: Session, email: str, since_iso: str) -> list:
             "detail": "Completed",
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
+            "task_done": t.type != "approval",   # Toggle Completion reopens it
         })
     rows.extend(_item_completed_rows(db, email, since_iso))
     rows.extend(_ticket_completed_rows(db, email, since_iso))
@@ -864,13 +984,126 @@ def _blue_rows_manager(db: Session, email: str, my_reports: dict, briefing_date:
     return rows
 
 
+def _my_manager(db: Session, email: str):
+    """The person's manager as an employee row, or None."""
+    me = (db.query(models.NexusEmployee)
+          .filter(func.lower(models.NexusEmployee.work_email) == (email or "").lower()).first())
+    mgr = ((me.manager_email if me else "") or "").strip().lower()
+    if not mgr or mgr == (email or "").lower():
+        return None
+    return db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == mgr).first()
+
+
+def _approved_leave(db: Session, emails, first: str, last: str) -> list:
+    """Approved time off for `emails` that touches first..last (YYYY-MM-DD),
+    soonest first."""
+    emails = [e for e in emails if e]
+    if not emails:
+        return []
+    return sorted(db.query(models.TimeOffRequest)
+                  .filter(func.lower(models.TimeOffRequest.employee_email).in_(emails),
+                          models.TimeOffRequest.status == "approved",
+                          models.TimeOffRequest.start_date <= last,
+                          models.TimeOffRequest.end_date >= first).all(),
+                  key=lambda r: (r.start_date or "", r.employee_email or ""))
+
+
+def _span(a: str, b: str) -> str:
+    return _fmt_date(a) if (a or "")[:10] == (b or "")[:10] else f"{_fmt_date(a)} - {_fmt_date(b)}"
+
+
+def _blue_rows_my_manager(db: Session, email: str, briefing_date: str) -> list:
+    """Everyone hears when THEIR manager is out (Neil, 10/01: "If a manager is
+    off, then the direct reports under them should also get an update ... give
+    those notifications early so that people are not guessing"): out today,
+    and the day before it starts. Dates only - the kind of leave is the
+    manager's own business."""
+    mgr = _my_manager(db, email)
+    if not mgr:
+        return []
+    name = f"{mgr.first_name or ''} {mgr.last_name or ''}".strip() or mgr.work_email
+    tomorrow = (datetime.strptime(briefing_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
+    rows = []
+    for r in _approved_leave(db, [(mgr.work_email or "").lower()], briefing_date, tomorrow):
+        if r.start_date <= briefing_date:
+            rows.append({"title": f"Your manager {name} is out today",
+                         "detail": f"Back after {_fmt_date(r.end_date)}", "url": "", "module": "team"})
+        elif r.start_date == tomorrow:
+            rows.append({"title": f"Your manager {name} is out from tomorrow",
+                         "detail": f"Off {_span(r.start_date, r.end_date)}", "url": "", "module": "team"})
+    return rows
+
+
+def upcoming_time_off_rows(db: Session, email: str, my_reports: dict, first: str, last: str) -> list:
+    """Weekly Digest (Neil, 10/01): who is off between first and last - a
+    manager's direct reports (with the kind of leave, as the manager may see
+    it) and the person's own manager (dates only)."""
+    leave = _leave_labeler(db, email)
+    names = {k: f"{e.first_name or ''} {e.last_name or ''}".strip() or k for k, e in my_reports.items()}
+    rows = []
+    for r in _approved_leave(db, [e for e in my_reports if e != email.lower()], first, last):
+        who = names.get((r.employee_email or "").lower(), r.employee_email)
+        when = (f"Out now, back after {_fmt_date(r.end_date)}" if r.start_date < first
+                else f"Off {_span(r.start_date, r.end_date)}")
+        rows.append({"title": f"{who} ({leave(r)})", "detail": when, "url": "", "module": "team"})
+    mgr, mine = _my_manager(db, email), []
+    if mgr:
+        name = f"{mgr.first_name or ''} {mgr.last_name or ''}".strip() or mgr.work_email
+        for r in _approved_leave(db, [(mgr.work_email or "").lower()], first, last):
+            when = (f"Out now, back after {_fmt_date(r.end_date)}" if r.start_date < first
+                    else f"Off {_span(r.start_date, r.end_date)}")
+            mine.append({"title": f"Your manager {name}", "detail": when, "url": "", "module": "team"})
+    return mine + rows
+
+
+def due_task_rows(db: Session, email: str, first: str, last: str, *, label_day: bool = True) -> list:
+    """Open tasks assigned to `email` due between `first` and `last` (YYYY-MM-DD,
+    inclusive), soonest first - what is COMING due, beside the digest's
+    Overdue (Oct 2: a recurring task is one open occurrence now, so this is
+    where its next date shows up). Same row shape and in-mail actions as the
+    other task rows."""
+    email = (email or "").lower()
+    rows = []
+    found = (db.query(models.Task)
+             .filter(models.Task.completed == False,  # noqa: E712
+                     models.Task.due_on >= first, models.Task.due_on <= last + "~",
+                     models.Task.type != "section",
+                     (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all())
+    mine = sorted((t for t in found if email in set(task_assignees(t))),
+                  key=lambda t: ((t.due_on or "")[:10], t.title or ""))
+    pids = {t.project_id for t in mine if t.project_id}
+    projects = ({p.id: p.name for p in db.query(models.TaskProject).filter(models.TaskProject.id.in_(pids)).all()}
+                if pids else {})
+    for t in mine:
+        d = datetime.strptime(t.due_on[:10], "%Y-%m-%d")
+        detail = (f"Due {d.strftime('%a')} {d.strftime('%m/%d/%Y')}" if label_day else "Due today")
+        if t.status == "recurring" or (t.recurrence or {}).get("freq"):
+            detail += " - recurring"
+        if projects.get(t.project_id or ""):
+            detail += f" - {projects[t.project_id]}"
+        rows.append({
+            "title": t.title, "detail": detail,
+            "url": f"{app_url()}/tasks/mine?task={t.id}",
+            "module": "tasks", "task_id": t.id, "action_email": email, "task_open": True,
+            "project_id": t.project_id or "", "task_status": t.status or "",
+        })
+    return rows
+
+
 def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) -> dict:
     my_reports = {(e.work_email or "").lower(): e for e in
                   db.query(models.NexusEmployee)
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()}
+    # Tasks due today are on the day's to-do (Oct 2) - and only there, not
+    # again under Updates for You.
+    due_today = due_task_rows(db, email, briefing_date, briefing_date, label_day=False)
+    today_ids = {r["task_id"] for r in due_today}
     sections = {
-        "action_required": _red_rows(db, email, my_reports),
-        "needs_to_know":   _amber_rows(db, email, since_iso, my_reports) + _blue_rows_manager(db, email, my_reports, briefing_date),
+        "action_required": _red_rows(db, email, my_reports) + due_today,
+        "needs_to_know":   [r for r in _amber_rows(db, email, since_iso, my_reports)
+                            if r.get("task_id") not in today_ids]
+                           + _blue_rows_manager(db, email, my_reports, briefing_date)
+                           + _blue_rows_my_manager(db, email, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
     return {k: v for k, v in sections.items() if v}
@@ -888,19 +1121,27 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # that renders correctly with no <style> support at all (Outlook desktop's
 # Word engine). The <style> block only adds the collapse toggle and the phone
 # layout for clients that honor it.
-_BRAND = "#0f3d2e"
+# The app's own green (Oct 6: "make the green used in mails the same as the
+# default green in the application") - the --color-green status token,
+# hsl(142,60%,35%), the same #248f4b the task emails' buttons and the one-tap
+# action pages already use. An admin's Email Appearance accent still wins
+# (email_theme), so every family follows one setting.
+_GREEN = "#248f4b"
+_BRAND = _GREEN
 _INK, _BODY, _MUTED, _LINE, _SOFT = "#111827", "#374151", "#6b7280", "#e5e7eb", "#f9fafb"
-_LINK = "#166534"
+_LINK = _GREEN
 
 _SECTION_META = {
     # key: (heading, accent, summary label)
     "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
     "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
-    "completed":       ("Completed Since Your Last Briefing",  "#15803d", "Completed"),
+    "completed":       ("Completed Since Your Last Briefing",  _GREEN, "Completed"),
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
-    "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue"),
+    "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue tasks"),
     "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
     "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
+    "due_week":        ("Due This Week",                       "#1d4ed8", "Due this week"),
+    "time_off_ahead":  ("Upcoming Time Off",                   "#0f766e", "Time off ahead"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
 # Each section's tables carry that section's color (Pranshu, Sep 26): a light
@@ -914,6 +1155,8 @@ _TONE = {
     "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
     "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
     "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
+    "due_week":        ("#f5f8ff", "#e1e9fd", "#c3d3f7"),
+    "time_off_ahead":  ("#f0fdfa", "#d5f5ee", "#a7e3d6"),
 }
 
 _MODULE_META = {
@@ -922,22 +1165,24 @@ _MODULE_META = {
     "documents": "Documents",
     "time_off": "Time Off",
     "timecard": "Time Card",
+    "shifts":   "Shifts",
     "items":    "Items",
     "team":     "Team",
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "items", "team"]
+_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team"]
 # "View all" target per module for the overflow rows - a plain link, so it
 # works identically in every client (Pranshu, Sep 20).
 _MODULE_VIEW_URL = {
     "tasks": "/tasks/mine", "tickets": "/tickets", "documents": _ESIGN_URL,
     "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
+    "shifts": "/shifts",
 }
-# Rows past this show as compact title-only rows, grouped by exact title
-# (N rows sharing one title = one row with "x N"), and the grouped list is
-# itself capped so one flooded project can't make the email unbounded
-# (Sep 22 duplicate-task incident).
-_MODULE_CARD_CAP = 3
-_OVERFLOW_GROUP_CAP = 15
+# Every row a table lists is a full row with its actions (Oct 6: past the
+# first three, rows used to shrink to a title and Open only, so the same email
+# offered Comment / React / Toggle on some tasks and not others). The table is
+# still capped so one flooded project can't make the email unbounded (Sep 22
+# duplicate-task incident) - the rest is counted with a View All link.
+_MODULE_ROW_CAP = 18
 
 
 
@@ -974,7 +1219,7 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
 
 
 # Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
-_BUTTON_COLOR = {"approve": "#15803d", "reject": "#b91c1c", "open": "#166534"}
+_BUTTON_COLOR = {"approve": _GREEN, "reject": "#b91c1c", "open": _GREEN}
 
 
 def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str = "12px") -> str:
@@ -1022,36 +1267,56 @@ def _decision_buttons(kind: str, action_id: str, email: str) -> str:
             _button("Reject", briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject")]
 
 
-def _row_actions_html(row: dict) -> str:
-    parts = []
-    if row.get("action_kind"):
-        parts.append(f"<div style='margin-top:8px'>"
-                     f"{_button_bar(_decision_buttons(row['action_kind'], row['action_id'], row['action_email']))}</div>")
+def _row_links(row: dict) -> list:
+    """[(label, url)] for a row's own actions (Neil, 10/01 and 10/05): Comment,
+    React, Toggle Completion, Open - no Change Status, "Open" rather than "Open
+    in Nexus". Each opens the signed one-tap page (routers/mail_actions.py) or
+    the item in Nexus - a digest of many tasks cannot run them inside the
+    email, which Neil accepted on 10/05."""
     links = []
     if row.get("task_id"):
-        # Same Comment / React / status / complete forms the task notification
-        # email uses (task_mail_actions + routers/mail_actions.py): one token
-        # per (task, recipient), do= picks the form.
+        # The same signed forms the task notification email uses
+        # (task_mail_actions + routers/mail_actions.py): one token per
+        # (task, recipient), do= picks the form.
         tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
         base = f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}"
         links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
-        if row.get("task_open"):
-            links += [("Change Status", f"{base}&do=status"), ("Mark Complete", f"{base}&do=complete")]
-    if links:
-        parts.append(f"<div style='margin-top:6px;line-height:1.8'>{_links(links)}</div>")
-    buttons = []
-    if row.get("task_extend") and row.get("task_id"):
-        # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" - the
-        # same signed one-tap page as the links above, do=extend
-        # (routers/mail_actions.py), which applies the app's own due-date rule.
-        tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
-        buttons.append(_button("Extend Due Date",
-                               f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}&do=extend", "approve"))
+        if row.get("task_open") or row.get("task_done"):
+            links.append(("Toggle Completion", f"{base}&do=toggle"))
+        if row.get("task_extend"):
+            # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" -
+            # do=extend applies the app's own due-date rule.
+            links.append(("Extend", f"{base}&do=extend"))
     if row.get("url"):
-        buttons.append(_button("Open in Nexus", row["url"], "open"))
-    if buttons:
-        parts.append(f"<div style='margin-top:8px'>{_button_bar(buttons)}</div>")
-    return "".join(parts)
+        links.append(("Open", row["url"]))
+    return links
+
+
+def _inline_links(pairs: list) -> str:
+    """Links on ONE line, dot-separated - the cell is nowrap, so a separator
+    can never be left dangling at a line end (the reason _links uses plain
+    spacing)."""
+    # Spaces as text, not padding: some clients drop a span's padding and ran
+    # the links together ("Comment·React", Oct 6).
+    dot = f"&nbsp;&nbsp;<span style='color:{_MUTED}'>&middot;</span>&nbsp;&nbsp;"
+    return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+                    f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
+
+
+def _actions_cell_html(row: dict, td: str) -> str:
+    """The right-hand cell of a row (Neil, 10/05: "in line, the four actions
+    are to the right"): the row's links, then Approve / Reject when it is a
+    decision - all on ONE line, as cells of one table row so Outlook desktop
+    lines them up too."""
+    cells = []
+    links = _row_links(row)
+    if links:
+        cells.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;padding-right:4px'>"
+                     f"{_inline_links(links)}</td>")
+    if row.get("action_kind"):
+        cells += _decision_buttons(row["action_kind"], row["action_id"], row["action_email"])
+    return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
+            f"{_button_bar(cells, 'right')}</td>")
 
 
 def _sub_actions_html(row: dict, tone: tuple) -> str:
@@ -1086,45 +1351,31 @@ def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
 
 
 def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
+    """One row: what it is and what happened on the left - the title, the
+    update under it - and its actions on the same line at the right."""
     td = _td(tone)
     ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
            f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
+    detail = (f"<div style='font-size:13px;line-height:1.45;color:{_BODY};margin-top:3px'>"
+              f"{escape(row['detail'])}</div>") if row.get("detail") else ""
     item = (f"<td class='nx-td' style='{td}'>"
             f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
-            f"{_sub_actions_html(row, tone)}{_row_actions_html(row)}</td>")
-    update = (f"<td class='nx-td nx-upd' width='34%' style='{td};font-size:13px;line-height:1.45;color:{_BODY}'>"
-              f"{escape(row.get('detail') or '')}</td>")
-    return f"<tr>{ref}{item}{update}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
+            f"{detail}{_sub_actions_html(row, tone)}</td>")
+    return f"<tr>{ref}{item}{_actions_cell_html(row, td)}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
 
 
-def _overflow_rows_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
-    """Compact title-only rows for everything past the cap - still in the
-    same table, so the reader sees WHAT the rest is without leaving the email."""
+def _overflow_footer_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
+    """The line under a table that has more rows than it lists: how many are
+    not listed, and where to see them all."""
     cols = 3 if with_ref else 2
-    groups: dict = {}
-    for r in hidden:
-        key = (r.get("ref") or "", r["title"])
-        g = groups.setdefault(key, {"count": 0, "url": r.get("url") or ""})
-        g["count"] += 1
-    by_title = list(groups.items())
-    listed, overflow = by_title[:_OVERFLOW_GROUP_CAP], by_title[_OVERFLOW_GROUP_CAP:]
-    td = f"padding:8px 12px;vertical-align:top;border-top:1px solid {tone[2]};font-size:12.5px;color:{_BODY}"
-    out = []
-    for (ref, title), g in listed:
-        count = f" <span style='color:{_MUTED}'>&times;{g['count']}</span>" if g["count"] > 1 else ""
-        open_link = _links([("Open", g["url"])]) if g["url"] else ""
-        ref_td = (f"<td class='nx-td nx-ref' style='{td};font-weight:600;color:{_MUTED};white-space:nowrap'>"
-                  f"{escape(ref)}</td>") if with_ref else ""
-        out.append(f"<tr>{ref_td}<td class='nx-td' style='{td}'>{escape(title)}{count}</td>"
-                   f"<td class='nx-td nx-upd' style='{td}'>{open_link}</td></tr>")
-    more = ""
-    if overflow:
-        more = f"{sum(g['count'] for _, g in overflow)} more not listed. "
-    view_url = (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}"
-    out.append(f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
-               f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}"
-               f"{_links([(f'View All {len(shown) + len(hidden)} in Nexus', view_url)])}</td></tr>")
-    return "".join(out)
+    more = f"{len(hidden)} more not listed. "
+    # Team rows are people, not one screen: "View All" used to open the first
+    # report's first task (Oct 5), so a team table gets the count only.
+    view_url = ("" if module == "team" else
+                (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}")
+    view = _links([(f"View All {len(shown) + len(hidden)} in Nexus", view_url)]) if view_url else ""
+    return (f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
+            f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
 
 
 def _group_by_module(rows: list) -> list:
@@ -1139,14 +1390,15 @@ def _group_by_module(rows: list) -> list:
 
 def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
     tone = _TONE[section]
-    shown, hidden = rows[:_MODULE_CARD_CAP], rows[_MODULE_CARD_CAP:]
+    shown, hidden = rows[:_MODULE_ROW_CAP], rows[_MODULE_ROW_CAP:]
     with_ref = any(r.get("ref") for r in rows)
     th = _th(tone)
     head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
-            f"<th class='nx-th' style='{th}'>Item</th><th class='nx-th' style='{th}'>Update</th>")
+            f"<th class='nx-th' style='{th}'>Item</th>"
+            f"<th class='nx-th' align='right' style='{th};text-align:right'>Actions</th>")
     body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
     if hidden:
-        body += _overflow_rows_html(module, shown, hidden, with_ref, tone)
+        body += _overflow_footer_html(module, shown, hidden, with_ref, tone)
     return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
             f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
             # bgcolor as well as the style: Outlook desktop honors the attribute
@@ -1156,9 +1408,11 @@ def _module_table_html(section: str, module: str, label: str, rows: list) -> str
             f"<tr class='nx-head'>{head}</tr>{body}</table>")
 
 
-def _section_html(key: str, rows: list, expanded: bool = False) -> str:
+def _section_html(key: str, rows: list, expanded: bool = False, note: str = "") -> str:
     heading, accent, _ = _SECTION_META[key]
     tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
+    if note:
+        tables = f"<div style='margin:14px 0 0;font-size:13.5px;line-height:1.5;color:{_BODY}'>{escape(note)}</div>" + tables
     sid = f"nx-sec-{key}"
     # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
     # The content's own inline style is display:block, so a client that
@@ -1207,19 +1461,33 @@ _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or a
                  "a shift). It lists what needs your attention in Nexus since your last briefing.")
 
 
+def _brand() -> str:
+    """The header band and main button: the admin's Email Appearance accent
+    when one is set, else the app green. Never fails a send over styling."""
+    try:
+        import email_theme
+        return email_theme.current().color(_BRAND)
+    except Exception:
+        return _BRAND
+
+
 def render_email(first_name: str, briefing_date: str, sections: dict,
                  greeting: str = "Hello", logo_url: str = "", *,
                  title: str = "Daily Briefing", date_label: str = "",
                  intro: str = "Here is what changed since your last briefing.",
                  footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = False,
                  cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
-                 cta_hint: str = "Collapse sections and approve, comment or complete in one click.") -> tuple:
+                 cta_hint: str = "", notes: dict = None) -> tuple:
     """The briefing email. The keyword-only arguments exist for the Weekly
     Digest (weekly_digest.py), which reuses this layout with its own section;
     their defaults are the daily email exactly. `expanded` starts sections
     open instead of collapsed; cta_* is the page the top link and the closing
-    button open."""
+    button open. No hint under the button by default: "Collapse sections and
+    approve, comment or complete in one click" promised a collapse most mail
+    clients cannot do (Neil, 10/01). `notes` puts one line of text at the top of
+    a section ({section key: text}) - the digest's team summary."""
     order = order or _ORDER
+    brand = _brand()
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
     weekday_date = date_label or f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
     subject = f"Your {title} - {weekday_date}"
@@ -1227,7 +1495,8 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
             if logo_url else
             "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
     salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
-    body_sections = "".join(_section_html(k, sections[k], expanded) for k in order if sections.get(k))
+    body_sections = "".join(_section_html(k, sections[k], expanded, (notes or {}).get(k, ""))
+                            for k in order if sections.get(k))
     html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <style>
     .nx-acc:not(:checked) ~ .nx-content {{ display:none !important; }}
@@ -1239,16 +1508,17 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       .nx-head {{ display:none !important; }}
       .nx-td {{ display:block !important; width:auto !important; }}
       .nx-ref {{ padding-bottom:0 !important; }}
-      .nx-upd {{ border-top:0 !important; padding-top:4px !important; }}
+      .nx-act {{ border-top:0 !important; padding-top:0 !important; text-align:left !important; white-space:normal !important; }}
+      .nx-act table {{ float:none !important; }}
       .nx-kpi {{ padding:12px !important; }}
     }}
   </style>
   <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
     <tr>
-      <td class="nx-pad" style="background:{_BRAND};padding:16px 32px">
+      <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:16px 32px">
         <table width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>{logo}</td>
-          <td align="right" style="font-size:12.5px;color:#cfe3d8">{escape(weekday_date)}</td>
+          <td align="right" style="font-size:12.5px;color:#e8f5ec">{escape(weekday_date)}</td>
         </tr></table>
       </td>
     </tr>
@@ -1265,8 +1535,8 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", _BRAND, pad="10px 22px", size="13px")])}
-        <div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>
+        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13px")])}
+        {f'<div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>' if cta_hint else ''}
       </td>
     </tr>
     <tr>
@@ -1359,13 +1629,9 @@ def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
                                for x in row["sub_actions"]]
     if row.get("task_id"):
         out["taskId"] = row["task_id"]
+        # Toggle Completion (Neil, 10/01) - no Change Status on this page either.
         out["taskOpen"] = bool(row.get("task_open"))
-        if row.get("task_open"):
-            pid = row.get("project_id") or ""
-            if pid not in status_cache:
-                status_cache[pid] = [{"value": k, "label": v} for k, v in task_mail_actions.status_options(db, pid)]
-            out["statusOptions"] = status_cache[pid]
-            out["taskStatus"] = row.get("task_status") or ""
+        out["taskDone"] = bool(row.get("task_done"))
     return out
 
 

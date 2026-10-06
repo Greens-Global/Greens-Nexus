@@ -363,9 +363,11 @@ export const DENSITIES = [
 // entities are offered are the person's own (every accounting screen follows
 // them); showing the accounts with nothing in them belongs to the report and
 // is memorized with it.
-export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, showHistoricalAccounts, onShowHistoricalAccounts, flux = null, onFlux, align = 'right' }) {
+export function CustomizeButton({ density, onDensity, showZero, onShowZero, showHistorical, onShowHistorical, showHistoricalAccounts, onShowHistoricalAccounts, flux = null, onFlux, align = 'right', active = false, children = null }) {
   const [open, setOpen, ref] = usePopover();
-  const on = !!showZero || !!showHistorical || !!showHistoricalAccounts;
+  // `children` / `active` (Oct 6, MRE): a screen's own options under the
+  // shared ones (Show Ended, Show Inactive Vendors), lighting the button.
+  const on = !!showZero || !!showHistorical || !!showHistoricalAccounts || !!active;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}>
@@ -383,13 +385,13 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
             ))}
           </div>
         </div>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+        {onShowZero && <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={!!showZero} onChange={(e) => onShowZero(e.target.checked)} style={{ marginTop: 2 }} />
           <span>
             Show zero balances
             <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Accounts with 0.00 in every column are hidden until this is on. One column with activity keeps a line.</span>
           </span>
-        </label>
+        </label>}
         {onShowHistorical && (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
             <input type="checkbox" checked={!!showHistorical} onChange={(e) => onShowHistorical(e.target.checked)} style={{ marginTop: 2 }} />
@@ -424,6 +426,7 @@ export function CustomizeButton({ density, onDensity, showZero, onShowZero, show
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>A line is flagged when its variance passes both. Memorized with the report.</div>
           </div>
         )}
+        {children}
       </PopoverPanel>
     </div>
   );

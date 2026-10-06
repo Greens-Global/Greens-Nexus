@@ -7,14 +7,14 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  CheckCircle2, Circle, Diamond, ChevronDown, Check, Minus, Plus, Trash2, Folder,
+  CheckCircle2, Circle, XCircle, Diamond, ChevronDown, Check, Minus, Plus, Trash2, Folder,
   // The subtask/comment/attachment icons moved with their badges into
   // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
-import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
+import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO } from '../components';
@@ -330,9 +330,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // column.
         task: (
         <div style={{ ...cellPad, gap: 6 }}>
-          <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }}
-            style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>
-            {t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+          <button title={isMissed(t) ? MISSED_TITLE : 'Complete'} onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }}
+            style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: isMissed(t) ? NX.faint : t.completed ? NX.green : NX.faint }}>
+            {isMissed(t) ? <XCircle size={15} /> : t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
           </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>

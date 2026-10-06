@@ -59,6 +59,7 @@ export const SUBMENUS = {
     { sub: 'hr-hiring', label: 'Hiring' },
     { sub: 'hr-org',    label: 'Org Chart' },
     { sub: 'hr-leave',  label: 'Leave' },
+    { sub: 'hr-checklists', label: 'Checklists' },
   ],
   marketing: [
     { sub: 'marketing-ads',        label: 'Google Ads Performance' },
