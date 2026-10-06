@@ -1234,7 +1234,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A weekday under {hhmm(bands.halfMin)} deducts a day, under {hhmm(bands.fullMin)} half a day; each weekend day worked adds {data.weekendMultiplier || 1.35} × your daily rate, pro-rated by hours{data.weekendFloor ? ` (at least ${fmtM(data.weekendFloor)})` : ''}. Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
         </div>
       )}
-      {!data.rateSet && (
+      {showPay && !data.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No salary set - set it on this person's Pay &amp; Benefits tab. Pay shows {fmtM(0)} until then.
         </div>
@@ -1246,7 +1246,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>{showPay ? 'Effect on pay' : ''}</th>
               {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={th}>Notes</th>}
               {/* Far right, like the hourly card (Sep 29). */}
               <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
@@ -1365,7 +1365,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
-                  <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
                   {!self && (
                     <td style={td}><NoteCell date={fd.date} note={dayNotes[fd.date]} onSave={saveNote} /></td>
                   )}
