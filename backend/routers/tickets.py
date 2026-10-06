@@ -237,6 +237,33 @@ def _sees_internal(db: Session, t: models.TaskTicket, user: dict, desk: bool) ->
             or _ticket_privileged(db, t, user))
 
 
+def _would_see_internal(db: Session, t: models.TaskTicket, email: str) -> bool:
+    """_sees_internal for someone who is not the caller (a bell recipient, an
+    @mentioned colleague) - built from their stored role and identity the
+    same way get_current_user builds a signed-in user."""
+    import auth
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    rec = auth._external_record(email) or {}
+    who = {"email": email, "level": auth.level_for(email, db), "external": bool(rec.get("external"))}
+    return _sees_internal(db, t, who, _has_desk_grant(who, db))
+
+
+def _is_internal_activity(detail) -> bool:
+    """True for an activity row logged from an internal note - its detail is
+    the JSON {"internal": true, ...} that _record_ticket_comment writes. A
+    plain-text detail (every other row, and comments logged before the JSON
+    detail existed) is not internal."""
+    if not isinstance(detail, str) or not detail.lstrip().startswith("{"):
+        return False
+    try:
+        parsed = json.loads(detail)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(parsed, dict) and parsed.get("internal") is True
+
+
 def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict) -> dict:
     """One ticket's dict with its latestComment - for update_ticket's reply,
     which replaces the row in the list (it would otherwise blank the column)."""
@@ -1585,11 +1612,7 @@ def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
     # Internal notes are the desk talking among themselves - never shown to
     # the person who raised the ticket, even one who also has a desk grant
     # (unless they are working it themselves, or a manager).
-    email = (user.get("email") or "").lower()
-    sees_internal = _has_desk_grant(user, db) and (
-        email != (t.requester_email or "").lower()
-        or email == (t.assignee_email or "").lower()
-        or _ticket_privileged(db, t, user))
+    sees_internal = _sees_internal(db, t, user, _has_desk_grant(user, db))
     return [_tcomment(c) for c in rows if sees_internal or not getattr(c, "internal", False)]
 
 
@@ -1635,6 +1658,11 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     # can't drift (Sagar, Sept 2 2026: "@ should work here like it does on tasks").
     actor = (user["email"] or "").lower()
     mentioned = [e for e in extract_mentions(text) if e != actor]
+    if internal:
+        # An internal note is for the desk only: someone who could not read
+        # it (the requester, a cc'd employee, a guest) is neither pulled onto
+        # the ticket nor told they were mentioned in it.
+        mentioned = [e for e in mentioned if _would_see_internal(db, t, e)]
     if mentioned:
         # Being mentioned puts you ON the ticket. A participant may read and
         # reply without a desk grant (_require_ticket_participant), so without
@@ -1650,7 +1678,11 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     # doesn't arrive as two bells about the same comment.
     _skip = set(mentioned) | set(quiet or ())
     if internal:
+        # Only the people who can open the note hear about it - never the
+        # requester, nor a watcher without the desk view.
         _skip.add((t.requester_email or "").lower())
+        _skip |= {e for e in _ticket_participants(t) if e not in _skip
+                  and e != actor and not _would_see_internal(db, t, e)}
     _notify_participants(db, t, user["email"], kind="ticket_comment",
                          title="Internal note on a ticket" if internal else "New comment on a ticket",
                          body=f"{ticket_no(t.code)} · {t.subject}",
@@ -1747,7 +1779,8 @@ def delete_ticket_attachment(attachment_id: str, db: Session = Depends(get_db)):
 @router.get("/task-tickets/{ticket_id}/activity")
 def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
-    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
+    t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
     rows = (db.query(models.TaskActivity)
             # actor_email="system" is the automated notify/auto-close machinery
             # (ticket_notify.py) - notification-delivery bookkeeping, not
@@ -1758,6 +1791,11 @@ def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
             .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == ticket_id,
                     models.TaskActivity.actor_email != "system")
             .order_by(models.TaskActivity.at.desc()).all())
+    # An internal note's "commented" row carries a preview of the note, so it
+    # follows the Conversation tab's rule (list_ticket_comments): whoever may
+    # not read internal notes does not get their activity lines either.
+    if not _sees_internal(db, t, user, _has_desk_grant(user, db)):
+        rows = [a for a in rows if not _is_internal_activity(a.detail)]
     return [{"id": a.id, "type": a.type or "", "actorId": _nz(a.actor_email), "at": a.at or "", "detail": a.detail or ""} for a in rows]
 
 
