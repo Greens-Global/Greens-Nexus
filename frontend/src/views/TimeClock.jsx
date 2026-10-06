@@ -897,7 +897,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // is read once for the whole Workday (the badge, and the tab for a
   // time-tracking-exempt reviewer, who otherwise has no Time Sheet tab).
   // `|| {}`: the role context is null outside RoleProvider (render tests).
-  const { can = () => false, myGrantedModules } = useRole() || {};
+  const { can = () => false, myGrantedModules, myEmail = '' } = useRole() || {};
   const mayOpenTime = can('administrator') || !!myGrantedModules?.has('hr');
   const [toReview, setToReview] = useState(0);
   useEffect(() => {
@@ -913,6 +913,17 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
   const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
   const showReview = tab === 'timesheet' && toReview > 0;
+  // Whether this person is time-tracking exempt, before /time/status answers
+  // (Neil, 10/06: the Time Sheet tab showed for a moment, then vanished, on
+  // every visit). The last answer is remembered per person; with none, the
+  // tab waits for the answer instead of guessing.
+  const exemptKey = `nexus.timeExempt.${(myEmail || '').toLowerCase()}`;
+  const [exemptGuess] = useState(() => { try { const v = localStorage.getItem(exemptKey); return v === null ? null : v === '1'; } catch { return null; } });
+  const exempt = status ? !!status.timeTrackingExempt : (exemptGuess ?? true);
+  useEffect(() => {
+    if (!status) return;
+    try { localStorage.setItem(exemptKey, status.timeTrackingExempt ? '1' : '0'); } catch { /* private window */ }
+  }, [status, exemptKey]);
   const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Review opens that employee's full timecard in People > Time - only for
   // those who can open it (administrator, or the HR grant - App.jsx's gate).
@@ -1007,19 +1018,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     </div>
   );
   const clockWidget = (firstName) => ({ intro: clockIntro(firstName), card: clockCard(), shift: todayShift });
-  const clockCard = () => status?.timeTrackingExempt ? (
-    /* Salaried/exempt people see no punch UI or hours at all (Charmi, Aug 21:
-       "if you're salaried, there should be an option that this turns off"). */
-    <div className="dash-card" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, padding: '16px 20px' }}>
-      <span className="dk-chip dk-chip--brand"><Clock /></span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Time Tracking Is Off for You</div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-          You're on a salaried, time-tracking-exempt setup, so Nexus doesn't record punches or hours for you. Time off still works from the Time Off tab.
-        </div>
-      </div>
-    </div>
-  ) : (
+  // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
+  // off, please take it off so the data that's coming in is relevant") - the
+  // old "Time Tracking Is Off for You" note was a card about nothing.
+  const clockCard = () => status?.timeTrackingExempt ? null : (
     <div style={{ marginBottom: 18 }}>
       {showLongBanner && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
@@ -1228,7 +1230,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           reading "Time Clock". Overview always leads - My HR content applies
           to everyone regardless of time-tracking-exempt status. */}
       <ModuleTabs
-        tabs={(status?.timeTrackingExempt
+        tabs={(exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
           ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
