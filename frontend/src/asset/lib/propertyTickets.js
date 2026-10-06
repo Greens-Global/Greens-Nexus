@@ -54,7 +54,7 @@ export function ticketMaintenanceRows(data, property) {
       id: `ticket:${t.id}`, propertyId: t.propertyId, date: localYmd(t.resolvedAt), system: t.system,
       description: t.resolutionNote ? `${t.subject} - ${t.resolutionNote}` : t.subject,
       vendor: t.vendor, cost: money(t.cost), status: 'Completed',
-      unit: units.has(t.location) ? t.location : '', docFileName: `Ticket ${t.codeLabel}`, source: 'Ticket',
+      unit: units.has(t.location) ? t.location : '', docFileName: t.codeLabel, source: 'Ticket',
     }));
 }
 

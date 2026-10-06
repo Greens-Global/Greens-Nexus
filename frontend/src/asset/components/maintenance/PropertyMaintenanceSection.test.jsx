@@ -7,10 +7,10 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 const DATA = {
   property: { id: 'gst', name: 'Greens Storage Temecula', parcels: [] },
-  open: [{ id: 't1', codeLabel: '#101', subject: 'Broken handrail', status: 'open', priority: 'high', category: 'Railings or Stairs',
+  open: [{ id: 't1', codeLabel: 'Ticket #101', subject: 'Broken handrail', status: 'open', priority: 'high', category: 'Railings or Stairs',
     location: '', propertyId: 'gst', propertyName: 'Greens Storage Temecula', onParcel: false, assigneeName: '', approvalStatus: 'none',
     createdAt: '2026-10-06T10:00:00Z', resolvedAt: '', photoCount: 0, maintenanceRecord: false, canOpen: false }],
-  history: [{ id: 't2', codeLabel: '#100', subject: 'Leak under sink', status: 'resolved', priority: 'medium', category: 'Plumbing or Water Leak',
+  history: [{ id: 't2', codeLabel: 'Ticket #100', subject: 'Leak under sink', status: 'resolved', priority: 'medium', category: 'Plumbing or Water Leak',
     system: 'Plumbing', location: '', propertyId: 'gst', propertyName: 'Greens Storage Temecula', onParcel: false, assigneeName: 'Visesh',
     approvalStatus: 'none', createdAt: '2026-10-01T10:00:00Z', resolvedAt: '2026-10-02T10:00:00Z', resolutionNote: 'Replaced the trap',
     vendor: 'ABC Plumbing', cost: '180.00', photoCount: 1, maintenanceRecord: true, canOpen: false }],
@@ -40,7 +40,7 @@ describe('Property Maintenance with tickets', () => {
     expect(screen.getByText('Replaced HVAC filter')).toBeTruthy();
     fireEvent.click(screen.getByText('Leak under sink - Replaced the trap'));
     expect(props.onEdit).not.toHaveBeenCalled();                 // a ticket row never opens the record editor
-    expect(await screen.findByText('#100 · Leak under sink')).toBeTruthy();   // its summary instead
+    expect(await screen.findByText('Ticket #100 · Leak under sink')).toBeTruthy();   // its summary instead
   });
 
   it('lists open and closed tickets with counts, and offers create and walkthrough', async () => {
@@ -58,13 +58,13 @@ describe('Property Maintenance with tickets', () => {
     render(<PropertyMaintenanceSection {...props} />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Open Tickets (1)' }));
     fireEvent.click(screen.getByText('Broken handrail'));
-    expect(await screen.findByText('#101 · Broken handrail')).toBeTruthy();
+    expect(await screen.findByText('Ticket #101 · Broken handrail')).toBeTruthy();
     expect(screen.queryByText('Follow This Ticket')).toBeNull();
   });
 
   it('a bell deep link opens the property on its open tickets', async () => {
     render(<PropertyMaintenanceSection {...props} ticketFocus={{ propertyId: 'gst', ticketId: 't1', at: 1 }} />);
-    expect(await screen.findByText('#101 · Broken handrail')).toBeTruthy();
+    expect(await screen.findByText('Ticket #101 · Broken handrail')).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Open Tickets (1)' }).getAttribute('aria-selected')).toBe('true');
   });
 });
