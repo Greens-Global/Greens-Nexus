@@ -3,14 +3,17 @@
 Which income accounts are rent, the rent guessed from the last three posted
 months, one proposal per (entity, customer) with rent postings - LEAF
 entities only (a parent rolls its children up and proposed every tenant
-twice on the 10/02 live run), the reads cut to one buckets by=customer per
-entity and by=month only for the customers who posted rent (none when the
-payload carries the date and the customer posted in one month), the scan as
+twice on the 10/02 live run) and ACTIVE ones only (the historical (H)
+entities are skipped - Charmi, 10/04: "5 of 279 entities"), the reads cut to
+ONE by=entity read saying which entities have rent, a by=customer read for
+those only, and ONE /by-customer read for the months (a per-entity month
+read only for a customer seen on two entities), the scan as
 a background job (202 with the progress, then the result, kept until a
 create; a failed job answers 424 once and starts over), customers already on
 an active lease marked as set up, an idempotent create through the same
-validation and save New Lease uses, and entity scope on every read. The
-accounting service is replaced by a recorder.
+validation and save New Lease uses, entity scope on every read, and the
+ledger sync (Oct 6: leases linked to their customer by name, new tenants
+added). The accounting service is replaced by a recorder.
 
     python -m pytest test_accounting_leasing.py -q
 """
@@ -20,6 +23,7 @@ import threading
 import time
 import unittest
 import uuid
+from datetime import date
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
@@ -31,7 +35,7 @@ import cache
 import database
 import main
 import models
-from routers import accounting, accounting_leasing, accounting_loans
+from routers import accounting, accounting_leasing, accounting_loans, leasing
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -46,11 +50,11 @@ ENTITIES = [
     {"code": "56000", "name": "MCD Services, Inc.", "parent_code": None},
     {"code": "12027", "name": "(AM) (G) 910 S. El Camino Real, SC", "parent_code": None},      # a parent: rolls 12027-1 up
     {"code": "12027-1", "name": "(AM) 910 S El Camino Real, Ste 100, SC", "parent_code": "12027"},
+    {"code": "H15000", "name": "Greens Escondido (old books)", "parent_code": None},     # historical: H before the number
+    {"code": "16000", "name": "(H) Greens Oceanside, LLC.", "parent_code": None},        # historical: (H) in the name
 ]
 LEAVES = ["12027-1", "15000", "56000"]
 TITLES = {"41101": ("revenue", "Rental Income"), "41102": ("revenue", "Tenant CAM Reimbursements"), "42000": ("revenue", "Storage Income"), "61000": ("expense", "Repairs"), "44000": ("revenue", "Service Revenue"), "60000": ("expense", "Wages")}
-# The P&L account list per entity (the light read made first; a by=customer read follows only where a rent account is).
-PNL = {"15000": ["41101", "41102", "42000", "61000"], "56000": ["44000", "60000"], "12027-1": ["41101"], "12027": ["41101"], "77000": ["60000"]}
 LABELS = {"C00498": "Overstie Management", "C00497": "Santos Blancas Jr.", "C00001": "Walk-in", "C00300": "Rajesh J. Kadakia MD, Inc."}
 # What each customer posted to which accounts, month by month, per entity.
 POSTINGS = {
@@ -62,6 +66,8 @@ POSTINGS = {
     "56000": {"C00001": {"2026-03": {"44000": 900.0}}},
     "12027-1": {"C00300": {m: {"41101": 11000.0} for m in ("2026-07", "2026-08", "2026-09")}},
     "12027": {"C00300": {m: {"41101": 11000.0} for m in ("2026-07", "2026-08", "2026-09")}},    # the roll-up: never read
+    "H15000": {"C00498": {"2020-01": {"41101": 3000.0}}},    # historical: never read
+    "16000": {"C00777": {"2026-09": {"41101": 900.0}}},      # historical: never read
 }
 URL = "/accounting/leasing/from-ledger/proposals"
 
@@ -70,9 +76,49 @@ def _as(email):
     os.environ["NEXUS_DEV_EMAIL"] = email
 
 
-def _rows_by_customer(location):
+def _postings(location, extra):
+    out = {c: dict(m) for c, m in POSTINGS.get(location, {}).items()}
+    for c, m in (extra.get(location) or {}).items():
+        out[c] = {**out.get(c, {}), **m}
+    return out
+
+
+def _rows_by_entity(locations, extra):
+    """by=entity: one row per (account, entity) - what the month summary answers."""
     out = []
-    for cust, months in POSTINGS.get(location, {}).items():
+    for loc in locations:
+        per_account = {}
+        for months in _postings(loc, extra).values():
+            for cell in months.values():
+                for acct, v in cell.items():
+                    per_account[acct] = per_account.get(acct, 0) + v
+        for acct, v in per_account.items():
+            section, title = TITLES[acct]
+            out.append({"bucket": loc, "section": section, "type": section, "account_no": acct, "title": title, "debit": 0, "credit": v})
+    return out
+
+
+def _rows_by_customer_month(customers, accounts, extra, from_="0000-00", to="9999-99"):
+    """/by-customer: consolidated over the posting entities (the 12027 roll-up is not a posting entity)."""
+    out = []
+    for loc in POSTINGS.keys() | extra.keys():
+        if loc == "12027":
+            continue
+        for cust, months in _postings(loc, extra).items():
+            if cust not in customers:
+                continue
+            for m, cell in months.items():
+                if not from_[:7] <= m <= to[:7]:
+                    continue
+                for acct, v in cell.items():
+                    if not accounts or acct in accounts:
+                        out.append({"customer": cust, "account_no": acct, "title": TITLES[acct][1], "month": m, "debit": 0, "credit": v})
+    return out
+
+
+def _rows_by_customer(location, extra=None):
+    out = []
+    for cust, months in _postings(location, extra or {}).items():
         per_account = {}
         for cell in months.values():
             for acct, v in cell.items():
@@ -83,9 +129,9 @@ def _rows_by_customer(location):
     return out
 
 
-def _rows_by_month(location, cust):
+def _rows_by_month(location, cust, extra=None):
     return [{"bucket": f"{m}-01", "section": TITLES[acct][0], "account_no": acct, "title": TITLES[acct][1], "debit": 0, "credit": v}
-            for m, cell in POSTINGS.get(location, {}).get(cust, {}).items() for acct, v in cell.items()]
+            for m, cell in _postings(location, extra or {}).get(cust, {}).items() for acct, v in cell.items()]
 
 
 class ArithmeticTests(unittest.TestCase):
@@ -94,10 +140,30 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual([a["account_no"] for a in accounting_leasing.rent_accounts(accts)], ["41101", "41102"])
         self.assertEqual(accounting_leasing.rent_accounts([{"section": "expense", "account_no": "62000", "title": "Rent Expense"}]), [])
 
-    def test_row_month(self):
-        self.assertIsNone(accounting_leasing.row_month({"bucket": "C1", "credit": 5}))      # the live payload: no date
-        self.assertEqual(accounting_leasing.row_month({"bucket": "C1", "date": "2026-09-14"}), "2026-09")
-        self.assertEqual(accounting_leasing.row_month({"bucket": "C1", "month": "2026-08"}), "2026-08")
+    def test_historical_entities_are_the_reports_rule(self):
+        h = accounting_leasing.is_historical_entity
+        self.assertTrue(h({"code": "H12001", "name": "Old"}))
+        self.assertTrue(h({"code": "16000", "name": "(H) Greens Oceanside"}))
+        self.assertTrue(h({"code": "16000", "name": "Greens Oceanside ( h )"}))
+        self.assertFalse(h({"code": "15000", "name": "Greens Escondido, LLC."}))
+        self.assertFalse(h({"code": "12027", "name": "(AM) (G) 910 S. El Camino Real"}))
+        active, parents, historical = accounting_leasing.active_leaves(ENTITIES)
+        self.assertEqual(([e["code"] for e in active], parents, historical), (["15000", "56000", "12027-1"], 1, 2))
+
+    def test_rent_by_entity(self):
+        rows = _rows_by_entity(["15000", "56000"], {})
+        got = accounting_leasing.rent_by_entity(rows, ["15000", "56000"])
+        self.assertEqual({e: [a["account_no"] for a in v] for e, v in got.items()}, {"15000": ["41101", "41102"]})
+
+    def test_new_tenants(self):
+        props = [{"entityCode": "15000", "customerId": "C1", "lastMonth": "2026-10"}, {"entityCode": "15000", "customerId": "C2", "lastMonth": "2026-09"},
+                 {"entityCode": "15000", "customerId": "C3", "lastMonth": "2026-08"}, {"entityCode": "15000", "customerId": "C4", "lastMonth": "2026-10"},
+                 {"entityCode": "15000", "customerId": "C5", "lastMonth": "2026-10"}]
+        leases = [{"entityCode": "15000", "customerId": "C4", "status": "ended"}]
+        directory = {"C5": {"active": False}, "C1": {"active": True}}
+        got = [p["customerId"] for p in accounting_leasing.new_tenants(props, leases, directory, "2026-10")]
+        # C3 last paid two months ago, C4 had a lease (ended: not brought back), C5 is inactive in Intacct.
+        self.assertEqual(got, ["C1", "C2"])
 
     def test_monthly_rent_is_the_most_common_of_the_last_three_posted_months(self):
         self.assertEqual(accounting_leasing.monthly_rent({"2026-01": 3000, "2026-02": 3000, "2026-03": 3000}), 3000.0)
@@ -147,7 +213,8 @@ class EndpointTests(unittest.TestCase):
         self.gate = threading.Event()      # the by=customer reads wait for this (a slow ledger)
         self.gate.set()
         self.fail_locations = False
-        self.dated: dict[str, list[dict]] = {}     # location -> by=customer rows that carry a date
+        self.extra: dict[str, dict] = {}     # location -> customer -> month -> {account: amount}, on top of POSTINGS
+        self.customers = [{"code": c, "name": n} for c, n in LABELS.items()]
 
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
@@ -157,22 +224,29 @@ class EndpointTests(unittest.TestCase):
                     raise HTTPException(status_code=424, detail="Accounting service error: the ledger is closed for maintenance")
                 return {"ok": True, "entities": ENTITIES}
             if path.endswith("/reports/pnl"):
-                while not self.gate.is_set():
-                    await asyncio.sleep(0.01)
-                loc = clean.get("location")
-                sections = {}
-                for c in PNL.get(loc, []) + (["41101"] if loc in self.dated else []):
-                    sections.setdefault(TITLES[c][0], []).append({"account_no": c, "title": TITLES[c][1], "amount": 1})
-                return {"ok": True, "sections": [{"key": k, "accounts": v} for k, v in sections.items()]}
+                raise AssertionError("the scan no longer reads a P&L per entity")
             if path.endswith("/reports/buckets"):
                 loc = clean.get("location")
+                if clean.get("by") == "entity":
+                    while not self.gate.is_set():
+                        await asyncio.sleep(0.01)
+                    locs = [loc] if loc else clean.get("locations", "").split(",")
+                    return {"ok": True, "rows": _rows_by_entity(locs, self.extra), "labels": {}}
                 if clean.get("by") == "customer":
-                    if loc in self.dated:
-                        return {"ok": True, "rows": self.dated[loc], "labels": LABELS}
-                    return {"ok": True, "rows": _rows_by_customer(loc), "labels": LABELS}
+                    return {"ok": True, "rows": _rows_by_customer(loc, self.extra), "labels": LABELS}
                 if clean.get("by") == "month":
-                    return {"ok": True, "rows": _rows_by_month(loc, clean.get("customer")), "labels": {}}
+                    return {"ok": True, "rows": _rows_by_month(loc, clean.get("customer"), self.extra), "labels": {}}
+            if path.endswith("/reports/by-customer"):
+                accts = set((clean.get("accounts") or "").split(",")) - {""}
+                return {"ok": True, "rows": _rows_by_customer_month(set(clean["customers"].split(",")), accts, self.extra, clean["from"], clean["to"])}
+            if path.endswith("/reports/dimensions"):
+                return {"ok": True, "values": self.customers}
             return {"ok": True, "echo": clean}
+
+        async def no_partners():
+            raise HTTPException(status_code=501, detail="Not available yet")
+        self._partners, leasing._partner_customers = leasing._partner_customers, no_partners
+        leasing._PARTNERS_DOWN.clear()
 
         self._get, accounting._acct_get = accounting._acct_get, fake_get
         self._base, self._key = accounting._ACCT_BASE, accounting._ACCT_KEY
@@ -181,6 +255,7 @@ class EndpointTests(unittest.TestCase):
     def tearDown(self):
         self.gate.set()
         accounting._acct_get = self._get
+        leasing._partner_customers = self._partners
         accounting._ACCT_BASE, accounting._ACCT_KEY = self._base, self._key
         accounting_loans._JOBS.clear()
         self._cleanup()
@@ -194,7 +269,7 @@ class EndpointTests(unittest.TestCase):
     def _cleanup(self):
         db = database.SessionLocal()
         try:
-            ids = [l.id for l in db.query(models.Lease).filter(models.Lease.created_by.in_(EVERYONE)).all()]
+            ids = [l.id for l in db.query(models.Lease).filter(models.Lease.created_by.in_(EVERYONE + (accounting_leasing.SYNC_EMAIL,))).all()]
             if ids:
                 db.query(models.LeaseRate).filter(models.LeaseRate.lease_id.in_(ids)).delete(synchronize_session=False)
                 db.query(models.LeaseMonth).filter(models.LeaseMonth.lease_id.in_(ids)).delete(synchronize_session=False)
@@ -218,8 +293,11 @@ class EndpointTests(unittest.TestCase):
     def _bucket_calls(self, by):
         return [c[1] for c in self.calls if c[0].endswith("/reports/buckets") and c[1]["by"] == by]
 
-    def _pnl_calls(self):
-        return [c[1]["location"] for c in self.calls if c[0].endswith("/reports/pnl")]
+    def _entity_calls(self):
+        return [c.get("location") or c.get("locations") for c in self._bucket_calls("entity")]
+
+    def _by_customer_calls(self):
+        return [c[1] for c in self.calls if c[0].endswith("/reports/by-customer")]
 
     def test_the_scan_is_a_background_job_polled_until_the_result(self):
         _as(EDITOR)
@@ -239,16 +317,16 @@ class EndpointTests(unittest.TestCase):
         r = self._settled()
         self.assertEqual(r.status_code, 200, r.text)
         d = r.json()
-        self.assertEqual((d["entitiesScanned"], d["parentsSkipped"]), (len(LEAVES), 1))
-        self.assertEqual(sorted(self._pnl_calls()), LEAVES)      # one P&L read per leaf; 12027 never
+        self.assertEqual((d["entitiesScanned"], d["parentsSkipped"], d["historicalSkipped"]), (len(LEAVES), 1, 2))
+        self.assertEqual(self._entity_calls(), ["15000,56000,12027-1"])      # ONE read for every active leaf; 12027 and the (H) ones never
         # Again: the finished job answers, nothing is read twice.
         self.assertEqual(self.client.get(URL).status_code, 200)
-        self.assertEqual(len(self._pnl_calls()), len(LEAVES))
+        self.assertEqual(len(self._entity_calls()), 1)
         # A create clears it: the next GET starts over.
         self.assertEqual(self.client.post("/accounting/leasing/from-ledger/create", json={"items": [{"entityCode": "12027-1", "customerId": "C00300"}]}).status_code, 201)
         self.assertEqual(self.client.get(URL).status_code, 202)
         self.assertEqual(self._settled().status_code, 200)
-        self.assertEqual(len(self._pnl_calls()), 2 * len(LEAVES))
+        self.assertEqual(len(self._entity_calls()), 2)
 
     def test_a_failed_scan_answers_424_once_and_starts_over(self):
         _as(EDITOR)
@@ -266,7 +344,7 @@ class EndpointTests(unittest.TestCase):
         r = self._settled()
         self.assertEqual(r.status_code, 200, r.text)
         d = r.json()
-        self.assertEqual((d["entitiesScanned"], d["parentsSkipped"], d["entitiesWithRentAccounts"]), (3, 1, 2))
+        self.assertEqual((d["entitiesScanned"], d["parentsSkipped"], d["historicalSkipped"], d["entitiesWithRentAccounts"]), (3, 1, 2, 2))
         self.assertEqual(sorted((a["entityCode"], a["code"], a["title"]) for a in d["rentAccounts"]),
                          [("12027-1", "41101", "Rental Income"), ("15000", "41101", "Rental Income"), ("15000", "41102", "Tenant CAM Reimbursements")])
         got = {(p["entityCode"], p["customerId"]): p for p in d["proposals"]}
@@ -279,23 +357,69 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual((s["monthlyRent"], s["firstMonth"], s["postedMonths"]), (2200.0, "2025-11", 11))     # 2,100 x 9 then 2,200 x 2: the last three say 2,200
         self.assertEqual((got[("12027-1", "C00300")]["tenantName"], got[("12027-1", "C00300")]["monthlyRent"]), ("Rajesh J. Kadakia MD, Inc.", 11000.0))
         self.assertEqual(d["lookedFor"], ["Rent", "Rental", "Lease / Leasing", "Tenant"])
-        # The reads: a P&L per leaf entity; one by=customer only where a rent account is; a month split only for the customers who posted rent.
-        self.assertEqual(sorted(self._pnl_calls()), LEAVES)
+        # The reads: ONE by=entity for every active leaf; one by=customer only where rent is; ONE /by-customer for the months.
+        self.assertEqual(self._entity_calls(), ["15000,56000,12027-1"])
         self.assertEqual(sorted(c["location"] for c in self._bucket_calls("customer")), ["12027-1", "15000"])
-        self.assertEqual(sorted((c["location"], c["customer"]) for c in self._bucket_calls("month")), [("12027-1", "C00300"), ("15000", "C00497"), ("15000", "C00498")])
+        self.assertEqual(self._bucket_calls("month"), [])
+        [bc] = self._by_customer_calls()
+        self.assertEqual((sorted(bc["customers"].split(",")), sorted(bc["accounts"].split(","))), (["C00300", "C00497", "C00498"], ["41101", "41102"]))
 
-    def test_no_month_read_when_the_payload_carries_the_date_and_the_customer_posted_once(self):
+    def test_a_tenant_on_two_entities_is_split_by_entity(self):
         _as(EDITOR)
-        self.dated["56000"] = [
-            {"bucket": "C00001", "section": "revenue", "account_no": "41101", "title": "Rental Income", "debit": 0, "credit": 1500.0, "date": "2026-09-05"},
-            {"bucket": "C00497", "section": "revenue", "account_no": "41101", "title": "Rental Income", "debit": 0, "credit": 2200.0, "date": "2026-08-03"},
-            {"bucket": "C00497", "section": "revenue", "account_no": "41101", "title": "Rental Income", "debit": 0, "credit": 2200.0, "date": "2026-09-03"},
-        ]
+        self.extra["56000"] = {"C00497": {m: {"41101": 1500.0} for m in ("2026-08", "2026-09")}}
         d = self._settled().json()
         got = {(p["entityCode"], p["customerId"]): p for p in d["proposals"]}
-        self.assertEqual((got[("56000", "C00001")]["monthlyRent"], got[("56000", "C00001")]["firstMonth"], got[("56000", "C00001")]["postedMonths"]), (1500.0, "2026-09", 1))
-        # One month for Walk-in: read from the rows. Two for Santos: the month read.
-        self.assertEqual(sorted((c["location"], c["customer"]) for c in self._bucket_calls("month") if c["location"] == "56000"), [("56000", "C00497")])
+        self.assertEqual((got[("56000", "C00497")]["monthlyRent"], got[("56000", "C00497")]["postedMonths"], got[("56000", "C00497")]["received12"]), (1500.0, 2, 3000.0))
+        self.assertEqual((got[("15000", "C00497")]["monthlyRent"], got[("15000", "C00497")]["postedMonths"]), (2200.0, 11))
+        # Santos is on two entities: a month read on each; everyone else from the one consolidated read.
+        self.assertEqual(sorted((c["location"], c["customer"]) for c in self._bucket_calls("month")), [("15000", "C00497"), ("56000", "C00497")])
+        [bc] = self._by_customer_calls()
+        self.assertEqual(sorted(bc["customers"].split(",")), ["C00300", "C00498"])
+
+    def test_the_ledger_sync_links_by_name_and_adds_new_tenants(self):
+        _as(EDITOR)
+        y = date.today().year
+        # A lease typed with only the tenant's name: nothing linked it, so nothing was ever received (the 10/04 report).
+        r = self.client.post("/leasing/leases", json={"propertyName": "Ste 100", "entityCode": "12027-1", "customerId": "", "tenantName": "Rajesh J Kadakia MD Inc", "leaseStart": f"{y}-01-01",
+                                                      "rates": [{"startDate": f"{y}-01-01", "rent": 11000}]})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual((r.json()["customerId"], r.json()["linkSource"]), ("C00300", "auto-name"))     # linked on save
+        # Unlink it behind the screen's back (an old row): the sync links it again.
+        db = database.SessionLocal()
+        try:
+            db.query(models.Lease).filter(models.Lease.id == r.json()["id"]).update({"customer_id": "", "link_source": ""})
+            db.commit()
+        finally:
+            db.close()
+        # Creation is off unless NEXUS_LEASING_AUTO_CREATE is set (Oct 6): linking alone.
+        self.assertFalse(accounting_leasing.AUTO_CREATE)
+        accounting_leasing.AUTO_CREATE = True
+        self.addCleanup(setattr, accounting_leasing, "AUTO_CREATE", False)
+        out = self.client.post("/accounting/leasing/sync")
+        self.assertEqual(out.status_code, 200, out.text)
+        d = out.json()
+        self.assertEqual([(x["leaseId"], x["customerId"]) for x in d["linked"]], [(r.json()["id"], "C00300")])
+        # New tenants: rent this month or last, on no lease of that entity. Kadakia already has one.
+        last = accounting_loans.shift_month(date.today().isoformat()[:7], 1)
+        self.assertTrue(all(p["entityCode"] != "12027-1" for p in d["created"]))
+        expect = {(e, c) for e, cs in POSTINGS.items() if e in ("15000", "56000") for c, ms in cs.items()
+                  if any(TITLES[a][1] in ("Rental Income", "Tenant CAM Reimbursements") for cell in ms.values() for a in cell) and max(ms) >= last}
+        self.assertEqual({(p["entityCode"], p["customerId"]) for p in d["created"]}, expect)
+        made = [l for l in self.client.get("/leasing/leases").json() if l["linkSource"] == "auto-ledger"]
+        self.assertEqual(len(made), len(expect))
+        self.assertTrue(all("Added automatically from the ledger" in l["notes"] for l in made))
+        # Again: nothing more to do.
+        again = self.client.post("/accounting/leasing/sync").json()
+        self.assertEqual((again["linked"], again["created"]), ([], []))
+        _as(VIEWER)
+        self.assertEqual(self.client.post("/accounting/leasing/sync").status_code, 403)
+
+    def test_the_ledger_sync_only_links_while_auto_create_is_off(self):
+        _as(EDITOR)
+        out = self.client.post("/accounting/leasing/sync")
+        self.assertEqual(out.status_code, 200, out.text)
+        self.assertEqual(out.json()["created"], [])
+        self.assertFalse([l for l in self.client.get("/leasing/leases").json() if l["linkSource"] == "auto-ledger"])
 
     def test_create_writes_leases_the_way_new_lease_does_and_only_once(self):
         _as(EDITOR)
@@ -334,7 +458,7 @@ class EndpointTests(unittest.TestCase):
         _as(LIMITED)
         d = self._settled().json()
         self.assertEqual((d["entitiesScanned"], d["parentsSkipped"], d["proposals"]), (1, 0, []))
-        self.assertEqual((self._pnl_calls(), self._bucket_calls("customer")), (["56000"], []))     # no rent account: no buckets read
+        self.assertEqual((self._entity_calls(), self._bucket_calls("customer")), (["56000"], []))     # no rent account: no customer read
         self.assertEqual(self.client.post("/accounting/leasing/from-ledger/create", json={"items": [{"entityCode": "15000", "customerId": "C00498"}]}).status_code, 403)
         self.assertEqual(self.client.get("/leasing/leases").json(), [])
 

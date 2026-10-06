@@ -957,15 +957,15 @@ export const DOCS = [
       {
         title: 'Check the Numbers',
         steps: [
-          'Open Accounting. You land on Overview.',
-          'Click Cash for the plan, scenarios and 13-week forecast.',
-          'Click Performance for budget versus actual versus last year, with commentary.',
+          'Open Accounting. You land on Dashboard > Overview.',
+          'Open the Dashboard menu and pick Cash for the plan, scenarios and 13-week forecast.',
+          'Pick Performance from the same menu for budget versus actual versus last year, with commentary.',
         ],
       },
       {
         title: 'Work the Month-End Close',
         steps: [
-          'Click the Close tab.',
+          'Open the Dashboard menu and pick Close.',
           'Tick checklist items as you finish them and mark reconciliations.',
           'Add a note on any unusual movement (flux).',
         ],

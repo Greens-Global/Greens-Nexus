@@ -187,8 +187,10 @@ export function IcWidget() {
 }
 
 export function FluxWidget() {
-  const { m, period } = useDash();
+  const { m, period, loading } = useDash();
   const { rows, hasPrior } = useFlux();
+  // Oct 6 (Neil: a loading animation everywhere): not "No prior month" while the ledger is still on its way.
+  if (loading) return <LoadingBox />;
   if (!hasPrior) return <EmptyBox title="No prior month to compare." />;
   if (!rows.length) return <EmptyBox title="No changes above the review threshold" body="Balances that moved more than $25K or 10% month over month appear here." />;
   const pk = shiftKey(period, 1);

@@ -55,7 +55,9 @@ export async function statementFile(result, entities, title, format) {
   return new File([bytes], name, { type: 'application/pdf' });
 }
 
-export default function SendReportDialog({ mode, result, entities, title, config, onClose, onDone, makeFile = null, baseName = '', what = 'statement' }) {
+// `formats` (Oct 6, PFS): the files a caller can make - a personal financial
+// statement goes out as PDF or Excel, never CSV.
+export default function SendReportDialog({ mode, result, entities, title, config, onClose, onDone, makeFile = null, baseName = '', what = 'statement', formats = ['pdf', 'excel', 'csv'] }) {
   const [prefs, setPrefs] = useAccountingPrefs();
   const [format, setFormat] = useState('pdf');
   const [to, setTo] = useState('');
@@ -140,7 +142,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
     <div>
       <div style={label}>File</div>
       <div role="radiogroup" aria-label="File format" style={{ display: 'flex', gap: 6 }}>
-        {[['pdf', 'PDF'], ['excel', 'Excel'], ['csv', 'CSV']].map(([k, text]) => (
+        {[['pdf', 'PDF'], ['excel', 'Excel'], ['csv', 'CSV']].filter(([k]) => formats.includes(k)).map(([k, text]) => (
           <button key={k} type="button" role="radio" aria-checked={format === k} onClick={() => setFormat(k)}
             style={{ ...control, cursor: 'pointer', fontWeight: format === k ? 700 : 500, border: `1px solid ${format === k ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: format === k ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: format === k ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
             {text}

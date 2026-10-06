@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, SlidersHorizontal, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, Rows3, SlidersHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import AnchoredMenu from '../../AnchoredMenu';
 import { Chip, EmptyBox, card, input } from './Bits';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
 import { useAttention, useViews } from './hooks';
+import { DASH_DENSITIES, dashDensityOf, useAccountingPrefs } from '../prefs';
 import { SIZE_LABEL, SIZES, WIDGET_CATS, WIDGET_LIST, WIDGETS, WidgetPanel, useDashNav } from './registry';
 
 // Overview tab: the attention bar and a customizable widget grid with shared
@@ -21,6 +22,36 @@ const DEFAULT_WIDGETS = {
   controller: W([['kpiCash', 'sm'], ['kpiRecon', 'sm'], ['kpiNI', 'sm'], ['recon', 'lg'], ['close', 'md'], ['ic', 'sm'], ['deadlines', 'sm'], ['flux', 'md'], ['entityCash', 'md'], ['activity', 'md']]),
   bookkeeper: W([['kpiCash', 'sm'], ['kpiRecon', 'sm'], ['kpiNI', 'sm'], ['recon', 'lg'], ['uncat', 'md'], ['close', 'md']]),
 };
+// Oct 6 (Charmi, 10/04): Compact / Condensed / Comfortable, the person's own
+// (saved to their profile - see DASH_DENSITIES in ../prefs.js). Everyone gets
+// it, not only editors: it changes nothing anyone else sees.
+function DensityMenu() {
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const density = dashDensityOf(prefs);
+  const [open, setOpen] = useState(false);
+  const btn = useRef(null);
+  return (
+    <>
+      <button ref={btn} type="button" className="secondary-btn" aria-haspopup="menu" aria-expanded={open} title="Row and card spacing - saved to your profile"
+        onClick={() => setOpen((v) => !v)} style={{ fontSize: '0.74rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Rows3 size={13} /> Density: {DASH_DENSITIES.find((d) => d.key === density).label}
+      </button>
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" minWidth={230} aria-label="Density" style={{ ...card, padding: 4, display: 'grid' }}>
+        {DASH_DENSITIES.map((d) => (
+          <button key={d.key} type="button" role="menuitemradio" aria-checked={density === d.key} onClick={() => { setPrefs({ dashDensity: d.key }); setOpen(false); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', border: 'none', borderRadius: 6, background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', textAlign: 'left', font: 'inherit', cursor: 'pointer', color: 'inherit' }}>
+            <span style={{ flex: 1 }}>
+              <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600 }}>{d.label}</span>
+              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{d.hint}</span>
+            </span>
+            {density === d.key ? <Check size={14} style={{ color: 'var(--wk-brand, #2b45e1)' }} /> : null}
+          </button>
+        ))}
+      </AnchoredMenu>
+    </>
+  );
+}
+
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'view';
 
 function useColumns() {
@@ -38,7 +69,7 @@ function useColumns() {
 }
 
 export default function OverviewTab({ canEdit }) {
-  const { view, setView, act } = useDash();
+  const { view, setView, act, loading } = useDash();
   const { views, isLoading } = useViews();
   const nav = useDashNav();
   const attention = useAttention();
@@ -115,7 +146,7 @@ export default function OverviewTab({ canEdit }) {
   const small = { fontSize: '0.74rem', padding: '4px 10px' };
 
   return (
-    <div style={{ display: 'grid', gap: 14 }}>
+    <div style={{ display: 'grid', gap: 'var(--dash-gap, 14px)' }}>
       <Toolbar right={
         <>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -126,6 +157,7 @@ export default function OverviewTab({ canEdit }) {
               {canEdit ? <option value="__new">+ New view…</option> : null}
             </select>
           </span>
+          <DensityMenu />
           {canEdit && !editing ? <button type="button" className="secondary-btn" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setEditing(true)} disabled={!current}><SlidersHorizontal size={13} /> Customize</button> : null}
         </>
       } />
@@ -156,7 +188,9 @@ export default function OverviewTab({ canEdit }) {
 
       {!editing ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
-          {attention.length === 0 ? (
+          {loading || isLoading ? (
+            <div style={{ width: 320, maxWidth: '100%' }}><SkeletonBlocks count={1} height={20} borderRadius={999} /></div>
+          ) : attention.length === 0 ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ok-fg, #15803d)' }}><CheckCircle2 size={14} /> Nothing needs attention</span>
           ) : (
             <>
@@ -195,7 +229,7 @@ export default function OverviewTab({ canEdit }) {
         : !current ? <EmptyBox title="No views yet" body="Create a view to start arranging widgets." />
         : widgets.length === 0 ? <EmptyBox title="This view is empty" body="Select Customize, then Add Widget to build it out." />
         : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 14, paddingBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 'var(--dash-gap, 14px)', paddingBottom: 16 }}>
             {widgets.map((w, i) => (
               <div key={`${i}:${w.type}`} id={`acct-widget-${w.type}`} draggable={editing}
                 onDragStart={() => setDragFrom(i)} onDragOver={(e) => { if (editing) e.preventDefault(); }}

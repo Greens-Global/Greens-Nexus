@@ -24,6 +24,9 @@ import models
 from routers import accounting, pfs
 
 models.Base.metadata.create_all(bind=database.engine)
+# The per-file lock (Oct 6) has its own tests in test_pfs_access.py.
+from routers import pfs_access  # noqa: E402
+pfs_access.LOCK_ENABLED = False
 
 OWNER = "owner.pfs.test@greensglobal.com"
 ADMIN = "admin.pfs.test@greensglobal.com"        # administrator, no pfs grant
@@ -90,9 +93,16 @@ class PfsTests(unittest.TestCase):
         self._invalidate_roles()
 
         self.asked = []
+        # The accounting app's bank account records (Oct 6), as its internal
+        # dashboard API sends them: Intacct accounts linked to a GL + entity,
+        # and its own bank accounts pointing at a GL account id.
+        self.recon_rows = []
+        self.bank_rows = []
 
         async def fake_get(path, params):
             self.asked.append((path, {k: v for k, v in params.items() if v is not None}))
+            if path.endswith("/dashboard"):
+                return {"ok": True, "rows": self.recon_rows} if params.get("op") == "recon-accounts" else {"ok": True, "banks": self.bank_rows}
             if path.endswith("/reports/balance-sheet"):
                 rows = BOOKS.get(params.get("location"), [])
                 sections = [{"key": key, "accounts": [{"account_no": c, "title": t, "amount": a} for (k, c, t, a) in rows if k == key]}
@@ -277,8 +287,10 @@ class PfsTests(unittest.TestCase):
         made = r.json()
         self.assertEqual(made["added"], 2)
         by = {l["ledgerAccounts"][0]: l for l in made["lines"]}
+        # The Institution is a bank, never the entity's name (Charmi, 10/03);
+        # this title names none.
         self.assertEqual((by["10100"]["category"], by["10100"]["ownershipPct"], by["10100"]["accountRef"], by["10100"]["institution"], by["10100"]["source"]),
-                         ("bank", 50.0, "7546", "Business - ANK", "ledger"))
+                         ("bank", 50.0, "7546", "", "ledger"))
         self.assertEqual((by["10120"]["category"], by["10120"]["ownershipPct"], by["10120"]["accountRef"]), ("investment", 100.0, "2017"))
         # Asked again: nothing doubles.
         self.assertEqual(self.client.post(f"/pfs/profiles/{pid}/lines/bulk", json=body).json()["added"], 0)
@@ -416,14 +428,155 @@ class PfsTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_jewelry_is_its_own_category(self):
+    def test_jewelry_folds_into_personal_holdings(self):
+        """Oct 6 (Charmi): no Jewelry or Personal Property section - their
+        lines are Personal Holdings, saved ones included, figures intact."""
         pid = self._profile()["id"]
         keys = [c["key"] for c in self.client.get("/pfs/meta").json()["assetCategories"]]
-        self.assertEqual(keys.index("jewelry"), keys.index("personal") + 1)
-        self.assertEqual(keys.index("other_holding"), keys.index("jewelry") + 1)
-        self._line(pid, section="asset", category="jewelry", label="Diamond necklace", manualValue=25000, manualAsOf="2026-03-15", details={"appraiser": "GIA"})
+        self.assertNotIn("jewelry", keys)
+        self.assertEqual(keys[:2], ["cash", "bank"])                       # Cash first
+        self.assertEqual(keys.index("vehicles") + 1, keys.index("personal"))
+        line = self._line(pid, section="asset", category="jewelry", label="Diamond necklace", manualValue=25000, manualAsOf="2026-03-15", details={"appraiser": "GIA"})
+        self.assertEqual(line["category"], "personal")
+        # A line saved under Jewelry before the change is moved, not lost.
+        db = database.SessionLocal()
+        try:
+            db.add(models.PfsLine(id="pfs-test-old-jewel", profile_id=pid, section="asset", category="jewelry", label="Watch", ownership_pct=100,
+                                  source="manual", manual_value=5000, manual_as_of="2026-01-10", details={"appraiser": "Tiffany"},
+                                  updated_by=EDITOR, updated_at="2026-10-01T00:00:00+00:00"))
+            db.commit()
+        finally:
+            db.close()
         st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
-        self.assertEqual([(g["label"], g["total"], g["rows"][0]["asOf"]) for g in st["assets"]], [("Jewelry & Personal Property", 25000.0, "2026-03-15")])
+        self.assertEqual([(g["label"], g["total"]) for g in st["assets"]], [("Personal Holdings", 30000.0)])
+        self.assertEqual({r["details"].get("appraiser") for r in st["assets"][0]["rows"]}, {"GIA", "Tiffany"})
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(db.query(models.PfsLine).filter(models.PfsLine.id == "pfs-test-old-jewel").first().category, "personal")
+        finally:
+            db.close()
+
+    # ── Oct 6 (Charmi, 10/03-10/04) ─────────────────────────────────────────
+    def test_the_institution_is_the_bank(self):
+        """"The INSTITUTION column shows Neil & Archana Kadakia - it must show
+        the bank name." The bank account record linked to the GL wins; the
+        account title is read when there is none."""
+        self.assertEqual(pfs.bank_name("Chase Checking - 6532"), "Chase")
+        self.assertEqual(pfs.bank_name("Bank of the West - 2721"), "Bank of the West")
+        self.assertEqual(pfs.bank_name("CitiBank"), "Citibank")
+        self.assertEqual(pfs.bank_name("US Bank Checking"), "U.S. Bank")
+        self.assertEqual(pfs.bank_name("NRK & ANK - F&M - 6870"), "Farmers & Merchants Bank")
+        self.assertEqual(pfs.bank_name("Pacific Western Bank Checking"), "Pacific Western Bank")
+        self.assertEqual(pfs.bank_name("Operating Chkg 7546"), "")
+        self.assertEqual(pfs.bank_name("Neil & Archana Kadakia"), "")
+        pid = self._profile()["id"]
+        # Set up the old way: the entity's name in Institution.
+        for code, title in (("10100", "Operating Chkg 7546"), ("10120", "Savings 2017")):
+            self._line(pid, section="asset", category="bank", label=title, institution="Neil & Archana Kadakia",
+                       source="ledger", ledgerEntity="60100", ledgerAccounts=[code])
+        self._line(pid, section="liability", category="business_loan", label="Loan Payable - F&M Bank", institution="Business - ANK",
+                   source="ledger", ledgerEntity="60100", ledgerAccounts=["25000"])
+        self._line(pid, section="asset", category="retirement", label="Roth IRA", institution="Neil's broker", manualValue=1)
+        # 10100 is linked to a Bank of the West account in Intacct; 10120 has
+        # a record of the app's own whose GL id is that account's.
+        self.recon_rows = [{"account_id": "a-10100", "gl_code": "10100", "entity": "60100", "intacct_ref": "BOTW-7546"},
+                           {"account_id": "a-10120", "gl_code": "10120", "entity": "60100", "intacct_ref": None}]
+        self.bank_rows = [{"id": "b1", "nickname": "Savings", "bank_name": "Chase", "gl_account_id": "a-10120", "masked_number": "2017"}]
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        inst = {r["label"]: r["institution"] for g in st["assets"] + st["liabilities"] for r in g["rows"]}
+        self.assertEqual(inst, {"Operating Chkg 7546": "Bank of the West", "Savings 2017": "Chase",
+                                "Loan Payable - F&M Bank": "Farmers & Merchants Bank",   # from the title
+                                "Roth IRA": "Neil's broker"})                              # typed by hand: as typed
+        # The accounting app unable to answer: the title still decides, never the entity.
+        self.recon_rows, self.bank_rows = [], []
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-29").json()
+        self.assertEqual(st["assets"][0]["rows"][0]["institution"], "")
+
+    def test_cash_is_its_own_section_first(self):
+        self.assertEqual(pfs.classify_account("asset", "10000", "Cash", ""), ("asset", "cash"))
+        self.assertEqual(pfs.classify_account("asset", "10010", "Petty Cash", ""), ("asset", "cash"))
+        self.assertEqual(pfs.classify_account("asset", "10020", "Cash on Hand", "cash_bank"), ("asset", "bank"))   # the account's type wins
+        self.assertEqual(pfs.classify_account("asset", "10030", "Drawer", "petty_cash"), ("asset", "cash"))
+        self.assertEqual(pfs.classify_account("asset", "10100", "Cash - Chase 6532", ""), ("asset", "bank"))
+        self.assertEqual(pfs.classify_account("asset", "16000", "Vehicle - Tesla Model X", ""), ("asset", "vehicles"))
+        self.assertEqual(pfs.classify_account("asset", "13500", "Note Receivable - Greens LLC", ""), ("asset", "notes_receivable"))
+        self.assertEqual(pfs.classify_account("liability", "26500", "Policy Loan - MassMutual", ""), ("liability", "insurance_loan"))
+        pid = self._profile()["id"]
+        self._line(pid, section="asset", category="bank", label="Chase Checking - 6532", manualValue=100)
+        # Listed under Bank Accounts before the Cash section existed.
+        db = database.SessionLocal()
+        try:
+            db.add(models.PfsLine(id="pfs-test-old-cash", profile_id=pid, section="asset", category="bank", label="Cash", ownership_pct=100,
+                                  source="manual", manual_value=2500, details={}, updated_by=EDITOR, updated_at="2026-10-02T00:00:00+00:00"))
+            db.commit()
+        finally:
+            db.close()
+        self._line(pid, section="asset", category="vehicles", label="Tesla Model X", manualValue=60000)
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        self.assertEqual([(g["key"], g["total"]) for g in st["assets"]], [("cash", 2500.0), ("bank", 100.0), ("vehicles", 60000.0)])
+
+    def test_lines_keep_the_order_they_are_put_in(self):
+        pid = self._profile()["id"]
+        a = self._line(pid, section="asset", category="bank", label="Alpha", manualValue=1)
+        b = self._line(pid, section="asset", category="bank", label="Bravo", manualValue=2)
+        c = self._line(pid, section="asset", category="bank", label="Charlie", manualValue=3)
+        r = self.client.put(f"/pfs/profiles/{pid}/line-order", json={"ids": [c["id"], a["id"], b["id"]]})
+        self.assertEqual(r.status_code, 200, r.text)
+        labels = lambda: [x["label"] for x in self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()["assets"][0]["rows"]]  # noqa: E731
+        self.assertEqual(labels(), ["Charlie", "Alpha", "Bravo"])
+        self.assertEqual([x["label"] for x in self.client.get(f"/pfs/profiles/{pid}").json()["lines"]], ["Charlie", "Alpha", "Bravo"])
+        # A new line goes to the end, not to the top.
+        self._line(pid, section="asset", category="bank", label="Aardvark", manualValue=4)
+        self.assertEqual(labels(), ["Charlie", "Alpha", "Bravo", "Aardvark"])
+        self.assertEqual(self.client.put(f"/pfs/profiles/{pid}/line-order", json={"ids": ["nope"]}).status_code, 404)
+        _as(VIEWER)
+        self.assertEqual(self.client.put(f"/pfs/profiles/{pid}/line-order", json={"ids": [a["id"]]}).status_code, 403)
+
+    def test_the_first_page(self):
+        """"You need to build out the first page of our PFS": every line of a
+        bank's Statement of Financial Condition, totals that agree with the
+        statement, guarantees listed but not added in, income from the
+        schedules."""
+        pid = self._profile()["id"]
+        self._line(pid, section="asset", category="cash", label="Cash", manualValue=1000)
+        self._line(pid, section="asset", category="bank", label="Chase", manualValue=9000, ownershipPct=50)
+        self._line(pid, section="asset", category="bank", label="Citi", manualValue=1000, ownershipPct=100)
+        self._line(pid, section="asset", category="investment", label="Schwab", manualValue=5000)
+        self._line(pid, section="liability", category="credit_card", label="Amex", manualValue=700)
+        self._line(pid, section="liability", category="loc", label="Chase LOC", manualValue=300)
+        self._line(pid, section="liability", category="contingent", label="Guarantee - Greens Escondido loan", manualValue=1_000_000, ownershipPct=50)
+        self._line(pid, section="real_estate", category="domestic_commercial", label="Greens Escondido", manualValue=2_000_000, ownershipPct=50,
+                   details={"loan": {"source": "ledger", "entity": "70000", "accounts": ["25100"]}})
+        st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
+        c = st["condition"]
+        self.assertEqual([x["key"] for x in c["assets"]],
+                         ["cash", "bank", "securities", "retirement", "real_estate", "business", "notes_receivable", "insurance", "vehicles", "personal", "other"])
+        a = {x["key"]: x for x in c["assets"]}
+        self.assertEqual((a["cash"]["amount"], a["bank"]["amount"], a["bank"]["ownership"], a["securities"]["amount"], a["real_estate"]["amount"], a["vehicles"]["amount"]),
+                         (1000.0, 5500.0, "Various", 5000.0, 1_000_000.0, 0.0))
+        liab = {x["key"]: x["amount"] for x in c["liabilities"]}
+        self.assertEqual(liab, {"notes_banks": 300.0, "mortgages": 600_000.0, "credit_cards": 700.0, "auto": 0.0, "insurance_loan": 0.0, "other": 0.0})
+        # The first page agrees with the statement; a guarantee is listed, not owed.
+        self.assertEqual((c["totals"]["assets"], c["totals"]["liabilities"]), (st["totals"]["assets"], st["totals"]["liabilities"]))
+        self.assertEqual(st["totals"]["liabilities"], 601_000.0)
+        self.assertEqual([(x["label"], x["amount"]) for x in c["contingent"]], [("Guarantee - Greens Escondido loan", 500_000.0)])
+        self.assertEqual([g["key"] for g in st["liabilities"]], ["loc", "credit_card"])
+        self.assertEqual(c["contingentAnswer"], {"answer": "", "note": ""})
+        self.assertEqual(c["income"], {"year": "2026", "lines": [{"key": "rental", "label": "Net Rental Income (Schedule E)", "amount": 8850.0}], "total": 8850.0})
+
+    def test_where_a_statement_went_is_audited(self):
+        pid = self._profile()["id"]
+        self._line(pid, section="asset", category="personal", label="Household", manualValue=50000)
+        r = self.client.post(f"/pfs/profiles/{pid}/statements", json={"asof": "2026-09-28", "format": "excel", "delivery": "email"})
+        self.assertEqual(r.status_code, 201, r.text)
+        db = database.SessionLocal()
+        try:
+            a = db.query(models.AuditLog).filter(models.AuditLog.action == "pfs_statement_produced", models.AuditLog.resource_id == pid).first()
+            self.assertIn('"format": "xlsx"', a.details)
+            self.assertIn('"delivery": "email"', a.details)
+            self.assertNotIn("50000", a.details)
+        finally:
+            db.close()
 
     def test_schedule_e_and_c_lines(self):
         """Charmi, 10/01: "SCH C and Sch E reporting". A real estate line with

@@ -844,6 +844,11 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
             # Time-tracking exemption moves to the role (Visesh, Oct 2) - see the Postgres list.
             "ALTER TABLE nexus_groups ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
+            # MRI rent roll Notes column + automatic customer link (Oct 6) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN team_note VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1843,6 +1848,30 @@ def _run_migrations():
         # Access, beside the screen-share exemption (Visesh, Oct 2).
         # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # Accounting > Loans (Charmi and Neil, 10/06): amortization schedules
+        # and stress scenarios per loan. New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_schedules ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_loan_stress_scenarios ENABLE ROW LEVEL SECURITY",
+        # Accounting > MRE, monthly recurring expenses (Oct 6). New table - RLS
+        # per CLAUDE.md.
+        "ALTER TABLE recurring_expenses ENABLE ROW LEVEL SECURITY",
+        # PFS (Charmi, 10/04): Affiliated Entities, the co-borrower's executive
+        # profile, the per-file one-time codes and the file access log. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE pfs_affiliates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_profile_extras ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_log ENABLE ROW LEVEL SECURITY",
+        # MRI rent roll (Charmi, Oct 6): the team's note per lease (who / when)
+        # and how the lease was linked to its Intacct customer.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_by VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_at VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS link_source VARCHAR DEFAULT ''",
+        # Accounting > Loans & Financing (Oct 6): interest account, original
+        # principal, Internal / External and Egnyte folders per loan. New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2401,6 +2430,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
             print(f"[startup] accounting sso sync skipped: {e}")
+        # MRI leasing ledger sync (Charmi, Oct 6): leases linked to their
+        # Intacct customers, new tenants added. Deployed-worker gated inside.
+        try:
+            from routers.accounting_leasing import leasing_sync_loop
+            _tasks.append(_a.create_task(leasing_sync_loop()))
+        except Exception as e:
+            print(f"[startup] leasing sync skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -2890,3 +2926,10 @@ app.include_router(accounting_loans.router)        # Accounting > Loans & Financ
 app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)
 from routers import hr_checklists as hr_checklists_router  # noqa: E402
 app.include_router(hr_checklists_router.router)    # People > onboarding / offboarding / leave checklists per person (hr_checklists.py)
+from routers import accounting_loan_plans  # noqa: E402
+app.include_router(accounting_loan_plans.router)   # Accounting > Loans: amortization schedules + rate stress scenarios per loan (Oct 6)
+from routers import accounting_mre  # noqa: E402
+app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)
+from routers import pfs_access, pfs_affiliates  # noqa: E402
+app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
+app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)

@@ -161,6 +161,14 @@ export function setActAsSessionId(id) {
 function _actAsHeader() {
   return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
 }
+// PFS file lock (Charmi, 10/04): a code opens ONE file for THIS tab only, so
+// every /pfs call carries the tab's random session id (routers/pfs_access.py).
+function _pfsSessionHeader(path) {
+  if (!path.startsWith('/pfs')) return {};
+  let id;
+  try { id = sessionStorage.getItem('nexus:pfs-session') || ''; if (!id) { id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`); sessionStorage.setItem('nexus:pfs-session', id); } } catch { id = 'no-storage'; }
+  return { 'X-Pfs-Session': id };
+}
 
 // ── Keep-warm: REMOVED (Aug 1, 2026) ─────────────────────────────────────────
 // There used to be a /health ping here (boot + every 4 min per tab) papering
@@ -233,6 +241,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
           ..._actAsHeader(),
+          ..._pfsSessionHeader(path),
           ...(BFF_MODE && (options.method || 'GET').toUpperCase() !== 'GET' ? { 'X-CSRF-Token': csrfToken() } : {}),
           ...(options.headers ?? {}),
         },
@@ -1060,8 +1069,9 @@ export const api = {
   deletePfsLine: (id, lineId) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
   getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),
-  producePfsStatement: (id, asof, format = "pdf") =>
-    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof, format }) }),
+  // delivery (Oct 6): "download" | "email" | "files" - what the audit row says.
+  producePfsStatement: (id, asof, format = "pdf", delivery = "download") =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof, format, delivery }) }),
   getPfsStatements: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/statements`),
   getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
   getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
@@ -1069,6 +1079,8 @@ export const api = {
   // "Move to...": a line's section and category, nothing else (Charmi, 10/01).
   movePfsLine: (id, lineId, section, category) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
+  // The order of lines within a section, kept per guarantor (Charmi, 10/04).
+  reorderPfsLines: (id, ids) => req(`/pfs/profiles/${encodeURIComponent(id)}/line-order`, { method: "PUT", body: JSON.stringify({ ids }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
@@ -1837,6 +1849,15 @@ export const api = {
   createLoansFromLedger: (body) => req('/accounting/loans/create', { method: 'POST', body: JSON.stringify(body) }),
   getLoanReview:         (month) => req(`/accounting/loans/review?month=${encodeURIComponent(month)}`),
   updateLoan:            (id, month, body) => req(`/accounting/loans/${encodeURIComponent(id)}?month=${encodeURIComponent(month)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // Oct 6 (Charmi and Neil, 10/03-10/04): the review for a window (from / to,
+  // as of today by default) and the entities picked; the scan of the active
+  // entities as of a date; a manual loan; the accounts a loan can be wired
+  // to; and the ledger lines behind a loan (drill-down and payment history).
+  getLoansReview:        ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`),
+  getLoanProposalsAsOf:  ({ asof = '', entities = [], historical = false } = {}) => req(`/accounting/loans/proposals?${new URLSearchParams({ ...(asof ? { asof } : {}), ...(entities.length ? { entities: entities.join(',') } : {}), ...(historical ? { historical: 'true' } : {}) })}`),
+  createManualLoan:      (body) => req('/accounting/loans/manual', { method: 'POST', body: JSON.stringify(body) }),
+  getLoanAccounts:       (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`),
+  getLoanHistory:        (id, { from = '', to = '', interest = '' } = {}) => req(`/accounting/loans/${encodeURIComponent(id)}/history?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(interest ? { interest } : {}) })}`),
   // MRI > Leasing > Set Up From the Ledger: one lease per (entity, customer)
   // with rent postings in the last twelve months, created through the same
   // path as New Lease.
@@ -1859,6 +1880,52 @@ export const api = {
   resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
   getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
   saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
+  // loan (built or the bank's file) and saved rate stress scenarios
+  // (routers/accounting_loan_plans.py).
+  getLoanSchedule:         (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`),
+  saveLoanSchedule:        (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteLoanSchedule:      (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'DELETE' }),
+  getLoanScheduleExpected: (month)        => req(`/accounting/loan-plans/expected?month=${encodeURIComponent(month)}`),
+  getLoanStressScenarios:  (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`),
+  saveLoanStressScenario:  (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteLoanStressScenario: (loanId, id)  => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Accounting > Reporting > MRE, monthly recurring expenses (Oct 6,
+  // routers/accounting_mre.py): the grid of expected against paid (paid read
+  // from the ledger), the lines, and From the Ledger (a background scan
+  // polled like the leases one: 202 with the progress until the result).
+  getMreGrid:          (year, entities = []) => req(`/accounting/mre/grid?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
+  createMreLine:       (body)     => req('/accounting/mre/lines', { method: 'POST', body: JSON.stringify(body) }),
+  updateMreLine:       (id, body) => req(`/accounting/mre/lines/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setMreNotes:         (id, notes) => req(`/accounting/mre/lines/${encodeURIComponent(id)}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) }),
+  endMreLine:          (id, endDate) => req(`/accounting/mre/lines/${encodeURIComponent(id)}/end`, { method: 'POST', body: JSON.stringify({ endDate }) }),
+  deleteMreLine:       (id)       => req(`/accounting/mre/lines/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
+  getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
+  createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+
+  // PFS file lock + Affiliated Entities + an executive profile per borrower
+  // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.
+  getPfsAccessStatus:    ()          => req('/pfs-access/status'),
+  requestPfsCode:        (id)        => req(`/pfs-access/files/${encodeURIComponent(id)}/code`, { method: 'POST' }),
+  verifyPfsCode:         (id, code)  => req(`/pfs-access/files/${encodeURIComponent(id)}/verify`, { method: 'POST', body: JSON.stringify({ code }) }),
+  lockPfsFile:           (id)        => req(`/pfs-access/files/${encodeURIComponent(id)}/lock`, { method: 'POST' }),
+  getPfsAccessLog:       (id = '')   => req(`/pfs-access/log${id ? `?profile_id=${encodeURIComponent(id)}` : ''}`),
+  getPfsAffiliatesMeta:  ()          => req('/pfs/affiliates/meta'),
+  getPfsAffiliates:      (id)        => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates`),
+  addPfsAffiliate:       (id, body)  => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates`, { method: 'POST', body: JSON.stringify(body) }),
+  updatePfsAffiliate:    (id, aid, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates/${encodeURIComponent(aid)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePfsAffiliate:    (id, aid)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates/${encodeURIComponent(aid)}`, { method: 'DELETE' }),
+  reorderPfsAffiliates:  (id, ids)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates-order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
+  getPfsExecutiveProfiles: (id)      => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`),
+  savePfsExecutiveProfile: (id, key, text) => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`, { method: 'PUT', body: JSON.stringify({ key, text }) }),
+  // MRI > Leasing (Charmi, Oct 6): the rent roll narrowed to entities /
+  // customers, a tenant's customer record (the popover), the team's note per
+  // lease, and the ledger sync (link leases to customers, add new tenants).
+  getLeasingRentRollFor:  (year, { entities = [], customers = [] } = {}) => req(`/leasing/rent-roll?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}${customers.length ? `&customers=${encodeURIComponent(customers.join(','))}` : ''}`),
+  getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
+  setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
+  syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
