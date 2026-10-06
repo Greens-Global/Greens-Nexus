@@ -79,8 +79,9 @@ def _manager(db, svc) -> str:
 def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automatic: bool) -> models.TaskTicket:
     """Open the service ticket for svc.next_due and move the schedule on.
     The caller holds the service row lock (with_for_update) and commits."""
+    import code_sequence
     from routers import tickets as T
-    from ticket_code import TICKET_CODE_DIGITS, ticket_no
+    from ticket_code import ticket_no
 
     tpl = dict(svc.template or {})
     prop = db.get(models.PropertyAsset, svc.property_asset_id)
@@ -96,8 +97,7 @@ def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automa
     service_area = T.service_area_for(db, tpl.get("application") or "")
     sla = T._sla_due_from_priority(db, now, priority)
 
-    T._lock_ticket_codes(db)
-    code = f"{T._highest_ticket_no(db) + 1:0{TICKET_CODE_DIGITS}d}"
+    code = code_sequence.next_ticket_code(db)   # the never-repeating counter
     t = models.TaskTicket(
         id=gen_id(), code=code, subject=tpl.get("subject") or "Scheduled service",
         description=note + (tpl.get("description") or ""), type=tpl.get("type") or "incident",

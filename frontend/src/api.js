@@ -600,6 +600,9 @@ export const api = {
   getTicketTaxonomySettings: () => req("/task-tickets/taxonomy/settings"),
   updateTicketTaxonomySettings: (patch) => req("/task-tickets/taxonomy/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
+  // Desk Access rule (administrators): legacy / explicit - backend/ticket_roles.py.
+  getTicketDeskAccess: () => req("/task-tickets/desk-access"),
+  updateTicketDeskAccess: (deskAccess) => req("/task-tickets/desk-access", { method: "PUT", body: JSON.stringify({ deskAccess }) }),
   // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),

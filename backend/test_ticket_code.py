@@ -77,6 +77,10 @@ class SequenceTests(unittest.TestCase):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
         self.db.query(models.TaskTicket).delete()
+        # The sequence lives in its own counter row now (code_sequence.py);
+        # clearing it makes each test start from the codes it adds, as the
+        # counter does on a database that has never issued one.
+        self.db.query(models.NexusCounter).delete()
         self.db.commit()
 
     def _add(self, code):

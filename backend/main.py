@@ -873,6 +873,10 @@ def _run_migrations():
             "ALTER TABLE shift_groups ADD COLUMN teams_team_id VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_team_name VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN target_type VARCHAR DEFAULT 'chat'",
+            # Ticket soft delete (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1946,6 +1950,15 @@ def _run_migrations():
         "ALTER TABLE marketing_ads_daily ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_ads_keywords ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE marketing_ad_budgets ENABLE ROW LEVEL SECURITY",
+        # Ticket soft delete (Oct 6): DELETE /task-tickets/{id} marks the row
+        # instead of dropping it and its conversation/files/activity; restore
+        # is POST /task-tickets/{id}/restore. models.TaskTicket.deleted_at.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+        # Ticket numbers / task codes that never repeat (Oct 2026): one row per
+        # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
+        "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2262,6 +2275,10 @@ async def lifespan(app: FastAPI):
                 file=_sys.stderr,
             )
             _sys.exit(1)
+    # Same rule for the session/token encryption key: no repo-known fallback
+    # on a deployed instance (secret_box.py, Sep 30 review).
+    import secret_box as _secret_box
+    _secret_box.require_key_on_azure()
 
     try:
         models.Base.metadata.create_all(bind=engine)
@@ -2338,6 +2355,23 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Ticket desk access rule (Oct 2026, ticket_roles.py): pinned once, the
+    # first time this database starts without one. Existing data (tickets,
+    # tasks or a tasks/tickets grant) -> "legacy", so nobody on the desk loses
+    # access; an empty database (a new customer) -> "explicit". A no-op on
+    # every later boot.
+    try:
+        from database import SessionLocal
+        import ticket_roles
+        db = SessionLocal()
+        try:
+            seeded = ticket_roles.seed_desk_access_mode(db)
+            if seeded:
+                print(f"[startup] ticket desk access set to '{seeded}'")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket desk access seed skipped: {e}")
     # Company holidays used to get a SEPARATE row per country picked for the
     # same company+date+name (Sep 21, Pranshu: "it should have 1 date, 1
     # company... IN, US, GE like this") - the create endpoint now merges onto
