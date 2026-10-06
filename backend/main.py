@@ -868,6 +868,11 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN service_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
             "ALTER TABLE ticket_maintenance_records ADD COLUMN currency VARCHAR DEFAULT 'USD'",
+            # BOD/EOD to a Teams channel (Oct 6) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN teams_target VARCHAR DEFAULT 'chat'",
+            "ALTER TABLE shift_groups ADD COLUMN teams_team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN teams_team_name VARCHAR DEFAULT ''",
+            "ALTER TABLE time_bod ADD COLUMN target_type VARCHAR DEFAULT 'chat'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1929,6 +1934,12 @@ def _run_migrations():
         "ALTER TABLE property_maintenance_services ENABLE ROW LEVEL SECURITY",
         # The record's cost in any world currency (ISO 4217), totals kept per currency.
         "ALTER TABLE ticket_maintenance_records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD'",
+        # BOD/EOD to a Teams channel (Pranshu, 10/06): a group binds a group
+        # chat OR a channel; each queued post records which it targets.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_target VARCHAR DEFAULT 'chat'",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_team_name VARCHAR DEFAULT ''",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS target_type VARCHAR DEFAULT 'chat'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
