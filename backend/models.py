@@ -4772,6 +4772,14 @@ class Lease(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 6 (Charmi): the team's note on the rent roll's Notes column, with
+    # who wrote it and when; and how the lease found its Intacct customer
+    # ('' typed or picked, 'auto-name' matched by the tenant's name,
+    # 'auto-ledger' added by the ledger sync).
+    team_note        = Column(String, default="")
+    team_note_by     = Column(String, default="")
+    team_note_at     = Column(String, default="")
+    link_source      = Column(String, default="")
 
 
 class LeaseRate(Base):
@@ -4856,6 +4864,8 @@ class AccountingFluxNote(Base):
     note       = Column(String, default="")
     noted_by   = Column(String, default="")
     noted_at   = Column(String, default="")
+
+
 class AccountingPartnerChange(Base):
     """A requested change to a vendor or customer record (Charmi and Neil,
     10/01: "edit a vendor, change all the details and get pushed to manager
@@ -4964,6 +4974,180 @@ class HrChecklistItem(Base):
     sort_order   = Column(Integer, default=0)
 
 
+class AccountingLoanSchedule(Base):
+    """The amortization schedule of one loan (Charmi and Neil, 10/06: "Add in
+    Amortization schedule for Commercial loans, allow us to build it or upload
+    an existing file from the bank"). One per loan: `loan_id` is the fin_loans
+    row id in the accounting app (the loan itself never lives here), and
+    `entity_code` is the loan's entity when it was saved, so a person limited
+    to certain entities only lists schedules of those. `source` is 'build'
+    (`params` = the inputs it was built from) or 'upload' (`file_url` = the
+    bank's file in the PRIVATE task-files bucket, `column_map` = which column
+    was which). `rows` is [{n, date, payment, interest, principal, balloon,
+    balance}]. New table - create_all builds it; RLS must be enabled on dev
+    and prod at release."""
+    __tablename__ = "accounting_loan_schedules"
+    id          = Column(String, primary_key=True)                # uuid
+    loan_id     = Column(String, nullable=False, unique=True, index=True)
+    entity_code = Column(String, default="", index=True)
+    source      = Column(String, default="build")                 # build | upload
+    params      = Column(JSON, default=dict)
+    rows        = Column(JSON, default=list)
+    column_map  = Column(JSON, default=dict)
+    file_url    = Column(String, default="")
+    file_name   = Column(String, default="")
+    saved_by    = Column(String, default="")
+    saved_at    = Column(String, default="")
+
+
+class AccountingLoanStressScenario(Base):
+    """A saved rate-shock scenario on one loan (Charmi and Neil, 10/06: "if
+    the interest rate were to go up, we should be able to calculate if the
+    income will support the loan"). `params` is what was typed (shock in bps,
+    NOI, covenant, floating or fixed, amortization); the figures are always
+    recomputed on screen from them. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_stress_scenarios"
+    id          = Column(String, primary_key=True)                # uuid
+    loan_id     = Column(String, nullable=False, index=True)
+    entity_code = Column(String, default="", index=True)
+    name        = Column(String, default="")
+    params      = Column(JSON, default=dict)
+    saved_by    = Column(String, default="")
+    saved_at    = Column(String, default="")
+
+
+class RecurringExpense(Base):
+    """One monthly recurring expense (MRE, Oct 6 - the expense-side mirror of
+    MRI; Neil listed it as pending, Charmi wants it under Reporting next to
+    MRI): a vendor (an Intacct vendor) that the entity pays from the same
+    expense account(s) on a schedule - utilities, insurance, payroll
+    services, software, rent paid. Debt service is NOT kept here: Loans &
+    Financing covers it. What was PAID is never keyed: it is what posted to
+    the line's expense accounts for that vendor in that month, read from the
+    ledger (routers/accounting_mre.py). A line that stops is ENDED, not
+    deleted. New table - create_all builds it; RLS by main.py and the startup
+    sweep; enable it on dev and prod at release."""
+    __tablename__ = "recurring_expenses"
+    id               = Column(String, primary_key=True)          # uuid
+    entity_code      = Column(String, default="", index=True)    # Intacct entity the expense posts to
+    entity_name      = Column(String, default="")
+    vendor_id        = Column(String, default="", index=True)    # Intacct vendor
+    vendor_name      = Column(String, default="")
+    expense_accounts = Column(JSON, default=list)                # GL codes, e.g. ["62100", "62110"]
+    category         = Column(String, default="other")           # utilities | insurance | payroll_services | software | rent_paid | other
+    frequency        = Column(String, default="monthly")         # monthly | quarterly | annual
+    expected_amount  = Column(Float, default=0)                  # per occurrence
+    start_date       = Column(String, default="")                # YYYY-MM-DD; quarterly / annual fall due from this month
+    end_date         = Column(String, default="")                # '' = open-ended
+    status           = Column(String, default="active")          # active | ended
+    notes            = Column(String, default="")
+    source           = Column(String, default="manual")          # manual | ledger
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class PfsAffiliate(Base):
+    """One entity a PFS's borrowers own or hold an interest in (Charmi, 10/04:
+    "the banker wants ownership and beneficial ownership interest in all
+    entities"): the Affiliated Entities tab. Kept per statement file (a
+    pfs_profiles row, both borrowers of a joint statement). `ownership` is
+    {"primary": pct, "co": pct} - the borrower's and the co-borrower's share.
+    Only the last four digits of an EIN, never more (routers/pfs_affiliates.py
+    refuses a longer number). New table - create_all builds it; RLS by the
+    startup sweep and main.py."""
+    __tablename__ = "pfs_affiliates"
+    id             = Column(String, primary_key=True)    # uuid
+    profile_id     = Column(String, index=True, nullable=False)
+    sort           = Column(Integer, default=0)
+    name           = Column(String, default="")
+    entity_type    = Column(String, default="other")     # single_member_llc | multi_member_llc | general_partnership | limited_partnership | c_corporation | s_corporation | trust | other
+    ein_last4      = Column(String, default="")
+    state          = Column(String, default="")
+    ownership      = Column(JSON, default=dict)
+    beneficial_pct = Column(Float, nullable=True)
+    role           = Column(String, default="")          # Member, Manager, Partner, Shareholder, Trustee, Beneficiary...
+    notes          = Column(String, default="")
+    ledger_entity  = Column(String, default="")          # Intacct entity code when picked from the ledger list
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class PfsProfileExtra(Base):
+    """What a PFS file holds beyond pfs_profiles, one row per file (Charmi,
+    10/04: "Executive profile should be there for both borrowers") - the
+    co-borrower's executive profile, saved on its own. The borrower's stays in
+    pfs_profiles.executive_profile. New table - RLS by the startup sweep and
+    main.py."""
+    __tablename__ = "pfs_profile_extras"
+    profile_id           = Column(String, primary_key=True)
+    co_executive_profile = Column(Text, default="")
+    updated_by           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
+class PfsAccessChallenge(Base):
+    """A one-time code that opens ONE PFS file for ONE person in ONE browser
+    session (Charmi, 10/04: "it should ask for OTP to the file and not to the
+    module"). The code is never stored: `code_hash` is sha256 over
+    "id:code", salted with an id the caller never sees. A used code becomes
+    the grant: `granted_until` is when the file closes again (30 minutes).
+    `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
+    routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
+    __tablename__ = "pfs_access_challenges"
+    id            = Column(String, primary_key=True)     # uuid - also the hash salt
+    profile_id    = Column(String, index=True, nullable=False)
+    email         = Column(String, index=True, nullable=False)   # the viewer the code went to
+    session_hash  = Column(String, default="")
+    target        = Column(String, default="")           # the address it was sent to
+    code_hash     = Column(String, default="")           # '' = opened without a code (the file's creator)
+    attempts      = Column(Integer, default=0)
+    created_at    = Column(String, default="")
+    expires_at    = Column(String, default="")
+    consumed_at   = Column(String, default="")
+    granted_until = Column(String, default="", index=True)
+
+
+class PfsAccessLog(Base):
+    """Who opened which PFS file, when, and what they did (Charmi, 10/04: "it
+    should maintain a log"): otp_sent, unlocked, failed, viewed, exported,
+    locked, notified (the borrowers were emailed). Never a figure, never a
+    code. Kept for good - nothing deletes these rows. New table - RLS by the
+    startup sweep and main.py."""
+    __tablename__ = "pfs_access_log"
+    id         = Column(String, primary_key=True)        # uuid
+    profile_id = Column(String, index=True, nullable=False)
+    email      = Column(String, index=True, default="")
+    action     = Column(String, default="")
+    at         = Column(String, index=True, default="")
+    ip         = Column(String, default="")
+    details    = Column(JSON, default=dict)
+
+
+class AccountingLoanSetting(Base):
+    """What Nexus keeps beside one loan of Accounting > Loans & Financing
+    (Charmi and Neil, 10/03-10/04). The loan itself is a fin_loans row in the
+    accounting app (lender, number, entity, principal GL account, rate,
+    maturity, monthly payment) - that table takes no new columns from Nexus,
+    so the wiring and the links Nexus adds live here, keyed on its id: the
+    interest expense account the interest is read from ('' = matched
+    automatically), the original principal typed over the ledger's first
+    credit (None = the ledger's), Internal / External (None = by kind:
+    intercompany is internal), and the Egnyte folders of the loan documents
+    and the lender's statements. New table - create_all builds it; RLS must
+    be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_settings"
+    loan_id            = Column(String, primary_key=True)          # fin_loans.id (uuid)
+    entity_code        = Column(String, default="", index=True)    # for reference; the loan row is the truth
+    interest_account   = Column(String, default="")                # GL code; '' = automatic
+    original_principal = Column(Float, nullable=True)              # typed over the ledger's; None = ledger
+    internal           = Column(Boolean, nullable=True)            # None = by kind
+    docs_path          = Column(String, default="")                # Egnyte folder, /Shared/...
+    statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
+    updated_by         = Column(String, default="")
+    updated_at         = Column(String, default="")
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).

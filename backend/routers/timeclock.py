@@ -159,7 +159,7 @@ def _visible_emails(db: Session, user: dict):
     On the schedule routes (require_schedule_*), a group scheduler also gets
     their groups' members; one whose rights come only from groups gets just
     those members and themself."""
-    from auth import _module_level, hr_scope
+    from auth import _module_level, hr_scope, is_team_scope
     extra = user.get("_sched_extra")
     if extra is not None:
         if user.get("_group_scheduler"):
@@ -175,10 +175,58 @@ def _visible_emails(db: Session, user: dict):
         scope = hr_scope(user, db)
         if scope is None:
             return None
+        if is_team_scope(scope):          # People limited to their own team (Oct 6)
+            return set(scope.emails) | directs   # managers: their whole team, not just directs
         company = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
                    .filter(NexusEmployee.company.in_(scope)).all() if e.work_email}
         return company | directs   # a scoped admin is still a manager of their directs
     return directs
+
+
+# Every pay figure a timecard, team or location payload can carry - removed
+# whole (key and value) for a caller who may not see pay (_no_pay).
+PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay", "otPay", "dtPay", "sickPay",
+                      "vacationPay", "holidayPay", "totalPay", "hourlyRate", "dailyRate", "monthlySalary",
+                      "salaryForPeriod", "weekendFloor", "deductionAmount", "weekendPay", "currency",
+                      "deduct", "deduction", "bonus", "weekendBonus"})
+
+
+def strip_pay(o):
+    if isinstance(o, dict):
+        return {k: strip_pay(v) for k, v in o.items() if k not in PAY_KEYS}
+    if isinstance(o, list):
+        return [strip_pay(v) for v in o]
+    return o
+
+
+def _pay_hidden(db: Session, user: dict) -> bool:
+    """The manager tier never sees pay (Pranshu, 10/06) - hours, punches and
+    locations only. Pay is HR's: Global Admins, or the People grant below
+    manager tier."""
+    from auth import hr_team_limited
+    return hr_team_limited(user)
+
+
+def _no_pay(db: Session, user: dict, payload):
+    """`payload` with every pay figure removed when _pay_hidden(caller)."""
+    if not _pay_hidden(db, user):
+        return payload
+    out = strip_pay(payload)
+    if isinstance(out, dict):
+        out["payHidden"] = True
+    return out
+
+
+def _refuse_pay_export(db: Session, user: dict) -> None:
+    if _pay_hidden(db, user):
+        raise HTTPException(403, "Managers see their team's hours only - payroll files carry pay")
+
+
+def require_team_read_pay(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """require_team_read, minus the manager tier: for the payroll FILES
+    (CSV / QuickBooks / Intacct), which are pay."""
+    _refuse_pay_export(db, user)
+    return user
 
 KINDS = ("in", "out", "break_start", "break_end")
 
@@ -1107,7 +1155,7 @@ def team_timesheet(start: str = "", end: str = "",
                           "stale": any(v > (a.approved_at or "")
                                        for (em, _d), v in last_change.items() if em == r["email"])}
                          if a else None)
-    return {"rows": rows}
+    return _no_pay(db, user, {"rows": rows})
 
 
 @router.get("/billable-by-location")
@@ -1178,7 +1226,7 @@ def billable_by_location(start: str = "", end: str = "",
         out.append({"email": em, "name": names.get(em, em),
                     "byLocation": bl, "pingByLocation": pbl})
     out.sort(key=lambda r: -sum(x["workedMin"] for x in r["byLocation"]))
-    return {"start": start, "end": end, "rows": out}
+    return _no_pay(db, user, {"start": start, "end": end, "rows": out})
 
 
 def _finalized_row(db: Session, email: str, d_start: str, d_end: str = ""):
@@ -1892,7 +1940,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
 
 @router.get("/export.csv")
 def export_csv(start: str = "", end: str = "", mode: str = "summary",
-               user: dict = Depends(require_team_read),
+               user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """Payroll export file (incl. $ pay columns) - requires a fresh step-up MFA
     (require_stepup). Summary Totals (one row per employee-day) or All Punch
@@ -1977,7 +2025,7 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
 
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "",
-               user: dict = Depends(require_team_read),
+               user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
     employee's hours into QuickBooks by hand today; QuickBooks imports IIF, not
@@ -2091,7 +2139,7 @@ def _us_date(ds: str) -> str:
 
 @router.get("/export-intacct.csv")
 def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expense: str = "", clearing: str = "",
-                   location: str = "", user: dict = Depends(require_team_read),
+                   location: str = "", user: dict = Depends(require_team_read_pay),
                    _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """Intacct General Ledger import of the period's payroll by employee
     (Neil, 10/01: "payroll export from QB to Intacct employee"). Same column
@@ -7924,12 +7972,12 @@ def payroll_timecard(email: str, start: str, end: str,
         card["review"] = _review_state(db, em, card["periodStart"], user, team=True)
         # The Notes column is on the monthly card too (Sep 29).
         card["notes"] = _timecard_notes(db, em, card["periodStart"], card["periodEnd"])
-        return card
+        return _no_pay(db, user, card)
     card = _compute_timecard(db, em, start, end)
     card.update(_signoff_state(db, em, start, end))
     card["review"] = _review_state(db, em, start, user, team=True)
     card["notes"] = _timecard_notes(db, em, start, end)
-    return card
+    return _no_pay(db, user, card)
 
 
 def _timecard_notes(db: Session, email: str, start: str, end: str) -> dict:
@@ -8110,6 +8158,7 @@ def get_payroll_rate(email: str, user: dict = Depends(require_team_read),
                      db: Session = Depends(get_db)):
     """The current compensation config for one employee, so the wage editor can
     pre-fill. Same visibility as the timecard (which already exposes the rate)."""
+    _refuse_pay_export(db, user)
     em = email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
@@ -8120,6 +8169,7 @@ def get_payroll_rate(email: str, user: dict = Depends(require_team_read),
 @router.put("/payroll/rate")
 def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    _refuse_pay_export(db, user)
     em = body.email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:

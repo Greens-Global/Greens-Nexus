@@ -1,13 +1,17 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRightLeft, Check, Database, FileDown, FileSpreadsheet, Loader2, Lock, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Check, ChevronDown, ChevronUp, Database, FolderUp, GripVertical, Lock, Mail, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, Figure } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { control } from './reportControls';
+import { ExportMenu, control } from './reportControls';
 import { downloadBlob, iso, priorMonthEnd } from './reportModel';
+import SendReportDialog from './SendReportDialog';
+import { conditionOf } from './pfsCondition';
+import PfsAffiliated, { PfsCoExecutiveProfile } from './PfsAffiliated';
+import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -38,9 +42,19 @@ import { downloadBlob, iso, priorMonthEnd } from './reportModel';
 // block on the Borrower tab; a Schedules tab (Schedule E per property with an
 // entity, Schedule C per business interest with one, for the calendar year of
 // the date); Jewelry & Personal Property as its own category.
+//
+// Oct 6 (Charmi, 10/03-10/04): the Statement view opens on the bank-style
+// first page (Statement of Financial Condition), which is also page 1 of the
+// PDF and the first sheet of the workbook; one Export menu - the one Reports
+// has (PDF, Excel, Email, Save to Files) - instead of two Produce buttons,
+// every file still kept on record and audited; Institution is the bank, read
+// from the bank account linked to the GL; Cash is its own section, first;
+// Vehicles is a section; Jewelry and Personal Property are Personal Holdings;
+// lines are put in order by dragging or with the arrows, kept per guarantor.
 
 const SECTIONS = [
   { key: 'statement', label: 'Statement' },
+  { key: 'affiliated', label: 'Affiliated Entities' },   // Oct 6 (Charmi, 10/04) - PfsAffiliated.jsx
   { key: 'borrower', label: 'Borrower' },
   { key: 'asset', label: 'Assets' },
   { key: 'liability', label: 'Liabilities' },
@@ -86,8 +100,15 @@ export default function PfsTab({ canEdit = false }) {
   const [creating, setCreating] = useState(false);
   const [past, setPast] = useState([]);
   const [producing, setProducing] = useState('');   // 'pdf' | 'xlsx' while one is being made
+  const [sending, setSending] = useState(null);     // 'email' | 'egnyte' - the Export menu's send dialogs
   const [note, setNote] = useState('');
   const seq = useRef(0);
+  // Oct 6 (Charmi, 10/04): every file is locked until opened with a one-time
+  // code (PfsLock.jsx; the server enforces it). The Access Log for editors.
+  const locks = usePfsLocks();
+  const { markLocked } = locks;
+  const fileOpen = locks.isOpen(openId);
+  const [showLog, setShowLog] = useState(false);
 
   const loadProfiles = useCallback(() => api.getPfsProfiles()
     .then((list) => { setProfiles(list || []); return list || []; })
@@ -103,12 +124,15 @@ export default function PfsTab({ canEdit = false }) {
     const mine = ++seq.current;
     setWorking(true);
     setError('');
-    return Promise.all([api.getPfsProfile(id), api.getPfsStatement(id, date), api.getPfsStatements(id)])
-      .then(([p, s, list]) => { if (mine === seq.current) { setProfile(p); setStatement(s); setPast(list || []); } })
-      .catch((e) => { if (mine === seq.current) setError(e?.message || 'Could not load the statement.'); })
+    // The profile shows as soon as it is read; the statement (the ledger, the
+    // bank records, the schedules) follows behind a skeleton (Oct 6).
+    const p = api.getPfsProfile(id).then((x) => { if (mine === seq.current) setProfile(x); return x; });
+    return Promise.all([p, api.getPfsStatement(id, date), api.getPfsStatements(id)])
+      .then(([x, s, list]) => { if (mine === seq.current) { setProfile(x); setStatement(s); setPast(list || []); } })
+      .catch((e) => { if (mine !== seq.current) return; if (isLockedError(e)) markLocked(id); else setError(e?.message || 'Could not load the statement.'); })
       .finally(() => { if (mine === seq.current) setWorking(false); });
-  }, []);
-  useEffect(() => { setNote(''); refresh(openId, asOf); }, [openId, asOf, refresh]);
+  }, [markLocked]);
+  useEffect(() => { setNote(''); refresh(fileOpen ? openId : '', asOf); }, [openId, asOf, refresh, fileOpen]);
 
   const categories = useMemo(() => ({
     asset: meta?.assetCategories || [], liability: meta?.liabilityCategories || [], real_estate: meta?.realEstateKinds || [],
@@ -127,17 +151,30 @@ export default function PfsTab({ canEdit = false }) {
 
   // The file for a statement: the PDF, or the Excel workbook (Neil, 10/01:
   // "in excel also"). pdf-lib and jszip are large; each loads only when asked for.
-  const fileFor = async (kept, format, preparedBy) => {
-    const stem = `PFS_${profile.name.replace(/[^A-Za-z0-9]+/g, '-')}_${kept.asOf}`;
+  const stemOf = (kept) => `PFS_${profile.name.replace(/[^A-Za-z0-9]+/g, '-')}_${kept.asOf}`;
+  const buildFile = async (kept, format, preparedBy, name = '') => {
     if (format === 'xlsx') {
       const { buildPfsWorkbook } = await import('./pfsXlsx');
       const bytes = await buildPfsWorkbook({ statement: kept, preparedBy });
-      downloadBlob(`${stem}.xlsx`, new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-      return;
+      return new File([bytes], name || `${stemOf(kept)}.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     }
     const { buildPfsPdf } = await import('./pfsPdf');
     const bytes = await buildPfsPdf({ statement: kept, photo: profile.photo, preparedBy });
-    downloadBlob(`${stem}.pdf`, new Blob([bytes], { type: 'application/pdf' }));
+    return new File([bytes], name || `${stemOf(kept)}.pdf`, { type: 'application/pdf' });
+  };
+  const fileFor = async (kept, format, preparedBy) => {
+    const f = await buildFile(kept, format, preparedBy);
+    downloadBlob(f.name, new Blob([f], { type: f.type }));
+  };
+  // Email / Save to Files (the Reports tab's dialog): the statement is
+  // produced - kept on record, audited with where it went - then built into
+  // the file that is sent.
+  const sendFile = async (format, name) => {
+    const fmt = format === 'excel' ? 'xlsx' : 'pdf';
+    const made = await api.producePfsStatement(profile.id, asOf, fmt, sending === 'email' ? 'email' : 'files');
+    const f = await buildFile(made, fmt, nameOf(myEmail) || '', name);
+    api.getPfsStatements(profile.id).then((list) => setPast(list || [])).catch(() => {});
+    return f;
   };
   const produce = async (format = 'pdf') => {
     if (producing || !profile) return;
@@ -146,7 +183,7 @@ export default function PfsTab({ canEdit = false }) {
     setNote('');
     const what = format === 'xlsx' ? 'Excel workbook' : 'PDF';
     try {
-      const made = await api.producePfsStatement(profile.id, asOf, format);
+      const made = await api.producePfsStatement(profile.id, asOf, format, 'download');
       await fileFor(made, format, nameOf(myEmail) || '');
       setNote(`${what} produced and the statement kept on record.`);
       setPast(await api.getPfsStatements(profile.id));
@@ -165,6 +202,15 @@ export default function PfsTab({ canEdit = false }) {
       setError(e?.message || 'Could not open that statement.');
     }
   };
+  // A new order of the lines in one category: shown at once, kept on the
+  // server, the statement re-read so every figure follows (Charmi, 10/04).
+  const reorder = (ids) => {
+    const rank = new Map(ids.map((id, i) => [id, i + 1]));
+    setProfile((p) => (p ? { ...p, lines: p.lines.map((l) => (rank.has(l.id) ? { ...l, sort: rank.get(l.id) } : l)).sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.label.localeCompare(b.label)) } : p));
+    return api.reorderPfsLines(profile.id, ids)
+      .then(() => refresh(profile.id, asOf))
+      .catch((e) => { setError(e?.message || 'Could not keep the new order.'); return refresh(profile.id, asOf); });
+  };
   const move = (l, section, category) => api.movePfsLine(profile.id, l.id, section, category)
     .then(() => { setNote(`${l.label} moved to ${categories[section]?.find((c) => c.key === category)?.label || category}.`); return refresh(profile.id, asOf); })
     .catch((e) => setError(e?.message || 'Could not move the line.'));
@@ -176,8 +222,8 @@ export default function PfsTab({ canEdit = false }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
             <strong style={{ fontSize: '0.86rem' }}>Guarantors</strong>
             {canEdit && (
-              <button type="button" className="secondary-btn" onClick={() => setCreating(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
-                <Plus size={13} /> New Guarantor
+              <button type="button" className="secondary-btn" onClick={() => setCreating(true)} aria-label="New Guarantor" title="New Guarantor" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+                <Plus size={13} /> New
               </button>
             )}
           </div>
@@ -186,15 +232,21 @@ export default function PfsTab({ canEdit = false }) {
             {(profiles || []).map((p) => (
               <button key={p.id} type="button" onClick={() => { setOpenId(p.id); setSection('statement'); }} aria-pressed={p.id === openId}
                 style={{ textAlign: 'left', border: 'none', borderRadius: 8, padding: '7px 9px', cursor: 'pointer', font: 'inherit', background: p.id === openId ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: 'var(--text-primary)', opacity: p.archived ? 0.6 : 1 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                  {locks.enabled && <PfsLockIcon open={locks.isOpen(p.id)} />}
+                </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{KINDS[p.kind] || 'Individual'}{p.archived ? ' · archived' : ''}</div>
               </button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
             <Lock size={12} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>Only owners and people granted this screen can open it; everyone let in sees every guarantor. Every open, change and statement is written to the audit log.</span>
+            <span>Only owners and people granted this screen can open it. Each file opens with a one-time code emailed to you, for 30 minutes in this tab, and its borrowers are told. Every open, change and statement is logged.</span>
           </div>
+          {canEdit && (
+            <button type="button" className="acct-drill" onClick={() => setShowLog(true)} style={{ fontSize: '0.74rem', marginTop: 6 }}>Access Log</button>
+          )}
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
             Add each guarantor once; a joint statement lists both names.
           </div>
@@ -202,9 +254,10 @@ export default function PfsTab({ canEdit = false }) {
 
         <div style={{ minWidth: 0, display: 'grid', gap: 10 }}>
           {error && <div style={bad}>{error}</div>}
-          {!profile && !working && <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{canEdit ? 'Start with New Guarantor.' : 'No guarantor has been set up yet.'}</div>}
-          {!profile && working && <SkeletonBlocks count={3} />}
-          {profile && (
+          {openId && !fileOpen && <PfsUnlockPanel key={openId} file={(profiles || []).find((p) => p.id === openId) || { id: openId }} onUnlocked={locks.markOpen} />}
+          {(!openId || fileOpen) && !profile && !working && <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{canEdit ? 'Start with New Guarantor.' : 'No guarantor has been set up yet.'}</div>}
+          {fileOpen && !profile && working && <SkeletonBlocks count={3} />}
+          {profile && fileOpen && (
             <>
               <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <div style={{ minWidth: 0, marginRight: 6 }}>
@@ -219,16 +272,18 @@ export default function PfsTab({ canEdit = false }) {
                   ))}
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
                   <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
-                  <button type="button" className="primary-btn" onClick={() => produce('pdf')} disabled={!!producing || working || !statement}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-                    {producing === 'pdf' ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} Produce PDF
-                  </button>
-                  <button type="button" className="secondary-btn" onClick={() => produce('xlsx')} disabled={!!producing || working || !statement}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-                    {producing === 'xlsx' ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} Produce Excel
-                  </button>
+                  {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
+                      separate tabs/buttons - the exact one you had for reports".
+                      Every choice keeps the statement on record and audits it. */}
+                  <ExportMenu disabled={!!producing || working || !statement} items={[
+                    { key: 'pdf', label: 'PDF', hint: 'Financial condition first, then every schedule; kept on record', onPick: () => produce('pdf'), busy: producing === 'pdf' },
+                    { key: 'excel', label: 'Excel', hint: 'One sheet per section, live totals; kept on record', onPick: () => produce('xlsx'), busy: producing === 'xlsx' },
+                    { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, statement attached', Icon: Mail, onPick: () => setSending('email') },
+                    { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
+                  ]} />
                 </div>
               </div>
               {note && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{note}</div>}
@@ -240,18 +295,27 @@ export default function PfsTab({ canEdit = false }) {
                 </div>
               )}
 
-              <div style={{ opacity: working ? 0.6 : 1 }}>
-                {section === 'statement' && statement && <Summary statement={statement} past={past} nameOf={nameOf} onReprint={reprint} />}
+              <div style={{ opacity: working && section !== 'statement' ? 0.6 : 1 }}>
+                {/* Oct 6 (Charmi): a skeleton while the statement is read, never a blank or stale page. */}
+                {section === 'statement' && (working || !statement) && (
+                  <div aria-busy="true" aria-label="Loading the statement" style={{ display: 'grid', gap: 10 }}>
+                    <SkeletonBlocks count={1} height={64} />
+                    <SkeletonBlocks count={6} height={28} />
+                  </div>
+                )}
+                {section === 'statement' && statement && !working && <Summary statement={statement} past={past} nameOf={nameOf} onReprint={reprint} />}
                 {section === 'borrower' && <Borrower profile={profile} canEdit={canEdit} onSave={saveProfile} />}
                 {['asset', 'liability', 'real_estate'].includes(section) && (
                   <Lines section={section} profile={profile} categories={categories[section]} allCategories={allCategories} figures={figures} asOf={asOf} canEdit={canEdit}
-                    onBulk={() => setBulk({ section })} onMove={move}
+                    onBulk={() => setBulk({ section })} onMove={move} onReorder={reorder}
                     onAdd={(category) => setEditing({ section, category, label: '', institution: '', accountRef: '', ownershipPct: 100, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 0, manualAsOf: asOf, details: {}, notes: '' })}
-                    onEdit={(l) => setEditing({ ...l })}
+                    onEdit={(l) => setEditing({ ...l, institution: l.source === 'ledger' && !l.details?.institutionManual ? (figures.get(l.id)?.institution ?? l.institution) : l.institution })}
                     onDelete={(l) => api.deletePfsLine(profile.id, l.id).then(() => refresh(profile.id, asOf)).catch((e) => setError(e?.message || 'Could not remove the line.'))} />
                 )}
                 {section === 'schedules' && statement && <Schedules statement={statement} profile={profile} />}
                 {section === 'history' && <History profile={profile} canEdit={canEdit} onSave={saveProfile} />}
+                {section === 'history' && <div style={{ marginTop: 10 }}><PfsCoExecutiveProfile key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} /></div>}
+                {section === 'affiliated' && <PfsAffiliated key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} />}
               </div>
             </>
           )}
@@ -265,46 +329,105 @@ export default function PfsTab({ canEdit = false }) {
         <LedgerBulkAdd section={bulk.section} categories={categories[bulk.section]} asOf={asOf} onClose={() => setBulk(null)}
           onSave={(body) => api.addPfsLinesBulk(profile.id, body).then((r) => { setBulk(null); setNote(`${r.added} ${r.added === 1 ? 'line' : 'lines'} added from the ledger.`); return refresh(profile.id, asOf); })} />
       )}
+      {sending && profile && (
+        <SendReportDialog mode={sending} title={`Personal Financial Statement - ${profile.displayName || profile.name} - ${formatDate(asOf)}`}
+          baseName={`PFS_${profile.name.replace(/[^A-Za-z0-9]+/g, '-')}_${asOf}`} what="statement" formats={['pdf', 'excel']}
+          makeFile={sendFile} onClose={() => setSending(null)} onDone={(text) => { setSending(null); setNote(`${text} The statement was kept on record.`); }} />
+      )}
       {creating && (
         <NewGuarantor onClose={() => setCreating(false)}
-          onCreate={(body) => api.createPfsProfile(body).then((p) => loadProfiles().then(() => { setCreating(false); setOpenId(p.id); setSection('borrower'); }))} />
+          onCreate={(body) => api.createPfsProfile(body).then((p) => loadProfiles().then(() => { locks.markOpen(p.id, new Date(Date.now() + 30 * 60_000).toISOString()); setCreating(false); setOpenId(p.id); setSection('borrower'); }))} />
       )}
+      {showLog && <PfsAccessLog files={profiles || []} initialFileId={openId} onClose={() => setShowLog(false)} />}
     </AsyncSection>
   );
 }
 
-// Total assets - total liabilities = net worth, and the statements produced so far.
+// The first page (Charmi, 10/04: "You need to build out the first page of our
+// PFS"): the bank-style Statement of Financial Condition - the names and the
+// date, every asset and liability line of a bank's form with the share owned
+// and the amount, the totals and net worth, contingent liabilities, and the
+// year's income from the schedules when there are any. Page 1 of the PDF and
+// the first sheet of the workbook say the same. Then the statements produced.
 function Summary({ statement, past, nameOf, onReprint }) {
-  const block = (title, rows, total, totalLabel) => (
-    <div style={{ ...card, padding: 12 }}>
-      <div style={label}>{title}</div>
-      <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
-        <tbody>
-          {rows.map((r) => <tr key={r.label}><td>{r.label}</td><td className="acct-num"><Amount value={r.amount} /></td></tr>)}
-          {!rows.length && <tr><td colSpan={2} style={{ color: 'var(--text-secondary)' }}>Nothing listed yet.</td></tr>}
-          <tr className="acct-grand"><td>{totalLabel}</td><td className="acct-num"><Amount value={total} /></td></tr>
-        </tbody>
-      </table>
-    </div>
+  const cond = conditionOf(statement);
+  const KIND_TEXT = { individual: 'Individual', joint: 'Joint', trust: 'Trust' };
+  const rows = (list) => list.map((r) => (
+    <tr key={r.key || r.label}>
+      <td>{r.label}</td>
+      <td className="acct-num" style={{ color: 'var(--text-secondary)' }}>{r.count ? r.ownership : ''}</td>
+      <td className="acct-num">{r.count || r.amount ? <Amount value={r.amount} /> : <span style={{ color: 'var(--text-muted)' }}>-</span>}</td>
+    </tr>
+  ));
+  const head = (title) => (
+    <thead><tr><th scope="col">{title}</th><th scope="col" className="acct-num" style={{ width: 110 }}>Ownership</th><th scope="col" className="acct-num" style={{ width: 150 }}>Amount</th></tr></thead>
   );
+  const a = cond.contingentAnswer;
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-        {[['Total Assets', statement.totals.assets], ['Total Liabilities', statement.totals.liabilities], ['Net Worth', statement.totals.netWorth]].map(([k, v], i) => (
-          <div key={k} style={{ ...card, padding: '12px 14px', borderColor: i === 2 ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' }}>
-            <div style={label}>{k}</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: i === 2 && v < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}><Amount value={v} /></div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>As of {formatDate(statement.asOf)}</div>
+      <section aria-label="Statement of Financial Condition" style={{ ...card, padding: '14px 16px', display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ ...label, color: 'var(--wk-brand, #2b45e1)', marginBottom: 2 }}>Statement of Financial Condition</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>{statement.profile?.displayName || statement.profile?.name}</div>
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>As of {formatDate(statement.asOf)} · {KIND_TEXT[statement.profile?.kind] || 'Individual'} statement · amounts at the share owned</div>
           </div>
-        ))}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10, alignItems: 'start' }}>
-        {block('Assets', statement.summary.assets, statement.totals.assets, 'Total Assets')}
-        {block('Liabilities', statement.summary.liabilities, statement.totals.liabilities, 'Total Liabilities')}
-      </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={label}>Net Worth</div>
+            <div style={{ fontSize: '1.35rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: statement.totals.netWorth < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}><Amount value={statement.totals.netWorth} /></div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, alignItems: 'start' }}>
+          <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+            {head('Assets')}
+            <tbody>
+              {rows(cond.assets)}
+              <tr className="acct-grand"><td>Total Assets</td><td /><td className="acct-num"><Amount value={cond.totals.assets} /></td></tr>
+            </tbody>
+          </table>
+          <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+            {head('Liabilities')}
+            <tbody>
+              {rows(cond.liabilities)}
+              <tr className="acct-grand"><td>Total Liabilities</td><td /><td className="acct-num"><Amount value={cond.totals.liabilities} /></td></tr>
+              <tr className="acct-grand"><td>Net Worth</td><td /><td className="acct-num"><Amount value={statement.totals.netWorth} /></td></tr>
+              <tr><td style={{ color: 'var(--text-secondary)' }}>Total Liabilities and Net Worth</td><td /><td className="acct-num"><Amount value={cond.totals.liabilities + statement.totals.netWorth} /></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, alignItems: 'start' }}>
+          <div>
+            <div style={label}>Contingent Liabilities</div>
+            {cond.contingent.length > 0 ? (
+              <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                <thead><tr><th scope="col">Guarantee</th><th scope="col">Lender</th><th scope="col" className="acct-num">Ownership</th><th scope="col" className="acct-num">Amount</th></tr></thead>
+                <tbody>
+                  {cond.contingent.map((x, i) => <tr key={i}><td title={x.notes || undefined}>{x.label}</td><td>{x.institution}</td><td className="acct-num"><Figure text={pct(x.ownershipPct)} /></td><td className="acct-num"><Amount value={x.amount} /></td></tr>)}
+                </tbody>
+              </table>
+            ) : (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {a?.answer === 'Yes' ? `Guarantor, co-maker or endorser on other debt: Yes${a.note ? ` - ${a.note}` : ''}.` : a?.answer === 'No' ? 'None. Not a guarantor, co-maker or endorser on any other debt.' : 'None listed. Add a guarantee under Liabilities > Contingent Liabilities; it is listed here, never added into the total.'}
+              </div>
+            )}
+          </div>
+          {cond.income && (
+            <div>
+              <div style={label}>Annual Income {cond.income.year}</div>
+              <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                <tbody>
+                  {cond.income.lines.map((x) => <tr key={x.key}><td>{x.label}</td><td className="acct-num"><Amount value={x.amount} /></td></tr>)}
+                  <tr className="acct-grand"><td>Total Annual Income</td><td className="acct-num"><Amount value={cond.income.total} /></td></tr>
+                </tbody>
+              </table>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>At the share owned, from the Schedules tab.</div>
+            </div>
+          )}
+        </div>
+      </section>
       <div style={{ ...card, padding: 12 }}>
         <div style={label}>Statements Produced</div>
-        {!past.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>None yet. Produce PDF or Produce Excel keeps the statement exactly as it was sent.</div>}
+        {!past.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>None yet. Every export keeps the statement exactly as it was sent.</div>}
         {past.length > 0 && (
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
             <thead><tr><th scope="col">As Of</th><th scope="col">Produced</th><th scope="col">By</th><th scope="col" className="acct-num">Net Worth</th><th scope="col" aria-label="Open" /></tr></thead>
@@ -500,7 +623,7 @@ function History({ profile, canEdit, onSave }) {
         </div>
       </div>
       <div>
-        <label style={label} htmlFor="pfs-exec">Executive Profile</label>
+        <label style={label} htmlFor="pfs-exec">Executive Profile - {profile.name}</label>
         <textarea id="pfs-exec" value={text} disabled={!canEdit} maxLength={6000} rows={9} onChange={(e) => setText(e.target.value)}
           placeholder="Who they are, what they have built, and their history with lenders."
           style={{ ...control, width: '100%', height: 'auto', padding: 9, lineHeight: 1.5, resize: 'vertical' }} />
@@ -518,10 +641,25 @@ function History({ profile, canEdit, onSave }) {
 
 // The lines of one section, grouped the way the statement prints them, each
 // with its figure for the date picked.
-function Lines({ section, profile, categories, allCategories = [], figures, asOf, canEdit, onAdd, onEdit, onDelete, onBulk, onMove }) {
+// Oct 6 (Charmi, 10/04): rows are put in order within their category - drag
+// a row by its handle, or use the arrows (the keyboard way) - and the order is
+// kept for the guarantor, so the statement and its files print it that way.
+function Lines({ section, profile, categories, allCategories = [], figures, asOf, canEdit, onAdd, onEdit, onDelete, onBulk, onMove, onReorder }) {
   const [confirm, setConfirm] = useState('');
   const [moving, setMoving] = useState('');     // the line whose "Move to..." is open
+  const [dragging, setDragging] = useState(null);   // { id, category } of the row being dragged
+  const [over, setOver] = useState('');
   const real = section === 'real_estate';
+  const ordered = (rows, from, to) => { const n = rows.map((l) => l.id); const [id] = n.splice(from, 1); n.splice(to, 0, id); return n; };
+  const shift = (rows, i, by) => { const j = i + by; if (j < 0 || j >= rows.length || !onReorder) return; onReorder(ordered(rows, i, j)); };
+  const drop = (rows, target) => {
+    const from = rows.findIndex((x) => x.id === dragging?.id);
+    const to = rows.findIndex((x) => x.id === target);
+    setDragging(null);
+    setOver('');
+    if (from < 0 || to < 0 || from === to || !onReorder) return;
+    onReorder(ordered(rows, from, to));
+  };
   const lines = profile.lines.filter((l) => l.section === section);
   const bulkHint = real
     ? 'Pick an entity: its land and building accounts become property lines that read the ledger, each with its mortgage account as the loan.'
@@ -550,6 +688,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                 <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
                   <thead>
                     <tr>
+                      {canEdit && <th scope="col" aria-label="Order" style={{ width: 22 }} />}
                       <th scope="col">{real ? 'Property' : 'Description'}</th><th scope="col">{real ? 'Legal Owner' : 'Institution'}</th><th scope="col">Figure From</th>
                       <th scope="col" className="acct-num">Owned</th>
                       {real ? <><th scope="col" className="acct-num">Market Value</th><th scope="col" className="acct-num">Loan Balance</th><th scope="col" className="acct-num">Equity</th></>
@@ -558,13 +697,25 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((l) => {
+                    {rows.map((l, i) => {
                       const f = figures.get(l.id);
                       const from = l.source === 'ledger' ? `Ledger · ${l.ledgerEntity} · ${l.ledgerAccounts.join(', ')}` : `Kept by hand${l.manualAsOf ? ` · ${formatDate(l.manualAsOf)}` : ''}`;
+                      const dropping = dragging && dragging.category === c.key && over === l.id && dragging.id !== l.id;
                       return (
-                        <tr key={l.id}>
+                        <tr key={l.id}
+                          onDragOver={canEdit && dragging?.category === c.key ? (e) => { e.preventDefault(); if (over !== l.id) setOver(l.id); } : undefined}
+                          onDrop={canEdit && dragging?.category === c.key ? (e) => { e.preventDefault(); drop(rows, l.id); } : undefined}
+                          style={{ opacity: dragging?.id === l.id ? 0.45 : 1, boxShadow: dropping ? 'inset 0 2px 0 var(--wk-brand, #2b45e1)' : undefined }}>
+                          {canEdit && (
+                            <td style={{ whiteSpace: 'nowrap', padding: '0 2px' }}>
+                              <span draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', l.id); } catch { /* some browsers refuse */ } setDragging({ id: l.id, category: c.key }); }}
+                                onDragEnd={() => { setDragging(null); setOver(''); }} title="Drag to reorder"
+                                style={{ cursor: 'grab', display: 'inline-flex', color: 'var(--text-muted)', verticalAlign: 'middle' }}><GripVertical size={14} /></span>
+                            </td>
+                          )}
                           <td title={l.notes || undefined}>{l.label}{l.accountRef ? <span className="acct-code" style={{ marginLeft: 8 }}>{l.accountRef}</span> : null}</td>
-                          <td>{real ? (l.details?.legal_owner || '') : l.institution}</td>
+                          {/* Oct 6 (Charmi): the bank, from the bank account linked to the GL - the statement's own reading. */}
+                          <td>{real ? (l.details?.legal_owner || '') : (f ? f.institution : l.institution)}</td>
                           <td style={{ color: 'var(--text-secondary)' }} title={from}>{from}</td>
                           <td className="acct-num"><Figure text={pct(l.ownershipPct)} /></td>
                           {real ? <><td className="acct-num"><Amount value={f?.valueAdjusted} /></td><td className="acct-num"><Amount value={f?.loanAdjusted} /></td><td className="acct-num"><Amount value={f?.equity} /></td></>
@@ -587,6 +738,12 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                               </select>
                             ) : (
                               <>
+                                {rows.length > 1 && (
+                                  <>
+                                    <button type="button" style={{ ...icon, opacity: i === 0 ? 0.3 : 1 }} disabled={i === 0} aria-label={`Move ${l.label} up`} title="Move up" onClick={() => shift(rows, i, -1)}><ChevronUp size={14} /></button>
+                                    <button type="button" style={{ ...icon, opacity: i === rows.length - 1 ? 0.3 : 1 }} disabled={i === rows.length - 1} aria-label={`Move ${l.label} down`} title="Move down" onClick={() => shift(rows, i, 1)}><ChevronDown size={14} /></button>
+                                  </>
+                                )}
                                 <button type="button" style={icon} aria-label={`Move ${l.label}`} title="Move to..." onClick={() => setMoving(l.id)}><ArrowRightLeft size={14} /></button>
                                 <button type="button" style={icon} aria-label={`Change ${l.label}`} onClick={() => onEdit(l)}><Pencil size={14} /></button>
                                 <button type="button" style={icon} aria-label={`Remove ${l.label}`} onClick={() => setConfirm(l.id)}><Trash2 size={14} /></button>
@@ -597,7 +754,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                       );
                     })}
                     <tr className="acct-grand">
-                      <td colSpan={real ? 6 : 5}>Total {c.label}{real ? ' - Equity' : ''}</td>
+                      <td colSpan={(real ? 6 : 5) + (canEdit ? 1 : 0)}>Total {c.label}{real ? ' - Equity' : ''}</td>
                       <td className="acct-num"><Amount value={total} /></td><td />
                     </tr>
                   </tbody>
@@ -718,10 +875,12 @@ export function suggestCategory(section, title, suggested = null, categories = [
     if (/mortgage|loan|note payable|notes payable|n\/p/.test(t)) return 'business_loan';
     return 'other_liability';
   }
+  if (/^\s*cash\s*$|petty cash|cash on hand|cash in hand/.test(t)) return 'cash';
   if (/401\s*k|\bira\b|roth|retirement|pension|\bsep\b|403|\bhsa\b/.test(t)) return 'retirement';
   if (/brokerage|etrade|e\*trade|webull|fidelity|schwab|robinhood|investment|stock|bond|mutual|vanguard|crypto|coinbase/.test(t)) return 'investment';
   if (/insurance|life policy|cash value/.test(t)) return 'insurance';
-  if (/jewel|watch|collectib/.test(t)) return 'jewelry';
+  if (/vehicle|automobile|\bauto\b|\bcar\b|boat/.test(t)) return 'vehicles';
+  if (/jewel|watch|collectib|furniture|household/.test(t)) return 'personal';
   if (/checking|chkg|savings|bank|cash|money market|\bcd\b|venmo|paypal|treasur|earmarked|f&m/.test(t)) return 'bank';
   return 'other_holding';
 }
@@ -905,7 +1064,9 @@ function LedgerBulkAdd({ section, categories, asOf, onClose, onSave }) {
 function LineEditor({ line, categories, asOf, onClose, onSave }) {
   const real = line.section === 'real_estate';
   const [l, setL] = useState(line);
-  const jewelry = l.category === 'jewelry';
+  // Personal Holdings carry what Jewelry & Personal Property did (Oct 6): an
+  // appraised value, the appraisal date, and who appraised it.
+  const jewelry = l.category === 'personal' || l.category === 'jewelry';
   // The entity whose P&L is this line's Schedule E (a property) or Schedule C
   // (a business interest), when the figure itself does not read the ledger.
   const scheduled = real || (l.section === 'asset' && l.category === 'business');
@@ -954,7 +1115,10 @@ function LineEditor({ line, categories, asOf, onClose, onSave }) {
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
               <div>
                 <label style={label} htmlFor="pfs-l-inst">Institution</label>
-                <input id="pfs-l-inst" type="text" value={l.institution} maxLength={160} onChange={(e) => set({ institution: e.target.value })} style={{ ...control, width: '100%' }} />
+                {/* Oct 6: a ledger line's Institution is read from the bank account
+                    linked to its GL; typing one here keeps what was typed instead. */}
+                <input id="pfs-l-inst" type="text" value={l.institution} maxLength={160} placeholder={l.source === 'ledger' ? 'The bank linked to the account' : ''}
+                  onChange={(e) => set({ institution: e.target.value, details: { ...(l.details || {}), institutionManual: !!e.target.value.trim() } })} style={{ ...control, width: '100%' }} />
               </div>
               <div>
                 <label style={label} htmlFor="pfs-l-ref">Account Ending In</label>
@@ -978,7 +1142,7 @@ function LineEditor({ line, categories, asOf, onClose, onSave }) {
           </div>
           <div>
             <div style={label}>{real ? 'Market Value' : jewelry ? 'Appraised Value' : 'Balance'}</div>
-            {jewelry && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 6 }}>Jewelry and personal property are kept by hand: the appraised value and the date of the appraisal.</div>}
+            {jewelry && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 6 }}>Personal holdings - jewelry, art, furnishings, personal property - are kept by hand: the appraised value and the date of the appraisal.</div>}
             <FigureSource idPrefix="pfs-fig" asOf={asOf} manualLabel={real ? 'Fair Market Value' : jewelry ? 'Appraised Value' : 'Balance'} asOfLabel={jewelry ? 'Appraisal Date' : 'Figure Taken On'} value={figure}
               onChange={(f) => set({ source: f.source, ledgerEntity: f.entity || '', ledgerAccounts: f.accounts || [], manualValue: f.value, manualAsOf: f.asOf })} />
           </div>

@@ -26,9 +26,14 @@ const roll = {
 
 vi.mock('../../api', () => ({
   api: {
-    getLeasingRentRoll: vi.fn(async () => roll),
+    getLeasingRentRollFor: vi.fn(async () => roll),
     getLeasingCustomers: vi.fn(async () => ({ customers: [{ code: 'C00272', name: 'Dr. Azadeh Sham' }, { code: 'C00498', name: 'Overstie Management' }] })),
     getAccountingLocations: vi.fn(async () => ({ entities: [{ code: '15000', name: 'Greens Escondido' }] })),
+    getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
+    saveAccountingPrefs: vi.fn(async () => ({})),
+    getLeasingCustomer: vi.fn(async (code) => ({ code, name: 'Overstie Management', phone: '(949) 400-2788', email: 'ap@overstie.example', address: '100 Main St, San Clemente, CA 92672', active: true, source: 'intacct', leases: [] })),
+    setLeasingNote: vi.fn(async (id, note) => ({ text: note, by: 'charmi@greensglobal.com', byName: 'Charmi Desai', at: '2026-10-06T16:00:00Z' })),
+    syncLeasingFromLedger: vi.fn(async () => ({ linked: [], created: [], notes: [] })),
     setLeasingMonth: vi.fn(async () => ({})),
     updateLeasingLease: vi.fn(async (id, body) => ({ id, ...body })),
     replaceLeasingTenant: vi.fn(async (id, body) => ({ id: 'L3', ...body })),
@@ -38,8 +43,9 @@ vi.mock('../../api', () => ({
 
 import LeasingTab from './LeasingTab';
 import { api } from '../../api';
+import { resetAccountingPrefs } from './prefs';
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } resetAccountingPrefs(); });
 
 describe('LeasingTab', () => {
   it('shows every month of every lease and what is owed', async () => {
@@ -52,7 +58,7 @@ describe('LeasingTab', () => {
     expect(within(row).getByRole('button', { name: /Mar 2026: Paid/ }).textContent).toBe('2,955*');
     expect(within(row).getByRole('button', { name: /Apr 2026: Late/ })).toBeTruthy();
     expect(screen.getByText('Outstanding (1)')).toBeTruthy();
-    expect(api.getLeasingRentRoll).toHaveBeenCalledWith(new Date().getFullYear());
+    expect(api.getLeasingRentRollFor).toHaveBeenCalledWith(new Date().getFullYear(), { entities: [] });
   });
 
   it('lists who is behind, with a letter ready to send from their own email', async () => {
@@ -126,9 +132,112 @@ describe('LeasingTab', () => {
   });
 
   it('says so when the ledger could not be read', async () => {
-    api.getLeasingRentRoll.mockResolvedValueOnce({ ...roll, warning: 'Payments could not be read from the ledger (Accounting service returned 500). Expected rent is shown; received is not.' });
+    api.getLeasingRentRollFor.mockResolvedValueOnce({ ...roll, warning: 'Payments could not be read from the ledger (Accounting service returned 500). Expected rent is shown; received is not.' });
     render(<LeasingTab />);
     expect(await screen.findByText(/Payments could not be read from the ledger/)).toBeTruthy();
     expect(screen.getByText('910 SECR - Ste 100, San Clemente')).toBeTruthy();
+  });
+});
+
+// Oct 6 (Charmi, MRI feedback of 10/04): filters, Total and Balance, Notes,
+// the customer card, expired and inactive leases, the export menu, the sync.
+describe('LeasingTab - the 10/04 feedback', () => {
+  const prepaid = { ...roll.rows[1], months: months([cell('01', 'paid', 6400, { balance: -3200 }), cell('02', 'paid', 3200), cell('03', 'paid', 3200), cell('04', 'paid', 3200)]), balanceToDate: -3200 };
+  const ended = { lease: lease({ id: 'L3', propertyName: 'Suite 300, Escondido', tenantName: 'Old Tenant LLC', customerId: 'C00100', status: 'ended', leaseEnd: '2026-02-28' }), months: months([cell('01', 'paid', 3200), cell('02', 'paid', 3200)]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0, expired: true, customerActive: true };
+  const gone = { lease: lease({ id: 'L4', propertyName: 'Suite 400, Escondido', tenantName: 'Closed Co', customerId: 'C00101' }), months: months([cell('01', 'paid', 3200)]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0, expired: false, customerActive: false };
+  const full = { ...roll, rows: [{ ...roll.rows[0], expired: false, customerActive: true, lease: lease({ teamNote: { text: 'Promised by the 15th', by: 'charmi@greensglobal.com', byName: 'Charmi Desai', at: '2026-10-01T16:00:00Z' } }) }, { ...prepaid, expired: false, customerActive: true }, ended, gone], linked: [] };
+  beforeEach(() => { api.getLeasingRentRollFor.mockResolvedValue(full); });
+
+  it('adds a Total column and a Balance, where a prepayment is a credit', async () => {
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('tr');
+    expect(screen.getByRole('columnheader', { name: 'Total' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Balance' })).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: 'Owed' })).toBeNull();
+    expect(within(row).getByText('8,955.00')).toBeTruthy();       // 3,200 + 2,800 + 2,955 + 0 received
+    expect(within(row).getByText('3,600.00')).toBeTruthy();       // the balance
+    const paidAhead = screen.getByText('47385 RCR, Temecula').closest('tr');
+    expect(within(paidAhead).getByText('16,000.00')).toBeTruthy();
+    expect(within(paidAhead).getByText('(3,200.00)')).toBeTruthy();
+    // The grand total row: received and the balance over the leases shown.
+    const grand = screen.getByText(/Received - 2 leases/).closest('tr');
+    expect(within(grand).getByText('24,955.00')).toBeTruthy();
+    expect(within(grand).getByText('400.00')).toBeTruthy();
+  });
+
+  it('hides expired leases and inactive customers until Customize shows them, and the text filter finds them', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(screen.queryByText('Suite 300, Escondido')).toBeNull();
+    expect(screen.queryByText('Suite 400, Escondido')).toBeNull();
+    expect(screen.getByText(/2 expired or inactive hidden/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Show Inactive/));
+    const inactive = (await screen.findByText('Suite 400, Escondido')).closest('tr');
+    expect(within(inactive).getByText('Inactive')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Show Expired/));
+    const expired = (await screen.findByText('Suite 300, Escondido')).closest('tr');
+    expect(within(expired).getByText('Expired')).toBeTruthy();
+    // Off again: the text filter still finds the ended lease, marked.
+    fireEvent.click(screen.getByLabelText(/Show Expired/));
+    fireEvent.click(screen.getByLabelText(/Show Inactive/));
+    await waitFor(() => expect(screen.queryByText('Suite 300, Escondido')).toBeNull());
+    fireEvent.change(screen.getByLabelText('Filter by property or tenant'), { target: { value: 'old tenant' } });
+    expect(within(screen.getByText('Suite 300, Escondido').closest('tr')).getByText('Expired')).toBeTruthy();
+  });
+
+  it('narrows to the tenants picked, to the months picked, and asks for the entities picked', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Tenant filter' }));
+    fireEvent.click(screen.getByRole('option', { name: /Santos Blancas Jr\./ }));
+    expect(screen.queryByText('910 SECR - Ste 100, San Clemente')).toBeNull();
+    expect(screen.getByText('47385 RCR, Temecula')).toBeTruthy();
+    fireEvent.click(screen.getByRole('option', { name: /Santos Blancas Jr\./ }));
+    // Q1: January to March only.
+    fireEvent.change(screen.getByLabelText('Months'), { target: { value: 'q1' } });
+    expect(screen.getByRole('columnheader', { name: 'Mar' })).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: 'Apr' })).toBeNull();
+    const row = screen.getByText('910 SECR - Ste 100, San Clemente').closest('tr');
+    expect(within(row).getByText('400.00')).toBeTruthy();       // the April late month is outside the period
+    fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
+    fireEvent.click(await screen.findByRole('option', { name: /Greens Escondido/ }));
+    await waitFor(() => expect(api.getLeasingRentRollFor).toHaveBeenLastCalledWith(new Date().getFullYear(), { entities: ['15000'] }));
+  });
+
+  it('keeps the team note in the row with who wrote it', async () => {
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('47385 RCR, Temecula')).closest('tr');
+    expect(screen.getByText('Promised by the 15th')).toBeTruthy();
+    expect(screen.getByText(/Charmi Desai, 10\/01\/2026/)).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: 'Add a note on 47385 RCR, Temecula' }));
+    const box = within(row).getByLabelText('Note on 47385 RCR, Temecula');
+    fireEvent.change(box, { target: { value: 'Paid January twice - credit' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(api.setLeasingNote).toHaveBeenCalledWith('L2', 'Paid January twice - credit'));
+    expect(await within(row).findByText('Paid January twice - credit')).toBeTruthy();
+  });
+
+  it("opens the customer's card from the tenant's name", async () => {
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('tr');
+    fireEvent.click(within(row).getByRole('button', { name: 'Overstie Management, customer details' }));
+    const card = await screen.findByRole('dialog', { name: 'Overstie Management details' });
+    expect(await within(card).findByText('(949) 400-2788')).toBeTruthy();
+    expect(within(card).getByText('Telephone Number')).toBeTruthy();
+    expect(within(card).getByText('100 Main St, San Clemente, CA 92672')).toBeTruthy();
+    expect(within(card).getByText('ap@overstie.example')).toBeTruthy();
+    expect(api.getLeasingCustomer).toHaveBeenCalledWith('C00498');
+  });
+
+  it('exports what is on screen and syncs with the ledger', async () => {
+    api.syncLeasingFromLedger.mockResolvedValueOnce({ linked: [{ leaseId: 'L1', propertyName: '910 SECR', tenantName: 'Overstie Management', customerId: 'C00498' }], created: [{ leaseId: 'L9', tenantName: 'New Tenant Inc.', entityName: 'Greens Escondido', customerId: 'C00999' }], notes: [] });
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /Export/ }));
+    for (const name of [/Excel/, /CSV/, /PDF/, /Email/, /Save to Files/]) expect(screen.getByRole('menuitem', { name })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Sync Now/ }));
+    expect(await screen.findByText(/Linked 1 lease to the Intacct customer by name/)).toBeTruthy();
+    expect(screen.getByText(/Added 1 new tenant from the ledger: New Tenant Inc. at Greens Escondido/)).toBeTruthy();
   });
 });

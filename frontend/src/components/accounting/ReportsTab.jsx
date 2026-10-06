@@ -47,6 +47,12 @@ import {
 // into the same view - the lines behind that number, for that column's
 // period, book and entity. Since 09/30 the other Accounting tabs carry the
 // same box (`search` prop): typing there lands here with the words typed.
+// Oct 6 (Neil: "search bar should always be on the top right in the entire
+// accounting module"): the Accounting header's box at the top right is THE
+// search on every tab, this one included - it drives `searchText` through
+// `onSearchText`, and `onWaiting` lights its spinner. Reports draws its own
+// box only when used on its own (no `onSearchText`) or filling the screen,
+// where the header is out of sight.
 //
 // Sep 30 (Charmi and Neil, call of 09/29): Entities, Filters (departments
 // inside), then Accounts last (Charmi, 10/02: "keep accounts as the last
@@ -78,7 +84,7 @@ const storable = (c) => ({
 });
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab({ search = null }) {
+export default function ReportsTab({ search = null, searchText: outerText = '', onSearchText = null, onWaiting = null }) {
   const [config, setConfig] = useState(() => defaultConfig());
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
@@ -106,7 +112,10 @@ export default function ReportsTab({ search = null }) {
 
   // Global search + drill-down. `searchText` is what is typed; `term` follows it
   // after a pause so the ledger is not queried on every keystroke.
-  const [searchText, setSearchText] = useState(() => search?.text || '');
+  const [ownText, setOwnText] = useState(() => search?.text || '');
+  const headerSearch = typeof onSearchText === 'function';
+  const searchText = headerSearch ? (outerText || '') : ownText;
+  const setSearchText = headerSearch ? onSearchText : setOwnText;
   const [term, setTerm] = useState('');
   // Words typed in another tab's search box arrive here ({ text, nonce }).
   useEffect(() => { if (search?.text) setSearchText(search.text); }, [search?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -128,6 +137,7 @@ export default function ReportsTab({ search = null }) {
   // From the first keystroke until the lines are on screen (Charmi, Sep 25:
   // with nothing moving, nobody could tell whether to press Enter).
   const waiting = (searchText.trim().length >= 2 && searchText.trim() !== term) || (searching && searchBusy);
+  useEffect(() => { onWaiting?.(waiting); }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -356,9 +366,9 @@ export default function ReportsTab({ search = null }) {
 
   return (
     <div style={shell}>
-      {/* One slim row: search, then every control as a dropdown. */}
+      {/* One slim row: every control as a dropdown (the search is in the header, top right). */}
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
+        {(!headerSearch || full) && <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
           {waiting
             ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
@@ -366,7 +376,7 @@ export default function ReportsTab({ search = null }) {
             placeholder="Search vendor, customer, invoice, amount, memo..."
             style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
           {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
-        </div>
+        </div>}
 
         <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600 }}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}

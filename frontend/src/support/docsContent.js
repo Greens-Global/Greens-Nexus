@@ -957,15 +957,15 @@ export const DOCS = [
       {
         title: 'Check the Numbers',
         steps: [
-          'Open Accounting. You land on Overview.',
-          'Click Cash for the plan, scenarios and 13-week forecast.',
-          'Click Performance for budget versus actual versus last year, with commentary.',
+          'Open Accounting. You land on Dashboard > Overview.',
+          'Open the Dashboard menu and pick Cash for the plan, scenarios and 13-week forecast.',
+          'Pick Performance from the same menu for budget versus actual versus last year, with commentary.',
         ],
       },
       {
         title: 'Work the Month-End Close',
         steps: [
-          'Click the Close tab.',
+          'Open the Dashboard menu and pick Close.',
           'Tick checklist items as you finish them and mark reconciliations.',
           'Add a note on any unusual movement (flux).',
         ],
@@ -1077,6 +1077,16 @@ export const DOCS = [
           'Steps marked Auto-Ticks are marked done by Nexus itself when it sees it happen, for example a finished provisioning run or the status changing to Left.',
         ],
       },
+      {
+        title: 'Give a Manager Their Team in People',
+        steps: [
+          'Administrators: give the person the Manager tier and the People grant (through their job role or a group). Nothing else to switch on.',
+          'They see only the people below them in the reporting line - their direct reports and everyone who reports to those people - set by Reports To on each profile.',
+          "In People they get the team's list and five read-only profile tabs: Overview, Assets, Work Mode, Access and Work Logs. Hiring, Org Chart, Leave, Checklists, Add Person, documents, compliance and pay are hidden.",
+          "In Time they see the team's hours, timecards (Payroll), attendance, punch requests, missing punches, screenshots, locations and time off - never pay or wage figures, and no payroll files. They can fix their team's time (add a missing punch, correct a time, decide punch requests) except while a timesheet is back with the employee, out for signature or finalized.",
+          'HR staff who need everyone should be Global Admins (administrator and up), which is never limited.',
+        ],
+      },
     ],
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status.' },
@@ -1096,6 +1106,7 @@ export const DOCS = [
       title: 'HR & Admins',
       points: [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
+        'The Manager tier with the People grant sees only their own team (everyone below them in Reports To), read only, and never pay - even with the Compensation grant. HR staff who need everyone should be Global Admins.',
         'Offboarding: start the offboarding checklist the day notice is received, hand over their tasks, set mailbox handling, then mark them Left. Left logs them out of Nexus on every device straight away and, when the mailbox is removed or shared, ends their Microsoft 365 sessions too (Outlook and Teams on their phone stop working).',
         'Changing a status asks for a reason, and every change is kept in history.',
         'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
