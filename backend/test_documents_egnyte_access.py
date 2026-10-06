@@ -3,8 +3,8 @@ Sep 30 review.
 
 Both routes read with the Egnyte SERVICE token. They used to take any absolute
 path from any signed-in employee: the whole domain, other people's private
-folders included. Now they take the Documents screen's own access (supervisor,
-or a Documents grant) and only reach paths under the configured import roots
+folders included. Now they take the Documents screen's own access
+(administrator+, or a Documents grant) and only reach paths under the configured import roots
 (wiring slot documents.import-roots / EGNYTE_IMPORT_ROOTS, default /Shared).
 
 Run with: python -m pytest test_documents_egnyte_access.py
@@ -27,6 +27,7 @@ from routers import documents as D
 
 EMPLOYEE = {"email": "dean@greensglobal.com", "level": 1}
 SUPERVISOR = {"email": "sam@greensglobal.com", "level": 2}
+ADMIN = {"email": "ada@greensglobal.com", "level": 4}
 
 _LISTING = {"path": "", "description": "", "folders": [], "files": []}
 
@@ -71,15 +72,17 @@ class EgnyteImportAccessTests(unittest.TestCase):
             deps = [d.call for d in route.dependant.dependencies]
             self.assertIn(D._require_documents_access, deps, path)
 
-    def test_an_employee_without_a_documents_grant_is_refused(self):
+    def test_without_a_documents_grant_is_refused_even_a_supervisor(self):
+        # App.jsx shows Documents below administrator only through a grant.
         with mock.patch.object(auth, "_module_level", return_value=0):
-            self.assertEqual(self._status(D._require_documents_access, EMPLOYEE, self.db), 401)
+            self.assertEqual(self._status(D._require_documents_access, EMPLOYEE, self.db), 403)
+            self.assertEqual(self._status(D._require_documents_access, SUPERVISOR, self.db), 403)
 
-    def test_an_employee_with_a_documents_grant_and_a_supervisor_are_admitted(self):
+    def test_a_documents_grant_or_an_administrator_is_admitted(self):
         with mock.patch.object(auth, "_module_level", return_value=1):
             self.assertEqual(D._require_documents_access(user=EMPLOYEE, db=self.db), EMPLOYEE)
         with mock.patch.object(auth, "_module_level", return_value=0):
-            self.assertEqual(D._require_documents_access(user=SUPERVISOR, db=self.db), SUPERVISOR)
+            self.assertEqual(D._require_documents_access(user=ADMIN, db=self.db), ADMIN)
 
     # -- where -------------------------------------------------------------
     def test_the_domain_root_lists_only_the_import_roots(self):

@@ -31,7 +31,7 @@ from typing import Optional, List
 from sqlalchemy import or_, cast, func, String as SqlString
 
 from database import get_db
-from auth import get_current_user, require_level_or_module
+from auth import get_current_user, require_module_grant
 from models import (DocFolder, Document, DocumentVersion, DocTemplate, DocTemplateVersion,
                     DocLetterhead, HrSignRequest, HrSignParty, NexusEmployee)
 from services.merge_fields import (BUILTIN_VARIABLES, group_label, is_auto_token,
@@ -1632,9 +1632,9 @@ def _egnyte_configured() -> bool:
 # Sep 30 review: these two routes read with the SERVICE token and took any
 # absolute path from any signed-in employee - the whole Egnyte domain, private
 # folders included. They now take the same access as the Documents screen they
-# serve (supervisor role, or a Documents grant - App.jsx VIEW_MIN_ROLES), and
-# only reach paths under the configured import roots.
-_require_documents_access = require_level_or_module(2, "documents", "viewer")
+# serve (administrator+, or an Access Group grant on "documents" - App.jsx
+# ProtectedView), and only reach paths under the configured import roots.
+_require_documents_access = require_module_grant("documents", "viewer")
 
 
 def _egnyte_import_roots() -> list[str]:
