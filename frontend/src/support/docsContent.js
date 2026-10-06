@@ -566,7 +566,8 @@ export const DOCS = [
     ],
     features: [
       { name: 'Tabs', desc: 'All, My Requests, Assigned to Me, and (only when something is waiting) To Route and To Approve.' },
-      { name: 'Tiles', desc: 'Live counts for Open, Unassigned, SLA Breached, Resolved and Closed. Click one to filter the list.' },
+      { name: 'Tiles', desc: 'Live counts for Unassigned (first, in yellow - tickets nobody is working), Open, SLA Breached, Resolved and Closed. Click one to filter the list.' },
+      { name: 'Screen Recordings', desc: "Raising a ticket, the Show Us the Problem card under the description records your screen (with your voice if you like) or attaches a file. If the problem happens again later, open the ticket's Conversation and use Record Screen or Upload Attachment under the reply: the file is saved to the ticket's Attachments and a link to it goes in your reply when you click Done. Feature, service, access and change requests take files only." },
       { name: 'List, Board, Reports', desc: 'A sortable table, drag-between-columns board, or charts of volume, SLA and time spent.' },
       { name: 'Ticket Types', desc: 'Incident, Bug Report, Feature Request, Access Request and Other, each with a one-line definition in the dropdown. Each asks only its own questions.' },
       { name: 'Help With', desc: 'What the ticket is about. The choices depend on the department: IT topics for IT, maintenance topics for Construction. Some topics have a Which One? list (Microsoft - Outlook, Teams, OneDrive; Nexus - its modules) to narrow it down. Other takes a short typed answer.' },
