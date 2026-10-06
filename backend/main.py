@@ -2256,6 +2256,10 @@ async def lifespan(app: FastAPI):
                 file=_sys.stderr,
             )
             _sys.exit(1)
+    # Same rule for the session/token encryption key: no repo-known fallback
+    # on a deployed instance (secret_box.py, Sep 30 review).
+    import secret_box as _secret_box
+    _secret_box.require_key_on_azure()
 
     try:
         models.Base.metadata.create_all(bind=engine)
