@@ -50,14 +50,25 @@ export function ticketQueueRows(tickets = [], myEmail = '', onDesk = false) {
   return { mine, unassigned };
 }
 
-export function openTicket(id) {
+// Where a ticket opens for this person - the same rule as the notification
+// bell's ticketAwareView (components/NotificationBell.jsx): the Tickets desk
+// for administrators and anyone granted the tickets module, the Support
+// screen (their own requests, same drawer) for everyone else, who would
+// otherwise land on a module they cannot open.
+export function ticketViewFor(can, grantedModules) {
+  const admin = typeof can === 'function' && can('administrator');
+  return admin || grantedModules?.has?.('tickets') ? 'tickets' : 'support';
+}
+
+export function openTicket(id, view = 'tickets') {
   setPendingOpen('ticket', id);
-  navigate('tickets');
+  navigate(view);
   setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId: id } })), 0);
 }
 
 export function TicketQueueWidget() {
-  const { myEmail } = useRole();
+  const { myEmail, can, myGrantedModules } = useRole();
+  const ticketView = ticketViewFor(can, myGrantedModules);
   const [state, setState] = useState({ loading: true, mine: [], unassigned: [], onDesk: false });
   useEffect(() => {
     let alive = true;
@@ -72,7 +83,7 @@ export function TicketQueueWidget() {
   const sub = state.loading ? undefined
     : `${state.mine.length} assigned to you${state.onDesk ? `, ${state.unassigned.length} unassigned` : ''}`;
   const list = (rows) => rows.slice(0, 8).map(r => (
-    <Row key={r.id} Icon={TicketIcon} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => openTicket(r.id)} />
+    <Row key={r.id} Icon={TicketIcon} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => openTicket(r.id, ticketView)} />
   ));
   return (
     <DashCard title="My Ticket Queue" sub={sub} action={<TicketIcon size={15} style={{ color: 'var(--muted)' }} />}>

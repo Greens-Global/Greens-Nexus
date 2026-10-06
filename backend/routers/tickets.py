@@ -23,13 +23,16 @@ from typing import Optional, Any
 
 import models
 from database import get_db
-from auth import get_current_user, require_manager, require_any_module_grant
+from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify, extract_mentions
-from ticket_code import TICKET_CODE_DIGITS, ticket_no
+from ticket_code import ticket_no
+import code_sequence
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents,
                            _name_of)
 import ticket_taxonomy
+import ticket_roles
+from ticket_roles import require_ticket_agent, require_ticket_supervisor
 import ticket_mail_templates as tmpl
 import property_links
 from app_url import app_url
@@ -54,7 +57,15 @@ router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 # server-side instead - see list_tickets and _require_ticket_participant. Scoped,
 # not trusted: `mine=true` decided in the browser would be one query parameter
 # away from the whole company's queue.
-require_ticket_desk = require_any_module_grant("tasks", "tickets")
+#
+# Desk roles (Oct 2026, ticket_roles.py): WHO is on the desk, and whether as an
+# agent or a supervisor, is decided there - from the tickets/tasks module
+# grants and the company's deskAccess setting (legacy / explicit). Endpoints
+# that work the queue carry require_ticket_desk (= agent or above); deleting
+# and running the desk carry require_ticket_supervisor. In code, ask the named
+# checks (ticket_roles.can_work_queue / can_read_internal / can_delete /
+# can_manage_desk), never a raw grant lookup.
+require_ticket_desk = require_ticket_agent
 
 
 # ── SLA policy - the due date is DERIVED from priority, not chosen freely.
@@ -81,18 +92,14 @@ def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> s
 
 
 def _has_desk_grant(user: dict, db: Session) -> bool:
-    """Whether this caller may see the desk side. The dependency form raises;
-    this is the boolean the scoped endpoints branch on."""
-    from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
-    # External (B2B guest) users are NEVER desk agents, whatever their grant
-    # level says - the unscoped list is the whole company's queue. Their grant
-    # opens the module; here they stay participants-only (their own tickets).
-    if user.get("external"):
-        return False
-    if user.get("level", 0) >= _LEVELS["administrator"]:
-        return True
-    grants = _grants_for(user.get("email") or "", db)
-    return any(grants.get(m, 0) >= _MODULE_LEVEL_RANK["viewer"] for m in ("tasks", "tickets"))
+    """Whether this caller may see the desk side - an agent or supervisor
+    (ticket_roles.can_work_queue). The dependency form raises; this is the
+    boolean the scoped endpoints branch on. Kept under its old name for the
+    call sites that read internal notes through _sees_internal.
+
+    External (B2B guest) users are NEVER desk agents, whatever their grant
+    level says - ticket_role answers "requester" for them."""
+    return ticket_roles.can_work_queue(user, db)
 
 
 def _require_ticket_participant(db: Session, user: dict, t) -> None:
@@ -150,8 +157,18 @@ def create_ticket_view(body: SavedViewBody, user: dict = Depends(get_current_use
 
 
 @router.delete("/task-ticket-views/{view_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
-def delete_ticket_view(view_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
+def delete_ticket_view(view_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # A saved view is its owner's. This used to delete any row by id - any
+    # desk agent could remove a colleague's views, or a TASK saved view (same
+    # table) - so it is now confined to the caller's own ticket views. Someone
+    # else's view, or one that is not a ticket view, reads as not found.
+    v = (db.query(models.TaskSavedView)
+         .filter(models.TaskSavedView.id == view_id,
+                 models.TaskSavedView.owner_email == (user.get("email") or "").lower(),
+                 models.TaskSavedView.scope == "ticket").first())
+    if not v:
+        raise HTTPException(404, "Saved view not found")
+    db.delete(v)
     db.commit()
 
 
@@ -235,6 +252,33 @@ def _sees_internal(db: Session, t: models.TaskTicket, user: dict, desk: bool) ->
     return (email != (t.requester_email or "").lower()
             or email == (t.assignee_email or "").lower()
             or _ticket_privileged(db, t, user))
+
+
+def _would_see_internal(db: Session, t: models.TaskTicket, email: str) -> bool:
+    """_sees_internal for someone who is not the caller (a bell recipient, an
+    @mentioned colleague) - built from their stored role and identity the
+    same way get_current_user builds a signed-in user."""
+    import auth
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    rec = auth._external_record(email) or {}
+    who = {"email": email, "level": auth.level_for(email, db), "external": bool(rec.get("external"))}
+    return _sees_internal(db, t, who, _has_desk_grant(who, db))
+
+
+def _is_internal_activity(detail) -> bool:
+    """True for an activity row logged from an internal note - its detail is
+    the JSON {"internal": true, ...} that _record_ticket_comment writes. A
+    plain-text detail (every other row, and comments logged before the JSON
+    detail existed) is not internal."""
+    if not isinstance(detail, str) or not detail.lstrip().startswith("{"):
+        return False
+    try:
+        parsed = json.loads(detail)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(parsed, dict) and parsed.get("internal") is True
 
 
 def _with_latest_comment(db: Session, t: models.TaskTicket, user: dict, d: dict) -> dict:
@@ -524,34 +568,22 @@ class TicketUpdate(BaseModel):
 
 
 def _next_ticket_code(db: Session) -> str:
-    """One past the highest number issued so far.
+    """The next ticket number, from the never-repeating counter in
+    code_sequence.py.
 
-    Was `count() + 1`, which is only correct while nothing is ever deleted:
-    delete any ticket and the next one issued reuses a live number, so two
-    tickets share a code and every reference to it becomes ambiguous. Counting
-    what exists answers "how many", not "what comes next".
-
-    Legacy "TKT-nnn" codes are read for their digits too, so the sequence
-    continues past them rather than restarting into numbers already in use."""
-    _lock_ticket_codes(db)
-    return f"{_highest_ticket_no(db) + 1:0{TICKET_CODE_DIGITS}d}"
+    Was "one past the highest code on a ticket row" (and before that
+    `count() + 1`): two tickets filed at the same moment both read the same
+    highest and got the same number. The counter row is bumped atomically
+    inside this transaction, so concurrent creates cannot share one, and a
+    deleted ticket's number is never issued again."""
+    return code_sequence.next_ticket_code(db)
 
 
-def _highest_ticket_no(db: Session) -> int:
-    """The highest number issued so far (0 = none). Legacy codes count."""
-    highest = 0
-    for (code,) in db.query(models.TaskTicket.code).all():
-        digits = "".join(ch for ch in (code or "") if ch.isdigit())
-        if digits:
-            highest = max(highest, int(digits))
-    return highest
-
-
-# Two creates in flight read the same "highest" and issue the same code - and
-# a Property Walkthrough makes that window many codes wide. Taken right before
-# the read of the highest code and held to the request's commit/rollback, so
-# callers do ALL validation and lookups first - every ticket create in the
-# company, Convert to Ticket included, queues on it.
+# Codes now come from the never-repeating counter (code_sequence.py), whose
+# atomic UPDATE needs no lock. This lock is kept for one job only: a Property
+# Walkthrough re-checks its batch id under it, so a retried submit racing its
+# own first attempt replays instead of filing the tickets twice. Held to the
+# request's commit/rollback.
 #   Postgres: a transaction-scoped advisory lock.
 #   SQLite (local dev, tests): a deferred transaction reads BEFORE it holds
 #   the write lock, so two creates can both read 000041. A zero-row UPDATE
@@ -839,7 +871,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
     t = models.TaskTicket(
-        id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
+        id=body.id or gen_id(), code=_next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
         status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
@@ -1031,14 +1063,10 @@ def _requester_self_resolve(db: Session, t: models.TaskTicket, user: dict, data:
 
 def _may_patch_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
     """The desk (same test require_ticket_desk applies) or the ticket's own
-    requester. A plain employee has no tasks/tickets grant, and without this
-    they could not edit their open ticket, confirm a resolution or reopen it
-    from Support - _ticket_edit_scope still decides WHAT they may change."""
-    from auth import _grants_for, _LEVELS, _MODULE_LEVEL_RANK
-    if user.get("level", 0) >= _LEVELS["administrator"]:
-        return True
-    grants = _grants_for(user.get("email") or "", db)
-    if any(grants.get(m, 0) >= _MODULE_LEVEL_RANK["viewer"] for m in ("tasks", "tickets")):
+    requester. A plain employee has no desk role, and without this they could
+    not edit their open ticket, confirm a resolution or reopen it from
+    Support - _ticket_edit_scope still decides WHAT they may change."""
+    if ticket_roles.can_work_queue(user, db):
         return True
     return (t.requester_email or "").lower() == (user.get("email") or "").lower()
 
@@ -1439,7 +1467,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             news.append("updated the " + _and_list(list(dict.fromkeys(edited))))
         if "approval_reset" in changed:
             news.append("sent back for approval")
-        public_reply = comment_body and not (comment_internal and _has_desk_grant(user, db))
+        public_reply = comment_body and not (comment_internal and ticket_roles.can_read_internal(user, db))
         if public_reply and (status_changed or news):
             # One bell for the whole save: the reply rides along here and the
             # comment's own bell skips the requester (below).
@@ -1521,25 +1549,88 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     return _with_latest_comment(db, t, user, ticket_to_dict(t))
 
 
-@router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
+@router.delete("/task-tickets/{ticket_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Soft delete (Oct 2026). The ticket is marked, not dropped: it vanishes
+    from every list, count and notification scan (the hook in database.py),
+    while its conversation, files and activity stay exactly as they were so
+    POST /task-tickets/{id}/restore can put it back. This used to hard-delete
+    the comments, attachment rows and the whole activity trail with it - the
+    one record of who did what to the ticket was the first thing to go.
+    Storage objects are left alone for the same reason (restore needs them)."""
     t = _ticket_or_404(db, ticket_id)
-    # Independent of the in_progress/assignee edit lock above - deleting stays
-    # with whoever raised it or owns the queue, never just the assignee.
-    is_requester = (t.requester_email or "").lower() == user["email"].lower()
-    if not (_ticket_privileged(db, t, user) or is_requester):
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    if not _may_delete_ticket(db, t, user):
         raise HTTPException(403, "Only the requester or a manager can delete a ticket")
     # Property Tickets: a closed property ticket is that property's maintenance
-    # record (derived from this row) - deleting it would erase the repair from
-    # the history and Total Spend with no trace. Open ones delete as before.
+    # record - deleting it would erase the repair from the history and Total
+    # Spend. Open ones soft-delete as below.
     property_links.guard_record(t, "delete")
-    # clean up the ticket's conversation / attachments / activity too
-    db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).delete()
-    db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).delete()
-    db.query(models.TaskActivity).filter(models.TaskActivity.entity_kind == "ticket",
-                                         models.TaskActivity.entity_id == ticket_id).delete()
-    db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).delete()
+    t.deleted_at = now_iso()
+    t.deleted_by = (user.get("email") or "").lower()
+    log_activity(db, type="deleted", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="deleted this ticket")
     db.commit()
+
+
+def _may_delete_ticket(db: Session, t: models.TaskTicket, user: dict) -> bool:
+    """Who may delete - and so restore - a ticket. Independent of the
+    in_progress/assignee edit lock above - deleting stays with whoever raised
+    it or owns the queue, never just the assignee."""
+    is_requester = (t.requester_email or "").lower() == (user.get("email") or "").lower()
+    return _ticket_privileged(db, t, user) or is_requester
+
+
+def _deleted_ticket_or_404(db: Session, ticket_id: str) -> models.TaskTicket:
+    t = (db.query(models.TaskTicket).execution_options(include_deleted=True)
+         .filter(models.TaskTicket.id == ticket_id).first())
+    if not t or not (t.deleted_at or ""):
+        raise HTTPException(404, "That ticket isn't deleted")
+    return t
+
+
+@router.get("/task-tickets/deleted", dependencies=[Depends(require_ticket_desk)])
+def list_deleted_tickets(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Deleted tickets the caller could restore, newest-deleted first: every
+    one in their companies for a manager, otherwise the ones they raised."""
+    import auth
+    rows = (db.query(models.TaskTicket).execution_options(include_deleted=True)
+            .filter(models.TaskTicket.deleted_at != "", models.TaskTicket.deleted_at.isnot(None))
+            .order_by(models.TaskTicket.deleted_at.desc()).all())
+    cscope = auth.company_scope(user, db)
+    if cscope is not None:
+        rows = [t for t in rows if (t.company_id or "") in cscope]
+    out = []
+    for t in rows:
+        if not _may_delete_ticket(db, t, user):
+            continue
+        d = ticket_to_dict(t)
+        d["deletedAt"] = t.deleted_at or ""
+        d["deletedBy"] = _nz(t.deleted_by)
+        out.append(d)
+    return out
+
+
+@router.post("/task-tickets/{ticket_id}/restore", dependencies=[Depends(require_ticket_desk)])
+def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Put a deleted ticket back exactly as it was - conversation, files and
+    activity never left. Same people who may delete it: the requester or a
+    manager, inside the company wall."""
+    t = _deleted_ticket_or_404(db, ticket_id)
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    if not _may_delete_ticket(db, t, user):
+        raise HTTPException(403, "Only the requester or a manager can restore a ticket")
+    t.deleted_at = ""
+    t.deleted_by = ""
+    log_activity(db, type="restored", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="restored this ticket")
+    db.commit()
+    db.refresh(t)
+    return ticket_to_dict(t)
 
 
 # ── Ticket conversation / attachments / activity (reuse the task tables, keyed
@@ -1585,11 +1676,7 @@ def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
     # Internal notes are the desk talking among themselves - never shown to
     # the person who raised the ticket, even one who also has a desk grant
     # (unless they are working it themselves, or a manager).
-    email = (user.get("email") or "").lower()
-    sees_internal = _has_desk_grant(user, db) and (
-        email != (t.requester_email or "").lower()
-        or email == (t.assignee_email or "").lower()
-        or _ticket_privileged(db, t, user))
+    sees_internal = _sees_internal(db, t, user, _has_desk_grant(user, db))
     return [_tcomment(c) for c in rows if sees_internal or not getattr(c, "internal", False)]
 
 
@@ -1608,7 +1695,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     Returns (comment, internal) - internal only sticks for a desk-grant author.
     `quiet`: people already told about this save in another bell (update_ticket's
     requester notice), so the reply does not reach them twice."""
-    internal = bool(internal) and _has_desk_grant(user, db)
+    internal = bool(internal) and ticket_roles.can_read_internal(user, db)
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)
@@ -1635,6 +1722,11 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     # can't drift (Sagar, Sept 2 2026: "@ should work here like it does on tasks").
     actor = (user["email"] or "").lower()
     mentioned = [e for e in extract_mentions(text) if e != actor]
+    if internal:
+        # An internal note is for the desk only: someone who could not read
+        # it (the requester, a cc'd employee, a guest) is neither pulled onto
+        # the ticket nor told they were mentioned in it.
+        mentioned = [e for e in mentioned if _would_see_internal(db, t, e)]
     if mentioned:
         # Being mentioned puts you ON the ticket. A participant may read and
         # reply without a desk grant (_require_ticket_participant), so without
@@ -1650,7 +1742,11 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     # doesn't arrive as two bells about the same comment.
     _skip = set(mentioned) | set(quiet or ())
     if internal:
+        # Only the people who can open the note hear about it - never the
+        # requester, nor a watcher without the desk view.
         _skip.add((t.requester_email or "").lower())
+        _skip |= {e for e in _ticket_participants(t) if e not in _skip
+                  and e != actor and not _would_see_internal(db, t, e)}
     _notify_participants(db, t, user["email"], kind="ticket_comment",
                          title="Internal note on a ticket" if internal else "New comment on a ticket",
                          body=f"{ticket_no(t.code)} · {t.subject}",
@@ -1691,9 +1787,34 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     return _tcomment(c)
 
 
-@router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
-def delete_ticket_comment(comment_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).delete()
+@router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
+def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    """The author, or a manager moderating the thread - the same bar the task
+    thread uses (routers/tasks.delete_comment). This used to delete any row in
+    the shared comment table by id: another company's ticket, a colleague's
+    reply, even a TASK comment, with nothing left to show it had happened.
+    The comment must belong to a live ticket the caller can reach, and the
+    removal is logged - without the text, so an internal note's words never
+    reach the activity feed."""
+    c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
+    if not c:
+        raise HTTPException(404, "Comment not found")
+    t = _ticket_or_404(db, c.task_id)   # a task's comment is not this endpoint's
+    _require_ticket_participant(db, user, t)   # company wall (404) + access
+    me = (user.get("email") or "").lower()
+    if (c.author_email or "").lower() != me and not _ticket_privileged(db, t, user):
+        raise HTTPException(403, "Only the author or a manager can delete a comment")
+    internal = bool(getattr(c, "internal", False))
+    # JSON detail, like the "commented" row: `internal` keeps the line on the
+    # desk side of the internal-note rule, `text` is what the feed shows.
+    log_activity(db, type="comment_deleted", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=json.dumps({"internal": internal,
+                                    "text": "deleted an internal note" if internal else "deleted a comment",
+                                    "author": (c.author_email or "").lower(),
+                                    "createdAt": c.created_at or ""}))
+    db.delete(c)
     db.commit()
 
 
@@ -1738,16 +1859,34 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     return _tattachment(a)
 
 
-@router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
-def delete_ticket_attachment(attachment_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).delete()
+@router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
+def delete_ticket_attachment(attachment_id: str, user: dict = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """Whoever attached it, or a manager. Was unguarded: any desk agent could
+    remove any row in the shared attachment table by id (another company's
+    ticket, a task's evidence). The row goes; the stored file is left in place
+    (purging orphaned files is a separate, deliberate job) and the removal is
+    logged on the ticket."""
+    a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
+    if not a:
+        raise HTTPException(404, "Attachment not found")
+    t = _ticket_or_404(db, a.task_id)   # a task's attachment is not this endpoint's
+    _require_ticket_participant(db, user, t)   # company wall (404) + access
+    me = (user.get("email") or "").lower()
+    if (a.added_by or "").lower() != me and not _ticket_privileged(db, t, user):
+        raise HTTPException(403, "Only whoever attached it or a manager can remove an attachment")
+    log_activity(db, type="attachment_removed", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail=f'removed attachment "{a.name}"')
+    db.delete(a)
     db.commit()
 
 
 @router.get("/task-tickets/{ticket_id}/activity")
 def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
-    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
+    t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
     rows = (db.query(models.TaskActivity)
             # actor_email="system" is the automated notify/auto-close machinery
             # (ticket_notify.py) - notification-delivery bookkeeping, not
@@ -1758,6 +1897,11 @@ def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
             .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == ticket_id,
                     models.TaskActivity.actor_email != "system")
             .order_by(models.TaskActivity.at.desc()).all())
+    # An internal note's "commented" row carries a preview of the note, so it
+    # follows the Conversation tab's rule (list_ticket_comments): whoever may
+    # not read internal notes does not get their activity lines either.
+    if not _sees_internal(db, t, user, _has_desk_grant(user, db)):
+        rows = [a for a in rows if not _is_internal_activity(a.detail)]
     return [{"id": a.id, "type": a.type or "", "actorId": _nz(a.actor_email), "at": a.at or "", "detail": a.detail or ""} for a in rows]
 
 
@@ -1983,7 +2127,7 @@ class TicketDepartmentIn(BaseModel):
 # Adding, renaming and deleting moved to the global list (see the section
 # comment above). The routes stay, answering 410 with where to go instead, so
 # an old open tab gets a sentence rather than a 404/405.
-@router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_desk)])
+@router.post("/ticket-departments", status_code=201, dependencies=[Depends(require_ticket_supervisor)])
 def add_ticket_department(body: TicketDepartmentIn, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     raise HTTPException(410, _MANAGED_GLOBALLY)
 
@@ -1995,7 +2139,7 @@ class TicketDepartmentUpdate(BaseModel):
     enabled:      Optional[bool] = None
 
 
-@router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+@router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_supervisor)])
 def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
                              user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """The Tickets module's settings for one global department: who gets the
@@ -2025,7 +2169,7 @@ class TicketDepartmentOrder(BaseModel):
     ids: list[str]
 
 
-@router.put("/ticket-departments/order", dependencies=[Depends(require_ticket_desk)])
+@router.put("/ticket-departments/order", dependencies=[Depends(require_ticket_supervisor)])
 def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends(require_manager),
                                db: Session = Depends(get_db)):
     """Saves a company's department order, as dragged in Settings - the order
@@ -2044,7 +2188,7 @@ def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends
     return _dept_list(db, body.company_id)
 
 
-@router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_desk)])
+@router.delete("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_supervisor)])
 def delete_ticket_department(dept_id: str, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """Gone with the merge - turn the department off for tickets instead, or
     delete it from the company's global list."""
@@ -2078,7 +2222,7 @@ def list_ticket_components(db: Session = Depends(get_db)):
     return [{"id": c.id, "name": c.name} for c in db.query(models.TaskTicketComponent).order_by(models.TaskTicketComponent.name).all()]
 
 
-@router.post("/task-ticket-components", status_code=201, dependencies=[Depends(require_ticket_desk)])
+@router.post("/task-ticket-components", status_code=201, dependencies=[Depends(require_ticket_supervisor)])
 def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Component name is required")
@@ -2089,9 +2233,18 @@ def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     return {"id": c.id, "name": c.name}
 
 
-@router.delete("/task-ticket-components/{component_id}", status_code=204, dependencies=[Depends(require_ticket_desk)])
-def delete_ticket_component(component_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskTicketComponent).filter(models.TaskTicketComponent.id == component_id).delete()
+@router.delete("/task-ticket-components/{component_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
+def delete_ticket_component(component_id: str, user: dict = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    # Components are desk-wide configuration with no owner, so removing one
+    # takes a manager (the same manager+ bar as _ticket_privileged) - not any
+    # agent with a tickets grant. Tickets filed under it keep the name.
+    if (user.get("level") or 0) < 3:
+        raise HTTPException(403, "Only a manager can delete a component")
+    c = db.query(models.TaskTicketComponent).filter(models.TaskTicketComponent.id == component_id).first()
+    if not c:
+        raise HTTPException(404, "Component not found")
+    db.delete(c)
     db.commit()
 
 
@@ -2108,7 +2261,7 @@ class ApprovalRequestBody(BaseModel):
     note: Optional[str] = ""
 
 
-@router.post("/task-tickets/{ticket_id}/request-approval", dependencies=[Depends(require_ticket_desk)])
+@router.post("/task-tickets/{ticket_id}/request-approval", dependencies=[Depends(require_ticket_supervisor)])
 def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks: BackgroundTasks,
                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """IT Admin routes a parked request to the person who signs it off."""
@@ -2313,17 +2466,54 @@ def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depen
     `canAct`  - you may step in on a ticket (drives Send for Approval).
 
     They differ for an administrator who is not on the roster: they can still
-    unstick a ticket, but the desk's queues are not their inbox."""
-    return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user)}
+    unstick a ticket, but the desk's queues are not their inbox.
+
+    Plus the caller's desk ROLE and its named capabilities (ticket_roles.py) -
+    `role`, `deskAccess`, `canWorkQueue`, `canReadInternal`, `canAssign`,
+    `canDelete`, `canManageDesk` - so the screens show exactly what the server
+    will allow instead of re-deriving it from the module grants."""
+    return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user),
+            **ticket_roles.capabilities(user, db)}
+
+
+# ── Desk access rule (admin): legacy / explicit - see ticket_roles.py ─────────
+class DeskAccessBody(BaseModel):
+    deskAccess: str
+
+
+def _require_administrator(user: dict) -> None:
+    import auth
+    if user.get("level", 0) < auth._LEVELS["administrator"]:
+        raise HTTPException(403, "Only an administrator can change who works the service desk.")
+
+
+@router.get("/task-tickets/desk-access")
+def get_desk_access(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The current rule, and who would lose desk access (or drop from
+    supervisor to agent) if it were switched to explicit."""
+    _require_administrator(user)
+    mode = ticket_roles.desk_access_mode(db)
+    changes = ticket_roles.access_changes(db, ticket_roles.EXPLICIT) if mode != ticket_roles.EXPLICIT else []
+    return {"deskAccess": mode, "explicitChanges": changes}
+
+
+@router.put("/task-tickets/desk-access")
+def put_desk_access(body: DeskAccessBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_administrator(user)
+    try:
+        ticket_roles.set_desk_access_mode(db, body.deskAccess, user["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return get_desk_access(user=user, db=db)
 
 
 # ── Notification settings + delivery log (admin) ──────────────────────────────
-@router.get("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
+@router.get("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return get_notify_settings(db)
 
 
-@router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_desk)])
+@router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_supervisor)])
 def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     return save_notify_settings(db, patch, user["email"])
 
@@ -2341,13 +2531,19 @@ def get_ticket_taxonomy_settings(user: dict = Depends(get_current_user), db: Ses
 
 @router.put("/task-tickets/taxonomy/settings")
 def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    # Desk settings belong to supervisors. Under the legacy rule this stays
+    # what it always was (any manager); under explicit the manager must also
+    # supervise the desk.
+    if (ticket_roles.desk_access_mode(db) == ticket_roles.EXPLICIT
+            and not ticket_roles.can_manage_desk(user, db)):
+        raise HTTPException(403, "Only a ticket supervisor can change the desk's settings.")
     try:
         return ticket_taxonomy.save_config(db, patch, user["email"])
     except ticket_taxonomy.TaxonomyError as e:
         raise HTTPException(400, str(e))
 
 
-@router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_desk)])
+@router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     q = db.query(models.TicketEmailLog)
@@ -2366,7 +2562,7 @@ def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20
     } for r in rows], "total": total}
 
 
-@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_desk)])
+@router.get("/task-tickets/notify/teams-log", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 200,
                             user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     """Same shape as get_ticket_notify_log, for the Teams DM queue

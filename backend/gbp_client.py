@@ -131,10 +131,11 @@ def _check(r: httpx.Response) -> dict:
         raise GbpError("Google sent an answer Nexus could not read - try again in a minute.", 502)
 
 
-def exchange_code(code: str) -> dict:
-    """{refresh_token, access_token, expires_in, scope}."""
+def exchange_code(code: str, redirect: str = "") -> dict:
+    """{refresh_token, access_token, expires_in, scope}. `redirect` is the
+    callback the grant was started with (Google Ads has its own)."""
     return _send("POST", _TOKEN, data={"code": code, "client_id": client_id(), "client_secret": client_secret(),
-                                       "redirect_uri": redirect_uri(), "grant_type": "authorization_code"})
+                                       "redirect_uri": redirect or redirect_uri(), "grant_type": "authorization_code"})
 
 
 def account_email(access_token: str) -> str:

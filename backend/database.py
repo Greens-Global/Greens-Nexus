@@ -111,7 +111,7 @@ def _hide_soft_deleted(state):
         return
     from sqlalchemy.orm import with_loader_criteria   # local: models imports us
     from models import (NexusEmployee, Task, TaskPortfolio, TaskProject,
-                        TaskProjectTemplate, TaskTeam, TaskTemplate)
+                        TaskProjectTemplate, TaskTeam, TaskTemplate, TaskTicket)
     # NULL as well as "" - a row that existed before the column was added
     # reads back NULL on databases that do not backfill.
     def _live(cls):
@@ -141,6 +141,12 @@ def _hide_soft_deleted(state):
         # them from.
         with_loader_criteria(TaskProjectTemplate, _live, include_aliases=True),
         with_loader_criteria(TaskTemplate, _live, include_aliases=True),
+        # Ticket soft delete (Oct 2026): every ticket list, count, dashboard
+        # widget, briefing card and notification scan reads task_tickets, and
+        # a deleted ticket must vanish from all of them. Escape hatch is the
+        # same include_deleted=True, used by the ticket code sequence, the
+        # deleted-tickets list and restore.
+        with_loader_criteria(TaskTicket, _live, include_aliases=True),
     )
 
 

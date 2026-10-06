@@ -263,8 +263,9 @@ class TicketAccessTests(unittest.TestCase):
         for r in T.router.routes:
             if not isinstance(r, APIRoute):
                 continue
-            guarded = any(getattr(getattr(d, "dependency", None), "__qualname__", "")
-                          .startswith("require_any_module_grant") for d in r.dependencies)
+            # The desk-role guards (ticket_roles.py, Oct 2026): agent or supervisor.
+            guarded = any(getattr(d, "dependency", None) in (T.require_ticket_desk, T.require_ticket_supervisor)
+                          for d in r.dependencies)
             for method in r.methods:
                 if (method, r.path) in must_be_guarded and guarded:
                     seen.add((method, r.path))

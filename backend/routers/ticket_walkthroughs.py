@@ -43,6 +43,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+import code_sequence
 import models
 import property_links
 import ticket_taxonomy
@@ -50,7 +51,7 @@ from auth import get_current_user
 from database import get_db
 from routers import tickets as T
 from routers.task_util import gen_id, log_activity, now_iso, task_notify
-from ticket_code import TICKET_CODE_DIGITS, ticket_no
+from ticket_code import ticket_no
 from ticket_notify import _name_of, notify_walkthrough
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
@@ -309,8 +310,9 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
     sla = {p: T._sla_due_from_priority(db, now, p) for p in {c["priority"] for c in clean}}
 
     # 3. Lock, re-check (a twin of this request may have committed while we
-    #    validated - Postgres shows its row once the lock is granted), issue a
-    #    contiguous range of codes, insert. Nothing slow happens from here on.
+    #    validated - Postgres shows its row once the lock is granted), take a
+    #    code per ticket from the never-repeating counter (code_sequence.py),
+    #    insert. Nothing slow happens from here on.
     T._lock_ticket_codes(db)
     existing = db.get(models.TicketBatch, batch_id)
     if existing is not None:
@@ -320,11 +322,10 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
                                hr_department_id=dept_id, asset_manager_email=manager,
                                note=" ".join((body.note or "").split())[:500], created_at=now)
     db.add(batch)
-    first_no = T._highest_ticket_no(db) + 1
     tickets = []
-    for n, c in enumerate(clean):
+    for c in clean:
         t = models.TaskTicket(
-            id=gen_id(), code=f"{first_no + n:0{TICKET_CODE_DIGITS}d}", subject=c["subject"],
+            id=gen_id(), code=code_sequence.next_ticket_code(db), subject=c["subject"],
             description=c["description"], type=c["type"], status="open", priority=c["priority"],
             requester_email=requester, created_by_email=me,
             assignee_email=c["assignee"], assigned_by_email=me if c["assignee"] else "",
