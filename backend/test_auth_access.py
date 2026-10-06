@@ -131,6 +131,11 @@ KNOWN_PUBLIC = {
     "/briefing-actions/page",
     # Outlook card version of the briefing: verified exactly like /mail-actions/card.
     "/briefing-actions/card",
+    # Google Business Profile OAuth return (Oct 2026, routers/marketing_gbp.py):
+    # Google redirects a browser here, so no bearer token. The `state` is
+    # sealed with secret_box, bound to the admin who started it and expires;
+    # rate-limited as a SENSITIVE_PREFIX.
+    "/marketing/gbp/oauth/callback",
 }
 
 _AUTH_DEP_NAMES = ("get_current_user", "_check", "get_agent_device", "get_addin_user")

@@ -119,6 +119,9 @@ DEFAULT_HELP_TOPICS = [
          "Doors, Gates or Locks", "Roof or Ceiling Leak", "Building Damage or Repair",
          "Parking Lot or Paving", "Landscaping or Snow Removal", "Pest Control",
          "Cleaning", "Signs",
+         # Walkthrough findings that had no home (Neil, 10/05: "it needs to
+         # get painted... broken handrail... the flooring is coming up").
+         "Painting", "Flooring or Tile", "Appliances", "Railings or Stairs",
      )]},
     {"label": "Admin", "departments": ["admin", "administration", "office admin"],
      "topics": [{"name": n, "area": "general"} for n in (
@@ -141,12 +144,15 @@ DEFAULT_HELP_TOPICS = [
 # the default one (matched by name), and a group that is a default group's
 # (shares a department name) gains the topics added in version 2 if missing.
 # Everything else - order, removals, custom topics, areas - is kept as saved.
-HELP_TOPICS_VERSION = 2
+# Version 3 (Oct 2026) only adds the four maintenance topics below - a config
+# already at version 2 gets those and nothing else re-applied.
+HELP_TOPICS_VERSION = 3
 _LEGACY_TOPIC_NAMES = {
     "microsoft 365 (outlook, teams, onedrive)": ["Microsoft (Outlook, Teams, OneDrive)"],
     "cameras or gate access": ["Cameras", "Gate Access"],
 }
 _ADDED_IN_V2 = {"access to a nexus module"}
+_ADDED_IN_V3 = {"painting", "flooring or tile", "appliances", "railings or stairs"}
 
 
 def _default_topic(name: str) -> dict | None:
@@ -158,7 +164,11 @@ def _default_topic(name: str) -> dict | None:
     return None
 
 
-def _upgrade_help_topics(groups: list) -> list:
+def _upgrade_help_topics(groups: list, from_version: int = 1) -> list:
+    """v1 -> v2 renames/options/new topic as before; anything below v3 also
+    gains the four maintenance topics - and ONLY that, so a v2 admin who
+    removed a topic's sub-options does not get them put back."""
+    added = (_ADDED_IN_V2 if from_version < 2 else set()) | (_ADDED_IN_V3 if from_version < 3 else set())
     out = []
     for g in groups:
         if not isinstance(g, dict):
@@ -166,6 +176,9 @@ def _upgrade_help_topics(groups: list) -> list:
         topics = []
         for tp in g.get("topics") or []:
             if not isinstance(tp, dict):
+                continue
+            if from_version >= 2:
+                topics.append(tp)
                 continue
             renamed = _LEGACY_TOPIC_NAMES.get(str(tp.get("name") or "").strip().lower())
             for name in renamed or [tp.get("name")]:
@@ -180,7 +193,7 @@ def _upgrade_help_topics(groups: list) -> list:
         for dg in DEFAULT_HELP_TOPICS:
             if depts & set(dg["departments"]):
                 for d in dg["topics"]:
-                    if d["name"].lower() in _ADDED_IN_V2 and d["name"].lower() not in have:
+                    if d["name"].lower() in added and d["name"].lower() not in have:
                         topics.append(json.loads(json.dumps(d)))
         out.append({**g, "topics": topics})
     return out
@@ -422,8 +435,9 @@ def get_config(db: Session) -> dict:
         merged["typeOrder"] = kept or None
     if isinstance(cfg.get("helpTopics"), list):
         merged["helpTopics"] = cfg["helpTopics"]
-        if not isinstance(cfg.get("helpTopicsVersion"), int) or cfg["helpTopicsVersion"] < HELP_TOPICS_VERSION:
-            merged["helpTopics"] = _upgrade_help_topics(cfg["helpTopics"])
+        saved_v = cfg.get("helpTopicsVersion") if isinstance(cfg.get("helpTopicsVersion"), int) else 1
+        if saved_v < HELP_TOPICS_VERSION:
+            merged["helpTopics"] = _upgrade_help_topics(cfg["helpTopics"], saved_v)
     cf = cfg.get("companyField") or {}
     merged["companyField"] = {
         "enabled": bool(cf.get("enabled")),
