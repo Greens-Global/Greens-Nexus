@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -2279,7 +2279,13 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
 # ── Activity ─────────────────────────────────────────────────────────────────
 @router.get("/activity")
 def global_activity(limit: int = 500, db: Session = Depends(get_db)):
+    # Tasks and projects only. Ticket rows are not this feed's business, and
+    # carried every ticket's subject - and previews of internal desk notes -
+    # to anyone holding a tasks grant; a ticket's own activity is
+    # GET /task-tickets/{id}/activity, which applies the ticket's access rules.
     rows = (db.query(models.TaskActivity)
+            .filter(or_(models.TaskActivity.entity_kind.is_(None),
+                        models.TaskActivity.entity_kind != "ticket"))
             .order_by(models.TaskActivity.at.desc()).limit(min(limit, 2000)).all())
     return [activity_to_dict(a) for a in rows]
 
