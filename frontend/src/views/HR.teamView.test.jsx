@@ -57,6 +57,13 @@ describe('People limited to my team', () => {
     expect(screen.getByText('Showing: Your Team')).toBeTruthy();
   }, 20000);
 
+  it('names the manager themself as "you", not "no manager"', async () => {
+    await renderPeople();
+    fireEvent.click(screen.getAllByText('Mia Mid')[0]);   // reports to val@x.com - the viewer, not in their own list
+    expect(screen.getByText('reports to you')).toBeTruthy();
+    expect(screen.queryByText('no manager')).toBeNull();
+  }, 20000);
+
   it('opens a profile with five read-only tabs and the Access tab as a list', async () => {
     await renderPeople();
     fireEvent.click(screen.getAllByText('Leo Low')[0]);
