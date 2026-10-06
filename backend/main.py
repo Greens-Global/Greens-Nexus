@@ -844,6 +844,11 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
             # Time-tracking exemption moves to the role (Visesh, Oct 2) - see the Postgres list.
             "ALTER TABLE nexus_groups ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
+            # Marketing > Google Business Profile performance sync (Oct 2026)
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_synced_at VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_error VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN photo_count INTEGER DEFAULT 0",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN last_photo_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1843,6 +1848,11 @@ def _run_migrations():
         # Access, beside the screen-share exemption (Visesh, Oct 2).
         # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # Marketing > Google Business Profile performance sync (Oct 2026)
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_synced_at VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_error VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS last_photo_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2470,6 +2480,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
+        # Google Business Profile mirror (Marketing, Oct 2026): locations and
+        # reviews every 30 minutes. Deployed worker only - one connected Google
+        # account, and a laptop must not spend its quota or race the deploy.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from gbp import gbp_sync_loop
+                _tasks.append(_a.create_task(gbp_sync_loop()))
+            else:
+                print("[startup] Google Business Profile sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Business Profile sync skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -2890,3 +2912,6 @@ app.include_router(accounting_loans.router)        # Accounting > Loans & Financ
 app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)
 from routers import hr_checklists as hr_checklists_router  # noqa: E402
 app.include_router(hr_checklists_router.router)    # People > onboarding / offboarding / leave checklists per person (hr_checklists.py)
+from routers import marketing_gbp  # noqa: E402
+app.include_router(marketing_gbp.router)           # Marketing > Google Business Profile: listings, reviews, replies (Oct 2026)
+app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token

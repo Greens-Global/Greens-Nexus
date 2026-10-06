@@ -310,7 +310,7 @@ MODULE_API_PREFIXES = {
     "hr":                 ("/hr",),
     "hr_comp":            ("/hr",),          # compensation reveal self-gates on the hr_comp grant
     "documents":          ("/documents", "/esign"),
-    "marketing":          ("/marketing-campaigns",),
+    "marketing":          ("/marketing-campaigns", "/marketing/"),
     "external-links":     ("/external-links", "/link-layout"),
     "inventory":          ("/items",),
     "admin":              (),                # administrator-only; externals are capped at employee
