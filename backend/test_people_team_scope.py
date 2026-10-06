@@ -61,7 +61,7 @@ class TeamScopeTests(unittest.TestCase):
         self._skip = auth.SKIP_AUTH
         auth.SKIP_AUTH = True
         db = database.SessionLocal()
-        for m in (models.NexusEmployee, models.NexusGroup, models.NexusGroupMember, models.NexusAccessScope,
+        for m in (models.NexusEmployee, models.NexusGroup, models.NexusGroupMember, models.NexusAccessScope, models.HrDocument,
                   models.NexusRole, models.HrEntity, models.PayrollRate, models.TimePunch):
             db.query(m).execution_options(include_deleted=True).delete()
         db.add(models.HrEntity(id=CO, name="Team Test Co"))
@@ -70,7 +70,14 @@ class TeamScopeTests(unittest.TestCase):
                 id=f"e{i}", first_name=em.split("@")[0], last_name="T", work_email=em, manager_email=mgr,
                 company=CO, status="active", deleted_at="",
                 contractor={"rate": 55, "rate_type": "hourly", "currency": "USD", "contract_end": "2027-01-01"},
-                compliance={"visa": "H1B", "expiryDate": "2027-01-01"}, personal={"dob": "1990-01-01"}))
+                compliance={"visa": "H1B", "expiryDate": "2027-01-01"}, personal={"dob": "1990-01-01"},
+                compensation={"base": 5200, "currency": "USD", "payBasis": "salary", "frequency": "monthly",
+                              "benefits": [{"type": "health", "plan": "Gold", "deduction": 120}]},
+                bank=[{"bankName": "Chase", "holder": em, "number": "000123456789", "routingOrIfsc": "021000021"}]))
+        for i, em in enumerate((MID, LOW)):
+            for kind in ("paystub", "id_proof"):
+                db.add(models.HrDocument(id=f"d-{kind}-{i}", employee_id=f"e{1 + i}", kind=kind, file_name=f"{kind}.pdf",
+                                         storage_path=f"p/{kind}-{i}.pdf", size_bytes=1, uploaded_by="hr", created_at="2026-09-30T00:00:00"))
         db.add(models.NexusRole(email=VAL, role="manager", display_name="Valinda"))
         db.add(models.NexusRole(email=PEER, role="supervisor", display_name="Pat"))
         db.add(models.NexusGroup(id="g-hr", name="People Editors", allowed_modules="hr:editor,hr_comp:editor"))
@@ -139,8 +146,8 @@ class TeamScopeTests(unittest.TestCase):
 
     def test_everything_else_in_people_is_closed(self):
         eid = self.ids[MID]
-        for method, path in (("GET", f"/hr/employees/{eid}/compensation"), ("GET", f"/hr/employees/{eid}/documents"),
-                             ("GET", f"/hr/employees/{eid}/paystubs"), ("GET", "/hr/candidates"),
+        for method, path in (("GET", f"/hr/employees/{eid}/documents"), ("PUT", f"/hr/employees/{eid}/compensation"),
+                             ("POST", f"/hr/employees/{eid}/paystubs"), ("GET", "/hr/candidates"),
                              ("GET", "/hr/leave"), ("GET", "/hr/requests"), ("GET", "/hr/checklists/board"),
                              ("GET", "/hr/holiday-policies"),
                              ("PATCH", f"/hr/employees/{eid}"), ("POST", "/hr/employees"),
@@ -179,6 +186,44 @@ class TeamScopeTests(unittest.TestCase):
     def test_a_manager_can_still_open_their_own_checklist_steps(self):
         self.assertEqual(self._get("/hr/checklists/mine").status_code, 200)
         self.assertEqual(self._get("/hr/checklists/meta").status_code, 200)
+
+    # ── Pay & Benefits (Oct 7): read only, DIRECT reports only, no bank ─────
+    def test_a_manager_reads_a_direct_reports_pay_without_bank_details(self):
+        r = self._get(f"/hr/employees/{self.ids[MID]}/compensation")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["compensation"]["base"], 5200)
+        self.assertEqual(body["compensation"]["benefits"][0]["plan"], "Gold")
+        self.assertEqual(body["bank"], [])
+        self.assertTrue(body["readOnly"])
+        self.assertEqual(self._get(f"/hr/employees/{self.ids[MID]}/paystubs").status_code, 200)
+
+    def test_pay_stops_at_direct_reports(self):
+        for who in (LOW, OUT):   # two levels down (seen in People) / not on the team
+            for path in (f"/hr/employees/{self.ids[who]}/compensation", f"/hr/employees/{self.ids[who]}/paystubs"):
+                self.assertEqual(self._get(path).status_code, 404, path)
+
+    def test_a_manager_cannot_change_pay(self):
+        os.environ["NEXUS_DEV_EMAIL"] = VAL
+        self.assertEqual(self.client.put(f"/hr/employees/{self.ids[MID]}/compensation", json={}).status_code, 403)
+
+    def test_a_manager_opens_only_a_direct_reports_paystub(self):
+        from unittest import mock
+
+        class _Signed:
+            is_success = True
+            def json(self):
+                return {"signedURL": "/object/sign/x?token=t"}
+        with mock.patch("routers.hr.httpx.post", return_value=_Signed()),                 mock.patch("routers.hr._storage_headers", return_value={}):
+            self.assertEqual(self._get("/hr/documents/d-paystub-0/url").status_code, 200)    # Mia - direct
+            self.assertEqual(self._get("/hr/documents/d-id_proof-0/url").status_code, 404)   # not a paystub
+            self.assertEqual(self._get("/hr/documents/d-paystub-1/url").status_code, 404)    # Leo - not direct
+
+    def test_hr_still_sees_bank_details(self):
+        r = self._get(f"/hr/employees/{self.ids[OUT]}/compensation", who=PEER)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["bank"][0]["bankName"], "Chase")
+        self.assertNotIn("readOnly", r.json())
 
     # ── Time ───────────────────────────────────────────────────────────────
     def test_time_covers_the_team(self):

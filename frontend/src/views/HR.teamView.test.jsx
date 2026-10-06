@@ -25,7 +25,9 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
 }));
 const calls = [];
 vi.mock('../api', () => {
-  const data = { getEmployees: PEOPLE, getEntities: [{ id: 'co1', name: 'Greens Co' }], getEmployeeAccessRead: ACCESS };
+  const data = { getEmployees: PEOPLE, getEntities: [{ id: 'co1', name: 'Greens Co' }], getEmployeeAccessRead: ACCESS,
+    getCompensation: { compensation: { base: 5200, currency: 'USD', payBasis: 'salary', frequency: 'monthly', benefits: [] },
+      bank: [], payroll: {}, rateHistory: [], readOnly: true } };
   const api = new Proxy({}, {
     get: (_, key) => (...args) => { calls.push(key); return Promise.resolve(key in data ? data[key] : []); },
   });
@@ -62,6 +64,17 @@ describe('People limited to my team', () => {
     fireEvent.click(screen.getAllByText('Mia Mid')[0]);   // reports to val@x.com - the viewer, not in their own list
     expect(screen.getByText('reports to you')).toBeTruthy();
     expect(screen.queryByText('no manager')).toBeNull();
+  }, 20000);
+
+  it("shows a DIRECT report's Pay & Benefits read only - no Edit, no bank, no upload", async () => {
+    await renderPeople();
+    fireEvent.click(screen.getAllByText('Mia Mid')[0]);   // reports to val@x.com, the viewer
+    fireEvent.click(screen.getByRole('button', { name: 'Pay & Benefits' }));
+    expect(await screen.findByText(/\$5,200/)).toBeTruthy();
+    expect(screen.getByText(/Read only · your direct report/)).toBeTruthy();
+    expect(screen.queryByText('Bank accounts')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Upload PDF/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Edit$/ })).toBeNull();
   }, 20000);
 
   it('opens a profile with five read-only tabs and the Access tab as a list', async () => {

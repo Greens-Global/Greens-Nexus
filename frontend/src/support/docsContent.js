@@ -1107,7 +1107,8 @@ export const DOCS = [
         steps: [
           'Administrators: give the person the Manager tier and the People grant (through their job role or a group). Nothing else to switch on.',
           'They see only the people below them in the reporting line - their direct reports and everyone who reports to those people - set by Reports To on each profile.',
-          "In People they get the team's list and five read-only profile tabs: Overview, Assets, Work Mode, Access and Work Logs. Hiring, Org Chart, Leave, Checklists, Add Person, documents, compliance and pay are hidden.",
+          "In People they get the team's list and five read-only profile tabs: Overview, Assets, Work Mode, Access and Work Logs. Hiring, Org Chart, Leave, Checklists, Add Person, documents and compliance are hidden.",
+          "For their DIRECT reports (Reports To is the manager) there is also a read-only Pay & Benefits tab: base pay, pay history, benefits and deductions, and paystubs to open. No Edit, no uploads, and no bank accounts. People further down the chain do not show it.",
           "In Time they see the team's hours, timecards (Payroll), attendance, punch requests, missing punches, screenshots, locations and time off - never pay or wage figures, and no payroll files. They can fix their team's time (add a missing punch, correct a time, decide punch requests) except while a timesheet is back with the employee, out for signature or finalized.",
           'HR staff who need everyone should be Global Admins (administrator and up), which is never limited.',
         ],
@@ -1131,7 +1132,7 @@ export const DOCS = [
       title: 'HR & Admins',
       points: [
         'Compensation (salary, pay type, bank accounts, benefits and deductions) is only visible with the People - Compensation grant.',
-        'The Manager tier with the People grant sees only their own team (everyone below them in Reports To), read only, and never pay - even with the Compensation grant. HR staff who need everyone should be Global Admins.',
+        'The Manager tier with the People grant sees only their own team (everyone below them in Reports To), read only. Pay shows only on the Pay & Benefits tab of their DIRECT reports, read only and without bank accounts - never in Time, and the Compensation grant does not widen it. HR staff who need everyone should be Global Admins.',
         'Offboarding: start the offboarding checklist the day notice is received, hand over their tasks, set mailbox handling, then mark them Left. Left logs them out of Nexus on every device straight away and, when the mailbox is removed or shared, ends their Microsoft 365 sessions too (Outlook and Teams on their phone stop working).',
         'Changing a status asks for a reason, and every change is kept in history.',
         'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
