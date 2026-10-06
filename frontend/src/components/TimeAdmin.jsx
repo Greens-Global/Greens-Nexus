@@ -23,6 +23,7 @@ import { Avatar } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
+import { useRole } from '../contexts/RoleContext';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // Confidential time off (Sep 29): the server blanks the note for anyone but
@@ -119,6 +120,8 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
 export default function TimeAdmin({ toastOk, toastErr, initialView }) {
+  // The manager tier sees its team's hours, never pay (Oct 6).
+  const { hrTeam } = useRole() || {};
   const [view, setView] = useState(initialView || 'payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   // A specific employee + period to open (Sep 29): Timesheets to Review, the
@@ -621,7 +624,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                       <MapPin size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                       <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.workSite || 'No location'}</span>
                       <span style={{ width: 70, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(loc.workedMin)}</span>
-                      <span style={{ width: 80, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>${(loc.pay || 0).toFixed(2)}</span>
+                      {!hrTeam && <span style={{ width: 80, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>${(loc.pay || 0).toFixed(2)}</span>}
                     </div>
                   ))}
                   {(r.pingByLocation || []).length > 0 && (
