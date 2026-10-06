@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from database import SessionLocal
 import models
 from act_as import resolve_target as _resolve_act_as_target
+from client_ip import client_ip as _client_ip
 
 
 def _describe(method: str, path: str, body_fields: dict = None) -> tuple[str, str]:
@@ -391,12 +392,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
             return response
 
         # Resolve IP once - used for both security logs and normal audit rows.
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            hops = [h.strip() for h in forwarded.split(",") if h.strip()]
-            ip = hops[-1] if hops else ""
-        else:
-            ip = request.client.host if request.client else ""
+        # Same helper as the rate limiter (client_ip.py), so both agree.
+        ip = _client_ip(request)
 
         # Log failed auth attempts (401 / 403) as security events so they
         # appear in the audit trail and can trigger alerts.

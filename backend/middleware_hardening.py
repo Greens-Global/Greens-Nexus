@@ -34,6 +34,8 @@ from datetime import datetime, timezone
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from client_ip import client_ip as _shared_client_ip
+
 
 def security_log(action: str, detail: str, ip: str = "", email: str = "") -> None:
     """Best-effort: a security event must never break the request it rode in on."""
@@ -59,10 +61,10 @@ def security_log(action: str, detail: str, ip: str = "", email: str = "") -> Non
 
 
 def _client_ip(request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else ""
+    # The LAST trusted hop, or CF-Connecting-IP when that hop is Cloudflare -
+    # never the first X-Forwarded-For entry, which the caller writes. Shared
+    # with audit.py so the limiter and the audit trail name the same address.
+    return _shared_client_ip(request)
 
 
 class ETagMiddleware(BaseHTTPMiddleware):
