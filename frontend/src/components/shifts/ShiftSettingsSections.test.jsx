@@ -16,7 +16,9 @@ const shiftRequestSettingsGet = vi.fn();
 const shiftRequestSettingsSave = vi.fn();
 const confirmAsk = vi.fn();
 vi.mock('../../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a) } }));
-vi.mock('../../teamsGraph', () => ({ graphTokenSilent: vi.fn(), graphTokenInteractive: vi.fn(), listMyChats: vi.fn() }));
+vi.mock('../../teamsGraph', () => ({ graphTokenSilent: vi.fn(), graphTokenInteractive: vi.fn(), listMyChats: vi.fn(), channelTokenInteractive: vi.fn(), listMyChannels: vi.fn() }));
+const timeShiftGroupSet = vi.fn();
+const timeMyChannels = vi.fn();
 vi.mock('../../api', () => ({
   api: {
     timeShifts: (...a) => timeShifts(...a),
@@ -26,7 +28,8 @@ vi.mock('../../api', () => ({
     timeShiftGroupOrder: (...a) => timeShiftGroupOrder(...a),
     shiftRequestSettingsGet: (...a) => shiftRequestSettingsGet(...a),
     shiftRequestSettingsSave: (...a) => shiftRequestSettingsSave(...a),
-    timeShiftCreate: vi.fn(), timeShiftUpdate: vi.fn(), timeShiftGroupCreate: vi.fn(), timeShiftGroupSet: vi.fn(), timeMyChats: vi.fn(),
+    timeShiftCreate: vi.fn(), timeShiftUpdate: vi.fn(), timeShiftGroupCreate: vi.fn(), timeMyChats: vi.fn(),
+    timeShiftGroupSet: (...a) => timeShiftGroupSet(...a), timeMyChannels: (...a) => timeMyChannels(...a),
     timeOffTypes: vi.fn().mockResolvedValue({ builtIn: ['vacation'], custom: ['Jury Duty'] }),
     timeOffTypesSave: vi.fn().mockImplementation(async (b) => ({ builtIn: ['vacation'], custom: b.custom })),
     getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'a@x.com', name: 'Amy Adams' }, { email: 'b@x.com', name: 'Bob Brown' }, { email: 'c@x.com', name: 'Cat Cole' }]),
@@ -40,7 +43,8 @@ const ASIA = ZONE_GROUPS.Asia[0];
 
 const preset = { id: 'p1', name: 'Store', code: 'GST', start: '09:00', end: '17:00', days: '1,2,3,4,5', graceMin: 10, breakMin: 0, color: '#2563eb', timezone: 'America/Los_Angeles', placed: 3, assigned: 1 };
 const groups = [{ id: 'g1', name: 'Front Desk', members: ['a@x.com', 'b@x.com'], schedulers: [], chatId: 'c1', chatName: 'Front Desk Chat', sortOrder: 0 },
-  { id: 'g2', name: 'Back Office', members: ['c@x.com'], schedulers: [], sortOrder: 1 }];
+  { id: 'g2', name: 'Back Office', members: ['c@x.com'], schedulers: [], sortOrder: 1 },
+  { id: 'g3', name: 'Operations', members: ['a@x.com'], schedulers: [], chatId: 'ch9', chatName: 'BOD-EOD', teamsTarget: 'channel', teamId: 't9', teamName: 'Ops Team', sortOrder: 2 }];
 const toastOk = vi.fn();
 const toastErr = vi.fn();
 
@@ -122,7 +126,7 @@ describe('Groups', () => {
     expect(message).toContain('Teams chat');
     expect(opts).toMatchObject({ title: 'Delete Group', danger: true });
     fireEvent.click(screen.getByLabelText('Move Back Office up'));
-    await waitFor(() => expect(timeShiftGroupOrder).toHaveBeenCalledWith(['g2', 'g1']));
+    await waitFor(() => expect(timeShiftGroupOrder).toHaveBeenCalledWith(['g2', 'g1', 'g3']));
   });
 
   it('offers no group changes to a manager without company-wide access', async () => {
@@ -144,5 +148,36 @@ describe('Groups', () => {
     fireEvent.click(screen.getByLabelText('Add Bob Brown'));
     expect(screen.getByText('Members (1)')).toBeTruthy();
     expect(screen.getByRole('dialog', { name: 'New Group' }).textContent).not.toContain('@x.com');
+  });
+
+  it('binds a group to a Teams channel instead of a group chat (Oct 6)', async () => {
+    timeShiftGroupSet.mockReset().mockResolvedValue({ ok: true });
+    timeMyChannels.mockReset().mockResolvedValue({ channels: [
+      { teamId: 't1', teamName: 'Admin', channelId: 'c-gen', channelName: 'General', membershipType: 'standard' },
+      { teamId: 't1', teamName: 'Admin', channelId: 'c-bod', channelName: 'BOD-EOD', membershipType: 'private' }], reason: '' });
+    render(<ShiftGroupsPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText('Ops Team › BOD-EOD')).toBeTruthy();          // a channel binding in the list
+    fireEvent.click(screen.getAllByText('Edit')[1]);                             // Back Office: nothing bound
+    fireEvent.click(await screen.findByRole('radio', { name: /Channel/ }));
+    fireEvent.click(screen.getByText('Bind A Channel'));
+    const pick = await screen.findByLabelText('Teams channel');
+    expect(screen.getByText('BOD-EOD (private)')).toBeTruthy();
+    fireEvent.change(pick, { target: { value: 'c-bod' } });
+    expect(screen.getByText(/Admin › BOD-EOD/)).toBeTruthy();
+    expect(screen.getByText(/Each message is a new post in the channel/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(timeShiftGroupSet).toHaveBeenCalled());
+    expect(timeShiftGroupSet.mock.calls[0][1]).toMatchObject({ teams_target: 'channel', teams_chat_id: 'c-bod', teams_chat_name: 'BOD-EOD', teams_team_id: 't1', teams_team_name: 'Admin' });
+  });
+
+  it('switching between chat and channel clears the other kind', async () => {
+    render(<ShiftGroupsPanel toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Front Desk');
+    fireEvent.click(screen.getAllByText('Edit')[0]);                             // Front Desk: a group chat
+    const dlg = await screen.findByRole('dialog', { name: 'Edit Group' });
+    expect(dlg.textContent).toContain('Front Desk Chat');
+    fireEvent.click(screen.getByRole('radio', { name: /Channel/ }));
+    expect(dlg.textContent).not.toContain('Front Desk Chat');
+    expect(screen.getByText('Bind A Channel')).toBeTruthy();
   });
 });

@@ -664,6 +664,13 @@ async def reminders_loop():
             await asyncio.to_thread(hr_checklists.run_daily)
         except Exception as e:
             print(f"[reminders] checklist loop error: {e}")
+        # Recurring property maintenance: 15-day reminders, and a ticket for
+        # any service that came due with none opened (maintenance_services.py).
+        try:
+            import maintenance_services
+            await asyncio.to_thread(maintenance_services.run_daily)
+        except Exception as e:
+            print(f"[reminders] maintenance services loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:

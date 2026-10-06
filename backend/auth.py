@@ -310,7 +310,7 @@ MODULE_API_PREFIXES = {
     "hr":                 ("/hr",),
     "hr_comp":            ("/hr",),          # compensation reveal self-gates on the hr_comp grant
     "documents":          ("/documents", "/esign"),
-    "marketing":          ("/marketing-campaigns",),
+    "marketing":          ("/marketing-campaigns", "/marketing/"),
     "external-links":     ("/external-links", "/link-layout"),
     "inventory":          ("/items",),
     "admin":              (),                # administrator-only; externals are capped at employee
@@ -434,12 +434,13 @@ def get_current_user(
         finally:
             db2.close()
         if target:
-            return apply_external_policy(request, target)
+            return team_people_gate(request, apply_external_policy(request, target))
 
     # External-user gate (Aug 17): default-deny for non-employee identities.
     # Employees resolve to a pass-through here (cached), so this adds no DB
     # round trip to the hot path within the cache TTL.
-    return apply_external_policy(request, {"email": email, "role": role, "level": level})
+    # People limited to the caller's own team (Oct 6): an allowlist of /hr routes.
+    return team_people_gate(request, apply_external_policy(request, {"email": email, "role": role, "level": level}))
 
 
 def require_level(min_level: int):
@@ -627,6 +628,8 @@ def hr_scope(user: dict, db: Session):
     *company* admin is then confined to their companies, and only a Global Admin
     is unrestricted (the pre-walls level>=4 bypass held only for the old
     single-org world)."""
+    if hr_team_limited(user):
+        return TeamScope(team_emails(db, user["email"]))
     if _company_walls_on(db):
         return company_scope(user, db)
     if user.get("level", 0) >= 4:
@@ -636,6 +639,102 @@ def hr_scope(user: dict, db: Session):
             .filter(NexusAccessScope.email == user["email"].lower(),
                     NexusAccessScope.module_id == "hr").all())
     return {r.scope_id for r in rows} or None
+
+
+# ── Managers see their own team in People (Pranshu, 10/06) ───────────────────
+# The MANAGER tier holding the People grant sees only the people below them in
+# the reporting line (Reports To, followed all the way down) - no setting to
+# switch on, the tier is the rule. HR works company-wide as Global Admin
+# (administrator and up), which is never limited.
+#
+# hr_scope() then returns a TeamScope: a company set that is always EMPTY, so
+# every company-shaped check in the People code ("company in scope",
+# .in_(scope)) matches nothing and fails closed, plus the team's emails, which
+# only the employee-level helpers (hr._in_scope / _scoped / _assert_scope,
+# timeclock._visible_emails) read. On top of that, team_people_gate() lets a
+# manager reach only an allowlist of /hr routes (the People list and profile
+# tabs Overview / Assets / Work Mode / Access / Work Logs, read only). Pay: the
+# manager tier sees none in Time; Pay & Benefits opens read only for DIRECT
+# reports only, without bank accounts (Oct 7, hr.require_comp_read_or_manager).
+
+
+class TeamScope(frozenset):
+    """hr_scope() for a team-limited caller: no companies, `emails` = the team
+    (the caller excluded)."""
+    emails: frozenset
+
+    def __new__(cls, emails):
+        obj = super().__new__(cls)
+        obj.emails = frozenset(e.lower() for e in emails if e)
+        return obj
+
+
+def hr_team_limited(user: dict) -> bool:
+    """Manager tier: People covers their own team, and pay is never shown."""
+    return user.get("level", 0) == _LEVELS["manager"]
+
+
+def team_emails(db: Session, manager_email: str) -> set:
+    """Everyone below `manager_email` in the reporting line, all the way down
+    (direct reports, their reports, ...). Safe against loops in the data; the
+    manager themself is never included."""
+    from models import NexusEmployee
+    me = (manager_email or "").lower()
+    rows = db.query(NexusEmployee.work_email, NexusEmployee.manager_email).all()
+    under: dict = {}
+    for em, mgr in rows:
+        if em and mgr:
+            under.setdefault(mgr.strip().lower(), []).append(em.strip().lower())
+    seen, todo = set(), [me]
+    while todo:
+        for em in under.get(todo.pop(), []):
+            if em not in seen and em != me:
+                seen.add(em)
+                todo.append(em)
+    return seen
+
+
+def is_team_scope(scope) -> bool:
+    return isinstance(scope, TeamScope)
+
+
+# The /hr routes a team-limited caller may reach (method, route template).
+# Everything else under /hr answers 403 - recruiting, adding people, company
+# setup, leave, checklists, documents, compensation, provisioning... - so a
+# People route added later is closed to them until it is listed here.
+TEAM_ALLOWED_HR_ROUTES = frozenset({
+    ("GET", "/hr/employees"),                       # the People list (their team only)
+    ("GET", "/hr/employees/{eid}/assets"),          # Assets tab
+    ("GET", "/hr/employees/{eid}/geofence"),        # Work Mode tab
+    ("GET", "/hr/employees/{eid}/bod"),             # Work Logs tab
+    ("GET", "/hr/employees/{eid}/access"),          # Access tab, read only
+    ("GET", "/hr/employees/{eid}/compensation"),    # Pay & Benefits, read only - DIRECT reports only,
+    ("GET", "/hr/employees/{eid}/paystubs"),        # no bank accounts (hr.py checks each record; Oct 7)
+    ("GET", "/hr/documents/{did}/url"),             # opening one of those paystubs - nothing else
+    ("GET", "/hr/entities"),                        # company names on the cards
+    ("GET", "/hr/work-sites"),                      # site names on Work Mode
+    ("GET", "/hr/public-holidays"),
+    ("GET", "/hr/checklists/mine"),                 # My Checklist Steps (My HR) - their OWN steps,
+    ("GET", "/hr/checklists/meta"),                 # open to everyone signed in, People or not
+    ("PATCH", "/hr/checklists/items/{iid}"),        # ticking one of their own steps (owner-checked)
+    ("GET", "/hr-reminder-settings"),               # reminder SETTINGS, no one's records - opened by
+    ("PUT", "/hr-reminder-settings"),               # tier long before this; its own gates still apply
+})
+
+
+def team_people_gate(request: Request, user: dict) -> dict:
+    """Keep a team-limited People caller inside the allowlist above. Runs for
+    every signed-in request (get_current_user), costs nothing off /hr paths."""
+    if request is None or not hr_team_limited(user):
+        return user
+    path = request.url.path or ""
+    if not (path == "/hr" or path.startswith("/hr/") or path.startswith("/hr-")):
+        return user
+    route = request.scope.get("route")
+    template = getattr(route, "path", path)
+    if (request.method.upper(), template) in TEAM_ALLOWED_HR_ROUTES:
+        return user
+    raise HTTPException(status_code=403, detail="As a manager, People shows your own team - this part of People isn't included")
 
 
 # ── Multi-company walls (Aug 2026) ───────────────────────────────────────────

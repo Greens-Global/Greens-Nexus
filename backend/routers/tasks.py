@@ -17,13 +17,13 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
 import models
 from database import get_db
-from auth import get_current_user, require_manager, require_any_module_grant
+from auth import get_current_user, require_manager, require_any_module_grant, require_module_grant
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity, email_list,
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
@@ -2265,11 +2265,35 @@ def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user)
 
 
 # ── Activity ─────────────────────────────────────────────────────────────────
-@router.get("/activity")
 def global_activity(limit: int = 500, db: Session = Depends(get_db)):
+    # Tasks and projects only. Ticket rows are not this feed's business, and
+    # carried every ticket's subject - and previews of internal desk notes -
+    # to anyone holding a tasks grant; a ticket's own activity is
+    # GET /task-tickets/{id}/activity, which applies the ticket's access rules.
     rows = (db.query(models.TaskActivity)
+            .filter(or_(models.TaskActivity.entity_kind.is_(None),
+                        models.TaskActivity.entity_kind != "ticket"))
             .order_by(models.TaskActivity.at.desc()).limit(min(limit, 2000)).all())
     return [activity_to_dict(a) for a in rows]
+
+
+@router.get("/activity", dependencies=[Depends(require_module_grant("tasks")), Depends(require_manager)])
+def global_activity_feed(limit: int = 500, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """The workspace Activity Log (Manage > Activity Log, a manager-only tab).
+    It is every task's titles, status changes and assignments, so it takes the
+    Tasks grant and manager level (Sep 30 review: the route took no user at
+    all), and a manager behind a company wall sees only the task rows on their
+    side of it. global_activity above builds the rows."""
+    rows = global_activity(limit=limit, db=db)
+    import auth
+    if auth.company_scope(user, db) is None:
+        return rows   # walls off, or a Global Admin
+    ids = {r["entityId"] for r in rows if r["entityKind"] == "task" and r["entityId"]}
+    tasks = (db.query(models.Task).execution_options(include_deleted=True)
+             .filter(models.Task.id.in_(ids)).all()) if ids else []
+    admitted = {t.id for t in wall_tasks(db, user, tasks)}
+    return [r for r in rows if r["entityKind"] != "task" or r["entityId"] in admitted]
 
 
 @router.get("/{task_id}/activity")

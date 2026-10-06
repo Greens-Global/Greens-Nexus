@@ -70,6 +70,7 @@ import TicketDeskSettings from '../tickets/TicketDeskSettings';
 import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 import TicketHelpTopicsSettings from '../tickets/TicketHelpTopicsSettings';
+import TicketDeskAccessSettings from '../tickets/TicketDeskAccessSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 
@@ -303,6 +304,8 @@ const SERVICE_DESK_TABS = [
   { key: 'sla',           label: 'SLA & Ticket Types',   Icon: Timer,   Panel: TicketTaxonomySettings },
   // Department -> "What do you need help with?" choices (Pranshu, Sep 30).
   { key: 'topics',        label: 'Help Topics',          Icon: Tags,    Panel: TicketHelpTopicsSettings },
+  // Who works the desk, and as agent or supervisor (Oct 2026, ticket_roles.py).
+  { key: 'access',        label: 'Desk Access',          Icon: ShieldCheck, Panel: TicketDeskAccessSettings },
 ];
 
 function ServiceDeskSection({ defaultOpen }) {

@@ -2163,6 +2163,10 @@ class TimeBod(Base):
     team_name      = Column(String, default="")
     channel_id     = Column(String, default="")
     channel_name   = Column(String, default="")
+    # What channel_id is: a Teams group chat ("chat", every row before Oct 6)
+    # or a channel in team_id ("channel") - teams_post.deliver_row posts to
+    # whichever it names.
+    target_type    = Column(String, default="chat")
     sent           = Column(Integer, default=0)         # 1 = landed in Teams
     send_error     = Column(String, default="")
     created_at     = Column(String, default="")
@@ -2384,8 +2388,15 @@ class ShiftGroup(Base):
     __tablename__ = "shift_groups"
     id              = Column(String, primary_key=True)   # uuid
     name            = Column(String, default="")
-    teams_chat_id   = Column(String, default="")         # bound Teams group chat
+    teams_chat_id   = Column(String, default="")         # bound Teams group chat - or channel id (teams_target)
     teams_chat_name = Column(String, default="")
+    # Where this group's BOD / EOD / Break messages post (Pranshu, 10/06): a
+    # Teams group chat (the original binding) or a channel in a team, for an
+    # organization that runs a channel per department. For "channel",
+    # teams_chat_id/_name hold the CHANNEL and teams_team_* its team.
+    teams_target    = Column(String, default="chat")     # chat | channel
+    teams_team_id   = Column(String, default="")
+    teams_team_name = Column(String, default="")
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     # People who may build THIS group's schedule without team-wide access
@@ -3239,6 +3250,34 @@ class TaskTicket(Base):
     # it in. Stamped server-side from the caller, never taken from the payload.
     # Blank on tickets raised before this existed (creator == requester then).
     created_by_email    = Column(String, default="", index=True)
+    # Property Tickets (Neil, 10/05/2026). The Asset Management property this
+    # ticket is about: a SOFT link to PropertyAsset.id (no FK - the workspace
+    # PUT deletes and re-inserts every property row; same as
+    # IrFund.property_asset_id). property_name is the name when linked, shown
+    # after the property is gone. See property_links.py.
+    property_asset_id   = Column(String, default="", index=True)
+    property_name       = Column(String, default="")
+    # The Property Walkthrough this ticket was filed in (TicketBatch.id).
+    batch_id            = Column(String, default="", index=True)
+    # The maintenance record's vendor and cost (optional, set at Resolve).
+    # Cost is a normalized decimal string ("1250.00") like the maintenance
+    # log's own cost field, so Total Spend adds both the same way.
+    maintenance_vendor  = Column(String, default="")
+    maintenance_cost    = Column(String, default="")
+    # Raised from the property itself in Asset Management (its Create New
+    # Ticket / Start Walkthrough, or opened by a recurring service): the
+    # property is fixed for the ticket's life (Pranshu, 10/06).
+    property_locked     = Column(Integer, default=0)
+    # A ticket opened by a recurring service: the original ("parent") ticket
+    # whose maintenance record set the schedule, and the schedule itself.
+    parent_ticket_id    = Column(String, default="", index=True)
+    service_id          = Column(String, default="", index=True)
+    # Soft delete (Oct 2026): deleting a ticket marks it instead of dropping it
+    # with its conversation, files and activity, so it can be restored and the
+    # trail survives. Non-empty deleted_at = hidden everywhere by the hook in
+    # database.py; .execution_options(include_deleted=True) sees it.
+    deleted_at          = Column(String, default="", index=True)
+    deleted_by          = Column(String, default="")
 
 
 class TicketEmailLog(Base):
@@ -5148,6 +5187,285 @@ class AccountingLoanSetting(Base):
     statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
     updated_by         = Column(String, default="")
     updated_at         = Column(String, default="")
+# ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
+# Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
+# is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
+# One dedicated Google account (an Owner / Manager on every location) is
+# connected once; everyone works through it, and Nexus records which person
+# did what - Google itself shows every reply as "Response from the owner".
+# New tables: create_all builds them; RLS must be enabled on dev and prod at
+# release (CLAUDE.md).
+
+class MarketingIntegrationToken(Base):
+    """One connected external account per provider (encrypted, server-only).
+    id is the provider: "gbp" today; Google Ads / GA4 / Meta later."""
+    __tablename__ = "marketing_integration_tokens"
+    id                = Column(String, primary_key=True)
+    account_email     = Column(String, default="")      # the account that granted access
+    account_name      = Column(String, default="")      # the provider's id for it, e.g. GBP "accounts/123..."
+    account_label     = Column(String, default="")      # its display name at the provider
+    refresh_token_enc = Column(Text, default="")        # secret_box-encrypted; never leaves the server
+    scope             = Column(String, default="")
+    connected_by      = Column(String, default="")      # the Nexus admin who connected it
+    connected_at      = Column(String, default="")
+    last_sync_at      = Column(String, default="")
+    last_error        = Column(String, default="")
+    perf_synced_at    = Column(String, default="")      # performance + keywords + photo counts (every 6 hours)
+    perf_error        = Column(String, default="")      # kept apart: reviews still sync when only Performance is refused
+
+
+class MarketingGbpLocation(Base):
+    """A Google Business Profile location, mirrored from Google on each sync."""
+    __tablename__ = "marketing_gbp_locations"
+    id            = Column(String, primary_key=True)    # Google's "locations/123..."
+    account_name  = Column(String, default="")
+    title         = Column(String, default="")
+    address       = Column(String, default="")
+    place_id      = Column(String, default="")          # for the "write a review" link
+    phone         = Column(String, default="")
+    website       = Column(String, default="")
+    facility_name = Column(String, default="", index=True)   # the property it is (mapped in Nexus)
+    review_count  = Column(Integer, default=0)
+    avg_rating    = Column(Float, default=0)
+    listing       = Column(JSON, default=dict)          # the last Business Information read, for the edit form
+    synced_at     = Column(String, default="")
+    photo_count   = Column(Integer, default=0)
+    last_photo_at = Column(String, default="")          # newest photo's createTime - the "stale photos" alert
+
+
+class MarketingReview(Base):
+    """A review and its reply, mirrored from the platform on each sync -
+    platform "google" today. replied_by is the Nexus person who last replied
+    FROM Nexus; blank for a reply made on the platform directly."""
+    __tablename__ = "marketing_reviews"
+    id               = Column(String, primary_key=True)
+    platform         = Column(String, default="google", index=True)
+    external_id      = Column(String, unique=True, index=True)   # GBP "accounts/../locations/../reviews/.."
+    location_id      = Column(String, default="", index=True)
+    reviewer_name    = Column(String, default="")
+    reviewer_photo   = Column(String, default="")
+    rating           = Column(Integer, default=0)
+    text             = Column(Text, default="")
+    reviewed_at      = Column(String, default="", index=True)
+    updated_at       = Column(String, default="")
+    reply_text       = Column(Text, default="")
+    reply_updated_at = Column(String, default="")
+    replied_by       = Column(String, default="")
+    replied_at       = Column(String, default="")
+    synced_at        = Column(String, default="")
+
+
+class MarketingReviewAction(Base):
+    """Every reply, edit and delete made from Nexus - who, what, and whether
+    the platform accepted it. The accountability Google does not give."""
+    __tablename__ = "marketing_review_actions"
+    id          = Column(String, primary_key=True)
+    review_id   = Column(String, default="", index=True)
+    action      = Column(String, default="")    # reply | edit | delete
+    actor_email = Column(String, default="")
+    text        = Column(Text, default="")
+    ok          = Column(Boolean, default=True)
+    error       = Column(String, default="")
+    at          = Column(String, default="")
+
+
+class MarketingListingAction(Base):
+    """Every listing edit made from Nexus (description, phone, website,
+    hours) - who, which fields, what was sent, and whether Google accepted
+    it. Google keeps no record of which manager changed a listing."""
+    __tablename__ = "marketing_listing_actions"
+    id          = Column(String, primary_key=True)
+    location_id = Column(String, default="", index=True)
+    actor_email = Column(String, default="")
+    fields      = Column(String, default="")    # comma-separated updateMask, e.g. "profile.description,regularHours"
+    changes     = Column(JSON, default=dict)    # the patch that was sent
+    ok          = Column(Boolean, default=True)
+    error       = Column(String, default="")
+    at          = Column(String, default="")
+
+
+class MarketingGbpDaily(Base):
+    """One location's Business Profile Performance figures for one day
+    (fetchMultiDailyMetricsTimeSeries). Maps / Search views add the mobile
+    and desktop impressions together. Google reports a few days late, so
+    the last two weeks are re-read on every performance sync."""
+    __tablename__ = "marketing_gbp_daily"
+    id                 = Column(String, primary_key=True)    # "<location id>|<YYYY-MM-DD>"
+    location_id        = Column(String, default="", index=True)
+    date               = Column(String, default="", index=True)
+    maps_views         = Column(Integer, default=0)
+    search_views       = Column(Integer, default=0)
+    website_clicks     = Column(Integer, default=0)
+    call_clicks        = Column(Integer, default=0)
+    direction_requests = Column(Integer, default=0)
+
+
+class MarketingGbpKeyword(Base):
+    """A search term that showed a location's profile, per month
+    (searchkeywords.impressions.monthly). Google gives a floor instead of a
+    count for rare terms - below_threshold marks those (impressions holds the
+    floor)."""
+    __tablename__ = "marketing_gbp_keywords"
+    id              = Column(String, primary_key=True)
+    location_id     = Column(String, default="", index=True)
+    month           = Column(String, default="", index=True)   # YYYY-MM
+    keyword         = Column(String, default="")
+    impressions     = Column(Integer, default=0)
+    below_threshold = Column(Boolean, default=False)
+
+
+class TicketBatch(Base):
+    """One Property Walkthrough submit (Neil, 10/05/2026): many tickets at one
+    property, filed together by routers/ticket_walkthroughs.py.
+
+    `id` is generated by the form when the walkthrough opens and is the
+    idempotency key: a retried submit (the phone lost signal after the server
+    committed) returns the tickets already filed instead of filing them twice.
+    asset_manager_email is frozen at submit so the batch email goes to whoever
+    was told at the time. New table - RLS on dev AND prod (main.py list)."""
+    __tablename__ = "ticket_batches"
+    id                  = Column(String, primary_key=True)
+    # SHA-256 of the normalized property + team + requester + lines. A retry
+    # with the same id replays ONLY if this matches - a retry carrying
+    # different lines is a 409, never a silent "already filed" that drops them.
+    lines_hash          = Column(String, default="")
+    property_asset_id   = Column(String, default="", index=True)
+    property_name       = Column(String, default="")
+    created_by_email    = Column(String, default="", index=True)
+    requester_email     = Column(String, default="")
+    company_id          = Column(String, default="")
+    hr_department_id    = Column(String, default="")
+    asset_manager_email = Column(String, default="")
+    ticket_ids          = Column(JSON, default=list)
+    ticket_count        = Column(Integer, default=0)
+    note                = Column(String, default="")
+    created_at          = Column(String, default="")
+
+
+class TicketMaintenanceRecord(Base):
+    """A resolved property ticket, added to the property's maintenance record by
+    its asset manager (Pranshu, 10/06: resolved -> "Needs Action" -> "Add to
+    Maintenance Record"). One per ticket. Kept here, not in the Asset
+    Management workspace blob: the workspace PUT deletes and re-inserts every
+    row, so a server-written row there would be erased by the next stale save.
+    The Maintenance Log merges these rows in. New table - RLS (main.py list)."""
+    __tablename__ = "ticket_maintenance_records"
+    id                = Column(String, primary_key=True)
+    ticket_id         = Column(String, default="", index=True, unique=True)
+    property_asset_id = Column(String, default="", index=True)
+    # The recurring-service family this belongs to: the parent ticket's id
+    # (the parent itself, or a child the service opened). Blank otherwise.
+    parent_ticket_id  = Column(String, default="", index=True)
+    service_date      = Column(String, default="")   # YYYY-MM-DD
+    system            = Column(String, default="")   # the Maintenance Log's System / Area
+    description       = Column(String, default="")   # work performed
+    vendor            = Column(String, default="")
+    cost              = Column(String, default="")   # normalized decimal, "1250.00"
+    currency          = Column(String, default="USD")   # ISO 4217 code of `cost` (any world currency)
+    doc_url           = Column(String, default="")   # invoice / report (private ticket-evidence bucket)
+    doc_name          = Column(String, default="")
+    notes             = Column(String, default="")
+    created_by_email  = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class PropertyMaintenanceService(Base):
+    """A recurring (or one-time) service set from a parent ticket's maintenance
+    record - "Next Service Due" + how often (Pranshu, 10/06). 15 days before
+    next_due the asset manager is reminded; on next_due, if nobody opened the
+    service ticket, one opens automatically with the parent's details, and
+    next_due moves on by the recurrence (a one-time service then ends). See
+    maintenance_services.py. New table - RLS (main.py list)."""
+    __tablename__ = "property_maintenance_services"
+    id                 = Column(String, primary_key=True)
+    property_asset_id  = Column(String, default="", index=True)
+    parent_ticket_id   = Column(String, default="", index=True, unique=True)
+    template           = Column(JSON, default=dict)   # what each opened ticket copies from the parent
+    next_due           = Column(String, default="")   # YYYY-MM-DD
+    recurrence_unit    = Column(String, default="")   # "" one time | week | month | year
+    recurrence_every   = Column(Integer, default=1)
+    reminder_sent_for  = Column(String, default="")   # the next_due the 15-day reminder went out for
+    last_opened_for    = Column(String, default="")   # the next_due a ticket was last opened for
+    last_ticket_id     = Column(String, default="")
+    active             = Column(Integer, default=1)
+    created_by_email   = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_by_email   = Column(String, default="")
+    updated_at         = Column(String, default="")
+
+
+# ── Marketing: Google Ads (Oct 2026, read-only) ──────────────────────────────
+# Plan Phase 3. The connection is a MarketingIntegrationToken row with id
+# "google_ads"; google_ads.py syncs these every 2 hours. Google Ads stays the
+# source of truth - Nexus never creates or changes a campaign.
+
+class MarketingAdsAccount(Base):
+    """A Google Ads account (customer) the connection reads."""
+    __tablename__ = "marketing_ads_accounts"
+    id         = Column(String, primary_key=True)      # customer id, digits only
+    name       = Column(String, default="")
+    currency   = Column(String, default="")
+    manager_id = Column(String, default="")            # the manager account it is read through ('' = directly)
+    active     = Column(Boolean, default=True)         # False once it no longer appears under the connection
+    synced_at  = Column(String, default="")
+
+
+class MarketingAdsCampaign(Base):
+    """A campaign, and the facility Nexus counts it toward (Google has no
+    notion of our facilities - someone with the full grant maps it)."""
+    __tablename__ = "marketing_ads_campaigns"
+    id            = Column(String, primary_key=True)   # "<customer>|<campaign>"
+    customer_id   = Column(String, default="", index=True)
+    campaign_id   = Column(String, default="")
+    name          = Column(String, default="")
+    status        = Column(String, default="")         # ENABLED | PAUSED | REMOVED (Google's)
+    serving       = Column(String, default="")         # campaign.serving_status: SERVING | ENDED | ...
+    channel       = Column(String, default="")         # SEARCH | DISPLAY | PERFORMANCE_MAX | ...
+    daily_budget  = Column(Float, default=0)
+    facility_name = Column(String, default="", index=True)
+    mapped_by     = Column(String, default="")
+    mapped_at     = Column(String, default="")
+    synced_at     = Column(String, default="")
+
+
+class MarketingAdsDaily(Base):
+    """One campaign's figures for one day. Cost is in the account currency."""
+    __tablename__ = "marketing_ads_daily"
+    id          = Column(String, primary_key=True)     # "<customer>|<campaign>|<date>"
+    customer_id = Column(String, default="", index=True)
+    campaign_id = Column(String, default="", index=True)
+    date        = Column(String, default="", index=True)   # YYYY-MM-DD
+    impressions = Column(Integer, default=0)
+    clicks      = Column(Integer, default=0)
+    conversions = Column(Float, default=0)
+    cost        = Column(Float, default=0)
+
+
+class MarketingAdsKeyword(Base):
+    """One bought keyword's figures for one day (keyword_view)."""
+    __tablename__ = "marketing_ads_keywords"
+    id           = Column(String, primary_key=True)    # "<customer>|<campaign>|<criterion>|<date>"
+    customer_id  = Column(String, default="", index=True)
+    campaign_id  = Column(String, default="", index=True)
+    criterion_id = Column(String, default="")
+    keyword      = Column(String, default="")
+    match_type   = Column(String, default="")          # EXACT | PHRASE | BROAD
+    date         = Column(String, default="", index=True)
+    impressions  = Column(Integer, default=0)
+    clicks       = Column(Integer, default=0)
+    conversions  = Column(Float, default=0)
+    cost         = Column(Float, default=0)
+
+
+class MarketingAdBudget(Base):
+    """The monthly Google Ads budget Nexus paces spend against, per facility
+    (was browser state, reset on every reload)."""
+    __tablename__ = "marketing_ad_budgets"
+    facility_name  = Column(String, primary_key=True)
+    monthly_budget = Column(Float, default=0)
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
 
 
 class NexusCounter(Base):

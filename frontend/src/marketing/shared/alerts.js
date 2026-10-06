@@ -13,11 +13,20 @@ import { filterByRange as insFilterByRange, sumLeadTotals } from '../insights/ag
 // calendar month, independent of whatever date range/property filter the
 // user currently has selected - a notification backlog should be stable,
 // not change every time you tweak a report filter.
-export function computeAlerts({ monthlyBudget, leadGoal }) {
+//
+// `gbp` is the real Google Business Profile summary (GET /marketing/gbp/summary).
+// When Google is connected, the review and listing alerts come from it
+// instead of the sample reviews; Google retired Business Profile Q&A, so
+// that alert only exists for the sample data.
+//
+// `ads` is the real Google Ads summary (GET /marketing/ads/summary): when
+// Google Ads is connected, budget pacing uses this month's real spend.
+export function computeAlerts({ monthlyBudget, leadGoal, gbp = null, ads = null }) {
+  const real = gbp?.connected ? gbp : null
   const alerts = []
   const month = thisMonth()
 
-  const gaTotals = gaSumTotals(gaFilterRange(dailyMetrics, month))
+  const gaTotals = ads?.connected ? { spend: ads.monthSpend || 0 } : gaSumTotals(gaFilterRange(dailyMetrics, month))
   const budgetPct = monthlyBudget > 0 ? (gaTotals.spend / monthlyBudget) * 100 : 0
   if (budgetPct >= 100) {
     alerts.push({
@@ -37,9 +46,10 @@ export function computeAlerts({ monthlyBudget, leadGoal }) {
     })
   }
 
-  const pendingReviews = allReviews.filter((r) => r.status !== 'Posted')
-  const agingPending = pendingReviews.filter((r) => hoursSince(r.date) > 48)
-  const lowRatingPending = pendingReviews.filter((r) => r.rating <= 2)
+  const samplePending = real ? [] : allReviews.filter((r) => r.status !== 'Posted')
+  const pendingReviews = { length: real ? real.unreplied : samplePending.length }
+  const agingPending = { length: real ? real.overdueUnreplied : samplePending.filter((r) => hoursSince(r.date) > 48).length }
+  const lowRatingPending = { length: real ? real.lowStarUnreplied : samplePending.filter((r) => r.rating <= 2).length }
 
   if (lowRatingPending.length > 0) {
     alerts.push({
@@ -74,7 +84,7 @@ export function computeAlerts({ monthlyBudget, leadGoal }) {
     })
   }
 
-  const unansweredQuestions = unansweredCount(initialQuestions, ALL_PROPERTIES)
+  const unansweredQuestions = real ? 0 : unansweredCount(initialQuestions, ALL_PROPERTIES)
   if (unansweredQuestions > 0) {
     alerts.push({
       id: 'qna-unanswered',
@@ -87,7 +97,7 @@ export function computeAlerts({ monthlyBudget, leadGoal }) {
     })
   }
 
-  const staleProperties = stalePhotoProperties(initialPhotos)
+  const staleProperties = real ? real.stalePhotoLocations || [] : stalePhotoProperties(initialPhotos)
   if (staleProperties.length > 0) {
     alerts.push({
       id: 'photos-stale',
