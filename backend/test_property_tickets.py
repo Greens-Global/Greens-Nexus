@@ -62,8 +62,10 @@ class PropertyTicketTests(unittest.TestCase):
         for m in (models.TaskTicket, models.TicketBatch, models.TicketMaintenanceRecord, models.PropertyMaintenanceService, models.NexusGroup, models.NexusGroupMember, models.TaskActivity, models.TaskAttachment, models.TaskComment,
                   models.TaskNotification, models.NexusNotification, models.NexusEmployee, models.NexusRole,
                   models.PropertyAsset, models.HrDepartment, models.PropertyRecord,
-                  models.PropertyActivityLog, models.PropertyWorkspaceMeta):
-            self.db.query(m).delete()
+                  models.PropertyActivityLog, models.PropertyWorkspaceMeta, models.NexusCounter):
+            # include_deleted: soft-deleted tickets (#439) still hold their codes,
+            # and the never-repeating counter (#437) restarts only once both go.
+            self.db.query(m).execution_options(include_deleted=True).delete()
         for email in (ADMIN["email"], PLAIN["email"], MANAGER, WALKER["email"], DESK2, EDITOR["email"]):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=email.split("@")[0], work_email=email,
                                              status="active", identity_type="internal"))

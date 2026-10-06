@@ -1616,17 +1616,17 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
 
     made = []
     if include_tasks:
-        # One code read, incremented locally: _next_code counts rows, and with
-        # autoflush=False the rows added in this loop are invisible to that
-        # count - calling it per task would hand every task the same code.
-        next_n = db.query(models.Task).count() + 1
+        # One code per task from the never-repeating counter (code_sequence.py).
+        # It no longer counts rows, so the rows added in this loop - invisible
+        # to queries under autoflush=False - cannot make two tasks share one.
+        from routers.tasks import _next_code
         task_ids = {}
         for i, spec in enumerate(payload.get("tasks") or []):
             tid = gen_id()
             task_ids[spec.get("key")] = tid
             saved_status = spec.get("status") or status_ids.get(str(spec.get("statusKey")), "")
             row = models.Task(
-                id=tid, code=f"TASK-{next_n + i:03d}",
+                id=tid, code=_next_code(db),
                 title=spec.get("title") or "Untitled task",
                 description=spec.get("description") or "",
                 type=spec.get("type") or "task",

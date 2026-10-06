@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, text
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -33,6 +33,7 @@ from routers.task_util import (
 )
 from task_notify import notify_task_event
 import task_due
+import code_sequence
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
 from routers.task_config import coerce_custom_field_values
@@ -211,29 +212,16 @@ class TaskUpdate(BaseModel):
     completed:        Optional[bool] = None
 
 
-# Single-bigint-arg advisory lock, its own keyspace entirely separate from
-# asana_sync._acquire_pull_lock's two-int-arg lock and daily_briefing's
-# two-int-arg employee lock - the single-arg and two-arg forms can never
-# collide regardless of which constants any of them picks (same reasoning
-# daily_briefing.py's own lock comment already documents).
-_TASK_CODE_LOCK_NS = 741852963
-
-
 def _next_code(db: Session) -> str:
-    """COUNT(*)+1 with no lock let two callers (e.g. two Asana-pull worker
-    processes creating tasks for the same recurring series at nearly the
-    same instant) both read the same count before either committed, handing
-    out the identical code to two genuinely separate Task rows (Sep 22,
-    surfaced as an Asana-synced "Weather Report" series where every
-    duplicate landed on the same TASK-#### number). The advisory lock
-    serializes concurrent numbering across processes - held until THIS
-    transaction commits/rolls back, so a second caller blocked here re-reads
-    the count fresh, after the first caller's row is already in it. No-op on
-    local SQLite, where there's only one process."""
-    if db.bind.dialect.name == "postgresql":
-        db.execute(text("SELECT pg_advisory_xact_lock(:ns)"), {"ns": _TASK_CODE_LOCK_NS})
-    n = db.query(models.Task).count() + 1
-    return f"TASK-{n:03d}"
+    """The next task code, from the never-repeating counter in
+    code_sequence.py.
+
+    Was COUNT(*)+1 under pg_advisory_xact_lock. The lock stopped two creates
+    racing (Sep 22), but a count is "how many", not "what comes next": with
+    a task deleted - or just moved to Trash, which the soft-delete filter
+    hides from the count - the next create reused a code still on a live or
+    restorable task (Sep 30 review #5). The counter only ever goes up."""
+    return code_sequence.next_task_code(db)
 
 
 def _extra_project_ids(project_ids: Optional[list], project_id: str) -> list:
@@ -1425,7 +1413,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     t = models.Task(
         id=tid,
         company_id=company_id,
-        code=body.code or _next_code(db),
+        code=_next_code(db),
         title=body.title,
         description=body.description or "",
         type=body.type or "task",

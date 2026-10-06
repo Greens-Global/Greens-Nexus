@@ -1956,6 +1956,9 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+        # Ticket numbers / task codes that never repeat (Oct 2026): one row per
+        # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
+        "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

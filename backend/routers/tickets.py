@@ -25,7 +25,8 @@ import models
 from database import get_db
 from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify, extract_mentions
-from ticket_code import TICKET_CODE_DIGITS, ticket_no
+from ticket_code import ticket_no
+import code_sequence
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents,
                            _name_of)
@@ -567,36 +568,22 @@ class TicketUpdate(BaseModel):
 
 
 def _next_ticket_code(db: Session) -> str:
-    """One past the highest number issued so far.
+    """The next ticket number, from the never-repeating counter in
+    code_sequence.py.
 
-    Was `count() + 1`, which is only correct while nothing is ever deleted:
-    delete any ticket and the next one issued reuses a live number, so two
-    tickets share a code and every reference to it becomes ambiguous. Counting
-    what exists answers "how many", not "what comes next".
-
-    Legacy "TKT-nnn" codes are read for their digits too, so the sequence
-    continues past them rather than restarting into numbers already in use."""
-    _lock_ticket_codes(db)
-    return f"{_highest_ticket_no(db) + 1:0{TICKET_CODE_DIGITS}d}"
+    Was "one past the highest code on a ticket row" (and before that
+    `count() + 1`): two tickets filed at the same moment both read the same
+    highest and got the same number. The counter row is bumped atomically
+    inside this transaction, so concurrent creates cannot share one, and a
+    deleted ticket's number is never issued again."""
+    return code_sequence.next_ticket_code(db)
 
 
-def _highest_ticket_no(db: Session) -> int:
-    """The highest number issued so far (0 = none). Legacy codes count."""
-    highest = 0
-    # include_deleted: a deleted ticket keeps its number (it can be restored),
-    # so the sequence must never hand that number out again.
-    for (code,) in db.query(models.TaskTicket.code).execution_options(include_deleted=True).all():
-        digits = "".join(ch for ch in (code or "") if ch.isdigit())
-        if digits:
-            highest = max(highest, int(digits))
-    return highest
-
-
-# Two creates in flight read the same "highest" and issue the same code - and
-# a Property Walkthrough makes that window many codes wide. Taken right before
-# the read of the highest code and held to the request's commit/rollback, so
-# callers do ALL validation and lookups first - every ticket create in the
-# company, Convert to Ticket included, queues on it.
+# Codes now come from the never-repeating counter (code_sequence.py), whose
+# atomic UPDATE needs no lock. This lock is kept for one job only: a Property
+# Walkthrough re-checks its batch id under it, so a retried submit racing its
+# own first attempt replays instead of filing the tickets twice. Held to the
+# request's commit/rollback.
 #   Postgres: a transaction-scoped advisory lock.
 #   SQLite (local dev, tests): a deferred transaction reads BEFORE it holds
 #   the write lock, so two creates can both read 000041. A zero-row UPDATE
@@ -884,7 +871,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
     t = models.TaskTicket(
-        id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
+        id=body.id or gen_id(), code=_next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
         status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
