@@ -5,7 +5,10 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, PopoverPanel, control, entityOptions } from './reportControls';
+import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, control } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { cellStyle, headStyle } from './columnStyles';
+import EntryDetail from './EntryDetail';
 import { downloadBlob, iso } from './reportModel';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
@@ -30,6 +33,14 @@ import AddMenu from './AddMenu';
 // who posted at a stable amount in at least N of the last twelve months - the
 // MRI rent heuristic) or Manual. The toolbar matches Reports: Entities,
 // the year, a vendor search, category, Customize, Export.
+//
+// Oct 7 (items 9, 12, 21, 32, 33): the standard Customize adds Rows per Page
+// (a Pager under the grid; the Total Paid row and the exports always cover
+// every line), the grid's columns resize by dragging a header edge, the
+// entity on a line is the module's entity picker (search by number), and a
+// paid month or a line's Total opens the ledger lines behind it - what
+// posted to the line's expense accounts for its vendor - each entry number
+// opening the entry.
 
 const CATEGORIES = [
   { key: 'utilities', label: 'Utilities' },
@@ -94,7 +105,8 @@ export function mreTable(rows, year, entityLabel) {
 
 export default function MreTab({ canEdit = false, canDelete = false }) {
   const [prefs, setPrefs] = useAccountingPrefs();
-  const density = DENSITIES.some((d) => d.key === prefs.density) ? prefs.density : 'compact';
+  const custom = useCustomizePrefs(['density', 'pageSize', 'historicalEntities']);
+  const density = custom.density;
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [picked, setPicked] = useState([]);
   const [entities, setEntities] = useState([]);
@@ -110,6 +122,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const [sending, setSending] = useState(null);       // 'email' | 'egnyte'
   const [sent, setSent] = useState(null);
   const [busy, setBusy] = useState('');
+  const [lines, setLines] = useState(null);           // { line, from, to, title } - the ledger lines behind a figure
   const seq = useRef(0);
   const showEnded = !!prefs.mreShowEnded;
   const showInactive = !!prefs.mreShowInactive;
@@ -152,7 +165,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
     <AsyncSection loading={data === null} skeleton={<SkeletonBlocks count={4} />}>
       <div style={{ display: 'grid', gap: 10 }}>
         <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-          <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={!!prefs.showHistoricalEntities} />
+          <EntitiesPicker entities={entities} value={picked} onChange={setPicked} limited={limited} showHistorical={custom.showHistorical} />
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }} role="group" aria-label="Year">
             <button type="button" style={icon} aria-label="Previous year" onClick={() => setYear((y) => y - 1)}><ChevronLeft size={16} /></button>
             <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>
@@ -167,9 +180,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={showZero} onShowZero={setShowZero}
-              showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
-              active={showEnded || showInactive}>
+            <CustomizeButton {...custom} showZero={showZero} onShowZero={setShowZero} active={showEnded || showInactive}>
               <Toggle checked={showEnded} onChange={(v) => setPrefs({ mreShowEnded: v })} title="Show Ended"
                 hint="Recurring expenses that have stopped. They keep their history; nothing is deleted." />
               <Toggle checked={showInactive} onChange={(v) => setPrefs({ mreShowInactive: v })} title="Show Inactive Vendors"
@@ -223,6 +234,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           </div>
         ) : (
           <Grid rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit}
+            pageSize={custom.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero]} onLines={setLines}
             onEdit={(l) => setEditing(l)} onNotes={(id, notes) => api.setMreNotes(id, notes).then((line) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.line.id === id ? { ...r, line } : r)) })))} />
         )}
       </div>
@@ -231,6 +243,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
         <LineEditor line={editing} entities={entities} canDelete={canDelete} onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }} />
       )}
+      {lines && <LedgerLines {...lines} onClose={() => setLines(null)} />}
       {fromLedger && (
         <MreFromLedger entities={picked} entityLabel={entityLabel} onClose={() => setFromLedger(false)} onCreated={() => { setFromLedger(false); load(); }} />
       )}
@@ -262,8 +275,15 @@ function Legend() {
   );
 }
 
-function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes }) {
+// The grid's resizable columns (Oct 7, item 32), saved per viewer: vendor,
+// entity, category, expected, each month (m0..m11), total, balance, notes.
+const MRE_COLUMNS = [['vendor', 'Vendor'], ['entity', 'Entity'], ['category', 'Category'], ['expected', 'Expected', true]];
+
+function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null }) {
   const py = DENSITIES.find((d) => d.key === density)?.py || '5px';
+  const cw = useColumnWidths('mre');
+  // Rows per Page: this page's lines; the Total Paid row adds up every line.
+  const paged = usePaged(rows, pageSize, pageKey);
   const totalPaid = rows.reduce((s, r) => s + r.paidTotal, 0);
   const totalBalance = rows.reduce((s, r) => s + r.balance, 0);
   const monthPaid = MONTHS.map((_m, i) => rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0));
@@ -272,20 +292,19 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes }
       <table className="acct-report" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
         <thead>
           <tr>
-            <th className="acct-label acct-head">Vendor</th>
-            <th>Entity</th>
-            <th>Category</th>
-            <th className="acct-num">Expected</th>
-            {MONTHS.map((m) => <th key={m} className="acct-num">{m}</th>)}
-            <th className="acct-num" style={{ fontWeight: 800 }}>Total</th>
-            <th className="acct-num">Balance</th>
-            <th style={{ minWidth: 180 }}>Notes</th>
+            {MRE_COLUMNS.map(([k, l, isNum]) => (
+              <th key={k} aria-label={l} className={k === 'vendor' ? 'acct-label acct-head' : isNum ? 'acct-num' : undefined} style={headStyle(cw.width(k))}>{l}<ColumnResizer {...cw.resizer(k, l)} /></th>
+            ))}
+            {MONTHS.map((m, i) => <th key={m} aria-label={m} className="acct-num" style={headStyle(cw.width(`m${i}`))}>{m}<ColumnResizer {...cw.resizer(`m${i}`, m)} /></th>)}
+            <th aria-label="Total" className="acct-num" style={headStyle(cw.width('total'), { fontWeight: 800 })}>Total<ColumnResizer {...cw.resizer('total', 'Total')} /></th>
+            <th aria-label="Balance" className="acct-num" style={headStyle(cw.width('balance'))}>Balance<ColumnResizer {...cw.resizer('balance', 'Balance')} /></th>
+            <th aria-label="Notes" style={headStyle(cw.width('notes'), { minWidth: cw.width('notes') || 180 })}>Notes<ColumnResizer {...cw.resizer('notes', 'Notes')} /></th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {paged.rows.map((r) => (
             <tr key={r.line.id}>
-              <td className="acct-label" style={{ maxWidth: 260 }}>
+              <td className="acct-label" style={cw.width('vendor') ? cellStyle(cw.width('vendor')) : { maxWidth: 260 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}>
                   <VendorName id={r.line.vendorId} name={r.line.vendorName} />
                   {r.line.status === 'ended' && <Chip text="Ended" />}
@@ -293,16 +312,20 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes }
                   {canEdit && <button type="button" style={{ ...icon, padding: 2 }} onClick={() => onEdit(r.line)} aria-label={`Edit ${r.line.vendorName}`} title="Edit"><Pencil size={12} /></button>}
                 </span>
               </td>
-              <td title={`${r.line.entityName} (${r.line.entityCode})`} style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}><span className="acct-code">{r.line.entityCode}</span>{r.line.entityName}</td>
-              <td>{CATEGORY[r.line.category] || 'Other'}</td>
-              <td className="acct-num" title={`${FREQUENCY[r.line.frequency]} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}`}>
+              <td title={`${r.line.entityName} (${r.line.entityCode})`} style={cw.width('entity') ? cellStyle(cw.width('entity')) : { maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}><span className="acct-code">{r.line.entityCode}</span>{r.line.entityName}</td>
+              <td style={cellStyle(cw.width('category'))}>{CATEGORY[r.line.category] || 'Other'}</td>
+              <td className="acct-num" style={cellStyle(cw.width('expected'))} title={`${FREQUENCY[r.line.frequency]} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}`}>
                 <Amount value={r.line.expectedAmount} />
                 <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{FREQUENCY[r.line.frequency] || 'Monthly'}</span>
               </td>
-              {r.months.map((c) => <MonthCell key={c.month} cell={c} />)}
-              <td className="acct-num" style={{ fontWeight: 700 }}><Amount value={r.paidTotal} zero="dash" /></td>
-              <td className="acct-num" style={{ color: r.balance > 0.5 ? 'var(--bad-fg, #dc2626)' : undefined }} title="Expected less paid, to date"><Amount value={r.balance} zero="dash" /></td>
-              <td style={{ whiteSpace: 'normal', minWidth: 180 }}><NotesCell line={r.line} canEdit={canEdit} onSave={onNotes} /></td>
+              {r.months.map((c, i) => <MonthCell key={c.month} cell={c} width={cw.width(`m${i}`)} onOpen={onLines && Math.abs(Number(c.paid) || 0) > 0.005 ? () => onLines({ line: r.line, ...monthRange(c.month), title: monthLabel(c.month) }) : null} />)}
+              <td className="acct-num" style={cellStyle(cw.width('total'), { fontWeight: 700 })}>
+                {onLines && Math.abs(Number(r.paidTotal) || 0) > 0.005
+                  ? <button type="button" className="acct-drill" onClick={() => onLines({ line: r.line, from: `${year}-01-01`, to: `${year}-12-31`, title: String(year) })} aria-label={`Ledger lines behind ${r.line.vendorName}'s total for ${year}`} title="The ledger lines behind this total"><Amount value={r.paidTotal} zero="dash" /></button>
+                  : <Amount value={r.paidTotal} zero="dash" />}
+              </td>
+              <td className="acct-num" style={cellStyle(cw.width('balance'), { color: r.balance > 0.5 ? 'var(--bad-fg, #dc2626)' : undefined })} title="Expected less paid, to date"><Amount value={r.balance} zero="dash" /></td>
+              <td style={cw.width('notes') ? cellStyle(cw.width('notes'), { whiteSpace: 'normal' }) : { whiteSpace: 'normal', minWidth: 180 }}><NotesCell line={r.line} canEdit={canEdit} onSave={onNotes} /></td>
             </tr>
           ))}
           <tr className="acct-grand">
@@ -315,6 +338,82 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes }
           </tr>
         </tbody>
       </table>
+      <Pager {...paged} />
+    </div>
+  );
+}
+
+/** The first and last day of a month key (YYYY-MM). */
+function monthRange(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  return { from: `${monthKey}-01`, to: `${monthKey}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` };
+}
+
+/** The ledger searches behind a line's figure: each expense account, for the vendor, in the entity. */
+export function mreLinesQueries(line, from, to) {
+  return (line.expenseAccounts || []).map((account) => ({ account, party_kind: 'vendor', party: line.vendorId, location: line.entityCode, from, to, limit: 100 }));
+}
+
+// The ledger lines behind a paid month or a line's Total (Oct 7, item 33):
+// what posted to the line's expense accounts for its vendor in the entity,
+// each entry number opening the whole entry (EntryDetail). No new endpoint -
+// the ledger search the Reports drill-down uses.
+function LedgerLines({ line, from, to, title, onClose }) {
+  const queries = useMemo(() => mreLinesQueries(line, from, to), [line, from, to]);
+  const [state, setState] = useState({ lines: null, error: '' });
+  const [entry, setEntry] = useState(null);
+  const entryOpen = useRef(false);
+  useEffect(() => { entryOpen.current = !!entry; }, [entry]);
+  useEffect(() => {
+    let alive = true;
+    Promise.all(queries.map((p) => api.searchAccountingLedger(p)))
+      .then((answers) => { if (alive) setState({ lines: answers.flatMap((d) => d?.rows || []), error: '' }); })
+      .catch((e) => { if (alive) setState({ lines: [], error: e?.message || 'Could not read the ledger lines.' }); });
+    return () => { alive = false; };
+  }, [queries]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !entryOpen.current) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const total = (state.lines || []).reduce((s, l) => s + (l.debit || 0) - (l.credit || 0), 0);
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label={`${line.vendorName}, ${title}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760, width: '100%' }}>
+        <div className="modal-header">
+          <div style={{ minWidth: 0 }}>
+            <h3 style={{ margin: 0 }}>{line.vendorName} - {title}</h3>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+              Posted to {(line.expenseAccounts || []).join(', ')} for vendor {line.vendorId} in {line.entityName || line.entityCode}, {formatDate(from)} - {formatDate(to)}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '14px 24px 18px', maxHeight: '70vh', overflowY: 'auto' }}>
+          {state.lines === null ? <SkeletonBlocks count={2} /> : state.error ? <div style={bad}>{state.error}</div> : !state.lines.length ? (
+            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing posted in this period.</div>
+          ) : (
+            <div className="acct-lines-wrap">
+              <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col">Account</th><th scope="col">Description</th><th scope="col" className="acct-num">Amount</th></tr></thead>
+                <tbody>
+                  {state.lines.map((l, i) => (
+                    <tr key={`${l.entry_id || l.entry_no || 'x'}-${i}`}>
+                      <td>{l.entry_date ? formatDate(l.entry_date) : '-'}</td>
+                      <td>{l.entry_id ? <button type="button" className="acct-drill" onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open this journal entry">{l.entry_no || 'Open'}</button> : (l.entry_no || '-')}</td>
+                      <td>{l.account_no || l.account || '-'}</td>
+                      <td style={{ whiteSpace: 'normal', maxWidth: 280 }} title={l.description || ''}>{l.description || l.memo || '-'}</td>
+                      <td className="acct-num"><Amount value={(l.debit || 0) - (l.credit || 0)} /></td>
+                    </tr>
+                  ))}
+                  <tr className="acct-grand"><td colSpan={4}>Total - {state.lines.length} {state.lines.length === 1 ? 'line' : 'lines'}</td><td className="acct-num"><Amount value={total} /></td></tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
     </div>
   );
 }
@@ -323,17 +422,24 @@ function Chip({ text }) {
   return <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '0 6px', flexShrink: 0 }}>{text}</span>;
 }
 
-function MonthCell({ cell }) {
+function MonthCell({ cell, width, onOpen = null }) {
   const st = STATUS[cell.status];
   if (!st) {
-    // Not due this month and nothing paid.
-    return <td className="acct-num" style={{ color: 'var(--text-muted)' }}><Amount value={0} zero="dash" /></td>;
+    // Not due this month; what was paid anyway still opens its lines.
+    return (
+      <td className="acct-num" style={cellStyle(width, { color: 'var(--text-muted)' })}>
+        {onOpen ? <button type="button" className="acct-drill" onClick={onOpen} aria-label={`Ledger lines for ${monthLabel(cell.month)}`}><Amount value={cell.paid} zero="dash" /></button> : <Amount value={cell.paid || 0} zero="dash" />}
+      </td>
+    );
   }
   const title = `${monthLabel(cell.month)} - ${st.label}. Expected ${formatAmount(cell.expected)}, paid ${formatAmount(cell.paid)}.`;
+  const shown = cell.status === 'missed' ? 'Missed' : cell.status === 'upcoming' && !cell.paid ? <Amount value={cell.expected} zero="dash" /> : <Amount value={cell.paid} zero="dash" />;
   return (
     <td className="acct-num" title={title} aria-label={title} data-status={cell.status}
-      style={{ background: st.bg, color: st.fg, fontWeight: cell.status === 'paid' ? 500 : 600, borderLeft: '1px solid var(--bg-card)', ...(cell.status === 'upcoming' ? { fontStyle: 'italic' } : {}) }}>
-      {cell.status === 'missed' ? 'Missed' : cell.status === 'upcoming' && !cell.paid ? <Amount value={cell.expected} zero="dash" /> : <Amount value={cell.paid} zero="dash" />}
+      style={cellStyle(width, { background: st.bg, color: st.fg, fontWeight: cell.status === 'paid' ? 500 : 600, borderLeft: '1px solid var(--bg-card)', ...(cell.status === 'upcoming' ? { fontStyle: 'italic' } : {}) })}>
+      {onOpen && cell.status !== 'missed'
+        ? <button type="button" className="acct-drill" onClick={onOpen} aria-label={`Ledger lines for ${monthLabel(cell.month)}`} style={{ color: 'inherit', fontWeight: 'inherit' }}>{shown}</button>
+        : shown}
     </td>
   );
 }
@@ -443,8 +549,8 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const options = useMemo(() => entityOptions(entities, { showHistorical: false, keep: l.entityCode ? [l.entityCode] : [] }), [entities, l.entityCode]);
-  const accounts = String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const accounts =
+ String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
   const ready = l.entityCode && l.vendorId.trim() && accounts.length;
   const body = () => ({
     entityCode: l.entityCode, entityName: entities.find((e) => e.code === l.entityCode)?.name || l.entityName || '', vendorId: l.vendorId.trim(), vendorName: l.vendorName.trim(),
@@ -474,11 +580,8 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           {error && <div style={bad}>{error}</div>}
           <div style={grid}>
             <div>
-              <label style={label} htmlFor="mre-entity">Entity</label>
-              <select id="mre-entity" value={l.entityCode} onChange={(e) => set({ entityCode: e.target.value })} style={{ ...control, width: '100%' }}>
-                <option value="">Pick an entity</option>
-                {options.map((o) => <option key={o.code} value={o.code}>{o.depth ? '  ' : ''}{o.name ? `${o.name} (${o.code})` : o.code}</option>)}
-              </select>
+              <span style={label}>Entity</span>
+              <EntityPicker entities={entities} value={l.entityCode || ''} onChange={(code) => set({ entityCode: code })} active={false} style={{ width: '100%', maxWidth: 'none' }} />
             </div>
             <div>
               <label style={label} htmlFor="mre-vendor">Vendor</label>

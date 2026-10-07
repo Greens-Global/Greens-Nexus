@@ -89,7 +89,7 @@ describe('MreTab', () => {
     expect(screen.queryByText('San Diego Gas & Electric')).toBeNull();
     expect(screen.getByText('Microsoft')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search a vendor'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'utilities' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'utilities' } });
     expect(screen.queryByText('Microsoft')).toBeNull();
     expect(screen.getByText('San Diego Gas & Electric')).toBeTruthy();
   });
@@ -198,5 +198,63 @@ describe('MreFromLedger', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const menu = screen.getByRole('menu', { name: 'Add a recurring expense' });
     expect(within(menu).getAllByRole('menuitem').map((m) => m.querySelector('span span').textContent)).toEqual(['From the Ledger', 'Manual']);
+  });
+});
+
+// Oct 7 (items 9, 12, 21, 32, 33): the module's shared controls on MRE.
+describe('MreTab shared controls', () => {
+  it('Customize has Row Density, Rows per Page and the MRE toggles; the pager keeps Total Paid over every line', async () => {
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    const btn = screen.getByRole('button', { name: /Customize/ });
+    expect(btn.querySelector('.lucide-sliders-horizontal')).toBeTruthy();
+    fireEvent.click(btn);
+    expect(screen.getByRole('group', { name: 'Row Density' })).toBeTruthy();
+    expect(screen.getByLabelText(/Show Ended/)).toBeTruthy();
+    expect(screen.getByLabelText(/Show Zero Balances/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Rows per Page' })).getByRole('button', { name: 'Other' }));
+    fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '1' } });
+    await screen.findByText(/Page 1 of 2/);
+    expect(screen.queryByText('Microsoft')).toBeNull();
+    const grand = screen.getByText('Total Paid').closest('tr');
+    expect(within(grand).getByText('3,379.00')).toBeTruthy();         // 3,280 + 99: both lines, not the page
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Microsoft')).toBeTruthy();
+  });
+
+  it('has a resize handle on the grid columns', async () => {
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    for (const name of ['Vendor', 'Entity', 'Category', 'Jan', 'Total', 'Notes']) {
+      expect(screen.getByRole('separator', { name: `Resize the ${name} column` })).toBeTruthy();
+    }
+  });
+
+  it('the entity on a line is the module picker, found by its number', async () => {
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Manual/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Add recurring expense' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Entity' }));
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '56000' } });
+    const opt = screen.getByRole('option', { name: /MCD Services/ });
+    expect(opt.textContent.indexOf('56000')).toBeLessThan(opt.textContent.indexOf('MCD Services'));
+    fireEvent.click(opt);
+    expect(within(dialog).getByRole('button', { name: 'Entity' }).textContent).toContain('MCD Services, Inc. (56000)');
+  });
+
+  it('a paid month opens the ledger lines behind it, each entry opening the entry', async () => {
+    api.searchAccountingLedger = vi.fn(async () => ({ rows: [{ entry_id: 'e-1', entry_no: 'AP-2001', entry_date: '2026-01-15', account_no: '62100', description: 'SDGE January', debit: 410, credit: 0 }] }));
+    api.getAccountingEntry = vi.fn(async () => ({ entry: { entry_no: 'AP-2001' }, lines: [], intacct: [] }));
+    render(<MreTab canEdit />);
+    const row = (await screen.findByText('San Diego Gas & Electric')).closest('tr');
+    fireEvent.click(within(row).getByRole('button', { name: 'Ledger lines for Jan 2026' }));
+    const dialog = screen.getByRole('dialog', { name: 'San Diego Gas & Electric, Jan 2026' });
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith({ account: '62100', party_kind: 'vendor', party: 'V-SDGE', location: '15000', from: '2026-01-01', to: '2026-01-31', limit: 100 });
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'AP-2001' }));
+    await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('e-1'));
+    // The year's Total drills the same way.
+    expect(within(row).getByRole('button', { name: /Ledger lines behind San Diego Gas & Electric's total for 2026/ })).toBeTruthy();
   });
 });
