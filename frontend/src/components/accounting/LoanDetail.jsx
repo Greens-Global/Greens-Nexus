@@ -124,7 +124,7 @@ function useHistory(loan, from, to, enabled) {
   return state.key === key ? state : { data: null, error: '' };
 }
 
-export default function LoanDetail({ loan, from, to, onOpenEntry, extras = null }) {
+export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null, extras = null }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const ledger = loan.wiring === 'ok' || !!loan.interestAccount;
   const given = loan.kind === 'given';
@@ -146,11 +146,21 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, extras = null 
       <div style={{ fontSize: '0.82rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
+  // An account named here opens its ledger lines in Reports (item 33), up to
+  // the period's end - `onDrill({ account, accountName })`.
+  const accountLink = (code, title, text) => (onDrill && code
+    ? <button type="button" className="acct-drill" onClick={() => onDrill({ account: code, accountName: title || '', from: '' })} title="Open the ledger lines on this account" style={{ fontWeight: 600, textAlign: 'left' }}>{text}</button>
+    : text);
+  const principalText = loan.glAccount ? `GL ${loan.glAccount}${loan.glTitle ? ` ${loan.glTitle}` : ''}` : 'None - kept by hand';
+  const interestValue = loan.interestAccounts?.length
+    ? loan.interestAccounts.map((a, i) => <span key={a.code}>{i ? ', ' : ''}{accountLink(a.code, a.title, `GL ${a.code}${a.title ? ` ${a.title}` : ''}`)}</span>)
+    : interestText;
   return (
     <div style={{ display: 'grid', gap: 12, padding: '12px 14px 14px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }} aria-label={`Details of ${loan.lender || loan.loanNo}`}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 24px' }}>
-        {fact('Principal Account', loan.glAccount ? `GL ${loan.glAccount}${loan.glTitle ? ` ${loan.glTitle}` : ''}` : 'None - kept by hand', loan.wiring === 'missing' ? 'This account has no lines in this entity on the ledger - check the wiring under Change Loan.' : undefined)}
-        {fact('Interest Account', interestText, INTEREST_SOURCE[loan.interestSource] ? `From ${INTEREST_SOURCE[loan.interestSource]}.` : undefined)}
+        {fact('Principal Account', loan.wiring === 'ok' ? accountLink(loan.glAccount, loan.glTitle, principalText) : principalText, loan.wiring === 'missing' ? 'This account has no lines in this entity on the ledger - check the wiring under Change Loan.' : undefined)}
+        {fact('Interest Account', interestValue, INTEREST_SOURCE[loan.interestSource] ? `From ${INTEREST_SOURCE[loan.interestSource]}.` : undefined)}
+
         {fact('Original Principal', loan.originalPrincipal == null ? '-' : `${formatAmount(loan.originalPrincipal)}${loan.originalPrincipalEdited ? ' (edited)' : loan.originalPrincipalDate ? ` on ${formatDate(loan.originalPrincipalDate)}` : ''}`)}
         {loc && fact('Draws in Period', loan.draws == null ? '-' : formatAmount(loan.draws), 'Credits to the principal account in the period: new money borrowed, not payments.')}
         {fact('NOI (T12)', formatAmount(loan.noiT12), `Income ${formatAmount(loan.incomeT12)} less operating expenses ${formatAmount(loan.operatingExpensesT12)}; interest, depreciation and amortization left out.`)}

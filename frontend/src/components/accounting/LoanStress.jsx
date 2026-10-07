@@ -4,7 +4,9 @@ import { useBackdropClose } from './LoanDialogs';
 import { api } from '../../api';
 import Amount, { AmountInput, Figure } from './Amount';
 import { formatDate } from '../../lib/datetime';
-import { ExportMenu, control } from './reportControls';
+import { ColumnResizer, CustomizeButton, DENSITIES, EntityPicker, ExportMenu, Pager, control } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { cellStyle, headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
 import { SHOCKS, normalizeLoan, stressAmortMonths, stressLoan, stressPortfolio } from './loanMath';
 
@@ -25,6 +27,12 @@ import { SHOCKS, normalizeLoan, stressAmortMonths, stressLoan, stressPortfolio }
 //               NOI services all of its loans, the same DSCR the Loans
 //               review shows - failing entities first.
 // The arithmetic is loanMath.js (tested).
+//
+// Oct 7 (items 9, 12, 21, 32): the portfolio's toolbar reads like the rest of
+// the module - the entity picker (search by number), then the standard
+// Customize (Row Density, Rows per Page) and Export at its right end; a Pager
+// under the entities (the totals and the export cover every entity); and
+// columns resized by dragging a header edge.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
@@ -274,7 +282,16 @@ function AddbackCell({ code, name, value, note, canEdit, onSave }) {
   );
 }
 
+// The portfolio table's columns: [key (saved widths), header, figure].
+const STRESS_COLUMNS = [
+  ['entity', 'Entity'], ['loans', 'Loans'], ['basis', 'NOI Basis'], ['noi', 'NOI', true], ['addback', 'Addback', true], ['adjusted', 'Adjusted NOI', true],
+  ['dsToday', 'Debt Service Today', true], ['dsStressed', 'Debt Service Stressed', true], ['dscr', 'DSCR', true], ['result', 'Result'], ['cushion', 'NOI Cushion', true], ['breakEven', 'Break-Even Shock', true],
+];
+
 export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEditLoan = null }) {
+  const customize = useCustomizePrefs(['density', 'pageSize']);
+  const py = DENSITIES.find((d) => d.key === customize.density)?.py || '5px';
+  const cw = useColumnWidths('loanStress');
   const [pick, setPick] = useState(200);
   const [custom, setCustom] = useState('');
   const [overrides, setOverrides] = useState({});
@@ -318,10 +335,12 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
   const entityNoi = useMemo(() => Object.fromEntries(Object.entries(nois).filter(([, n]) => n.adjusted != null).map(([c, n]) => [c, n.adjusted])), [nois]);
   const out = useMemo(() => stressPortfolio(shown.filter((r) => !excluded.has(String(r.id))), { shockBps: shock, overrides, entityNoi }), [shown, excluded, shock, overrides, entityNoi]);
   const rowsShown = f.belowOnly ? out.entities.filter((e) => !e.pass) : out.entities;
+  // Rows per Page: the entities on this page; the totals and the export cover all of them.
+  const paged = usePaged(rowsShown, customize.pageSize, [f, shock, defaultBasis]);
   const excludedShown = shown.filter((r) => excluded.has(String(r.id)));
   const noRate = shown.filter((r) => !excluded.has(String(r.id)) && normalizeLoan(r).ratePct == null).length;
   const lenders = useMemo(() => [...new Set(active.map((r) => r.lender || '').filter(Boolean))].sort((a, b) => a.localeCompare(b)), [active]);
-  const entityList = useMemo(() => [...new Map(active.map((r) => [normalizeLoan(r).entityCode, normalizeLoan(r).entityName])).entries()].sort((a, b) => a[0].localeCompare(b[0], 'en-US', { numeric: true })), [active]);
+  const entityList = useMemo(() => [...new Map(active.map((r) => [normalizeLoan(r).entityCode, normalizeLoan(r).entityName])).entries()].map(([code, name]) => ({ code, name })), [active]);
 
   const saveEntity = (code, patch) => {
     setSettings((m) => ({ ...m, [code]: { ...(m[code] || {}), ...patch } }));
@@ -370,6 +389,7 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
         .acct-stress tbody tr:nth-of-type(even) > td { background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 4%); }
         .acct-stress tbody tr.fail > td:first-child { box-shadow: inset 3px 0 0 var(--bad-fg, #dc2626); }
         .acct-stress thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card); }
+        .acct-stress tbody td { padding-top: var(--stress-py, 5px); padding-bottom: var(--stress-py, 5px); }
       `}</style>
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
         <span style={{ ...label, margin: 0 }}>Shock</span>
@@ -384,18 +404,10 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
           <span>Debt Service <strong><Amount value={out.totals.baseDebtService} /></strong> to <strong><Amount value={out.totals.debtService} /></strong></span>
           <span>DSCR <strong>{x(out.totals.dscr)}</strong></span>
           <span>Below Covenant <strong style={{ color: out.totals.failing ? 'var(--bad-fg, #dc2626)' : undefined }}>{out.totals.failing}</strong></span>
-          <ExportMenu disabled={!rowsShown.length} items={[
-            { key: 'pdf', label: 'PDF', onPick: () => doExport('pdf'), busy: exporting === 'pdf' },
-            { key: 'excel', label: 'Excel', onPick: () => doExport('excel'), busy: exporting === 'excel' },
-            { key: 'csv', label: 'CSV', onPick: () => doExport('csv'), busy: exporting === 'csv' },
-          ]} />
         </div>
       </div>
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <select value={f.entity} onChange={(e) => setFilter({ entity: e.target.value })} aria-label="Entity" style={{ ...control, maxWidth: 260 }}>
-          <option value="">All Entities</option>
-          {entityList.map(([c, n]) => <option key={c} value={c}>{c} - {n}</option>)}
-        </select>
+        <EntityPicker entities={entityList} value={f.entity} onChange={(code) => setFilter({ entity: code })} noneLabel="All Entities" showHistorical />
         <select value={f.lender} onChange={(e) => setFilter({ lender: e.target.value })} aria-label="Lender" style={{ ...control, maxWidth: 220 }}>
           <option value="">All Lenders</option>
           {lenders.map((l) => <option key={l} value={l}>{l}</option>)}
@@ -406,6 +418,14 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
         <input type="text" value={f.text} onChange={(e) => setFilter({ text: e.target.value })} placeholder="Filter loans" aria-label="Filter the stress test" style={{ ...control, width: 170 }} />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}><input type="checkbox" data-nx-filter="1" checked={f.belowOnly} onChange={(e) => setFilter({ belowOnly: e.target.checked })} /> Below Covenant Only</label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}><input type="checkbox" data-nx-filter="1" checked={f.showExcluded} onChange={(e) => setFilter({ showExcluded: e.target.checked })} /> Show Excluded{excluded.size ? ` (${excluded.size})` : ''}</label>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <CustomizeButton {...customize} />
+          <ExportMenu disabled={!rowsShown.length} items={[
+            { key: 'excel', label: 'Excel', hint: 'Every entity, totals in bold', onPick: () => doExport('excel'), busy: exporting === 'excel' },
+            { key: 'csv', label: 'CSV', hint: 'Plain values, one row per entity', onPick: () => doExport('csv'), busy: exporting === 'csv' },
+            { key: 'pdf', label: 'PDF', hint: 'Landscape, banded, page numbers', onPick: () => doExport('pdf'), busy: exporting === 'pdf' },
+          ]} />
+        </div>
       </div>
       {error && <div style={bad}>{error}</div>}
       {noRate > 0 && <div style={warn}>{noRate} {noRate === 1 ? 'loan has' : 'loans have'} no rate on file and {noRate === 1 ? 'is' : 'are'} tested at 0% - type the rate on the loan (pencil) to include it properly.</div>}
@@ -413,21 +433,22 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
       {!rowsShown.length ? <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>{f.belowOnly && out.entities.length ? 'No entity is below its covenant at this shock.' : 'No active loans with a balance to test.'}</div> : (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <div className="req-table-wrapper" style={{ overflow: 'auto', maxHeight: '70vh' }}>
-            <table className="req-table acct-stress" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <table className="req-table acct-stress" style={{ fontVariantNumeric: 'tabular-nums', '--stress-py': py }}>
               <thead>
                 <tr>
-                  <th>Entity</th><th>Loans</th><th>NOI Basis</th><th style={num}>NOI</th><th style={num}>Addback</th><th style={num}>Adjusted NOI</th>
-                  <th style={num}>Debt Service Today</th><th style={num}>Debt Service Stressed</th><th style={num}>DSCR</th><th>Result</th><th style={num}>NOI Cushion</th><th style={num}>Break-Even Shock</th>
+                  {STRESS_COLUMNS.map(([k, l, isNum]) => (
+                    <th key={k} aria-label={l} style={headStyle(cw.width(k), isNum ? num : null)}>{l}<ColumnResizer {...cw.resizer(k, l)} /></th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {rowsShown.map((e) => {
+                {paged.rows.map((e) => {
                   const n = nois[e.entityCode] || { basis: defaultBasis, base: null, addback: 0, note: '' };
                   const s = settings[e.entityCode] || {};
                   return (
                     <tr key={e.entityCode} className={e.pass ? undefined : 'fail'}>
-                      <td style={{ fontWeight: 600, minWidth: 180 }}>{e.entityName}</td>
-                      <td style={{ fontSize: '0.74rem' }}>
+                      <td style={cellStyle(cw.width('entity'), { fontWeight: 600, minWidth: cw.width('entity') || 180 })} title={cw.width('entity') ? e.entityName : undefined}>{e.entityName}</td>
+                      <td style={cellStyle(cw.width('loans'), { fontSize: '0.74rem' })}>
                         {e.loans.map((y) => (
                           <div key={y.id} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
                             <span>{y.lender || y.loanNo || 'Loan'} · {pct(y.ratePct)}</span>
@@ -440,34 +461,36 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
                           </div>
                         ))}
                       </td>
-                      <td>
+                      <td style={cellStyle(cw.width('basis'))}>
                         <select value={s.noiBasis || ''} disabled={!canEdit} onChange={(ev) => saveEntity(e.entityCode, { noiBasis: ev.target.value })} aria-label={`NOI basis of ${e.entityName}`} style={{ ...control, height: 26, fontSize: '0.72rem' }}>
                           <option value="">Default ({basisLabel(defaultBasis)})</option>
                           {NOI_BASES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                         </select>
                       </td>
-                      <td style={num}>
+                      <td style={cellStyle(cw.width('noi'), num)}>
                         {n.basis === 'manual' && canEdit
                           ? <AmountInput aria-label={`NOI of ${e.entityName}`} value={s.noiManual ?? null} onChange={(v) => saveEntity(e.entityCode, { noiManual: v })} style={{ ...control, width: 120, textAlign: 'right' }} />
                           : n.base == null ? <span style={{ color: 'var(--text-muted)' }}>{n.basis === 'ytd' && ytdLoading ? '...' : '-'}</span> : <Amount value={n.base} />}
                       </td>
-                      <td style={num}><AddbackCell key={`${e.entityCode}|${n.note}`} code={e.entityCode} name={e.entityName} value={n.addback} note={n.note} canEdit={canEdit} onSave={saveEntity} /></td>
-                      <td style={num}><strong><Amount value={e.noi} /></strong></td>
-                      <td style={num}><Amount value={e.baseDebtService} /></td>
-                      <td style={num}><Amount value={e.debtService} /></td>
-                      <td style={num}><Figure text={`${x(e.dscrBase)} to ${x(e.dscr)}`} /></td>
-                      <td>{passChip(e.pass)} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>min {x(e.covenant)}</span></td>
-                      <td style={num}><Amount value={e.cushion} /></td>
-                      <td style={num}>{shockText(e.breakEvenShockBps)}</td>
+                      <td style={cellStyle(cw.width('addback'), num)}><AddbackCell key={`${e.entityCode}|${n.note}`} code={e.entityCode} name={e.entityName} value={n.addback} note={n.note} canEdit={canEdit} onSave={saveEntity} /></td>
+                      <td style={cellStyle(cw.width('adjusted'), num)}><strong><Amount value={e.noi} /></strong></td>
+                      <td style={cellStyle(cw.width('dsToday'), num)}><Amount value={e.baseDebtService} /></td>
+                      <td style={cellStyle(cw.width('dsStressed'), num)}><Amount value={e.debtService} /></td>
+                      <td style={cellStyle(cw.width('dscr'), num)}><Figure text={`${x(e.dscrBase)} to ${x(e.dscr)}`} /></td>
+                      <td style={cellStyle(cw.width('result'))}>{passChip(e.pass)} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>min {x(e.covenant)}</span></td>
+                      <td style={cellStyle(cw.width('cushion'), num)}><Amount value={e.cushion} /></td>
+                      <td style={cellStyle(cw.width('breakEven'), num)}>{shockText(e.breakEvenShockBps)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          <Pager {...paged} style={{ borderTop: '1px solid var(--border-color)' }} />
         </div>
       )}
-      {f.showExcluded && excludedShown.length > 0 && (
+      {f.showExcluded
+ && excludedShown.length > 0 && (
         <div style={{ ...card, padding: 12, display: 'grid', gap: 6 }}>
           <strong style={{ fontSize: '0.82rem' }}>Left Out of the Stress Test</strong>
           {excludedShown.map((r) => (

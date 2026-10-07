@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ExternalLink, Folder, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
-import { control, entityOptions } from './reportControls';
+import { EntityPicker, control } from './reportControls';
 import { formatDate } from '../../lib/datetime';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 
@@ -262,7 +262,6 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
 }
 
 export function ManualLoanDialog({ entities, showHistorical = false, onClose, onSaved }) {
-  const options = useMemo(() => entityOptions(entities, { showHistorical }), [entities, showHistorical]);
   const [d, setD] = useState({ lender: '', entityCode: '', loanNo: '', originalPrincipal: null, balance: null, ratePct: '', rateType: 'fixed', maturity: '', monthlyPayment: null, type: 'external', loanType: 'term', docsPath: '', statementsPath: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -285,11 +284,10 @@ export function ManualLoanDialog({ entities, showHistorical = false, onClose, on
       <div style={grid}>
         <div><label style={label} htmlFor="manual-lender">Lender</label><input id="manual-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => set({ lender: e.target.value })} style={full} autoFocus /></div>
         <div>
-          <label style={label} htmlFor="manual-entity">Entity</label>
-          <select id="manual-entity" value={d.entityCode} onChange={(e) => set({ entityCode: e.target.value })} style={full}>
-            <option value="">Pick an entity...</option>
-            {options.map((o) => <option key={o.code} value={o.code}>{o.depth ? '  ' : ''}{o.code} - {o.name || 'Unnamed'}</option>)}
-          </select>
+          <span style={label} id="manual-entity-label">Entity</span>
+          <EntityPicker entities={entities} value={d.entityCode} onChange={(code) => set({ entityCode: code })} showHistorical={showHistorical}
+            placeholder="Pick an Entity" active={false} style={{ ...full, maxWidth: 'none' }} />
+
         </div>
         <div><label style={label} htmlFor="manual-no">Loan #</label><input id="manual-no" type="text" value={d.loanNo} maxLength={40} onChange={(e) => set({ loanNo: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="manual-original">Original Principal</label><AmountInput id="manual-original" value={d.originalPrincipal} onChange={(v) => set({ originalPrincipal: v })} style={full} /></div>

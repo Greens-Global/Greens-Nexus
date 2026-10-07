@@ -284,7 +284,14 @@ describe('LoansTab', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: /Manual/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Add a Loan by Hand' });
     fireEvent.change(within(dialog).getByLabelText('Lender'), { target: { value: 'Rajesh Family Trust' } });
-    fireEvent.change(within(dialog).getByLabelText('Entity'), { target: { value: '12000' } });
+    // The module's entity picker: found by its number, code on the left, (H) hidden.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Entity' }));
+    expect(screen.queryByRole('option', { name: /Old Holdings/ })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '12000' } });
+    const opt = screen.getByRole('option', { name: /Greens Global, Inc\./ });
+    expect(opt.textContent.indexOf('12000')).toBeLessThan(opt.textContent.indexOf('Greens Global'));
+    fireEvent.click(opt);
+    expect(within(dialog).getByRole('button', { name: 'Entity' }).textContent).toContain('Greens Global, Inc. (12000)');
     fireEvent.change(within(dialog).getByLabelText('Loan #'), { target: { value: 'RFT-1' } });
     const bal = within(dialog).getByLabelText('Balance');
     fireEvent.change(bal, { target: { value: '250k' } });
@@ -471,5 +478,93 @@ describe('LoansTab', () => {
     expect(t.columns.map((c) => c.label).slice(0, 4)).toEqual(['Lender', 'Loan #', 'Entity', 'Monthly Payment']);
     expect(t.totals[5]).toBe(1252000 + 400000 + 20000 + 14500000);
     expect(t.subtitle).toContain('10/06/2026');
+  });
+});
+
+// Oct 7 (items 9, 21, 32, 33): the module's shared controls on Loans.
+describe('LoansTab shared controls', () => {
+  it('has the standard Customize: Row Density, Rows per Page, Show Historical Entities and Show Closed Loans', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    const btn = screen.getByRole('button', { name: /Customize/ });
+    expect(btn.querySelector('.lucide-sliders-horizontal')).toBeTruthy();
+    expect(btn.querySelector('.lucide-settings-2')).toBeNull();
+    fireEvent.click(btn);
+    const panel = screen.getByRole('dialog', { name: 'Customize' });
+    expect(within(panel).getByRole('group', { name: 'Row Density' })).toBeTruthy();
+    expect(within(panel).getByRole('group', { name: 'Rows per Page' })).toBeTruthy();
+    expect(within(panel).getByLabelText(/Show Historical Entities/)).toBeTruthy();
+    expect(within(panel).getByLabelText(/Show Closed Loans/)).toBeTruthy();
+  });
+
+  it('pages the loans from Customize > Rows per Page; totals and exports cover every loan', async () => {
+    const { container } = render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Rows per Page' })).getByRole('button', { name: 'Other' }));
+    fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '2' } });
+    await screen.findByText(/Page 1 of 2/);
+    expect(container.querySelectorAll('tbody.loan')).toHaveLength(2);
+    // The footer totals all four open loans, not the page.
+    expect(within(container.querySelector('tfoot')).getByText('16,172,000.00')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByText(/Page 2 of 2/);
+    expect(container.querySelectorAll('tbody.loan')).toHaveLength(2);
+    // The export table is built from every loan shown by the filters.
+    expect(_test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All entities' }).rows).toHaveLength(4);
+  });
+
+  it('has a resize handle on every column, and + Add is the shared menu', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    for (const name of ['Lender', 'Loan #', 'Entity', 'Balance', 'Principal Paid', 'Interest Paid', 'Egnyte']) {
+      expect(screen.getByRole('separator', { name: `Resize the ${name} column` })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('columnheader', { name: 'Balance' }).length).toBeGreaterThan(0);
+    const add = screen.getByRole('button', { name: /Add/ });
+    expect(add.querySelector('.lucide-chevron-down')).toBeTruthy();       // AddMenu's button
+    fireEvent.click(add);
+    const menu = screen.getByRole('menu', { name: 'Add a loan' });
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      expect.stringContaining('From the Ledger'), expect.stringContaining('Manual'),
+    ]);
+  });
+
+  it('Balance and Principal Paid open the ledger lines behind them in Reports', async () => {
+    const seen = [];
+    const onNav = (e) => seen.push(['nav', e.detail]);
+    const onDrill = (e) => seen.push(['drill', e.detail]);
+    window.addEventListener('nexus:navigate', onNav);
+    window.addEventListener('nexus:accounting-drill', onDrill);
+    try {
+      render(<LoansTab canEdit />);
+      await rowOf('F&M Bank');
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the balance of F&M Bank' }));
+      expect(seen[0]).toEqual(['nav', { view: 'accounting', sub: 'reports' }]);
+      expect(seen[1][1]).toMatchObject({ account: '27100', entity: '15000', from: '' });
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the principal paid on F&M Bank' }));
+      expect(seen[3][1]).toMatchObject({ account: '27100', entity: '15000', from: expect.stringMatching(/^\d{4}-\d{2}-01$/) });
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the interest paid on F&M Bank' }));
+      expect(seen[5][1]).toMatchObject({ account: '71100', entity: '15000' });
+    } finally {
+      window.removeEventListener('nexus:navigate', onNav);
+      window.removeEventListener('nexus:accounting-drill', onDrill);
+    }
+  });
+
+  it('the Stress Test has the entity picker, the standard Customize, a pager and resizable columns', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('tab', { name: 'Stress Test' }));
+    await waitFor(() => expect(api.getLoanStressSettings).toHaveBeenCalled());
+    expect(screen.getByRole('separator', { name: 'Resize the Adjusted NOI column' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Entity' }));
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '56000' } });
+    fireEvent.click(screen.getByRole('option', { name: /MCD Services/ }));
+    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Greens Escondido, LLC.' })).toBeNull());
+    expect(screen.getByRole('cell', { name: 'MCD Services, Inc.' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    expect(screen.getByRole('group', { name: 'Rows per Page' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Row Density' })).toBeTruthy();
   });
 });

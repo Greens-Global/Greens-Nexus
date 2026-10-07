@@ -5,7 +5,7 @@ import { api } from '../../api';
 import Amount from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
-import { control } from './reportControls';
+import { EntityPicker, control } from './reportControls';
 import { POLL_MS, ScanProgress, entitiesScannedText, useLedgerScan } from './LedgerScan';
 import { EgnyteField, folderName, useBackdropClose } from './LoanDialogs';
 
@@ -144,7 +144,9 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
   const setPicked = (fn) => setSel({ for: data, keys: fn(picked) });
   const shown = useMemo(() => filterProposals(rows, { kind, status, entity, text, showRemoved }), [rows, kind, status, entity, text, showRemoved]);
   const shownSelectable = shown.filter(selectable);
-  const entityList = useMemo(() => [...new Map(rows.map((p) => [p.entityCode, p.entityName])).entries()].sort((a, b) => a[0].localeCompare(b[0], 'en-US', { numeric: true })), [rows]);
+  // The entities the scan proposed loans on, for the module's entity picker
+  // (Oct 7, item 12: search by number, code on the left).
+  const entityList = useMemo(() => [...new Map(rows.map((p) => [p.entityCode, p.entityName])).entries()].map(([code, name]) => ({ code, name })), [rows]);
   const removedCount = rows.filter((p) => p.status === 'dismissed').length;
 
   useEffect(() => {
@@ -219,10 +221,8 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
                 </div>
                 <Segment label="Kind" value={kind} onChange={setKind} options={[['all', 'All'], ['external', 'External'], ['intercompany', 'Intercompany']]} />
                 <Segment label="Status" value={status} onChange={setStatus} options={[['all', 'All'], ['new', 'New'], ['set_up', 'Set Up'], ...(showRemoved ? [['dismissed', 'Removed']] : [])]} />
-                <select value={entity} onChange={(e) => setEntity(e.target.value)} aria-label="Entity" style={{ ...control, maxWidth: 280 }}>
-                  <option value="">All Entities</option>
-                  {entityList.map(([c, n]) => <option key={c} value={c}>{c} - {n}</option>)}
-                </select>
+                <EntityPicker entities={entityList} value={entity} onChange={setEntity} noneLabel="All Entities" showHistorical />
+
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', cursor: 'pointer' }}>
                   <input type="checkbox" data-nx-filter="1" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} /> Show Removed{removedCount ? ` (${removedCount})` : ''}
                 </label>
