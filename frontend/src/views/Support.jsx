@@ -14,9 +14,9 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
-  Ticket, Users, ArrowUpRight, Shield, FileSignature, Search,
+  Ticket, Users, ArrowUpRight, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw, ClipboardList,
+  Pencil, CheckCircle2, RotateCcw, ClipboardList, Rocket,
 } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
@@ -35,6 +35,7 @@ import { LatestCommentPreview } from '../tickets/LatestComment';
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab.
 const SupportDocs = lazy(() => import('../support/SupportDocs'));
+const ImplementationGuide = lazy(() => import('../support/ImplementationGuide'));
 
 // 'help' is the page as it always was; 'documentation' is the module guide.
 // URL: /support (help) or /support/documentation.
@@ -42,6 +43,9 @@ const SUPPORT_TABS = [
   { key: 'help', label: 'Help Center', Icon: LifeBuoy },
   { key: 'documentation', label: 'Documentation', Icon: BookOpen },
 ];
+// Administrators also get the Implementation Guide (Neil, 10/06): how to set
+// Nexus up for an organization, as opposed to Documentation (how to use it).
+const IMPLEMENTATION_TAB = { key: 'implementation', label: 'Implementation Guide', Icon: Rocket };
 
 // Tour id this page reports to the server (routers/user_tours.py) - same
 // pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
@@ -156,7 +160,11 @@ const rowBtn = {
 const SUPPORT_PAGE_SIZE = 10;
 
 export default function Support({ activeSub, onSubChange }) {
-  const tab = activeSub === 'documentation' ? 'documentation' : 'help';
+  const { can = () => false, isExternal = false } = useRole() || {};
+  const canImplement = !isExternal && can('administrator');
+  const tabs = canImplement ? [...SUPPORT_TABS, IMPLEMENTATION_TAB] : SUPPORT_TABS;
+  const tab = activeSub === 'documentation' ? 'documentation'
+    : activeSub === 'implementation' && canImplement ? 'implementation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
   const [walking, setWalking] = useState(false);
@@ -266,14 +274,13 @@ export default function Support({ activeSub, onSubChange }) {
       onOpen: () => setWalking(true) }] : []),
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
-    // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
-    // both still resolve as ordinary views (App.jsx), just opened from here.
-    { icon: Shield, title: 'Privacy Policy', desc: 'What Nexus collects, why, and who can see it.',
-      onOpen: () => go('privacy-policy') },
-    { icon: FileSignature, title: 'Terms & Conditions', desc: 'The terms that govern your use of Nexus.',
-      onOpen: () => go('terms-conditions') },
+    // Privacy Policy and Terms & Conditions moved to Legal in the profile menu
+    // (Neil, 10/06: "this has nothing to do with Support").
     { icon: BookOpen, title: 'Documentation', desc: 'How every Nexus module works, step by step.',
       onOpen: () => setTab('documentation'), tour: 'support-documentation' },
+    ...(canImplement ? [{ icon: Rocket, title: 'Implementation Guide',
+      desc: 'Set Nexus up for an organization: companies, people, access, time and pay, phase by phase.',
+      onOpen: () => setTab('implementation') }] : []),
   ];
 
   // Closed tickets are not what "Open Tickets" means, but a requester whose
@@ -324,11 +331,15 @@ export default function Support({ activeSub, onSubChange }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <ModuleTabs tabs={SUPPORT_TABS} active={tab} onChange={setTab} />
+      <ModuleTabs tabs={tabs} active={tab} onChange={setTab} />
 
       {tab === 'documentation' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
           <SupportDocs />
+        </Suspense>
+      ) : tab === 'implementation' ? (
+        <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
+          <ImplementationGuide />
         </Suspense>
       ) : (<>
       <div className="view-header">

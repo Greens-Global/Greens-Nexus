@@ -5,7 +5,7 @@ import PolicyDoc from './PolicyDoc';
 // before treating this as the company's official terms - replace the contact
 // address below with the real one.
 
-const SECTIONS = [
+export const TERMS_SECTIONS = [
   { h: '1. Acceptance', p: [
     'These Terms & Conditions govern your use of Nexus, Greens Global’s internal company portal. By signing in with your Microsoft work account, you agree to these Terms and to the Privacy Policy. If you do not agree, do not use Nexus and contact your manager or IT.',
   ]},
@@ -41,6 +41,8 @@ const SECTIONS = [
   ]},
 ];
 
+export const TERMS_UPDATED = 'August 5, 2026';
+
 export default function TermsConditions({ embedded = false }) {
-  return <PolicyDoc title="Terms & Conditions" updated="August 5, 2026" sections={SECTIONS} embedded={embedded} />;
+  return <PolicyDoc title="Terms & Conditions" updated={TERMS_UPDATED} sections={TERMS_SECTIONS} embedded={embedded} />;
 }

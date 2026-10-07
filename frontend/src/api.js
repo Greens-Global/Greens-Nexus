@@ -1235,6 +1235,9 @@ export const api = {
   syncM365TwoWayStatus: () => req('/hr/employees/sync-m365-two-way/status'),
   pushToEntra:       (empId)        => req(`/hr/employees/${empId}/push-to-entra`, { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
+  // Support > Implementation Guide: one shared done-list for administrators (Oct 7).
+  getImplementationProgress: ()           => req('/implementation/progress'),
+  setImplementationCheck:    (id, done)   => req(`/implementation/progress/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ done }) }),
 
   // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),

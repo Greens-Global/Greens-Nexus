@@ -3074,3 +3074,5 @@ app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrou
 from routers import marketing_ads  # noqa: E402
 app.include_router(marketing_ads.router)           # Marketing > Google Ads: spend per campaign, budgets (read-only, Oct 2026)
 app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import implementation  # noqa: E402
+app.include_router(implementation.router)          # Support > Implementation Guide: the shared setup checklist (Neil, 10/06)

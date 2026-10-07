@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail, Scale, Rocket } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -624,6 +624,19 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               {activeView === 'documents' && (
                 <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:documents-tour')); }}>
                   <PlayCircle size={14} /> Tour
+                </button>
+              )}
+
+              {/* Legal (Neil, 10/06): the Privacy Policy and Terms & Conditions,
+                  one page with a tab each - "nothing to do with Support". The
+                  Implementation Guide sits here too for administrators: how to
+                  set Nexus up for an organization (Support > Implementation Guide). */}
+              <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'legal', sub: 'privacy' } })); }}>
+                <Scale size={14} /> Legal
+              </button>
+              {!isExternal && can('administrator') && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support', sub: 'implementation' } })); }}>
+                  <Rocket size={14} /> Implementation Guide
                 </button>
               )}
 
