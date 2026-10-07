@@ -2689,6 +2689,14 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         local_date = tp.local_date
     _guard_review(db, email, local_date, email)
     if action == "add":
+        # The same fix asked for twice (same punch, same minute) is one fix:
+        # employees re-filed when nothing seemed to happen, and every copy
+        # after the first one approved then failed for HR (Charmi, Oct 7).
+        probe = PunchRequest(employee_email=email, action="add", punch_kind=body.punch_kind, at=at_utc)
+        if _pr_dupes(db, probe, lock=False):
+            raise HTTPException(409, "You already asked for this fix.")
+        if _same_live_punch(db, probe) is not None:
+            raise HTTPException(409, "That punch is already on your timecard.")
         # The employee's other pending add requests count as if real: asking
         # for an in, then for its out, is how a missing pair gets requested.
         from types import SimpleNamespace
@@ -2766,6 +2774,90 @@ def _punch_neighbors(db: Session, email: str, at: str):
     return p_, n_
 
 
+def _pr_minute(at: str) -> str:
+    """A requested punch time to the minute - the duplicate key's clock part."""
+    return (at or "")[:16].replace(" ", "T")
+
+
+def _pr_dupes(db: Session, r, lock: bool = True) -> list:
+    """The employee's OTHER pending 'add' requests for the very same punch
+    (same kind, same minute). They are one fix: approving or rejecting one
+    closes the rest (Charmi, Oct 7 - 3x the same clock-out, 2x the same
+    break end; approving one left every copy failing)."""
+    if getattr(r, "action", "add") != "add" or not r.at:
+        return []
+    q = db.query(PunchRequest).filter(PunchRequest.employee_email == r.employee_email,
+                                      PunchRequest.status == "pending", PunchRequest.action == "add",
+                                      PunchRequest.punch_kind == r.punch_kind)
+    if r.id:
+        q = q.filter(PunchRequest.id != r.id)
+    if lock:
+        q = q.with_for_update()
+    key = _pr_minute(r.at)
+    return [d for d in q.all() if _pr_minute(d.at) == key]
+
+
+def _same_live_punch(db: Session, r):
+    """A real (non-voided) punch of the requested kind already at the
+    requested minute - the fix is already on the timecard."""
+    if not r.at:
+        return None
+    key = _pr_minute(r.at)
+    rows = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                    TimePunch.kind == r.punch_kind, TimePunch.at >= key, TimePunch.at < key + ":60")
+            .all())
+    return next((p for p in rows if _pr_minute(p.at) == key), None)
+
+
+def _close_dupes(db: Session, reqs: list, user: dict, now: str, note: str) -> int:
+    """Close the pending copies of each request in `reqs` as duplicates.
+    No bell or email to the employee - the request they meant was decided."""
+    done = {q.id for q in reqs}
+    closed = 0
+    for q in reqs:
+        for d in _pr_dupes(db, q):
+            if d.id in done:
+                continue
+            done.add(d.id)
+            d.status = "rejected"
+            d.decided_by, d.decided_at, d.decision_note = user["email"], now, note
+            closed += 1
+    return closed
+
+
+_DUPE_APPROVED = "Duplicate of an approved request"
+_DUPE_REJECTED = "Duplicate of a rejected request"
+_DUPE_ON_CARD = "Duplicate of a punch already on the timecard"
+
+
+def _punch_when(p) -> tuple:
+    """(time, date) of a punch or request in the employee's local time, US
+    format: ('4:00 PM', '09/23/2026')."""
+    dt = _parse_iso(p.at or "")
+    if not dt:
+        return (p.at or "", "")
+    loc = dt - timedelta(minutes=getattr(p, "tz_offset_min", 0) or 0)
+    return (f"{loc.hour % 12 or 12}:{loc:%M} {'AM' if loc.hour < 12 else 'PM'}", loc.strftime("%m/%d/%Y"))
+
+
+def _collision_msg(this, other, before: bool) -> str:
+    """The 409 a punch-fix approval answers with, naming exactly which punch
+    collides: 'This break end at 4:00 PM on 09/23/2026 would come right before
+    another break end at 4:12 PM - edit the punches on the timecard instead.'"""
+    kind = getattr(this, "punch_kind", None) or getattr(this, "kind", "")
+    t, d = _punch_when(this)
+    if other is None:
+        return (f"This {_kind_label(kind)} at {t} on {d} has no clock-in before it - "
+                "edit the punches on the timecard instead.")
+    okind = getattr(other, "punch_kind", None) or getattr(other, "kind", "")
+    ot, od = _punch_when(other)
+    article = "another" if okind == kind else "a"
+    where = ot if od == d else f"{ot} on {od}"
+    return (f"This {_kind_label(kind)} at {t} on {d} would come right {'before' if before else 'after'} "
+            f"{article} {_kind_label(okind)} at {where} - edit the punches on the timecard instead.")
+
+
 def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
     """Insert the punches a run of pending 'add' requests ask for (sorted by
     time), after checking that the whole run keeps the punch sequence legal
@@ -2796,17 +2888,13 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
             prev, _ = _punch_neighbors(db, first.employee_email, first.at)
             _, nxt = _punch_neighbors(db, last.employee_email, last.at)
     last_kind = prev.kind if prev else None
+    last = prev
     for q in reqs:
         if q.punch_kind not in _allowed_kinds(last_kind):
-            raise HTTPException(409,
-                f"Approving this would place a '{q.punch_kind}' after a "
-                f"'{last_kind or 'clock-out'}', which isn't a valid punch sequence. "
-                f"Ask the employee to correct the request, or edit the punches directly.")
-        last_kind = q.punch_kind
+            raise HTTPException(409, _collision_msg(q, last, before=False))
+        last_kind, last = q.punch_kind, q
     if nxt and nxt.kind not in _allowed_kinds(last_kind):
-        raise HTTPException(409,
-            f"Approving this '{last_kind}' would make the following '{nxt.kind}' "
-            f"punch invalid. Edit the punches directly instead.")
+        raise HTTPException(409, _collision_msg(reqs[-1], nxt, before=True))
     for q in reqs:
         tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
                        at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
@@ -2832,8 +2920,17 @@ def _pending_partners(db: Session, r) -> list:
     if nxt is not None:
         q = q.filter(PunchRequest.at <= nxt.at)
     rows = [p for p in q.all() if p.at and p.punch_kind in _KIND_RANK]
-    rows.sort(key=lambda p: (p.at, _KIND_RANK[p.punch_kind]))
-    return rows
+    rows.sort(key=lambda p: (p.at, _KIND_RANK[p.punch_kind], p.created_at or ""))
+    # Copies of the same fix are one fix: never chain a punch in twice (the
+    # copies are closed as duplicates once the chain is applied).
+    seen = {(r.punch_kind, _pr_minute(r.at))}
+    out = []
+    for p in rows:
+        key = (p.punch_kind, _pr_minute(p.at))
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
 
 
 @router.patch("/punch-requests/{req_id}")
@@ -2842,17 +2939,33 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     r = db.query(PunchRequest).filter(PunchRequest.id == req_id).with_for_update().first()
     if not r:
         raise HTTPException(404, "Request not found")
-    if r.status != "pending":
-        raise HTTPException(409, f"This request was already {r.status}.")
     visible = _visible_emails(db, user)
     if visible is not None and r.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
+    if r.status != "pending":
+        # A copy already closed as a duplicate (its twin was decided first):
+        # nothing to do, so a bulk "Approve selected" skips it instead of failing.
+        if (r.decision_note or "").startswith("Duplicate of"):
+            return _pr_dict(r)
+        raise HTTPException(409, f"This request was already {r.status}.")
     _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
     now = _now_iso()
     note = (body.note or "").strip()
+    if decision == "approved" and r.action == "add":
+        # The punch this asks for is already on the timecard (a copy of it was
+        # approved before duplicates were closed automatically): close this one
+        # and its copies as duplicates instead of refusing - quietly, the fix
+        # the employee asked for is in.
+        if _same_live_punch(db, r) is not None:
+            _close_dupes(db, [r], user, now, _DUPE_ON_CARD)
+            r.status = "rejected"
+            r.decided_by, r.decided_at, r.decision_note = user["email"], now, _DUPE_ON_CARD
+            db.commit()
+            return _pr_dict(r)
+    partners = []
     if decision == "approved":
         if r.action == "add":
             # Re-validate the sequence at approval time: inserting this punch must
@@ -2902,11 +3015,14 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                    f"Your request to {'add' if r.action=='add' else 'remove'} a punch was approved."
                    + (f" Note: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
+        # Every copy of an applied fix is now a duplicate (no bell for those).
+        _close_dupes(db, [r] + partners, user, now, _DUPE_APPROVED)
     else:  # rejected
         _hr_notify(db, r.employee_email, "Timesheet fix rejected",
                    f"Your request to {'add' if r.action=='add' else 'remove'} a punch was not approved."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
+        _close_dupes(db, [r], user, now, _DUPE_REJECTED)
     r.status = decision
     r.decided_by, r.decided_at, r.decision_note = user["email"], now, note
     db.commit()

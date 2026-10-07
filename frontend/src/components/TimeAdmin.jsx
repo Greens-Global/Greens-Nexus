@@ -115,6 +115,12 @@ function weekRange(offset = 0) {
   return [isoDate(mon), isoDate(sun)];
 }
 
+// One punch fix = one person + one punch kind + one minute. An employee who
+// files the same fix twice made one request (the server closes the copies).
+const punchReqKey = (r) => (r.action === 'add' && r.at)
+  ? `${(r.employeeEmail || '').toLowerCase()}|${r.punchKind}|${r.at.slice(0, 16)}`
+  : r.id;
+
 // Form label + card-header title (Work OS grammar - sentence case, no tracking).
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
@@ -153,7 +159,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   }, []);
   useEffect(() => {
     if (!focusReq || view !== 'requests') return undefined;
-    const t = setTimeout(() => document.getElementById(`punch-req-${focusReq}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+    // A copy of a duplicated fix has no row of its own - it lives on its twin's.
+    const t = setTimeout(() => (document.getElementById(`punch-req-${focusReq}`)
+      || [...document.querySelectorAll('[data-req-ids]')].find(el => el.dataset.reqIds.split(' ').includes(focusReq)))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
     return () => clearTimeout(t);
   }, [focusReq, view]);
   useEffect(() => {
@@ -281,6 +290,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // Bulk approve / reject of the selected requests (one note for all rejects).
   async function decideMany(ids, status) {
     if (!ids.length) return;
+    // Copies of the same fix (same person, punch and minute) are one fix: send
+    // only the first - the server closes the copies with it (Charmi, Oct 7).
+    const byKey = new Map(punchReqs.map(r => [r.id, punchReqKey(r)]));
+    const seenKeys = new Set();
+    ids = ids.filter(id => { const k = byKey.get(id) || id; if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
     let note = '';
     if (status === 'rejected') {
       const r = await dialog.prompt('', { title: `Reject ${ids.length} request${ids.length === 1 ? '' : 's'}`, message: 'Sent to each employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
@@ -288,7 +302,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       note = r;
     }
     setBulkBusy(true);
-    let ok = 0; const fails = [];
+    let ok = 0, dupes = 0; const fails = [];
     // Apply in punch order (oldest first, clock-in before clock-out) so a
     // selected pair never hits the sequence guard because its later half
     // happened to be approved first.
@@ -301,15 +315,18 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     for (const id of ordered) {
       const r = byId.get(id);
       if (r && r.status && r.status !== 'pending') { ok += 1; continue; }   // partner already applied by an earlier approval
-      try { await api.timeDecidePunchRequest(id, { status, note }); ok += 1; }
-      catch (e) {
+      try {
+        const res = await api.timeDecidePunchRequest(id, { status, note });
+        if (res && res.status && res.status !== status) dupes += 1;   // already on the timecard - closed as a duplicate
+        else ok += 1;
+      } catch (e) {
         if (/already approved/i.test(e?.message || '')) { ok += 1; continue; }
         fails.push(e?.message || 'failed');
       }
     }
     setBulkBusy(false);
     setSelReqs(new Set());
-    if (ok) toastOk(`${ok} request${ok === 1 ? '' : 's'} ${status}.`);
+    if (ok || dupes) toastOk([ok ? `${ok} request${ok === 1 ? '' : 's'} ${status}.` : '', dupes ? `${dupes} already on the timecard - closed as duplicate${dupes === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
     if (fails.length) toastErr(`${fails.length} could not be ${status}: ${fails[0]}`);
     loadPunchReqs();
   }
@@ -322,8 +339,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       note = r;
     }
     try {
-      await api.timeDecidePunchRequest(id, { status, note });
-      toastOk(`Request ${status}.`);
+      const res = await api.timeDecidePunchRequest(id, { status, note });
+      if (res && res.status && res.status !== status) toastOk('That punch is already on the timecard - closed as a duplicate.');
+      else toastOk(`Request ${status}.`);
       loadPunchReqs();
       load(true);   // an approved add/remove changes the timecard - keep the rows in sync
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
@@ -556,7 +574,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote], ['attendance', 'Attendance', CalendarDays],
-          ['requests', 'Punch requests', Inbox, punchReqs.length],
+          ['requests', 'Punch requests', Inbox, new Set(punchReqs.map(punchReqKey)).size],
           ['exceptions', 'Missing punches', AlertTriangle, exBlocking],
           ['screenshots', 'Screenshots', Camera],
           ['billable', 'By location', MapPin],
@@ -878,9 +896,21 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         // pulls in a pending partner when the later half is approved first).
         const kindRank = { in: 0, break_start: 1, break_end: 2, out: 3 };
         groups.forEach(g => g.items.sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))));
+        // Copies of the same fix (same punch, same minute) show as ONE row with
+        // one Approve / Reject - deciding it closes the copies (Charmi, Oct 7).
+        groups.forEach(g => {
+          const rowsByKey = new Map();
+          g.items.forEach(r => {
+            const k = punchReqKey(r);
+            if (!rowsByKey.has(k)) rowsByKey.set(k, { rep: r, ids: [] });
+            rowsByKey.get(k).ids.push(r.id);
+          });
+          g.rows = [...rowsByKey.values()];
+        });
         const people = [...groups.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         const visibleIds = visible.map(r => r.id);
         const selected = visibleIds.filter(id => selReqs.has(id));
+        const selectedFixes = new Set(visible.filter(r => selReqs.has(r.id)).map(punchReqKey)).size;
         const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
         const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
         const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
@@ -906,7 +936,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               </label>
               {selected.length > 0 && (
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selected.length} selected</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selectedFixes} selected</span>
                   <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'rejected')}
                     style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject selected</button>
                   <button className="primary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'approved')}
@@ -927,6 +957,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             ) : people.map(g => {
               const ids = g.items.map(r => r.id);
               const gSel = ids.filter(id => selReqs.has(id)).length;
+              const gSelFixes = g.rows.filter(row => row.ids.some(id => selReqs.has(id))).length;
               return (
                 <div key={g.email || g.name} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
@@ -935,7 +966,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     <span style={{ fontSize: 13.5, fontWeight: 800 }}>{g.name}</span>
                     <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.email}</span>
                     <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: 'var(--wk-line2)', padding: '3px 9px', borderRadius: 999 }}>
-                      {gSel ? `${gSel} of ${ids.length} selected` : `${ids.length} request${ids.length === 1 ? '' : 's'}`}
+                      {gSel ? `${gSelFixes} of ${g.rows.length} selected` : `${g.rows.length} request${g.rows.length === 1 ? '' : 's'}`}
                     </span>
                     {g.email && (
                       <button className="secondary-btn" onClick={() => { setPayrollEmail(g.email); setView('payroll'); }}
@@ -945,14 +976,23 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     )}
                   </div>
                   <div>
-                    {g.items.map((r, i) => (
-                      <div key={r.id} id={`punch-req-${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
-                        background: selReqs.has(r.id) || focusReq === r.id ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
-                        boxShadow: focusReq === r.id ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
-                        {cb(selReqs.has(r.id), on => toggle([r.id], on), `Select request from ${g.name}`)}
+                    {g.rows.map(({ rep: r, ids: rowIds }, i) => {
+                      const focused = rowIds.includes(focusReq);
+                      const rowSel = rowIds.some(id => selReqs.has(id));
+                      return (
+                      <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
+                        background: rowSel || focused ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
+                        boxShadow: focused ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
+                        {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
                         <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
                           <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
+                          {rowIds.length > 1 && (
+                            <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."
+                              style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: 'var(--wk-line2)', padding: '2px 8px', borderRadius: 999 }}>
+                              {rowIds.length} Requests - Same Punch
+                            </span>
+                          )}
                           {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
                         </div>
                         <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
@@ -962,7 +1002,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                           <CheckCircle size={13} /> Approve
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
