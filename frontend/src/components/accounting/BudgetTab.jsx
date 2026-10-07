@@ -3,7 +3,8 @@ import { ChevronLeft, ChevronRight, Copy, Download, Save } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { Figure, parseAmountInput } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
-import { control } from './reportControls';
+import { EntityPicker, control, entityOptions } from './reportControls';
+import { useAccountingPrefs } from './prefs';
 import { downloadCsv, iso } from './reportModel';
 import { formatDateTime } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
@@ -42,6 +43,8 @@ export default function BudgetTab({ canEdit = false }) {
   const [actuals, setActuals] = useState(null);    // Map for the Budget vs Actual view
   const [busy, setBusy] = useState('');
   const seq = useRef(0);
+  // Historical (H) entities follow the person's Customize choice elsewhere in the module.
+  const [prefs] = useAccountingPrefs();
 
   useEffect(() => {
     let alive = true;
@@ -49,7 +52,8 @@ export default function BudgetTab({ canEdit = false }) {
       if (!alive) return;
       const list = (d?.entities || []).filter((e) => e.code);
       setEntities(list);
-      setLocation((cur) => cur || list[0]?.code || '');
+      // The first entity in number order (historical ones aside), as the picker lists them.
+      setLocation((cur) => cur || entityOptions(list)[0]?.code || list[0]?.code || '');
     }).catch(() => { if (alive) setEntities([]); });
     return () => { alive = false; };
   }, []);
@@ -162,10 +166,8 @@ export default function BudgetTab({ canEdit = false }) {
     <AsyncSection loading={entities === null} skeleton={<SkeletonBlocks count={2} />}>
       <div style={{ display: 'grid', gap: 10 }}>
         <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-          <select value={location} onChange={(e) => setLocation(e.target.value)} aria-label="Entity" style={{ ...control, maxWidth: 320 }}>
-            {!entities?.length && <option value="">No entities</option>}
-            {entities?.map((e) => <option key={e.code} value={e.code}>{e.name ? `${e.name} (${e.code})` : e.code}</option>)}
-          </select>
+          <EntityPicker entities={entities || []} value={location} onChange={setLocation} showHistorical={!!prefs.showHistoricalEntities}
+            placeholder={entities?.length ? 'Pick an Entity' : 'No Entities'} disabled={!entities?.length} active={false} />
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
             <button type="button" aria-label="Previous year" onClick={() => setYear((y) => y - 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
             <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>

@@ -1,32 +1,34 @@
 import { useMemo } from 'react';
-import { Building2, CalendarRange, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { CalendarRange, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { monthLong, shiftKey } from '../../../accounting/dashboard/model/months';
 import { SCOPE_LABEL } from '../../../accounting/dashboard/model/scope';
 import { useDash } from './DashContext';
 import { card, input, pill } from './Bits';
+import { EntityPicker } from '../reportControls';
 
 // The dashboard's global filter row: scope (consolidation group or one
 // entity), month, and book. Pinned above every tab.
 
 const BOOKS = [['accrual', 'Accrual'], ['cash', 'Cash'], ['all', 'Both books']];
 
+// Oct 7 (Neil, comment 8): the module's one entity picker - searchable by
+// name or number, numbers shown - with the three consolidation scopes on top.
+// A scope is a top-level entity (the figures roll up to roots), so only roots
+// are listed, controllable first, then the partner ones.
+const SCOPE_EXTRA = ['ALL', 'CTL', 'NC'].map((code) => ({ code, name: SCOPE_LABEL[code] }));
+const SCOPE_GROUPS = [
+  { label: 'Controllable Entities', match: (e) => !e.is_partner },
+  { label: 'Partner Entities (Non-Controllable)', match: (e) => !!e.is_partner },
+];
+
 export function ScopeSelect() {
   const { ix, scope, setScope } = useDash();
-  const { ctl, nc } = useMemo(() => {
-    const byName = (a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true });
-    const roots = [...ix.roots].sort(byName);
-    return { ctl: roots.filter((e) => !e.is_partner), nc: roots.filter((e) => e.is_partner) };
-  }, [ix]);
-  const opt = (e) => <option key={e.code} value={e.code}>{(e.name || e.code) + (e.currency === 'INR' ? ' (INR)' : '')}</option>;
+  const roots = useMemo(
+    () => ix.roots.map((e) => ({ ...e, parent_code: '', name: (e.name || e.code) + (e.currency === 'INR' ? ' (INR)' : '') })),
+    [ix],
+  );
   return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <Building2 size={14} style={{ color: 'var(--text-muted)' }} />
-      <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Scope" style={{ ...input, maxWidth: 300, ...(scope !== 'ALL' ? { borderColor: 'var(--wk-brand, #2b45e1)', color: 'var(--wk-brand, #2b45e1)', fontWeight: 600 } : {}) }}>
-        {['ALL', 'CTL', 'NC'].map((s) => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
-        <optgroup label="Controllable entities">{ctl.map(opt)}</optgroup>
-        {nc.length ? <optgroup label="Partner entities (non-controllable)">{nc.map(opt)}</optgroup> : null}
-      </select>
-    </div>
+    <EntityPicker entities={roots} value={scope} onChange={setScope} extra={SCOPE_EXTRA} groups={SCOPE_GROUPS} ariaLabel="Scope" active={scope !== 'ALL'} />
   );
 }
 

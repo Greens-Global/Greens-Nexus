@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, Rows3, SlidersHorizontal, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import AnchoredMenu from '../../AnchoredMenu';
 import { Chip, EmptyBox, card, input } from './Bits';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
 import { useAttention, useViews } from './hooks';
-import { DASH_DENSITIES, dashDensityOf, useAccountingPrefs } from '../prefs';
+import { dashDensityOf, useAccountingPrefs } from '../prefs';
+import { CustomizeButton } from '../reportControls';
+import { dialog } from '../../../ui/dialog';
 import { SIZE_LABEL, SIZES, WIDGET_CATS, WIDGET_LIST, WIDGETS, WidgetPanel, useDashNav } from './registry';
 
 // Overview tab: the attention bar and a customizable widget grid with shared
@@ -22,36 +24,6 @@ const DEFAULT_WIDGETS = {
   controller: W([['kpiCash', 'sm'], ['kpiRecon', 'sm'], ['kpiNI', 'sm'], ['recon', 'lg'], ['close', 'md'], ['ic', 'sm'], ['deadlines', 'sm'], ['flux', 'md'], ['entityCash', 'md'], ['activity', 'md']]),
   bookkeeper: W([['kpiCash', 'sm'], ['kpiRecon', 'sm'], ['kpiNI', 'sm'], ['recon', 'lg'], ['uncat', 'md'], ['close', 'md']]),
 };
-// Oct 6 (Charmi, 10/04): Compact / Condensed / Comfortable, the person's own
-// (saved to their profile - see DASH_DENSITIES in ../prefs.js). Everyone gets
-// it, not only editors: it changes nothing anyone else sees.
-function DensityMenu() {
-  const [prefs, setPrefs] = useAccountingPrefs();
-  const density = dashDensityOf(prefs);
-  const [open, setOpen] = useState(false);
-  const btn = useRef(null);
-  return (
-    <>
-      <button ref={btn} type="button" className="secondary-btn" aria-haspopup="menu" aria-expanded={open} title="Row and card spacing - saved to your profile"
-        onClick={() => setOpen((v) => !v)} style={{ fontSize: '0.74rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <Rows3 size={13} /> Density: {DASH_DENSITIES.find((d) => d.key === density).label}
-      </button>
-      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" minWidth={230} aria-label="Density" style={{ ...card, padding: 4, display: 'grid' }}>
-        {DASH_DENSITIES.map((d) => (
-          <button key={d.key} type="button" role="menuitemradio" aria-checked={density === d.key} onClick={() => { setPrefs({ dashDensity: d.key }); setOpen(false); }}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', border: 'none', borderRadius: 6, background: density === d.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', textAlign: 'left', font: 'inherit', cursor: 'pointer', color: 'inherit' }}>
-            <span style={{ flex: 1 }}>
-              <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600 }}>{d.label}</span>
-              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{d.hint}</span>
-            </span>
-            {density === d.key ? <Check size={14} style={{ color: 'var(--wk-brand, #2b45e1)' }} /> : null}
-          </button>
-        ))}
-      </AnchoredMenu>
-    </>
-  );
-}
-
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'view';
 
 function useColumns() {
@@ -83,6 +55,12 @@ export default function OverviewTab({ canEdit }) {
   const [attnAll, setAttnAll] = useState(false);
   const [form, setForm] = useState(null);   // { mode: 'new' | 'rename', name, role, copy }
   const [dragFrom, setDragFrom] = useState(null);
+  // A short inline note under the toolbar (Oct 7: never a browser alert).
+  const [note, setNote] = useState('');
+  // Oct 7 (Neil, comment 6): the Dashboard density lives in the module's one
+  // Customize panel - the person's own, saved to their profile (dashDensity).
+  const [prefs, setPrefs] = useAccountingPrefs();
+  const dashDensity = dashDensityOf(prefs);
 
   const current = useMemo(() => views.find((v) => v.id === view) ?? views[0] ?? null, [views, view]);
   const [widgets, setWidgets] = useState([]);
@@ -91,7 +69,7 @@ export default function OverviewTab({ canEdit }) {
   const persist = async (next) => {
     if (!current) return;
     setWidgets(next);
-    try { await act('view-save', { view: { ...current, widgets: next } }); } catch (e) { window.alert(e?.message || 'Could not save the view'); }
+    try { await act('view-save', { view: { ...current, widgets: next } }); } catch (e) { setNote(e?.message || 'Could not save the view.'); }
   };
   const move = (i, j) => { if (j < 0 || j >= widgets.length || i === j) return; const next = [...widgets]; const [w] = next.splice(i, 1); next.splice(j, 0, w); persist(next); };
   const resize = (i) => { const next = [...widgets]; next[i] = { ...next[i], size: SIZES[(SIZES.indexOf(next[i].size) + 1) % SIZES.length] }; persist(next); };
@@ -112,15 +90,17 @@ export default function OverviewTab({ canEdit }) {
     setTimeout(() => setFlash(null), 2600);
   };
 
-  const resetView = () => {
-    if (!current || !DEFAULT_IDS.includes(current.id)) { window.alert('Custom views have no default layout'); return; }
-    if (!window.confirm(`Reset ${current.name} to its default widgets? This changes the view for everyone.`)) return;
+  const resetView = async () => {
+    if (!current || !DEFAULT_IDS.includes(current.id)) { setNote('Custom views have no default layout to reset to.'); return; }
+    setNote('');
+    if (!await dialog.confirm(`Reset ${current.name} to its default widgets? This changes the view for everyone.`, { title: 'Reset View', confirmText: 'Reset' })) return;
     persist(DEFAULT_WIDGETS[current.id]);
   };
   const removeView = async () => {
     if (!current) return;
-    if (views.length < 2) { window.alert('Keep at least one view'); return; }
-    if (!window.confirm(`Delete the ${current.name} view for everyone?`)) return;
+    if (views.length < 2) { setNote('Keep at least one view.'); return; }
+    setNote('');
+    if (!await dialog.confirm(`Delete the ${current.name} view for everyone?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) return;
     await act('view-delete', { id: current.id });
     setEditing(false);
     setView(views.find((v) => v.id !== current.id).id);
@@ -157,19 +137,37 @@ export default function OverviewTab({ canEdit }) {
               {canEdit ? <option value="__new">+ New view…</option> : null}
             </select>
           </span>
-          <DensityMenu />
-          {canEdit && !editing ? <button type="button" className="secondary-btn" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => setEditing(true)} disabled={!current}><SlidersHorizontal size={13} /> Customize</button> : null}
+          {/* Oct 7 (Neil): the module's one Customize - density, and for an
+              editor the widget arranging that used to be its own button. */}
+          <CustomizeButton density={dashDensity} onDensity={(d) => setPrefs({ dashDensity: d })} active={editing}>
+            {canEdit ? (
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                <button type="button" className="secondary-btn" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => { setNote(''); setEditing(true); }} disabled={!current || editing}>
+                  <LayoutGrid size={13} /> Arrange Widgets
+                </button>
+                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Add, remove, resize and reorder this view's widgets - for everyone who uses the view.</span>
+              </div>
+            ) : null}
+          </CustomizeButton>
         </>
       } />
 
       {editing && current ? (
         <div style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '10px 14px', borderColor: 'var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', fontSize: '0.8rem' }}>
-          <span style={{ marginRight: 'auto' }}><b>Customizing {current.name}.</b> Drag to reorder, change a widget's width, add widgets from the library.</span>
+          <span style={{ marginRight: 'auto' }}><b>Arranging {current.name}.</b> Drag to reorder, change a widget's width, add widgets from the library.</span>
           <button type="button" className="secondary-btn" style={small} onClick={() => setAddOpen((v) => !v)}><Plus size={12} style={{ verticalAlign: -2 }} /> Add Widget</button>
           <button type="button" className="secondary-btn" style={small} onClick={() => setForm({ mode: 'rename', name: current.name, role: current.role, copy: '' })}>Rename</button>
           <button type="button" className="secondary-btn" style={small} onClick={resetView}>Reset</button>
           <button type="button" className="secondary-btn" style={{ ...small, color: 'var(--bad-fg, #dc2626)' }} onClick={removeView}>Delete View</button>
-          <button type="button" className="primary-btn" style={small} onClick={() => { setEditing(false); setAddOpen(false); }}>Done</button>
+          <button type="button" className="primary-btn" style={small} onClick={() => { setEditing(false); setAddOpen(false); setNote(''); }}>Done</button>
+        </div>
+      ) : null}
+
+      {note ? (
+        <div role="status" style={{ ...card, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          <AlertTriangle size={14} style={{ color: '#b45309', flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{note}</span>
+          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setNote('')} style={{ padding: 4 }}><X size={13} /></button>
         </div>
       ) : null}
 
@@ -227,7 +225,7 @@ export default function OverviewTab({ canEdit }) {
 
       {isLoading ? <SkeletonBlocks count={4} height={160} gridTemplateColumns="repeat(auto-fit, minmax(240px, 1fr))" />
         : !current ? <EmptyBox title="No views yet" body="Create a view to start arranging widgets." />
-        : widgets.length === 0 ? <EmptyBox title="This view is empty" body="Select Customize, then Add Widget to build it out." />
+        : widgets.length === 0 ? <EmptyBox title="This view is empty" body="Select Customize > Arrange Widgets, then Add Widget to build it out." />
         : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 'var(--dash-gap, 14px)', paddingBottom: 16 }}>
             {widgets.map((w, i) => (

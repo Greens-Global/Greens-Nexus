@@ -3,6 +3,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import { SectionTabs, card, input } from './Bits';
 import { useDash } from './DashContext';
+import { EntityPicker } from '../reportControls';
 
 // Accounting -> Data. The figures the ledger does not carry: loans and
 // covenants, intercompany balances, brokerage holdings, partner capital, cap
@@ -90,7 +91,9 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
   const [saving, setSaving] = useState(false);
   const last = useRef(JSON.stringify(row));
   useEffect(() => { setDraft(row); last.current = JSON.stringify(row); }, [row]);
-  const roots = useMemo(() => [...ix.roots].sort((a, b) => (a.name || a.code).localeCompare(b.name || b.code, 'en-US', { numeric: true })), [ix]);
+  // Top-level entities only (the dashboard rolls figures up to roots), in the
+  // module's one entity picker (Oct 7): number order, searchable by number.
+  const roots = useMemo(() => ix.roots.map((e) => ({ ...e, parent_code: '' })), [ix]);
 
   const save = async (next) => {
     if (JSON.stringify(next) === last.current) return;
@@ -116,7 +119,7 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
     const v = draft[k];
     switch (t) {
       case 'check': return <input type="checkbox" checked={!!v} onChange={(e) => setAndSave(k, e.target.checked)} aria-label={label} />;
-      case 'entity': return <select value={v ?? ''} onChange={(e) => setAndSave(k, e.target.value)} aria-label={label} style={style}><option value="">- none -</option>{roots.map((e) => <option key={e.code} value={e.code}>{e.name || e.code} ({e.code})</option>)}</select>;
+      case 'entity': return <EntityPicker entities={roots} value={v ?? ''} onChange={(code) => setAndSave(k, code)} noneLabel="None" ariaLabel={label} active={false} disabled={saving} style={{ width: '100%', maxWidth: 'none' }} />;
       case 'select': return <select value={v ?? ''} onChange={(e) => setAndSave(k, e.target.value)} aria-label={label} style={style}>{extra.map((o) => <option key={o} value={o}>{names?.[o] || o}</option>)}</select>;
       case 'balance': {
         // A ledger-sourced loan shows the figure the ledger gave as of the month shown; only a hand-kept one is typed.
