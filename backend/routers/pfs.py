@@ -147,12 +147,23 @@ HISTORY_QUESTIONS = [
     "Are any assets held in a trust?",
     "Are any assets pledged as collateral?",
 ]
-_DETAIL_KEYS = ("address", "city_state_zip", "phone", "email", "date_of_birth", "marital_status", "employer", "title",
-                "ssn_last4", "members", "spouse", "coBorrower")
+# Oct 7, later (Charmi + Neil): City, State and ZIP are three keys on both
+# blocks. `city_state_zip` (one combined text, before Oct 7) is still taken
+# from an older client and split - never stored again; `spouse` (the old
+# separate "Spouse or Co-Borrower" name) is folded into coBorrower.name, the
+# one source of truth.
+_DETAIL_KEYS = ("address", "city", "state", "zip", "phone", "email", "date_of_birth", "marital_status", "employer", "title",
+                "ssn_last4", "members", "coBorrower")
 # The co-borrower (Charmi, 10/01: "Spouse/Co-borrower details as well") mirrors
 # the borrower's fields, plus a name.
-_CO_BORROWER_KEYS = ("name", "address", "city_state_zip", "phone", "email", "date_of_birth", "marital_status", "employer",
+_CO_BORROWER_KEYS = ("name", "address", "city", "state", "zip", "phone", "email", "date_of_birth", "marital_status", "employer",
                      "title", "ssn_last4", "photo")
+US_STATES = frozenset((
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME",
+    "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+    "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "AS", "GU", "MP", "PR", "VI",
+))
+_ZIP = re.compile(r"^\d{5}(?:-?\d{4})?$")
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PHOTO_MAX = 400_000   # characters of data URL (a downscaled JPEG is a tenth of this)
 
@@ -170,13 +181,62 @@ def _audit(db: Session, user: dict, action: str, resource_id: str, details: Opti
                            resource_type="pfs", resource_id=resource_id, details=json.dumps(details or {})))
 
 
+# ── Addresses and the co-borrower's name (Oct 7) ─────────────────────────────
+def _fmt_zip(v: str) -> str:
+    digits = re.sub(r"\D", "", v)
+    return f"{digits[:5]}-{digits[5:]}" if len(digits) == 9 else digits
+
+
+def split_city_state_zip(text) -> dict:
+    """Best-effort split of an old combined value ("Sacramento, CA 95814").
+    What cannot be split is kept whole as the city, so nothing is lost."""
+    s = str(text or "").strip()
+    if not s:
+        return {}
+    m = re.match(r"^(.*?)[\s,]+([A-Za-z]{2})\.?[\s,]+(\d{5}(?:-?\d{4})?)$", s)
+    if m and m.group(1).strip() and m.group(2).upper() in US_STATES:
+        return {"city": m.group(1).rstrip(" ,"), "state": m.group(2).upper(), "zip": _fmt_zip(m.group(3))}
+    m = re.match(r"^(.*?)[\s,]+([A-Za-z]{2})\.?$", s)
+    if m and m.group(1).strip() and m.group(2).upper() in US_STATES:
+        return {"city": m.group(1).rstrip(" ,"), "state": m.group(2).upper()}
+    m = re.match(r"^(.*?)[\s,]+(\d{5}(?:-?\d{4})?)$", s)
+    if m and m.group(1).strip():
+        return {"city": m.group(1).rstrip(" ,"), "zip": _fmt_zip(m.group(2))}
+    return {"city": s}
+
+
+def _with_parts(block: dict) -> dict:
+    """One block with an old combined City, State, ZIP turned into the three
+    keys, unless the three are already there."""
+    out = dict(block)
+    old = out.pop("city_state_zip", None)
+    if old and not (out.get("city") or out.get("state") or out.get("zip")):
+        out.update(split_city_state_zip(old))
+    return out
+
+
+def read_details(d) -> dict:
+    """A profile's details as they read since Oct 7: city / state / zip on both
+    blocks and the old spouse name as the co-borrower's. Read-only - the row
+    is rewritten this way on its next save."""
+    d = _with_parts(d if isinstance(d, dict) else {})
+    spouse = str(d.pop("spouse", "") or "").strip()
+    co = d.get("coBorrower") if isinstance(d.get("coBorrower"), dict) else None
+    if co is not None or spouse:
+        co = _with_parts(co or {})
+        if not str(co.get("name") or "").strip() and spouse:
+            co["name"] = spouse
+        d["coBorrower"] = co
+    return d
+
+
 # ── Shapes ───────────────────────────────────────────────────────────────────
 def _display_name(p: models.PfsProfile) -> str:
     """The name on the statement: "Neil R. Kadakia and Archana Kadakia" when a
-    spouse is set, the name alone otherwise."""
-    d = p.details if isinstance(p.details, dict) else {}
-    co = d.get("coBorrower") if isinstance(d.get("coBorrower"), dict) else {}
-    spouse = (d.get("spouse") or co.get("name") or "").strip()
+    co-borrower is named (or, on a row saved before Oct 7, a spouse), the name
+    alone otherwise."""
+    co = read_details(p.details).get("coBorrower") or {}
+    spouse = str(co.get("name") or "").strip()
     return f"{p.name} and {spouse}" if spouse and spouse.lower() not in (p.name or "").lower() else p.name
 
 
@@ -184,7 +244,7 @@ def _profile_out(p: models.PfsProfile, full: bool = True) -> dict:
     out = {"id": p.id, "name": p.name, "displayName": _display_name(p), "kind": p.kind or "individual", "archived": bool(p.archived),
            "updatedAt": p.updated_at, "hasPhoto": bool(p.photo)}
     if full:
-        out.update({"details": p.details if isinstance(p.details, dict) else {},
+        out.update({"details": read_details(p.details),
                     "history": p.history if isinstance(p.history, list) else [],
                     "executiveProfile": p.executive_profile or "", "photo": p.photo or ""})
     return out
@@ -231,7 +291,28 @@ class LineBody(BaseModel):
     notes: Optional[str] = ""
 
 
+def _clean_address(out: dict, k: str, v, who: str) -> None:
+    """State is a two-letter US state; ZIP is 5 digits or 9 (12345-6789)."""
+    text = str(v).strip()
+    if not text:
+        return
+    if k == "state":
+        st = text.upper().rstrip(".")
+        if st not in US_STATES:
+            raise HTTPException(status_code=400, detail=f"Pick the {who}state from the list of US states.")
+        out[k] = st
+    elif k == "zip":
+        if not _ZIP.match(text.replace(" ", "")):
+            raise HTTPException(status_code=400, detail=f"The {who}ZIP is 5 digits, or 9 as 12345-6789.")
+        out[k] = _fmt_zip(text)
+    else:
+        out[k] = text[:200]
+
+
 def _clean_details(d: Optional[dict]) -> dict:
+    # An older client may still send the combined City, State, ZIP or the
+    # separate spouse name: both land in the Oct 7 keys.
+    d = read_details(d)
     out = {}
     for k in _DETAIL_KEYS:
         v = (d or {}).get(k)
@@ -248,6 +329,8 @@ def _clean_details(d: Optional[dict]) -> dict:
             co = _clean_co_borrower(v)
             if co:
                 out[k] = co
+        elif k in ("city", "state", "zip"):
+            _clean_address(out, k, v, "")
         else:
             out[k] = str(v)[:200]
     return out
@@ -270,6 +353,8 @@ def _clean_co_borrower(v) -> dict:
             if not isinstance(val, str) or not val.startswith("data:image/") or len(val) > _PHOTO_MAX:
                 raise HTTPException(status_code=400, detail="The co-borrower's photo must be an image under 300 KB.")
             out[k] = val
+        elif k in ("city", "state", "zip"):
+            _clean_address(out, k, val, "co-borrower's ")
         elif k == "ssn_last4":
             digits = re.sub(r"\D", "", str(val))
             if len(digits) > 4:

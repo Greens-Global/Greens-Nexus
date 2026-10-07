@@ -3,6 +3,7 @@ import { PDFDocument } from 'pdf-lib';
 import { refSuffix } from './pfsCondition';
 import { buildPfsPdf } from './pfsPdf';
 import { pfsSheets } from './pfsXlsx';
+import { formatZip, normalizePfsDetails, splitCityStateZip, zipError } from './pfsAddress';
 
 // PFS exports, Oct 7 (Charmi): the account number printed once, and the
 // Investments group (Investment Accounts, Business Interests, Real Estate at
@@ -75,5 +76,55 @@ describe('Investments in the exports', () => {
     const old = { ...statement, investments: undefined };
     const without = await PDFDocument.load(await buildPfsPdf({ statement: old }));
     expect(withInv.getPageCount()).toBeGreaterThanOrEqual(without.getPageCount());
+  });
+});
+
+describe('Borrower addresses and the co-borrower name (Oct 7)', () => {
+  const borrowerText = (details) => {
+    const sheet = pfsSheets({ statement: { ...base, assets: [], profile: { ...base.profile, details } } }).find((s) => s.name === 'Borrower');
+    return sheet.rows.map((r) => r.map((c) => c?.text ?? '').join('|')).join('\n');
+  };
+
+  it('splits an old combined value best effort, keeping what it cannot split', () => {
+    expect(splitCityStateZip('Sacramento, CA 95814')).toEqual({ city: 'Sacramento', state: 'CA', zip: '95814' });
+    expect(splitCityStateZip('San Luis Obispo ca 934011234')).toEqual({ city: 'San Luis Obispo', state: 'CA', zip: '93401-1234' });
+    expect(splitCityStateZip('Escondido, CA')).toEqual({ city: 'Escondido', state: 'CA' });
+    expect(splitCityStateZip('Pune, Maharashtra 411001 India')).toEqual({ city: 'Pune, Maharashtra 411001 India' });
+    expect(splitCityStateZip('')).toEqual({});
+  });
+
+  it('checks a ZIP: 5 digits or 9', () => {
+    expect(zipError('92025')).toBe('');
+    expect(zipError('92025-1234')).toBe('');
+    expect(zipError('')).toBe('');
+    expect(zipError('9202')).not.toBe('');
+    expect(zipError('92025-12')).not.toBe('');
+    expect(formatZip('920251234')).toBe('92025-1234');
+  });
+
+  it('folds the old spouse field into the co-borrower name, the block name first', () => {
+    expect(normalizePfsDetails({ spouse: 'Archana Kadakia' }).coBorrower).toEqual({ name: 'Archana Kadakia' });
+    expect(normalizePfsDetails({ spouse: 'Old', coBorrower: { name: 'New' } }).coBorrower.name).toBe('New');
+    expect(normalizePfsDetails({}).coBorrower).toBeUndefined();
+  });
+
+  it('prints "City, ST ZIP" on the workbook for both borrowers', () => {
+    const text = borrowerText({ address: '1 Capitol Mall', city: 'Sacramento', state: 'CA', zip: '95814',
+      coBorrower: { name: 'Archana Kadakia', address: '2 Oak St', city: 'Escondido', state: 'CA', zip: '92025-1234' } });
+    expect(text).toContain('Address|1 Capitol Mall, Sacramento, CA 95814');
+    expect(text).toContain('Address|2 Oak St, Escondido, CA 92025-1234');
+  });
+
+  it('a statement kept before Oct 7 prints the same way, the spouse as the co-borrower', () => {
+    const text = borrowerText({ address: '1 Capitol Mall', city_state_zip: 'Sacramento CA 95814', spouse: 'Archana Kadakia' });
+    expect(text).toContain('Address|1 Capitol Mall, Sacramento, CA 95814');
+    expect(text).toContain('Co-Borrower');
+    expect(text).toContain('Name|Archana Kadakia');
+  });
+
+  it('builds the PDF with the old fields and the new', async () => {
+    const statement = { ...base, assets: [], profile: { ...base.profile, kind: 'joint', details: { city_state_zip: 'Sacramento, CA 95814', spouse: 'Archana Kadakia', coBorrower: { city: 'Escondido', state: 'CA', zip: '92025' } } } };
+    const pdf = await PDFDocument.load(await buildPfsPdf({ statement }));
+    expect(pdf.getPageCount()).toBeGreaterThan(1);
   });
 });
