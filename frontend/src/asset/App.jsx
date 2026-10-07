@@ -42,6 +42,8 @@ import { ticketMaintenanceRows } from './lib/propertyTickets.js';
 import { useSession } from './lib/session.js';
 import { api } from '../api.js';
 import { AddItemModal } from '../views/InventoryManagement.jsx';
+// Oct 7 accounting feedback: a property's loans from the ledger (self-contained; see the file's header).
+import PropertyLoans from '../components/PropertyLoans.jsx';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
@@ -497,6 +499,20 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     });
   };
 
+  // The property's ledger entity (Oct 7) - what PropertyLoans reads the loans of.
+  const setEntityCode = (id, code) => {
+    setStore((s) => {
+      const idx = s.properties.findIndex((p) => p.id === id);
+      if (idx < 0) return s;
+      const before = s.properties[idx];
+      const next = { ...before, entityCode: code || '' };
+      return appendLog(
+        { ...s, properties: s.properties.map((p, i) => i === idx ? next : p) },
+        makeLogEntry({ section: 'Property', property: next.name, propertyId: id, action: 'edited', item: next.name, changes: [{ field: 'Ledger Entity', from: before.entityCode || '', to: code || '' }] })
+      );
+    });
+  };
+
   const saveImages = (images) => {
     setStore((s) => {
       const props = [...s.properties];
@@ -780,6 +796,9 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} />}
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
+      )}
+      {view === 'property' && active && inferAssetKind(active) === 'property' && (
+        <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
       )}
 
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (

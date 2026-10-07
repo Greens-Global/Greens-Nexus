@@ -30,7 +30,9 @@ vi.mock('../../api', () => ({
     getPfsProfile: vi.fn(async () => profile),
     getPfsStatement: vi.fn(async () => statement),
     getPfsStatements: vi.fn(async () => []),
-    getPfsLedgerEntities: vi.fn(async () => ({ entities: [{ code: '60100', name: 'Business - ANK' }] })),
+    getPfsLedgerEntities: vi.fn(async () => ({ entities: [{ code: '60100', name: 'Business - ANK' }, { code: '12000', name: 'Greens Global Inc' }, { code: '62005', name: 'Old Circle (H)' }] })),
+    getPfsShareMismatches: vi.fn(async () => ({ lines: [], count: 0 })),
+    getPfsAffiliatedShares: vi.fn(async () => ({ shares: {}, resolved: {} })),
     getPeopleDirectory: vi.fn(async () => []),
     getRolesDirectory: vi.fn(async () => []),
     getPfsAccessStatus: vi.fn(async () => status),
@@ -55,7 +57,7 @@ vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'me@gr
 
 import PfsTab from './PfsTab';
 import { api } from '../../api';
-import { affiliatedRows, pfsExtraPdf, pfsExtraSheets } from './pfsAffiliatedExport';
+import { affiliatedRows, pctText, pfsExtraPdf, pfsExtraSheets } from './pfsAffiliatedExport';
 import { buildPfsPdf } from './pfsPdf';
 import { pfsSheets } from './pfsXlsx';
 
@@ -71,44 +73,72 @@ const openTab = async (name) => {
 };
 
 describe('Affiliated Entities', () => {
-  it('sits between Statement and Borrower', async () => {
+  it('sits after Statement and Borrower(s) (Oct 7 order)', async () => {
     render(<PfsTab canEdit />);
     await screen.findByRole('button', { name: 'Affiliated Entities' });
-    const tabs = ['Statement', 'Affiliated Entities', 'Borrower'].map((n) => screen.getByRole('button', { name: n }));
-    expect(tabs[0].compareDocumentPosition(tabs[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(tabs[1].compareDocumentPosition(tabs[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const tabs = ['Statement', 'Borrower(s)', 'Affiliated Entities', 'History and Profile'].map((n) => screen.getByRole('button', { name: n }));
+    tabs.slice(1).forEach((t, i) => expect(tabs[i].compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy());
   });
 
-  it('lists each entity with an ownership column per borrower, the EIN masked', async () => {
+  it('lists each entity with an ownership % and a role per borrower, no EIN or State (Oct 7)', async () => {
     await openTab('Affiliated Entities');
     await screen.findByText('Greens Storage LLC');
-    expect(screen.getByRole('columnheader', { name: 'Rajesh Kadakia %' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Darshana Kadakia %' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Beneficial %' })).toBeTruthy();
-    expect(screen.getByText('XX-XXX1234')).toBeTruthy();
-    expect(screen.getByText('Managing Member')).toBeTruthy();
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent).filter(Boolean);
+    expect(heads).toEqual(['Entity Name', 'Entity Type', 'Rajesh Kadakia %', 'Rajesh Kadakia Role', 'Darshana Kadakia %', 'Darshana Kadakia Role', 'Beneficial %', 'Notes']);
+    expect(screen.queryByText('XX-XXX1234')).toBeNull();
+    const storage = screen.getByText('Greens Storage LLC').closest('tr');
+    // A row saved before per-borrower roles: its one role is the primary borrower's.
+    expect([...storage.cells].slice(2, 7).map((c) => c.textContent)).toEqual(['50%', 'Managing Member', '50%', '-', '100%']);
+    // An empty percent reads "-", like every other accounting table.
+    const trust = screen.getByText('Kadakia Family Trust').closest('tr');
+    expect([...trust.cells].slice(2, 7).map((c) => c.textContent)).toEqual(['100%', 'Trustee', '-', '-', '-']);
     expect(screen.getByText('Revocable')).toBeTruthy();
   });
 
-  it('adds an entity prefilled from the ledger, four EIN digits at most', async () => {
+  it('adds an entity prefilled from the ledger, an ownership % and a role for each borrower', async () => {
     await openTab('Affiliated Entities');
     await screen.findByText('Greens Storage LLC');
     fireEvent.click(screen.getByRole('button', { name: /Add Entity/ }));
     const dialog = screen.getByRole('dialog', { name: 'Add an affiliated entity' });
-    await within(dialog).findByRole('option', { name: 'Business - ANK (60100)' });
-    fireEvent.change(within(dialog).getByLabelText('Prefill From the Ledger'), { target: { value: '60100' } });
+    // The module's entity picker: by number, historical (H) entities left out (Charmi: "12000" did not find it).
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Prefill From the Ledger' }));
+    expect(screen.queryByRole('option', { name: /Old Circle/ })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '60100' } });
+    fireEvent.click(screen.getByRole('option', { name: /Business - ANK/ }));
     expect(within(dialog).getByLabelText('Entity Name').value).toBe('Business - ANK');
+    expect(within(dialog).queryByLabelText('EIN - Last 4 Digits')).toBeNull();
+    expect(within(dialog).queryByLabelText('State')).toBeNull();
     fireEvent.change(within(dialog).getByLabelText('Entity Type'), { target: { value: 'single_member_llc' } });
-    fireEvent.change(within(dialog).getByLabelText('EIN - Last 4 Digits'), { target: { value: '12-3456789' } });
-    expect(within(dialog).getByLabelText('EIN - Last 4 Digits').value).toBe('1234');
-    fireEvent.change(within(dialog).getByLabelText('Rajesh Kadakia - Ownership %'), { target: { value: '60' } });
-    fireEvent.change(within(dialog).getByLabelText('Darshana Kadakia - Ownership %'), { target: { value: '40' } });
-    fireEvent.change(within(dialog).getByLabelText('Role'), { target: { value: 'Member' } });
+    fireEvent.change(within(dialog).getByLabelText('Rajesh Kadakia Ownership %'), { target: { value: '60' } });
+    fireEvent.change(within(dialog).getByLabelText('Rajesh Kadakia Role'), { target: { value: 'Manager' } });
+    fireEvent.change(within(dialog).getByLabelText('Darshana Kadakia Ownership %'), { target: { value: '40' } });
+    fireEvent.change(within(dialog).getByLabelText('Darshana Kadakia Role'), { target: { value: 'Member' } });
+    // Each borrower's % and role sit together, under the person's name.
+    const co = within(dialog).getByRole('group', { name: 'Darshana Kadakia' });
+    expect(within(co).getByLabelText('Darshana Kadakia Role')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.addPfsAffiliate).toHaveBeenCalled());
     expect(api.addPfsAffiliate.mock.calls[0]).toEqual(['p1', expect.objectContaining({
-      name: 'Business - ANK', entityType: 'single_member_llc', einLast4: '1234', ownership: { primary: 60, co: 40 }, role: 'Member', ledgerEntity: '60100', beneficialPct: null,
+      name: 'Business - ANK', entityType: 'single_member_llc', ownership: { primary: 60, co: 40 }, roles: { primary: 'Manager', co: 'Member' }, role: 'Manager', ledgerEntity: '60100', beneficialPct: null,
     })]);
+    expect(api.addPfsAffiliate.mock.calls[0][1]).not.toHaveProperty('einLast4');
+  });
+
+  it('keeps the entity already linked even when it is historical', async () => {
+    api.getPfsAffiliates.mockResolvedValueOnce({ borrowers, rows: [{ ...rows[0], ledgerEntity: '62005' }] });
+    await openTab('Affiliated Entities');
+    await screen.findByText('Greens Storage LLC');
+    fireEvent.click(screen.getByRole('button', { name: 'Change Greens Storage LLC' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change Greens Storage LLC' });
+    const pick = await within(dialog).findByRole('button', { name: 'Prefill From the Ledger' });
+    expect(pick.textContent).toContain('Old Circle (H) (62005)');
+    fireEvent.click(pick);
+    expect(screen.getByRole('option', { name: /Old Circle/ })).toBeTruthy();
+    // Picking "Not Linked to the Ledger" unlinks it.
+    fireEvent.click(screen.getByRole('option', { name: 'Not Linked to the Ledger' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updatePfsAffiliate).toHaveBeenCalled());
+    expect(api.updatePfsAffiliate.mock.calls[0][2]).toMatchObject({ ledgerEntity: '', roles: { primary: 'Managing Member' } });
   });
 
   it('refuses a share over 100%', async () => {
@@ -139,23 +169,48 @@ describe('Affiliated Entities', () => {
 });
 
 describe('an executive profile for each borrower', () => {
-  it('keeps the co-borrower\'s on its own', async () => {
+  it('shows one box per borrower in one Executive Profiles section, each under the person\'s name (Oct 7)', async () => {
     await openTab('History and Profile');
-    expect(await screen.findByLabelText('Executive Profile - Rajesh Kadakia')).toBeTruthy();
-    const co = await screen.findByLabelText('Executive Profile - Darshana Kadakia');
+    const section = await screen.findByRole('region', { name: 'Executive Profiles' });
+    const primary = await within(section).findByLabelText('Executive Profile - Rajesh Kadakia');
+    const co = within(section).getByLabelText('Executive Profile - Darshana Kadakia');
+    expect(primary.value).toBe('Founder.');
+    // Both boxes are labeled with the person's name, side by side on a wide screen.
+    expect(within(section).getByText('Rajesh Kadakia', { selector: 'label' })).toBeTruthy();
+    expect(within(section).getByText('Darshana Kadakia', { selector: 'label' })).toBeTruthy();
+    expect(primary.parentElement.parentElement.style.gridTemplateColumns).toBe('repeat(auto-fit, minmax(320px, 1fr))');
+    // The borrower's box is no longer inside the History questions.
+    expect(screen.getAllByLabelText(/Executive Profile -/, { selector: 'textarea' })).toHaveLength(2);
     fireEvent.change(co, { target: { value: 'Runs the family office.' } });
-    fireEvent.click(screen.getByRole('button', { name: "Save Darshana's Profile" }));
-    await waitFor(() => expect(api.savePfsExecutiveProfile).toHaveBeenCalledWith('p1', 'co', 'Runs the family office.'));
+    fireEvent.change(primary, { target: { value: 'Founder and chair.' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Save Profiles' }));
+    await waitFor(() => expect(api.savePfsExecutiveProfile).toHaveBeenCalledTimes(2));
+    expect(api.savePfsExecutiveProfile).toHaveBeenCalledWith('p1', 'primary', 'Founder and chair.');
+    expect(api.savePfsExecutiveProfile).toHaveBeenCalledWith('p1', 'co', 'Runs the family office.');
+    await within(section).findByText('Saved.');
   });
 });
 
 describe('the file lock', () => {
-  it('shows a lock beside each file and "+ New"', async () => {
+  it('shows a lock beside each file in the guarantor dropdown, and "+ New Guarantor"', async () => {
     render(<PfsTab canEdit />);
     await screen.findByRole('button', { name: 'Affiliated Entities' });
-    expect(screen.getByRole('button', { name: 'New Guarantor' }).textContent.trim()).toBe('New');
-    expect(screen.getAllByRole('img', { name: 'Open in this tab' }).length).toBe(1);
-    expect(screen.getAllByRole('img', { name: 'Locked' }).length).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: /Rajesh Kadakia/ }));
+    const menu = screen.getByRole('dialog', { name: 'Guarantors' });
+    expect(within(menu).getAllByRole('img', { name: 'Open in this tab' }).length).toBe(1);
+    expect(within(menu).getAllByRole('img', { name: 'Locked' }).length).toBe(1);
+    expect(within(menu).getByRole('button', { name: 'New Guarantor' })).toBeTruthy();
+    // The lock explains itself on hover.
+    expect(within(menu).getAllByRole('img', { name: 'Locked' })[0].parentElement.title).toMatch(/one-time code/);
+  });
+
+  it('lets a guarantor be picked before any file is unlocked', async () => {
+    status = { lockEnabled: true, unlocked: {} };
+    render(<PfsTab canEdit />);
+    await screen.findByText('Rajesh Kadakia Is Locked');
+    fireEvent.click(screen.getByRole('button', { name: /Rajesh Kadakia/ }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Guarantors' })).getByRole('option', { name: /Second File/ }));
+    await screen.findByText('Second File Is Locked');
   });
 
   it('asks for a code before a locked file opens, then opens it', async () => {
@@ -208,11 +263,22 @@ describe('the exports', () => {
     executiveProfiles: [{ key: 'primary', name: 'Rajesh Kadakia', text: 'Founder.' }, { key: 'co', name: 'Darshana Kadakia', text: 'Runs the family office.' }],
   };
 
-  it('lists the entities with each borrower\'s share, never more than four EIN digits', () => {
+  it('lists the entities with each borrower\'s share and role, no EIN or State (Oct 7)', () => {
     const { columns, rows: out } = affiliatedRows(full);
-    expect(columns.map((c) => c.label)).toEqual(['Entity Name', 'Entity Type', 'EIN (Last 4)', 'State', 'Rajesh Kadakia Ownership', 'Darshana Kadakia Ownership', 'Beneficial Ownership', 'Role', 'Notes']);
-    expect(out[0]).toEqual(['Greens Storage LLC', 'Multi-Member LLC', 'XX-XXX1234', 'CA', 50, 50, 100, 'Managing Member', '']);
+    expect(columns.map((c) => c.label)).toEqual(['Entity Name', 'Entity Type', 'Rajesh Kadakia Ownership', 'Rajesh Kadakia Role', 'Darshana Kadakia Ownership', 'Darshana Kadakia Role', 'Beneficial Ownership', 'Notes']);
+    // A row saved before per-borrower roles: its one role is the primary's.
+    expect(out[0]).toEqual(['Greens Storage LLC', 'Multi-Member LLC', 50, 'Managing Member', 50, '', 100, '']);
+    const perBorrower = affiliatedRows({ ...full, affiliated: { borrowers, rows: [{ ...rows[0], roles: { primary: 'Managing Member', co: 'Member' } }] } });
+    expect(perBorrower.rows[0]).toEqual(['Greens Storage LLC', 'Multi-Member LLC', 50, 'Managing Member', 50, 'Member', 100, '']);
     expect(affiliatedRows(statement).rows).toEqual([]);    // a statement kept before 10/06
+  });
+
+  it('prints an empty percent as "-"', () => {
+    expect(pctText(null)).toBe('-');
+    expect(pctText('')).toBe('-');
+    expect(pctText(12.5)).toBe('12.5%');
+    const sheet = pfsExtraSheets(full)[0];
+    expect(sheet.rows[1]).toContain('-');     // the trust has no co-borrower share and no beneficial %
   });
 
   it('adds an Affiliated Entities sheet and the co-borrower profile to the workbook', () => {

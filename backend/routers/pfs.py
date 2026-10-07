@@ -99,18 +99,24 @@ ASSET_CATEGORIES = [
     ("personal", "Personal Holdings"),
     ("other_holding", "Other Holdings"),
 ]
+# Oct 7 (Charmi): Business Loans reads "Commercial Loans" (key kept);
+# Residential Loans right after it; International Debt, Loans on Life
+# Insurance and Contingent Liabilities are no longer offered. A saved
+# international line reads as Commercial Loans and an insurance loan as Other
+# Liabilities (_LEGACY); a saved contingent line stays contingent (below).
 LIABILITY_CATEGORIES = [
-    ("business_loan", "Business Loans"),
-    ("international", "International Debt"),
+    ("business_loan", "Commercial Loans"),
+    ("residential_loan", "Residential Loans"),
     ("auto", "Automobile Loans"),
     ("loc", "Lines of Credit"),
     ("credit_card", "Credit Cards"),
-    ("insurance_loan", "Loans on Life Insurance"),
     ("other_liability", "Other Liabilities"),
-    # A guarantee of somebody else's debt: printed under Contingent
-    # Liabilities on the first page, never added into total liabilities.
-    ("contingent", "Contingent Liabilities"),
 ]
+# A guarantee of somebody else's debt: printed under Contingent Liabilities on
+# the first page, never added into total liabilities. Not offered for a new
+# line since Oct 7 (the History answer covers it); old lines keep it - moving
+# one into a real section would START counting it, so that is never automatic.
+RETIRED_LIABILITY_CATEGORIES = [("contingent", "Contingent Liabilities")]
 REAL_ESTATE_KINDS = [
     ("domestic_residential", "Domestic Residential Real Estate"),
     ("domestic_commercial", "Domestic Commercial Real Estate"),
@@ -123,11 +129,14 @@ _RE_LEGACY = {"residential": "domestic_residential", "commercial": "domestic_com
               # their logic into Personal Holdings" - a saved jewelry line reads
               # (and is saved again) as Personal Holdings, appraisal and all.
               "jewelry": "personal"}
+# Every retired category -> the one it reads (and is saved again) as.
+_LEGACY = {**_RE_LEGACY, "international": "business_loan", "insurance_loan": "other_liability"}
 _CATEGORIES = {
     "asset": [c for c, _ in ASSET_CATEGORIES],
-    "liability": [c for c, _ in LIABILITY_CATEGORIES],
+    "liability": [c for c, _ in LIABILITY_CATEGORIES + RETIRED_LIABILITY_CATEGORIES],
     "real_estate": [c for c, _ in REAL_ESTATE_KINDS],
 }
+_NOT_OFFERED = {c for c, _ in RETIRED_LIABILITY_CATEGORIES}
 # The questions every lender asks; answered once per guarantor.
 HISTORY_QUESTIONS = [
     "Have you ever filed for bankruptcy?",
@@ -143,7 +152,7 @@ _DETAIL_KEYS = ("address", "city_state_zip", "phone", "email", "date_of_birth", 
 # The co-borrower (Charmi, 10/01: "Spouse/Co-borrower details as well") mirrors
 # the borrower's fields, plus a name.
 _CO_BORROWER_KEYS = ("name", "address", "city_state_zip", "phone", "email", "date_of_birth", "marital_status", "employer",
-                     "title", "ssn_last4")
+                     "title", "ssn_last4", "photo")
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PHOTO_MAX = 400_000   # characters of data URL (a downscaled JPEG is a tenth of this)
 
@@ -182,12 +191,17 @@ def _profile_out(p: models.PfsProfile, full: bool = True) -> dict:
 
 
 def _line_out(l: models.PfsLine) -> dict:
-    return {"id": l.id, "section": l.section, "category": _RE_LEGACY.get(l.category, l.category), "label": l.label or "", "institution": l.institution or "",
+    details = l.details if isinstance(l.details, dict) else {}
+    # Oct 7: `shareFrom` = "affiliated" (the % is read from Affiliated
+    # Entities at read time) | "manual" (typed on the line; also every line
+    # saved before Oct 7). Kept in details.shareFrom - no new column.
+    return {"id": l.id, "section": l.section, "category": _LEGACY.get(l.category, l.category), "label": l.label or "", "institution": l.institution or "",
             "accountRef": l.account_ref or "", "ownershipPct": float(l.ownership_pct if l.ownership_pct is not None else 100),
             "source": l.source or "manual", "ledgerEntity": l.ledger_entity or "",
             "ledgerAccounts": l.ledger_accounts if isinstance(l.ledger_accounts, list) else [],
             "manualValue": float(l.manual_value or 0), "manualAsOf": l.manual_as_of or "",
-            "details": l.details if isinstance(l.details, dict) else {}, "sort": l.sort or 0, "notes": l.notes or ""}
+            "details": details, "sort": l.sort or 0, "notes": l.notes or "",
+            "shareFrom": "affiliated" if details.get("shareFrom") == "affiliated" else "manual"}
 
 
 class ProfileBody(BaseModel):
@@ -250,7 +264,13 @@ def _clean_co_borrower(v) -> dict:
         val = v.get(k)
         if val in (None, ""):
             continue
-        if k == "ssn_last4":
+        if k == "photo":
+            # Oct 7 (item 38): the co-borrower's cover photo, kept like the
+            # borrower's - a small downscaled image as a data URL, never a link.
+            if not isinstance(val, str) or not val.startswith("data:image/") or len(val) > _PHOTO_MAX:
+                raise HTTPException(status_code=400, detail="The co-borrower's photo must be an image under 300 KB.")
+            out[k] = val
+        elif k == "ssn_last4":
             digits = re.sub(r"\D", "", str(val))
             if len(digits) > 4:
                 raise HTTPException(status_code=400, detail="Enter only the last four digits of the co-borrower's Social Security number.")
@@ -270,12 +290,15 @@ def _clean_history(h: Optional[list]) -> list:
     return out
 
 
-def _clean_line(body: LineBody) -> dict:
+def _clean_line(body: LineBody, keep_category: str = "") -> dict:
+    """`keep_category`: the category the line already has - a retired one
+    (contingent) may be kept by a line that has it, never newly chosen."""
     if body.section not in _CATEGORIES:
         raise HTTPException(status_code=400, detail="section must be asset, liability or real_estate")
-    body.category = _RE_LEGACY.get(body.category, body.category)
-    if body.category not in _CATEGORIES[body.section]:
-        raise HTTPException(status_code=400, detail=f"category must be one of {', '.join(_CATEGORIES[body.section])}")
+    body.category = _LEGACY.get(body.category, body.category)
+    offered = [c for c in _CATEGORIES[body.section] if c not in _NOT_OFFERED]
+    if body.category not in offered and not (body.category in _CATEGORIES[body.section] and body.category == keep_category):
+        raise HTTPException(status_code=400, detail=f"category must be one of {', '.join(offered)}")
     label = (body.label or "").strip()
     if not label:
         raise HTTPException(status_code=400, detail="Give the line a name.")
@@ -289,7 +312,10 @@ def _clean_line(body: LineBody) -> dict:
         raise HTTPException(status_code=400, detail="A ledger line needs an entity and at least one account.")
     if body.manualAsOf and not _ISO.match(body.manualAsOf):
         raise HTTPException(status_code=400, detail="The date of a manual figure must be YYYY-MM-DD.")
-    details = body.details if isinstance(body.details, dict) else {}
+    details = dict(body.details) if isinstance(body.details, dict) else {}
+    # Oct 7: where the line's % comes from - "affiliated" | "manual"; anything else is dropped.
+    if "shareFrom" in details and details["shareFrom"] not in ("affiliated", "manual"):
+        details.pop("shareFrom")
     if len(json.dumps(details)) > 4000:
         raise HTTPException(status_code=400, detail="Too much detail on one line.")
     loan = details.get("loan") if isinstance(details.get("loan"), dict) else None
@@ -313,8 +339,23 @@ def _get_profile(db: Session, profile_id: str) -> models.PfsProfile:
 # Holdings, and a "Cash" line that was listed under Bank Accounts moves to
 # Cash. Only lines last saved before the release are touched, so a line
 # somebody has since put back under Bank Accounts on purpose stays there.
-_SECTIONS_OCT06 = "2026-10-07"
+# Oct 7 (Charmi: "Cash is not on the top"): the rule only knew a title that
+# is exactly "Cash"; ledger titles carry the owner or entity around it ("GA -
+# Cash", "Cash - RJK", "Cash Account"). Those count too, as long as no bank
+# is named and no account number ends the title ("Cash - Chase 6532" is a
+# bank account). The cut-off moves to the Oct 7 release so lines added from
+# the ledger under the narrower rule move as well.
+_SECTIONS_OCT06 = "2026-10-08"
 _CASH_TITLE = re.compile(r"^\s*cash\s*$|petty cash|cash on hand|cash in hand|cash drawer|cash register", re.I)
+_CASH_WIDE = re.compile(r"^\s*(?:[a-z&.'\s]{1,24}\s*[-:(]\s*)?cash(?:\s+account|\s+acct)?(?:\s*[-:(]\s*[a-z&.'\s]{1,24}\)?)?\s*$", re.I)
+
+
+def is_cash_title(title: str) -> bool:
+    """A Cash line (the Cash section), not a bank account, by its title."""
+    t = title or ""
+    if _CASH_TITLE.search(t):
+        return True
+    return bool(_CASH_WIDE.match(t)) and not bank_name(t) and not _ENDING.search(t)
 
 
 def _migrate_lines(db: Session, profile_id: str) -> None:
@@ -324,7 +365,7 @@ def _migrate_lines(db: Session, profile_id: str) -> None:
     for row in rows:
         if row.category == "jewelry":
             row.category, changed = "personal", True
-        elif row.section == "asset" and (row.updated_at or "") < _SECTIONS_OCT06 and _CASH_TITLE.search(row.label or ""):
+        elif row.section == "asset" and (row.updated_at or "") < _SECTIONS_OCT06 and is_cash_title(row.label or ""):
             row.category, changed = "cash", True
     if changed:
         db.commit()
@@ -334,15 +375,35 @@ def _ordered(q):
     return q.order_by(models.PfsLine.sort, models.PfsLine.label).all()
 
 
-def _load(profile_id: str) -> tuple[dict, list[dict]]:
+def _load(profile_id: str) -> tuple[dict, list[dict], dict]:
+    """(profile, lines, Affiliated Entities shares by entity code)."""
     db = SessionLocal()
     try:
         p = _get_profile(db, profile_id)
         _migrate_lines(db, profile_id)
         lines = _ordered(db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id))
-        return _profile_out(p), [_line_out(l) for l in lines]
+        return _profile_out(p), [_line_out(l) for l in lines], pfs_affiliates.shares(db, profile_id)
     finally:
         db.close()
+
+
+async def _parents() -> dict[str, str]:
+    """{entity code: parent code} from the accounting app's entity list; {}
+    when it cannot answer (the "67001-1" convention still applies)."""
+    try:
+        data = await accounting._acct_get("/api/internal/reports/locations", {})
+    except HTTPException:
+        return {}
+    return {str(e.get("code")).strip(): str(e.get("parent_code")).strip()
+            for e in (data.get("entities") or []) if isinstance(e, dict) and e.get("code") and e.get("parent_code")}
+
+
+async def _parents_if_needed(entities: list[str], shares: dict) -> dict[str, str]:
+    """The parent map, read only when an entity has no row of its own and
+    could inherit one."""
+    if shares and any(e and e not in shares for e in entities):
+        return await _parents()
+    return {}
 
 
 def _save_statement(profile_id: str, as_of: str, payload: dict, user: dict, fmt: str = "pdf", delivery: str = "download") -> str:
@@ -365,7 +426,10 @@ def _save_statement(profile_id: str, as_of: str, payload: dict, user: dict, fmt:
 def meta():
     """The vocabulary of a statement: sections, categories, the standard questions."""
     pair = lambda rows: [{"key": k, "label": v} for k, v in rows]  # noqa: E731
+    # Oct 7: `liabilityCategories` is what a new line may use; `retiredCategories`
+    # names categories old lines may still carry (contingent) so they get a label.
     return {"kinds": list(KINDS), "assetCategories": pair(ASSET_CATEGORIES), "liabilityCategories": pair(LIABILITY_CATEGORIES),
+            "retiredCategories": pair(RETIRED_LIABILITY_CATEGORIES),
             "realEstateKinds": pair(REAL_ESTATE_KINDS), "historyQuestions": HISTORY_QUESTIONS}
 
 
@@ -412,14 +476,28 @@ def create_profile(body: ProfileBody, request: Request, user: dict = Depends(_ed
     return _profile_out(p)
 
 
+def _open_profile(profile_id: str, user: dict) -> tuple[dict, dict]:
+    db = SessionLocal()
+    try:
+        p = _get_profile(db, profile_id)
+        _migrate_lines(db, profile_id)
+        lines = _ordered(db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id))
+        _audit(db, user, "pfs_profile_opened", p.id)
+        db.commit()
+        return {**_profile_out(p), "lines": [_line_out(l) for l in lines]}, pfs_affiliates.shares(db, profile_id)
+    finally:
+        db.close()
+
+
 @router.get("/profiles/{profile_id}")
-def get_profile(profile_id: str, user: dict = Depends(_read), db: Session = Depends(get_db)):
-    p = _get_profile(db, profile_id)
-    _migrate_lines(db, profile_id)
-    lines = _ordered(db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id))
-    _audit(db, user, "pfs_profile_opened", p.id)
-    db.commit()
-    return {**_profile_out(p), "lines": [_line_out(l) for l in lines]}
+async def get_profile(profile_id: str, user: dict = Depends(_read)):
+    """The file and its lines. Oct 7: each line also carries shareFrom,
+    storedOwnershipPct, affiliatedShare and shareMissing (apply_shares), and
+    `ownershipPct` is the % the statement will use."""
+    out, shares = await asyncio.to_thread(_open_profile, profile_id, user)
+    parents = await _parents_if_needed([_share_entity(l) for l in out["lines"]], shares)
+    out["lines"] = apply_shares(out["lines"], shares, parents)
+    return out
 
 
 @router.put("/profiles/{profile_id}")
@@ -484,6 +562,10 @@ class BulkBody(BaseModel):
     entityName: Optional[str] = ""
     ownershipPct: Optional[float] = 100
     accounts: list[BulkAccount]
+    # Oct 7 (Charmi): "affiliated" | "manual" | None. None = "affiliated" when
+    # the entity (or a parent) has an Affiliated Entities row with a %, else
+    # "manual". With "affiliated" the lines are saved at that % and follow it.
+    shareFrom: Optional[str] = None
 
 
 _ENDING = re.compile(r"[-\s](\d{4})\s*$")
@@ -497,7 +579,37 @@ def _account_ref(title: str) -> str:
 
 
 @router.post("/profiles/{profile_id}/lines/bulk", status_code=201)
-def add_lines_bulk(profile_id: str, body: BulkBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
+async def add_lines_bulk(profile_id: str, body: BulkBody, user: dict = Depends(_edit)):
+    """Oct 7: the response also carries `shareFrom` (what the new lines got)
+    and `affiliatedShare` (resolve_share for the entity, or null)."""
+    entity = (body.entity or "").strip()
+    shares = await asyncio.to_thread(_shares_of, profile_id)
+    parents = await _parents_if_needed([entity], shares)
+    share = resolve_share(entity, shares, parents) if entity else None
+    share_from = body.shareFrom if body.shareFrom in ("affiliated", "manual") else ("affiliated" if share else "manual")
+    if share_from == "affiliated" and not share:
+        share_from = "manual"
+    return await asyncio.to_thread(_add_lines_bulk, profile_id, body, user, share_from, share)
+
+
+def _shares_of(profile_id: str) -> dict:
+    db = SessionLocal()
+    try:
+        return pfs_affiliates.shares(db, profile_id)
+    finally:
+        db.close()
+
+
+def _add_lines_bulk(profile_id: str, body: BulkBody, user: dict, share_from: str, share: Optional[dict]) -> dict:
+    db = SessionLocal()
+    try:
+        out = _bulk(db, profile_id, body, user, share_from, share)
+    finally:
+        db.close()
+    return {**out, "shareFrom": share_from, "affiliatedShare": share}
+
+
+def _bulk(db: Session, profile_id: str, body: BulkBody, user: dict, share_from: str, share: Optional[dict]) -> dict:
     """One line per ledger account, in one go (Neil, call of 09/29: "my bank
     accounts are all in Intacct - pick them by GL group and the PFS never
     needs a manual update"). Every line reads the ledger, so each statement
@@ -530,13 +642,18 @@ def add_lines_bulk(profile_id: str, body: BulkBody, user: dict = Depends(_edit),
             loan_code = (a.loanAccount or "").strip()
             details = {"legal_owner": (body.entityName or "")[:160],
                        "loan": {"source": "ledger", "entity": entity, "accounts": [loan_code]} if loan_code else {"source": "manual", "value": 0}}
+        # Oct 7: the % from Affiliated Entities, unless this account was given its own.
+        if share_from == "affiliated" and share and a.ownershipPct is None:
+            details["shareFrom"], pct = "affiliated", share["pct"]
+        else:
+            details["shareFrom"], pct = "manual", (body.ownershipPct if a.ownershipPct is None else a.ownershipPct)
         # Oct 6 (Charmi): the Institution is the bank ("Chase Checking - 6532"
         # -> Chase), never the entity the account sits in. The statement
         # prefers the bank account record linked to the GL when it has one.
         line = _clean_line(LineBody(
             section=body.section, category=(a.category or body.category), label=label,
             institution="" if body.section == "real_estate" else bank_name(label),
-            accountRef=_account_ref(label), ownershipPct=body.ownershipPct if a.ownershipPct is None else a.ownershipPct,
+            accountRef=_account_ref(label), ownershipPct=pct,
             source="ledger", ledgerEntity=entity, ledgerAccounts=[code], details=details, notes="", sort=sort,
         ))
         sort = sort + 1 if sort else 0
@@ -561,7 +678,7 @@ def _get_line(db: Session, profile_id: str, line_id: str) -> models.PfsLine:
 @router.put("/profiles/{profile_id}/lines/{line_id}")
 def update_line(profile_id: str, line_id: str, body: LineBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
     row = _get_line(db, profile_id, line_id)
-    for k, v in _clean_line(body).items():
+    for k, v in _clean_line(body, keep_category=row.category or "").items():
         setattr(row, k, v)
     row.updated_by, row.updated_at = user["email"], _now()
     _audit(db, user, "pfs_line_changed", profile_id, {"line": row.id, "label": row.label})
@@ -583,8 +700,8 @@ def move_line(profile_id: str, line_id: str, body: MoveBody, user: dict = Depend
     loan so the schedule can read it; one moved out keeps its details."""
     row = _get_line(db, profile_id, line_id)
     section = body.section
-    category = _RE_LEGACY.get(body.category, body.category)
-    if section not in _CATEGORIES or category not in _CATEGORIES[section]:
+    category = _LEGACY.get(body.category, body.category)
+    if section not in _CATEGORIES or category not in _CATEGORIES[section] or category in _NOT_OFFERED:
         raise HTTPException(status_code=400, detail="Pick a category of the statement.")
     was = (row.section, row.category)
     row.section, row.category = section, category
@@ -677,12 +794,16 @@ _ASSET_WORDS = [
     (re.compile(r"checking|chkg|savings|\bbank\b|\bcash\b|money market|\bcd\b|certificate of deposit|venmo|paypal|earmarked|operating|payroll acct|\bf&m\b|\bchase\b|wells fargo|\bbofa\b|\bciti\b|\bpnc\b|us bank|first citizens|\betc\b|escrow"), "bank"),
 ]
 _RE_WORDS = re.compile(r"\bland\b|building|real estate|\bproperty\b|improvement|rental|apartment|\bbldg\b|storage|plaza|center|hotel|motel|condo|\bhouse\b|residence")
+# Oct 7 (Charmi): International Debt and Loans on Life Insurance are gone -
+# a loan in India is a Commercial Loan, a policy loan an Other Liability; a
+# home loan / HELOC / mortgage on a residence is a Residential Loan.
 _LIABILITY_WORDS = [
-    (re.compile(r"policy loan|insurance loan|loan against (?:life )?(?:insurance|policy)"), "insurance_loan"),
+    (re.compile(r"policy loan|insurance loan|loan against (?:life )?(?:insurance|policy)"), "other_liability"),
     (re.compile(r"credit card|\bamex\b|\bvisa\b|mastercard|discover card|capital one"), "credit_card"),
-    (re.compile(r"line of credit|\bloc\b|credit line|heloc|revolv"), "loc"),
+    (re.compile(r"home loan|residential|heloc|home equity|mortgage on (?:the )?(?:primary )?residence"), "residential_loan"),
+    (re.compile(r"line of credit|\bloc\b|credit line|revolv"), "loc"),
     (re.compile(r"\bauto\b|vehicle|\bcar\b|lease payable"), "auto"),
-    (re.compile(r"india|\bintl\b|international|\bhdfc\b|icici|\bsbi\b|\bpune\b|mumbai|\bdubai\b"), "international"),
+    (re.compile(r"india|\bintl\b|international|\bhdfc\b|icici|\bsbi\b|\bpune\b|mumbai|\bdubai\b"), "business_loan"),
     (re.compile(r"mortgage|\bloan|note payable|notes payable|\bn/p\b|promissory|\bsba\b|due to|financing|borrow"), "business_loan"),
 ]
 # Accounts that are not a holding or a debt a lender lists: contra accounts,
@@ -713,6 +834,8 @@ def classify_account(section: str, code: str, title: str, account_type: str = ""
         return "asset", "notes_receivable"
     if _ASSET_SKIP.search(t):
         return "asset", "other_holding"
+    if is_cash_title(title or ""):
+        return "asset", "cash"
     for rx, cat in _ASSET_WORDS:
         if rx.search(t):
             return "asset", cat
@@ -834,40 +957,73 @@ async def _bank_directory(as_of: str) -> dict:
             by_entity[(entity, code)] = name
         by_code.setdefault(code, set()).add(name)
 
-    for r in recon.get("rows") if isinstance(recon.get("rows"), list) else []:
-        if not isinstance(r, dict) or not r.get("gl_code"):
-            continue
-        code = str(r["gl_code"])
-        code_of[str(r.get("account_id") or "")] = code
+    # Oct 7 (Charmi: "the institution name is not coming in for all the
+    # accounts"): codes and entities are compared trimmed; a bank record
+    # whose GL id is not a recon account id is read as the GL code itself
+    # when it is one (or when it sends `gl_code`); and an Intacct account
+    # with no bank name of its own takes the name of the app's bank record
+    # pointing at the same account (applied after both lists are read).
+    recon_rows = [r for r in (recon.get("rows") if isinstance(recon.get("rows"), list) else []) if isinstance(r, dict) and r.get("gl_code")]
+    unnamed: list[tuple[str, str]] = []
+    for r in recon_rows:
+        code = str(r["gl_code"]).strip()
+        if r.get("account_id"):
+            code_of[str(r["account_id"]).strip()] = code
+    codes = set(code_of.values())
+    for r in recon_rows:
+        code = str(r["gl_code"]).strip()
+        entity = str(r.get("entity") or "").strip()
         # The Intacct bank account linked to this GL and entity: its bank name
         # when the app sends one, else its id ("CHASE-6532", "BOTW 2721").
         name = bank_name(r.get("bank_name") or "") or (r.get("bank_name") or "").strip() or bank_name(r.get("intacct_ref") or "")
         if name:
-            note(str(r.get("entity") or ""), code, name)
+            note(entity, code, name)
+        elif entity:
+            unnamed.append((entity, code))
+    by_gl_id: dict[str, str] = {}
     for b in tables.get("banks") if isinstance(tables.get("banks"), list) else []:
         if not isinstance(b, dict):
             continue
-        code = code_of.get(str(b.get("gl_account_id") or ""))
+        gid = str(b.get("gl_account_id") or "").strip()
+        code = code_of.get(gid) or str(b.get("gl_code") or "").strip() or (gid if gid in codes or gid.isdigit() else "")
         raw = (b.get("bank_name") or "").strip()
         name = bank_name(raw) or raw or bank_name(b.get("nickname") or "")
         if code and name:
             note("", code, name)
+            by_gl_id[code] = name
+    for entity, code in unnamed:
+        if (entity, code) not in by_entity and code in by_gl_id:
+            by_entity[(entity, code)] = by_gl_id[code]
     # A GL code alone names a bank only when every record on it agrees: the
     # chart of accounts is shared, and 10100 is a different bank per entity.
     return {**by_entity, **{c: next(iter(n)) for c, n in by_code.items() if len(n) == 1}}
 
 
-def _institution(line: dict, books: dict[str, dict[str, dict]], banks: dict) -> str:
+def _lineage(entity: str, parents: Optional[dict] = None) -> list[str]:
+    """An entity, then its parent, its parent's parent... - the accounting
+    app's parent chain, else Intacct's "67001-1" child-code convention."""
+    out: list[str] = []
+    code = (entity or "").strip()
+    while code and code not in out and len(out) < 12:
+        out.append(code)
+        code = (parents or {}).get(code) or (code.rsplit("-", 1)[0] if "-" in code else "")
+    return out
+
+
+def _institution(line: dict, books: dict[str, dict[str, dict]], banks: dict, parents: Optional[dict] = None) -> str:
     """The Institution printed for a line. Typed by hand: as typed. Read from
-    the ledger: the bank account record linked to its GL, else the bank its
-    account title names, else a bank in what was kept - never the entity or
-    the guarantor (the setup used to put the entity's name there)."""
+    the ledger: the bank account record linked to its GL (in its entity, else
+    in a parent entity - Oct 7), else the bank its account title names, else
+    a bank in what was kept - never the entity or the guarantor (the setup
+    used to put the entity's name there)."""
     d = line.get("details") or {}
     if line["source"] != "ledger" or d.get("institutionManual"):
         return line["institution"]
-    entity = line["ledgerEntity"]
+    entity = (line["ledgerEntity"] or "").strip()
+    chain = _lineage(entity, parents)
     for code in line["ledgerAccounts"]:
-        hit = banks.get((entity, code)) or banks.get(code)
+        code = str(code).strip()
+        hit = next((banks[(e, code)] for e in chain if (e, code) in banks), None) or banks.get(code)
         if hit:
             return hit
     for code in line["ledgerAccounts"]:
@@ -1062,11 +1218,13 @@ CONDITION_ASSETS = [
     ("other", "Other Assets", ("other_holding",)),
 ]
 CONDITION_LIABILITIES = [
-    ("notes_banks", "Notes Payable to Banks", ("business_loan", "loc", "international")),
+    # Oct 7: residential loans are notes payable to banks; International Debt
+    # and the Loans on Life Insurance line are gone (their old lines read as
+    # Commercial Loans / Other Liabilities - _LEGACY).
+    ("notes_banks", "Notes Payable to Banks", ("business_loan", "loc", "residential_loan")),
     ("mortgages", "Mortgages on Real Estate", ()),
     ("credit_cards", "Credit Cards", ("credit_card",)),
     ("auto", "Automobile Loans", ("auto",)),
-    ("insurance_loan", "Loans on Life Insurance", ("insurance_loan",)),
     ("other", "Other Liabilities", ("other_liability",)),
 ]
 
@@ -1122,23 +1280,73 @@ def _condition(assets: list[dict], liabilities: list[dict], real_estate: list[di
     }
 
 
+# ── The share % from Affiliated Entities (Charmi, Oct 7) ────────────────────
+# "Whenever we are adding any entity into the PFS, the % calculations should
+# be calculated based on the inputs into the affiliated entities." A line
+# whose details.shareFrom is "affiliated" takes, at read time, the share of the
+# Affiliated Entities row whose ledger entity is the line's (a sub-entity
+# inherits its parent's row unless it has its own): Beneficial % when set,
+# else the sum of the borrowers' ownership % (pfs_affiliates.share_of). A %
+# typed on the line ("manual") always wins.
+def _share_entity(line: dict) -> str:
+    return _schedule_entity(line)
+
+
+def resolve_share(entity: str, shares: dict, parents: Optional[dict] = None) -> Optional[dict]:
+    """The Affiliated Entities share for an entity code, or None. Adds `via`
+    (the entity whose row it is) and `inherited` (True when that is a parent)."""
+    for code in _lineage(entity, parents):
+        if code in shares:
+            return {**shares[code], "via": code, "inherited": code != (entity or "").strip()}
+    return None
+
+
+def apply_shares(lines: list[dict], shares: dict, parents: Optional[dict] = None) -> list[dict]:
+    """The lines with the share they read. Every line gets (Oct 7):
+      storedOwnershipPct - the % saved on the line;
+      ownershipPct       - the % the statement uses (the Affiliated one when
+                           shareFrom is "affiliated" and a row exists);
+      affiliatedShare    - resolve_share() for the line's entity, or None;
+      shareMissing       - shareFrom "affiliated" but no row with a % (the
+                           saved % is used)."""
+    out = []
+    for l in lines:
+        share = resolve_share(_share_entity(l), shares, parents) if shares else None
+        affiliated = (l.get("details") or {}).get("shareFrom") == "affiliated"
+        stored = l["ownershipPct"]
+        out.append({**l, "storedOwnershipPct": stored, "ownershipPct": share["pct"] if affiliated and share else stored,
+                    "shareFrom": "affiliated" if affiliated else "manual", "affiliatedShare": share,
+                    "shareMissing": bool(affiliated and not share)})
+    return out
+
+
 def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[str, dict]], pnls: Optional[dict[str, dict]] = None,
-            banks: Optional[dict] = None) -> dict:
+            banks: Optional[dict] = None, shares: Optional[dict] = None, parents: Optional[dict] = None) -> dict:
     """The statement for one date. Pure: the lines and the ledger balances in,
     the figures out. `books` is {entity: {gl_code: {amount, ...}}}; `pnls`
     (optional) is {entity: pnl for the year} for the schedules; `banks`
-    (optional) is the bank account records by (entity, GL) and GL."""
+    (optional) is the bank account records by (entity, GL) and GL; `shares`
+    (optional) is pfs_affiliates.shares() and `parents` {entity: parent}.
+
+    Oct 7 fields on every statement row: shareFrom, affiliatedShare,
+    storedOwnershipPct, shareMissing (see apply_shares) and institutionMissing
+    (True when an asset/liability row has no Institution - the UI offers "Not
+    found - set it"). New top-level `investments` (see _investments)."""
     warnings: list[str] = []
     banks = banks or {}
+    lines = apply_shares(lines, shares or {}, parents)
 
     def row(line: dict, spec: dict, what: str = "") -> dict:
         balance, source, missing = _figure(spec, books)
         if missing:
             warnings.append(f"{line['label']}{what}: account {', '.join(missing)} has no balance in entity {spec.get('entity')} as of this date.")
         pct = line["ownershipPct"]
-        return {"id": line["id"], "label": line["label"], "institution": _institution(line, books, banks), "accountRef": line["accountRef"],
+        institution = _institution(line, books, banks, parents)
+        return {"id": line["id"], "label": line["label"], "institution": institution, "accountRef": line["accountRef"],
                 "ownershipPct": pct, "balance": balance, "adjusted": _r2(balance * pct / 100), "source": source,
-                "asOf": as_of if source == "ledger" else (line["manualAsOf"] or ""), "notes": line["notes"], "details": line["details"]}
+                "asOf": as_of if source == "ledger" else (line["manualAsOf"] or ""), "notes": line["notes"], "details": line["details"],
+                "shareFrom": line["shareFrom"], "affiliatedShare": line["affiliatedShare"], "storedOwnershipPct": line["storedOwnershipPct"],
+                "shareMissing": line["shareMissing"], "institutionMissing": line["section"] != "real_estate" and not (institution or "").strip()}
 
     def group(section: str, categories: list) -> list[dict]:
         out = []
@@ -1151,8 +1359,8 @@ def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[
     assets = group("asset", ASSET_CATEGORIES)
     # Guarantees are listed, never added in: they are what the guarantor may
     # owe, not what they owe.
-    contingent = [r for g in group("liability", [c for c in LIABILITY_CATEGORIES if c[0] == "contingent"]) for r in g["rows"]]
-    liabilities = group("liability", [c for c in LIABILITY_CATEGORIES if c[0] != "contingent"])
+    contingent = [r for g in group("liability", RETIRED_LIABILITY_CATEGORIES) for r in g["rows"]]
+    liabilities = group("liability", LIABILITY_CATEGORIES)
 
     # The schedule of real estate: each property is a value and a loan, both
     # at the guarantor's share. Their totals join the assets and liabilities.
@@ -1187,9 +1395,48 @@ def compute(profile: dict, lines: list[dict], as_of: str, books: dict[str, dict[
         "summary": {"assets": summary_assets, "liabilities": summary_liabilities},
         "totals": {"assets": total_assets, "liabilities": total_liabilities, "netWorth": _r2(total_assets - total_liabilities)},
         "condition": _condition(assets, liabilities, real_estate, contingent, sched, profile),
+        "investments": _investments(assets, real_estate),
         "schedules": sched,
         "warnings": warnings,
     }
+
+
+# ── Investments (Charmi, 10/03: "Add Investments under Assets in PFS - Real
+# Estate should be included under Investments") ─────────────────────────────
+# Reading A (Oct 7 default): one Investments group - Investment Accounts,
+# Business Interests and Real Estate (equity at share, one line per
+# property) - with a subtotal. It is a WAY OF SHOWING the assets, not more of
+# them: the totals still count each property's value once in total assets and
+# its loan once in total liabilities, so its equity is in net worth exactly
+# once. The Real Estate tab stays where properties and mortgages are kept.
+INVESTMENT_ASSET_KEYS = ("investment", "business")
+
+
+def _investments(assets: list[dict], real_estate: list[dict]) -> dict:
+    """-> {label, groups: [{key, label, rows, total}], total, assetKeys,
+    realEstate: {value, loans, equity}, note}. `groups` holds the asset groups
+    `assetKeys` (Investment Accounts, Business Interests - the same rows as in
+    `assets`, so a screen that shows this block skips those groups in
+    `assets`) and, last, key "real_estate_equity": one row per property
+    {id, label, category, categoryLabel, ownershipPct, valueAdjusted,
+    loanAdjusted, equity, details}. `total` = the asset groups + real estate
+    equity; it is never added to `totals`."""
+    by_key = {g["key"]: g for g in assets}
+    groups = [{"key": k, "label": by_key[k]["label"], "rows": by_key[k]["rows"], "total": by_key[k]["total"]}
+              for k in INVESTMENT_ASSET_KEYS if k in by_key]
+    re_rows = [{"id": r["id"], "label": r["label"], "category": g["key"], "categoryLabel": g["label"], "ownershipPct": r["ownershipPct"],
+                "valueAdjusted": r["valueAdjusted"], "loanAdjusted": r["loanAdjusted"], "equity": r["equity"], "details": r["details"]}
+               for g in real_estate for r in g["rows"]]
+    value = _r2(sum(r["valueAdjusted"] for r in re_rows))
+    loans = _r2(sum(r["loanAdjusted"] for r in re_rows))
+    equity = _r2(value - loans)
+    if re_rows:
+        groups.append({"key": "real_estate_equity", "label": "Real Estate", "rows": re_rows, "total": equity})
+    return {"label": "Investments", "groups": groups, "total": _r2(sum(g["total"] for g in groups)),
+            "assetKeys": [g["key"] for g in groups if g["key"] != "real_estate_equity"],
+            "realEstate": {"value": value, "loans": loans, "equity": equity},
+            "note": "Real estate is shown here at equity (market value less loans, at the share owned). "
+                    "Its market value and loans are counted once, in total assets and total liabilities."}
 
 
 def _entities_of(lines: list[dict]) -> list[str]:
@@ -1215,17 +1462,22 @@ async def _pnl(entity: str, year: str) -> dict:
 
 
 async def _statement(profile_id: str, as_of: str) -> dict:
-    profile, lines = await asyncio.to_thread(_load, profile_id)
+    profile, lines, shares = await asyncio.to_thread(_load, profile_id)
     entities = _entities_of(lines)
     sched = _schedule_entities(lines)
     # The bank account records are read only when a line reads the ledger
-    # outside real estate - the lines whose Institution they name.
+    # outside real estate - the lines whose Institution they name. The parent
+    # map serves both a share inherited from a parent's Affiliated row and a
+    # bank record kept on the parent entity.
     wants_banks = any(l["source"] == "ledger" and l["section"] != "real_estate" for l in lines)
+    wants_parents = wants_banks or bool(shares and any(_share_entity(l) and _share_entity(l) not in shares for l in lines))
     fetched = await asyncio.gather(*[_balances(e, as_of) for e in entities], *[_pnl(e, as_of[:4]) for e in sched],
-                                   _bank_directory(as_of) if wants_banks else _nothing())
+                                   _bank_directory(as_of) if wants_banks else _nothing(),
+                                   _parents() if wants_parents else _nothing())
     books = dict(zip(entities, fetched[:len(entities)]))
     pnls = {e: p for e, p in zip(sched, fetched[len(entities):len(entities) + len(sched)]) if p.get("sections")}
-    return await asyncio.to_thread(pfs_affiliates.attach, profile_id, compute(profile, lines, as_of, books, pnls, fetched[-1]))
+    return await asyncio.to_thread(pfs_affiliates.attach, profile_id,
+                                   compute(profile, lines, as_of, books, pnls, fetched[-2], shares, fetched[-1]))
 
 
 async def _nothing() -> dict:
@@ -1257,6 +1509,179 @@ async def produce(profile_id: str, body: ProduceBody, user: dict = Depends(_read
     delivery = body.delivery if body.delivery in ("download", "email", "files") else "download"
     sid = await asyncio.to_thread(_save_statement, profile_id, as_of, payload, user, fmt, delivery)
     return {"id": sid, **payload}
+
+
+# ── Share % from Affiliated Entities: for the screens (Charmi, Oct 7) ───────
+@router.get("/profiles/{profile_id}/affiliated-shares")
+async def affiliated_shares(profile_id: str, entities: Optional[str] = Query(None)):
+    """What a line of each entity would take from Affiliated Entities.
+    -> {"shares": {code: share}} for every row with a ledger entity, and, when
+    `entities` (comma-separated codes) is given, {"resolved": {code: share |
+    null}} for each of them - a sub-entity reads its parent's row when it has
+    none of its own. A share is {pct, basis ("beneficial"|"ownership"),
+    parts: [{key, name, pct}], text ("Neil R. Kadakia 10% + Archana N.
+    Kadakia 10%" / "Beneficial 20%"), affiliateId, affiliateName, entity, and
+    in `resolved` also via (the entity whose row it is) and inherited}."""
+    await asyncio.to_thread(_require_profile, profile_id)
+    shares = await asyncio.to_thread(_shares_of, profile_id)
+    asked = [e.strip() for e in (entities or "").split(",") if e.strip()][:200]
+    out: dict = {"shares": shares}
+    if asked:
+        parents = await _parents_if_needed(asked, shares)
+        out["resolved"] = {e: resolve_share(e, shares, parents) for e in asked}
+    return out
+
+
+def _require_profile(profile_id: str) -> None:
+    db = SessionLocal()
+    try:
+        _get_profile(db, profile_id)
+    finally:
+        db.close()
+
+
+@router.get("/profiles/{profile_id}/share-mismatches")
+async def share_mismatches(profile_id: str):
+    """Lines whose entity has an Affiliated Entities share but which use a
+    different % and have not been told to keep it (shareFrom is not
+    "affiliated", and was never set to "manual" on purpose - i.e. lines saved
+    before Oct 7). For the one-time "Update / Keep" offer.
+    -> {"lines": [{id, label, section, category, entity, ownershipPct,
+    affiliatedPct, text, affiliateName, via}], "count": n}"""
+    _p, lines, shares = await asyncio.to_thread(_load, profile_id)
+    parents = await _parents_if_needed([_share_entity(l) for l in lines], shares)
+    out = []
+    for l in lines:
+        if "shareFrom" in (l.get("details") or {}):
+            continue
+        s = resolve_share(_share_entity(l), shares, parents) if shares else None
+        if s and abs(float(s["pct"]) - float(l["ownershipPct"])) > 0.0001:
+            out.append({"id": l["id"], "label": l["label"], "section": l["section"], "category": l["category"], "entity": _share_entity(l),
+                        "ownershipPct": l["ownershipPct"], "affiliatedPct": s["pct"], "text": s["text"], "affiliateName": s["affiliateName"],
+                        "via": s["via"]})
+    return {"lines": out, "count": len(out)}
+
+
+class ShareChoiceBody(BaseModel):
+    ids: list[str]
+    action: str    # "update" -> follow Affiliated Entities | "keep" -> keep the line's own %
+
+
+@router.post("/profiles/{profile_id}/share-mismatches")
+async def resolve_share_mismatches(profile_id: str, body: ShareChoiceBody, user: dict = Depends(_edit)):
+    """Answer the offer for some lines: "update" makes them follow Affiliated
+    Entities (shareFrom "affiliated", saved % set to it); "keep" marks their own
+    % as chosen (shareFrom "manual") so they are not offered again.
+    -> {"updated": n, "lines": [line, ...]} (lines as GET /profiles/{id} returns them)."""
+    if body.action not in ("update", "keep"):
+        raise HTTPException(status_code=400, detail="action must be update or keep")
+    ids = [str(i) for i in (body.ids or [])][:400]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Pick at least one line.")
+    shares = await asyncio.to_thread(_shares_of, profile_id)
+    _p, lines, _s = await asyncio.to_thread(_load, profile_id)
+    parents = await _parents_if_needed([_share_entity(l) for l in lines if l["id"] in ids], shares)
+    pcts = {}
+    for l in lines:
+        if l["id"] in ids:
+            s = resolve_share(_share_entity(l), shares, parents) if shares else None
+            pcts[l["id"]] = s["pct"] if s else None
+    return await asyncio.to_thread(_apply_share_choice, profile_id, ids, body.action, pcts, user, shares, parents)
+
+
+def _apply_share_choice(profile_id: str, ids: list[str], action: str, pcts: dict, user: dict, shares: dict, parents: dict) -> dict:
+    db = SessionLocal()
+    try:
+        rows = db.query(models.PfsLine).filter(models.PfsLine.profile_id == profile_id, models.PfsLine.id.in_(ids)).all()
+        if len(rows) != len(set(ids)):
+            raise HTTPException(status_code=404, detail="A line is not on this statement.")
+        if action == "update" and any(pcts.get(r.id) is None for r in rows):
+            raise HTTPException(status_code=400, detail="A line's entity has no percent on Affiliated Entities.")
+        for r in rows:
+            details = dict(r.details) if isinstance(r.details, dict) else {}
+            details["shareFrom"] = "affiliated" if action == "update" else "manual"
+            r.details = details
+            if action == "update":
+                r.ownership_pct = pcts[r.id]
+            r.updated_by, r.updated_at = user["email"], _now()
+        _audit(db, user, "pfs_line_shares_" + ("followed" if action == "update" else "kept"), profile_id, {"count": len(rows)})
+        db.commit()
+        return {"updated": len(rows), "lines": apply_shares([_line_out(r) for r in rows], shares, parents)}
+    finally:
+        db.close()
+
+
+# ── Password-protected PDF (Charmi, 10/03; Oct 7 default: a password typed at
+# export, never stored) ──────────────────────────────────────────────────────
+# The browser builds the PDF (pfsPdf.js) and sends it here with the password
+# the person typed; the answer is the same PDF encrypted AES-256 (pypdf). The
+# password is never stored, never logged and never in the audit row. The body
+# is read by hand, not through a model, so a malformed request can never
+# echo the password back in a validation error.
+PDF_MAX_BYTES = 25 * 1024 * 1024
+
+
+@router.post("/profiles/{profile_id}/pdf/encrypt")
+async def encrypt_pdf(profile_id: str, request: Request, user: dict = Depends(_read)):
+    """Body JSON: {"pdf": base64 of the PDF, "password": str (4-128
+    characters), "statementId": optional id of the kept statement it prints}.
+    -> {"pdf": base64 of the encrypted PDF, "encryption": "AES-256"}."""
+    import base64
+    try:
+        body = json.loads(await request.body() or b"{}")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Send the PDF and a password.")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Send the PDF and a password.")
+    password = body.get("password")
+    if not isinstance(password, str) or not 4 <= len(password) <= 128:
+        raise HTTPException(status_code=400, detail="The password must be 4 to 128 characters.")
+    raw = body.get("pdf")
+    try:
+        data = base64.b64decode(raw if isinstance(raw, str) else "", validate=True)
+    except (ValueError, TypeError):
+        data = b""
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="That is not a PDF.")
+    if len(data) > PDF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The PDF is too large.")
+    sid = str(body.get("statementId") or "")[:64]
+    out = await asyncio.to_thread(_encrypt, profile_id, data, password, sid, user)
+    return {"pdf": base64.b64encode(out).decode("ascii"), "encryption": "AES-256"}
+
+
+def encrypt_pdf_bytes(data: bytes, password: str) -> bytes:
+    """The PDF encrypted with AES-256: the password opens it; printing and
+    copying stay allowed once open."""
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            raise HTTPException(status_code=400, detail="That PDF is already protected.")
+        writer = PdfWriter(clone_from=reader)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="That PDF could not be read.")
+    writer.encrypt(user_password=password, owner_password=None, algorithm="AES-256")
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def _encrypt(profile_id: str, data: bytes, password: str, sid: str, user: dict) -> bytes:
+    db = SessionLocal()
+    try:
+        _get_profile(db, profile_id)
+        out = encrypt_pdf_bytes(data, password)
+        # Who, which file, which statement - never the password, never a figure.
+        _audit(db, user, "pfs_pdf_encrypted", profile_id, {"statement": sid, "encryption": "AES-256"} if sid else {"encryption": "AES-256"})
+        db.commit()
+        return out
+    finally:
+        db.close()
 
 
 @router.get("/profiles/{profile_id}/statements")

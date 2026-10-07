@@ -129,6 +129,9 @@ class EndpointTests(unittest.TestCase):
             ids = tuple(r["id"] for r in LOANS)
             db.query(models.AccountingLoanSchedule).filter(models.AccountingLoanSchedule.loan_id.in_(ids)).delete(synchronize_session=False)
             db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id.in_(ids)).delete(synchronize_session=False)
+            db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.loan_id.in_(ids)).delete(synchronize_session=False)
+            db.query(models.AccountingLoanStressEntity).filter(models.AccountingLoanStressEntity.updated_by.in_(EVERYONE)).delete(synchronize_session=False)
+            db.query(models.AuditLog).filter(models.AuditLog.user_email.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(tuple(GROUPS))).delete(synchronize_session=False)
             db.query(models.NexusGroup).filter(models.NexusGroup.id.in_(tuple(GROUPS))).delete(synchronize_session=False)
             db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email.in_(EVERYONE)).delete(synchronize_session=False)
@@ -191,6 +194,51 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual([(s["name"], s["params"]["shockBps"]) for s in got], [("+200 bps", 200)])
         self.assertEqual(self.client.delete(f"/accounting/loan-plans/LP-T1/scenarios/{sid}").status_code, 200)
         self.assertEqual(self.client.delete(f"/accounting/loan-plans/LP-T1/scenarios/{sid}").status_code, 404)
+
+    # ── Stress Test page (Charmi, Oct 7) ────────────────────────────────────
+    def _audits(self, action):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.AuditLog).filter(models.AuditLog.action == action, models.AuditLog.user_email.in_(EVERYONE)).count()
+        finally:
+            db.close()
+
+    def test_addback_and_noi_basis_are_kept_per_entity_and_audited(self):
+        _as(EDITOR)
+        r = self.client.put("/accounting/loan-plans/stress-settings/15000", json={"addback": 25000.456, "addbackNote": "  Depreciation add-back  ", "noiBasis": "ytd"})
+        self.assertEqual(r.status_code, 200, r.text)
+        e = r.json()["entity"]
+        self.assertEqual((e["addback"], e["addbackNote"], e["noiBasis"], e["noiManual"], e["by"]), (25000.46, "Depreciation add-back", "ytd", None, EDITOR))
+        # Only the fields sent change; null clears a figure.
+        self.client.put("/accounting/loan-plans/stress-settings/15000", json={"noiBasis": "manual", "noiManual": 310000})
+        got = self.client.get("/accounting/loan-plans/stress-settings").json()
+        self.assertEqual({k: got["entities"]["15000"][k] for k in ("addback", "addbackNote", "noiBasis", "noiManual")},
+                         {"addback": 25000.46, "addbackNote": "Depreciation add-back", "noiBasis": "manual", "noiManual": 310000.0})
+        self.client.put("/accounting/loan-plans/stress-settings/15000", json={"addback": None})
+        self.assertIsNone(self.client.get("/accounting/loan-plans/stress-settings").json()["entities"]["15000"]["addback"])
+        self.assertEqual(self._audits("accounting_loan_stress_entity_saved"), 3)
+        self.assertEqual(self.client.put("/accounting/loan-plans/stress-settings/15000", json={"noiBasis": "budget"}).status_code, 400)
+        # Viewers read, never write; a limited person only their entities.
+        _as(VIEWER)
+        self.assertEqual(self.client.put("/accounting/loan-plans/stress-settings/15000", json={"addback": 1}).status_code, 403)
+        self.assertIn("15000", self.client.get("/accounting/loan-plans/stress-settings").json()["entities"])
+        _as(EDITOR)
+        self.client.put("/accounting/loan-plans/stress-settings/12000", json={"addback": 5})
+        _as(LIMITED)
+        self.assertEqual(self.client.put("/accounting/loan-plans/stress-settings/12000", json={"addback": 1}).status_code, 403)
+        self.assertEqual(set(self.client.get("/accounting/loan-plans/stress-settings").json()["entities"]), {"15000"})
+
+    def test_a_loan_is_left_out_of_the_stress_run_and_restored(self):
+        _as(EDITOR)
+        r = self.client.put("/accounting/loan-plans/LP-T1/stress-excluded", json={"excluded": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.client.get("/accounting/loan-plans/stress-settings").json()["excluded"], ["LP-T1"])
+        self.client.put("/accounting/loan-plans/LP-T1/stress-excluded", json={"excluded": False})
+        self.assertEqual(self.client.get("/accounting/loan-plans/stress-settings").json()["excluded"], [])
+        self.assertEqual((self._audits("accounting_loan_stress_excluded"), self._audits("accounting_loan_stress_restored")), (1, 1))
+        self.assertEqual(self.client.put("/accounting/loan-plans/NOPE/stress-excluded", json={"excluded": True}).status_code, 404)
+        _as(LIMITED)
+        self.assertEqual(self.client.put("/accounting/loan-plans/LP-T2/stress-excluded", json={"excluded": True}).status_code, 404)
 
 
 if __name__ == "__main__":

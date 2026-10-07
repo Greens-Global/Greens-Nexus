@@ -5290,3 +5290,30 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .update-banner-text { flex: 1; min-width: 0; font-size: 14px; }
 }
 
+/* ── Accounting -> Reports, Oct 7 (Charmi: items 20 / 22 / 26 / 32 / 33) ──
+   General Ledger: no bold rows, banded lines, the GL code muted; account
+   groups as quiet headings; the Flag a chip (Review / Explained); amount
+   filters with an operator; a ledger line opens its entry. */
+.acct-report.acct-gl .acct-section td { font-weight: 500; }
+.acct-report.acct-gl .acct-section.acct-group td { font-weight: 600; background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 6%); }
+.acct-report.acct-gl .acct-subtotal td { font-weight: 500; }
+.acct-report.acct-gl .acct-code { color: var(--text-muted); font-weight: 400; }
+.acct-report.acct-gl tbody tr:nth-child(even):not(.acct-section):not(.acct-subtotal):not(.acct-grand) td { background: color-mix(in srgb, var(--bg-secondary), var(--bg-card) 55%); }
+.acct-report.acct-gl tbody tr.acct-line-link { cursor: pointer; }
+.acct-report.acct-gl tbody tr.acct-line-link:hover td { background: var(--wk-brand-tint, #e8ecfd); }
+.acct-report .acct-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
+.acct-report .acct-chip-warn { background: color-mix(in srgb, #f59e0b 22%, var(--bg-card)); color: var(--warn-fg, #b45309); }
+.acct-report .acct-chip-muted { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+.acct-report tbody tr.acct-flag.acct-flag-done td { background: color-mix(in srgb, #f59e0b 6%, var(--bg-card)); }
+.acct-report .acct-op-filter { display: flex; gap: 3px; align-items: center; }
+.acct-report .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+.acct-report .acct-op-filter input { min-width: 56px; }
+.acct-lines .acct-op-filter { display: flex; gap: 3px; align-items: center; }
+.acct-lines .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+.acct-lines .acct-op-filter input { min-width: 48px; text-align: right; }

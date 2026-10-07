@@ -101,8 +101,42 @@ class ArithmeticTests(unittest.TestCase):
     def test_a_payment_after_the_lease_ended_still_shows(self):
         out = leasing.rent_roll([lease(leaseEnd="2026-02-28")], {}, {("C1", "2026-03"): {"41101": 3000.0}}, 2026, date(2026, 9, 28))
         march, april = out["rows"][0]["months"][2], out["rows"][0]["months"][3]
-        self.assertEqual((march["inForce"], march["expected"], march["received"], march["status"]), (True, 0.0, 3000.0, "paid"))
+        # Oct 7: shown, but outside the lease - it counts toward neither the
+        # balance nor the month totals, and the row says money came in outside it.
+        self.assertEqual((march["inForce"], march["expected"], march["received"], march["status"], march["balance"]), (True, 0, 3000.0, "outside", 0))
         self.assertEqual(april, {"month": "2026-04", "inForce": False})
+        self.assertEqual(out["rows"][0]["outsideLease"], {"months": ["2026-03"], "received": 3000.0})
+        self.assertEqual(out["totals"][2]["received"], 0.0)
+
+    def test_oct7_lease_typed_in_on_oct_2_paid_since_january(self):
+        """Charmi, 10/07: Expected 2,201.61 / Received 22,750.00 / Balance
+        (20,548.39) Credit for one 2,275 a month lease paid Jan-Oct. New Lease
+        defaulted Lease Start and the first rent to the day it was typed in
+        (Oct 2): October expected 30/31 of the rent and every earlier payment
+        counted against nothing."""
+        paid = {("C1", f"2026-{m:02d}"): {"41101": 2275.0} for m in range(1, 11)}
+        typed = lease(leaseStart="2026-10-02", rates=[{"startDate": "2026-10-02", "rent": 2275.0, "cam": 0, "other": 0}])
+        row = leasing.rent_roll([typed], {}, paid, 2026, date(2026, 10, 20))["rows"][0]
+        counted = [c for c in row["months"] if c.get("inForce") and c["status"] not in ("upcoming", "outside")]
+        self.assertEqual(round(sum(c["balance"] for c in counted), 2), -73.39)      # no fake 20.5K credit
+        self.assertEqual(row["outsideLease"]["received"], 20475.0)                  # flagged: check the Lease Start
+        # With the real start date the year adds up: 10 x 2,275 expected and received.
+        right = lease(leaseStart="2026-01-01", rates=[{"startDate": "2026-10-02", "rent": 2275.0, "cam": 0, "other": 0}])
+        row = leasing.rent_roll([right], {}, paid, 2026, date(2026, 10, 20))["rows"][0]
+        counted = [c for c in row["months"] if c.get("inForce") and c["status"] not in ("upcoming", "outside")]
+        self.assertEqual((round(sum(c["expected"] for c in counted), 2), round(sum(c["received"] for c in counted), 2), row["balanceToDate"]), (22750.0, 22750.0, 0.0))
+
+    def test_the_first_rent_applies_from_the_lease_start(self):
+        l = lease(leaseStart="2026-01-01", rates=[{"startDate": "2026-03-15", "rent": 3100.0, "cam": 0, "other": 0}])
+        self.assertEqual([leasing.expected_for_month(l, 2026, m) for m in (1, 2, 3)], [3100.0, 3100.0, 3100.0])
+        # No lease start: nothing is in force before the first rent.
+        l = lease(leaseStart="", rates=[{"startDate": "2026-03-01", "rent": 3100.0, "cam": 0, "other": 0}])
+        self.assertEqual([leasing.expected_for_month(l, 2026, m) for m in (2, 3)], [None, 3100.0])
+
+    def test_received_by_account_rides_with_each_month(self):
+        l = lease(incomeAccounts=["41101", "41102"])
+        out = leasing.rent_roll([l], {}, {("C1", "2026-02"): {"41101": 3000.0, "41102": 150.0, "42000": 99.0}}, 2026, date(2026, 9, 28))
+        self.assertEqual(out["rows"][0]["months"][1]["byAccount"], {"41101": 3000.0, "41102": 150.0})
 
 
 def _as(email):
@@ -231,6 +265,18 @@ class LeasingApiTests(unittest.TestCase):
         body = self._body()
         del body["rates"]
         self.assertEqual(len(self.client.put(f"/leasing/leases/{lid}", json=body).json()["rates"]), 2)
+
+    def test_an_income_source_has_a_type(self):
+        """Oct 7 (Charmi): MRI is one list of every recurring income source."""
+        _as(EDITOR)
+        self.assertEqual(self.client.post("/leasing/leases", json=self._body()).json()["incomeType"], "lease")
+        made = self.client.post("/leasing/leases", json=self._body(incomeType="interest", propertyName="Note to Oversite Inv2"))
+        self.assertEqual((made.status_code, made.json()["incomeType"]), (201, "interest"))
+        odd = self.client.post("/leasing/leases", json=self._body(incomeType="bitcoin"))
+        self.assertEqual(odd.json()["incomeType"], "lease")
+        refused = self.client.post("/leasing/leases", json=self._body(incomeType="loan_payment", tenantName=""))
+        self.assertEqual((refused.status_code, refused.json()["detail"]), (400, "Name who pays it."))
+        self.assertEqual({l["incomeType"] for l in self._mine()}, {"lease", "interest"})
 
     def test_what_is_refused(self):
         _as(EDITOR)

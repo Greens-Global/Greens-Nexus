@@ -180,7 +180,13 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // recurring services, the nested Maintenance Log with filters, and the world
 // currency picker. CI measured 10809 KB with dev at 10743 (dev was 7 KB under
 // the cap, so any feature tipped it). No new dependency. Deliberate.
-const TOTAL_KB     = 10850;
+// Oct 7, 2026: 10850 -> 11050. Accounting / Time Clock / Asset Management
+// feedback (#465, Neil / Charmi / Priyanka 10/07): PFS affiliated shares,
+// investments block and encrypted PDF, Loans stress + dismissals, MRI / MRE
+// grids, Dashboard Customize, Reports drill chips and Ledger Search
+// operators, the property Financing section. CI measured 10947 KB. No new
+// dependency. Deliberate.
+const TOTAL_KB     = 11050;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
