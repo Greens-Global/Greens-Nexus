@@ -98,6 +98,32 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The API refuses to start on Azure without NEXUS_VAULT_KEY (secret_box,
+      # Oct 6). The staging slot copied production's settings once, in July,
+      # and never got the key - so the Oct 6 release (#456) crash-looped on
+      # staging and was never swapped in. Give staging production's key before
+      # every deploy. It MUST be the same value: sessions and stored tokens are
+      # encrypted with it, and the swap puts this code in front of them.
+      # Sticky on the slot (--slot-settings), so a swap never moves it.
+      - name: Give the staging slot production's vault key
+        if: steps.slot.outputs.ready == 'true'
+        run: |
+          RG="${{ steps.rg.outputs.rg }}"
+          KEY=$(az webapp config appsettings list -g "$RG" -n "$APP_NAME" --query "[?name=='NEXUS_VAULT_KEY'].value | [0]" -o tsv)
+          if [ -z "$KEY" ]; then
+            echo "::error::Production has no NEXUS_VAULT_KEY (or this login cannot read it) - the new code would refuse to start. Set it on greens-nexus-api first."
+            exit 1
+          fi
+          echo "::add-mask::$KEY"
+          CUR=$(az webapp config appsettings list -g "$RG" -n "$APP_NAME" --slot "$SLOT" --query "[?name=='NEXUS_VAULT_KEY'].value | [0]" -o tsv)
+          if [ -n "$CUR" ]; then echo "::add-mask::$CUR"; fi
+          if [ "$CUR" = "$KEY" ]; then
+            echo "Staging already has production's vault key."
+          else
+            az webapp config appsettings set -g "$RG" -n "$APP_NAME" --slot "$SLOT" --slot-settings NEXUS_VAULT_KEY="$KEY" -o none
+            echo "Staging slot vault key set from production."
+          fi
+
       - name: Start staging slot for this deploy
         if: steps.slot.outputs.ready == 'true'
         continue-on-error: true
@@ -124,6 +150,15 @@ jobs:
           done
           echo "::error::Staging never became healthy — NOT swapping. Production is untouched and still running the previous version."
           exit 1
+
+      # A crash-looping staging slot only ever answers 000/503 above; its own
+      # startup log says why (a FATAL line, a traceback). Print a minute of it
+      # into this run instead of making someone open the portal.
+      - name: Show the staging slot's startup log (only when it never got healthy)
+        if: failure() && steps.slot.outputs.ready == 'true'
+        continue-on-error: true
+        run: |
+          timeout 60 az webapp log tail -g "${{ steps.rg.outputs.rg }}" -n "$APP_NAME" --slot "$SLOT" 2>&1 | tail -n 120 || true
 
       - name: Swap staging into production (zero downtime)
         if: steps.slot.outputs.ready == 'true'
