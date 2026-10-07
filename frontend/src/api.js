@@ -1983,6 +1983,20 @@ export const api = {
   setAdBudgets: (budgets) => req('/marketing/ads/budgets', { method: 'PUT', body: JSON.stringify({ budgets }) }),
   // What's New automatic drafting: last run, last error, next run (changelog_auto.py).
   getTaskChangelogAutoStatus: () => req('/task-changelog/auto-status'),
+  // Accounting > Loans & Financing (Charmi, Oct 7): remove a loan (a ledger
+  // loan is remembered as removed), the open loans of one entity for Asset
+  // Management, NOI per entity for a window (Stress Test, Annualized YTD),
+  // and the Stress Test's kept inputs - per entity NOI basis / addback, loans
+  // left out of the run. The ledger reads behind these take longer than the
+  // 18s default, which also used to flag the API as down (see LoansTab).
+  deleteLoan:            (id)              => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 60_000 }),
+  getLoansByEntity:      (code, to = '')   => req(`/accounting/loans/by-entity/${encodeURIComponent(code)}${to ? `?to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  getLoanEntityNoi:      ({ entities = [], from = '', to = '' } = {}) => req(`/accounting/loans/noi?${new URLSearchParams({ entities: entities.join(','), ...(from ? { from } : {}), ...(to ? { to } : {}) })}`, { timeoutMs: 120_000 }),
+  getLoansReviewSlow:    ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`, { timeoutMs: 150_000 }),
+  getLoanAccountsSlow:   (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  getLoanStressSettings: ()                => req('/accounting/loan-plans/stress-settings'),
+  saveLoanStressEntity:  (entity, body)    => req(`/accounting/loan-plans/stress-settings/${encodeURIComponent(entity)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setLoanStressExcluded: (loanId, excluded) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/stress-excluded`, { method: 'PUT', body: JSON.stringify({ excluded }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
