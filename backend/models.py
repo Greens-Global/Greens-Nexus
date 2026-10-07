@@ -4819,6 +4819,9 @@ class Lease(Base):
     team_note_by     = Column(String, default="")
     team_note_at     = Column(String, default="")
     link_source      = Column(String, default="")
+    # Oct 7 (Charmi): MRI is one list of every recurring income source, so a
+    # row says what it is - lease | interest | loan_payment | other.
+    income_type      = Column(String, default="lease")
 
 
 class LeaseRate(Base):
@@ -5112,6 +5115,9 @@ class PfsAffiliate(Base):
     ledger_entity  = Column(String, default="")          # Intacct entity code when picked from the ledger list
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
+    # Oct 7 (Neil): a role per borrower, keyed like `ownership` ({"primary":
+    # "Managing Member", "co": "Member"}). `role` above stays = roles.primary.
+    roles          = Column(JSON, default=dict)
 
 
 class PfsProfileExtra(Base):
@@ -5187,6 +5193,11 @@ class AccountingLoanSetting(Base):
     statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
     updated_by         = Column(String, default="")
     updated_at         = Column(String, default="")
+    # Oct 7 (Charmi): the loan's product - '' = guessed from the GL title,
+    # 'term' or 'line_of_credit' (Draws show only for a line of credit) - and
+    # whether the Stress Test leaves it out (restorable; the loan stays).
+    loan_type          = Column(String, default="")
+    stress_excluded    = Column(Boolean, default=False)
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
@@ -5479,3 +5490,67 @@ class NexusCounter(Base):
     name       = Column(String, primary_key=True)
     value      = Column(BigInteger, nullable=False, default=0)
     updated_at = Column(String, default="")
+
+
+class AccountingLoanDismissed(Base):
+    """A loan-like ledger account someone removed from Accounting > Loans &
+    Financing (Charmi, Oct 7: "there should be a delete option"). The
+    fin_loans row is deleted in the accounting app; this remembers the entity
+    + GL account so + Add > From the Ledger stops offering it (listed again
+    under "Show Removed", and creating it again clears this row). New table -
+    create_all builds it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_dismissed"
+    id           = Column(String, primary_key=True)                # uuid
+    entity_code  = Column(String, nullable=False, index=True)
+    gl_account   = Column(String, nullable=False)
+    loan_id      = Column(String, default="")                      # the fin_loans id it had
+    lender       = Column(String, default="")
+    title        = Column(String, default="")
+    dismissed_by = Column(String, default="")
+    dismissed_at = Column(String, default="")
+    __table_args__ = (UniqueConstraint("entity_code", "gl_account", name="uq_accounting_loan_dismissed"),)
+
+
+class AccountingLoanStressEntity(Base):
+    """Per entity on Loans & Financing > Stress Test (Charmi, Oct 7): which
+    NOI the DSCR starts from (`noi_basis`: t12 | ytd | manual, '' = the page
+    default), the typed NOI for Manual, and the Addback (typed, with a note -
+    depreciation, one-off costs, owner comp) that makes Adjusted NOI = NOI +
+    Addback. New table - create_all builds it; RLS must be enabled on dev
+    and prod at release."""
+    __tablename__ = "accounting_loan_stress_entities"
+    entity_code  = Column(String, primary_key=True)
+    noi_basis    = Column(String, default="")
+    noi_manual   = Column(Float, nullable=True)
+    addback      = Column(Float, nullable=True)
+    addback_note = Column(String, default="")
+    updated_by   = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class AccountingAmaAgreement(Base):
+    """One Asset Management Agreement (AMA, Priyanka, Oct 7: "We still need to
+    build AMA"): the fee one entity (the manager, optional) earns for managing
+    another (the managed ledger entity) - a percent of the managed entity's
+    revenue or a flat amount per billing period, billed monthly, quarterly or
+    annually. What was BILLED is never keyed: it is the net credits on
+    `fee_gl_account` read from the ledger (routers/accounting_ama.py). New
+    table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_agreements"
+    id                  = Column(String, primary_key=True)            # uuid
+    entity_code         = Column(String, nullable=False, index=True)  # the managed ledger entity
+    manager_entity_code = Column(String, default="")                  # the entity that earns / bills the fee
+    status              = Column(String, default="Active")            # Active | Pending Review | Ended
+    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat
+    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue
+    flat_amount         = Column(Float, nullable=True)                # per billing period, for flat
+    billing_frequency   = Column(String, default="Monthly")           # Monthly | Quarterly | Annually
+    start_date          = Column(String, default="")                  # YYYY-MM-DD
+    end_date            = Column(String, default="")                  # '' = open-ended
+    fee_gl_account      = Column(String, default="")                  # GL code the fee posts to (Billed YTD)
+    agreement_url       = Column(String, default="")                  # Egnyte / SharePoint link
+    notes               = Column(String, default="")
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")

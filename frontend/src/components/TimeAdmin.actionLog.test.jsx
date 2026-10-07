@@ -13,6 +13,8 @@ vi.mock('../api', () => ({
     timesheetReviewWaiting: () => Promise.resolve({ reviews: [] }),
     timePunchRequests: () => Promise.resolve([
       { id: 'q1', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'out', at: '2026-10-01T23:00:00', reason: 'Manager meeting' },
+      // The same fix filed twice - one row (Visesh, Oct 7).
+      { id: 'q2', employeeEmail: 'amy@x.com', employeeName: 'Amy Ops', department: 'Operations', action: 'add', punchKind: 'out', at: '2026-10-01T23:00:30', reason: 'Manager meeting' },
     ]),
     timeExceptions: () => Promise.resolve([
       { email: 'nick@x.com', name: 'Nick Build', department: 'Construction', blocking: 1,
@@ -41,7 +43,8 @@ describe('People > Time Action Log', () => {
     render(<TimeAdmin toastOk={toastOk} toastErr={() => {}} initialView="actions" />);
     expect(await screen.findByText('Amy Ops')).toBeTruthy();
     expect(await screen.findByText('Nick Build')).toBeTruthy();
-    expect(screen.getByText('"Manager meeting"')).toBeTruthy();
+    expect(screen.getAllByText('"Manager meeting"')).toHaveLength(1);    // two copies, one row
+    expect(screen.getByText('2 Requests - Same Punch')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText('Department'), { target: { value: 'Construction' } });
     expect(screen.queryByText('Amy Ops')).toBeNull();

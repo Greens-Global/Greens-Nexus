@@ -113,6 +113,12 @@ function weekRange(offset = 0) {
   return [isoDate(mon), isoDate(sun)];
 }
 
+// One punch fix = one person + one punch kind + one minute. An employee who
+// files the same fix twice made one request (the server closes the copies).
+const punchReqKey = (r) => (r.action === 'add' && r.at)
+  ? `${(r.employeeEmail || '').toLowerCase()}|${r.punchKind}|${r.at.slice(0, 16)}`
+  : r.id;
+
 // Form label + card-header title (Work OS grammar - sentence case, no tracking).
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
@@ -155,7 +161,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   }, []);
   useEffect(() => {
     if (!focusReq || view !== 'actions') return undefined;
-    const t = setTimeout(() => document.getElementById(`punch-req-${focusReq}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+    // A copy of a duplicated fix has no row of its own - it lives on its twin's.
+    const t = setTimeout(() => (document.getElementById(`punch-req-${focusReq}`)
+      || [...document.querySelectorAll('[data-req-ids]')].find(el => el.dataset.reqIds.split(' ').includes(focusReq)))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
     return () => clearTimeout(t);
   }, [focusReq, view]);
   useEffect(() => {
@@ -261,6 +270,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // Bulk approve / reject of the selected requests (one note for all rejects).
   async function decideMany(ids, status) {
     if (!ids.length) return;
+    // Copies of the same fix (same person, punch and minute) are one fix: send
+    // only the first - the server closes the copies with it (Charmi, Oct 7).
+    const byKey = new Map(punchReqs.map(r => [r.id, punchReqKey(r)]));
+    const seenKeys = new Set();
+    ids = ids.filter(id => { const k = byKey.get(id) || id; if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
     let note = '';
     if (status === 'rejected') {
       const r = await dialog.prompt('', { title: `Reject ${ids.length} request${ids.length === 1 ? '' : 's'}`, message: 'Sent to each employee.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
@@ -268,7 +282,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       note = r;
     }
     setBulkBusy(true);
-    let ok = 0; const fails = [];
+    let ok = 0, dupes = 0; const fails = [];
     // Apply in punch order (oldest first, clock-in before clock-out) so a
     // selected pair never hits the sequence guard because its later half
     // happened to be approved first.
@@ -281,15 +295,18 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     for (const id of ordered) {
       const r = byId.get(id);
       if (r && r.status && r.status !== 'pending') { ok += 1; continue; }   // partner already applied by an earlier approval
-      try { await api.timeDecidePunchRequest(id, { status, note }); ok += 1; }
-      catch (e) {
+      try {
+        const res = await api.timeDecidePunchRequest(id, { status, note });
+        if (res && res.status && res.status !== status) dupes += 1;   // already on the timecard - closed as a duplicate
+        else ok += 1;
+      } catch (e) {
         if (/already approved/i.test(e?.message || '')) { ok += 1; continue; }
         fails.push(e?.message || 'failed');
       }
     }
     setBulkBusy(false);
     setSelReqs(new Set());
-    if (ok) toastOk(`${ok} request${ok === 1 ? '' : 's'} ${status}.`);
+    if (ok || dupes) toastOk([ok ? `${ok} request${ok === 1 ? '' : 's'} ${status}.` : '', dupes ? `${dupes} already on the timecard - closed as duplicate${dupes === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
     if (fails.length) toastErr(`${fails.length} could not be ${status}: ${fails[0]}`);
     loadPunchReqs();
   }
@@ -302,8 +319,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       note = r;
     }
     try {
-      await api.timeDecidePunchRequest(id, { status, note });
-      toastOk(`Request ${status}.`);
+      const res = await api.timeDecidePunchRequest(id, { status, note });
+      if (res && res.status && res.status !== status) toastOk('That punch is already on the timecard - closed as a duplicate.');
+      // Approving can also set aside a punch the fix replaces - say which (Oct 7).
+      else toastOk(status === 'approved' && /Replaced|Also added/.test(res?.decisionNote || '') ? `Approved. ${res.decisionNote}` : `Request ${status}.`);
       loadPunchReqs();
       load(true);   // an approved add/remove changes the timecard - keep the rows in sync
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
@@ -526,7 +545,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
-          ['actions', 'Action Log', Inbox, punchReqs.length + exBlocking],
+          ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking],
           ['timeoff', 'Time Off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
@@ -765,11 +784,24 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           reqs: actKind === 'missing' ? [] : [...g.reqs].sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))),
           missing: actKind === 'requests' ? [] : g.missing,
         })).filter(g => g.reqs.length || g.missing.length)
-          .sort((a, b) => (b.blocking - a.blocking) || (b.reqs.length - a.reqs.length) || (a.name || '').localeCompare(b.name || ''));
-        const reqTotal = inScope.reduce((n, g) => n + g.reqs.length, 0);
+          .map(g => {
+            // Copies of the same fix (same person, punch and minute) are ONE
+            // row with one Approve / Reject - deciding it closes the copies
+            // (Visesh, Oct 7, carried into the Action Log).
+            const byKey = new Map();
+            g.reqs.forEach(r => {
+              const k = punchReqKey(r);
+              if (!byKey.has(k)) byKey.set(k, { rep: r, ids: [] });
+              byKey.get(k).ids.push(r.id);
+            });
+            return { ...g, rows: [...byKey.values()] };
+          })
+          .sort((a, b) => (b.blocking - a.blocking) || (b.rows.length - a.rows.length) || (a.name || '').localeCompare(b.name || ''));
+        const reqTotal = new Set(inScope.flatMap(g => g.reqs.map(punchReqKey))).size;
         const missTotal = inScope.reduce((n, g) => n + g.blocking, 0);
         const visibleIds = shown.flatMap(g => g.reqs.map(r => r.id));
         const selected = visibleIds.filter(id => selReqs.has(id));
+        const selectedFixes = new Set(punchReqs.filter(r => selReqs.has(r.id) && visibleIds.includes(r.id)).map(punchReqKey)).size;
         const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
         const filtered = !!(actDept || q || actKind !== 'all');
         const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
@@ -827,7 +859,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             {selected.length > 0 && (
               <div style={{ position: 'sticky', top: 8, zIndex: 3, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 14px', marginBottom: 10,
                 borderRadius: 12, background: 'var(--card)', border: '1px solid var(--wk-brand, #2b45e1)', boxShadow: 'var(--wk-shadow)' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selected.length} request{selected.length === 1 ? '' : 's'} selected</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selectedFixes} request{selectedFixes === 1 ? '' : 's'} selected</span>
                 <button type="button" className="secondary-btn" onClick={() => setSelReqs(new Set())} style={{ fontSize: 12, padding: '4px 10px' }}>Clear</button>
                 <div style={{ flex: 1 }} />
                 <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'rejected')}
@@ -862,7 +894,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                         {g.dept || 'No department'} · {g.email}
                       </div>
                     </div>
-                    {g.reqs.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.reqs.length} Request{g.reqs.length === 1 ? '' : 's'}</span>}
+                    {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
                     {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
                     {g.email && (
                       <button className="secondary-btn" onClick={() => openTimecard(g.email, '', '')}
@@ -871,15 +903,24 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                       </button>
                     )}
                   </div>
-                  {g.reqs.map((r, i) => (
-                    <div key={r.id} id={`punch-req-${r.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
-                      background: selReqs.has(r.id) || focusReq === r.id ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
-                      boxShadow: focusReq === r.id ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
-                      {cb(selReqs.has(r.id), on => toggle([r.id], on), `Select request from ${g.name}`)}
+                  {g.rows.map(({ rep: r, ids: rowIds }, i) => {
+                    const focused = rowIds.includes(focusReq);
+                    const rowSel = rowIds.some(id => selReqs.has(id));
+                    return (
+                    <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
+                      background: rowSel || focused ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
+                      boxShadow: focused ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
+                      {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
                       <span style={pill('var(--wk-hover)', 'var(--ink)')}>Request</span>
                       <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
                         <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
+                        {rowIds.length > 1 && (
+                          <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."
+                            style={pill('var(--wk-line2)', 'var(--ink)')}>
+                            {rowIds.length} Requests - Same Punch
+                          </span>
+                        )}
                         {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
                       </div>
                       <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
@@ -889,9 +930,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                         <CheckCircle size={13} /> Approve
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                   {g.missing.map((e, i) => (
-                    <div key={`m${e.date}-${e.type}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderTop: (i || g.reqs.length) ? '1px solid var(--line)' : 'none', fontSize: 12.5, flexWrap: 'wrap' }}>
+                    <div key={`m${e.date}-${e.type}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderTop: (i || g.rows.length) ? '1px solid var(--line)' : 'none', fontSize: 12.5, flexWrap: 'wrap' }}>
                       <span title={e.blocking ? 'Blocks sign-off until fixed' : 'Worth a look - does not block sign-off'}
                         style={pill(e.blocking ? 'rgba(220,38,38,0.08)' : 'rgba(180,83,9,0.1)', e.blocking ? 'hsl(var(--color-red))' : '#b45309')}>
                         {e.blocking ? 'Missing' : 'Check'}

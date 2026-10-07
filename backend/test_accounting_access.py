@@ -109,7 +109,7 @@ class AccountingAccessTests(unittest.TestCase):
         accounting._acct_get = fake_get
         self._dash = accounting_dashboard._get
 
-        async def fake_dash(op, params):
+        async def fake_dash(op, params, fresh_by=None):
             return {"ok": True, "op": op}
         accounting_dashboard._get = fake_dash
         self._base, self._key = accounting._ACCT_BASE, accounting._ACCT_KEY

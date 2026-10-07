@@ -351,7 +351,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual(pfs.classify_account("asset", "11500", "Vanguard Investments", ""), ("asset", "investment"))
         self.assertEqual(pfs.classify_account("asset", "13000", "Prepaid Insurance", ""), ("asset", "other_holding"))
         self.assertEqual(pfs.classify_account("liability", "26000", "Auto Loan - Toyota", ""), ("liability", "auto"))
-        self.assertEqual(pfs.classify_account("liability", "27000", "HDFC Loan - Pune", ""), ("liability", "international"))
+        self.assertEqual(pfs.classify_account("liability", "27000", "HDFC Loan - Pune", ""), ("liability", "business_loan"))   # Oct 7: no International Debt
 
     def test_move_a_line_between_categories(self):
         pid = self._profile()["id"]
@@ -417,7 +417,8 @@ class PfsTests(unittest.TestCase):
               "address": "1 Main St", "city_state_zip": "Escondido, CA 92025", "employer": "Greens Global", "title": "Director", "marital_status": "Married", "junk": "x"}
         r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "details": {"coBorrower": co}})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["details"]["coBorrower"], {k: v for k, v in co.items() if k != "junk"})
+        want = {k: v for k, v in co.items() if k not in ("junk", "city_state_zip")}
+        self.assertEqual(r.json()["details"]["coBorrower"], {**want, "city": "Escondido", "state": "CA", "zip": "92025"})
         self.assertEqual(r.json()["displayName"], "Neil R. Kadakia and Archana Kadakia")
         r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "details": {"coBorrower": {**co, "ssn_last4": "123-45-6789"}}})
         self.assertEqual(r.status_code, 400)
@@ -427,6 +428,59 @@ class PfsTests(unittest.TestCase):
             self.assertNotIn("6789", str(db.query(models.PfsProfile).filter(models.PfsProfile.id == pid).first().details))
         finally:
             db.close()
+
+    def test_city_state_zip_are_three_fields_and_the_spouse_is_the_co_borrower(self):
+        """Oct 7, later (Charmi + Neil): City / State / ZIP on both blocks, an
+        old combined value split on read and never lost; the old spouse field
+        is the co-borrower's name."""
+        pid = self._profile()["id"]
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.PfsProfile).filter(models.PfsProfile.id == pid).first()
+            row.details = {"address": "1 Capitol Mall", "city_state_zip": "Sacramento, CA 95814", "spouse": "Archana Kadakia",
+                           "coBorrower": {"email": "archana@example.com", "city_state_zip": "Somewhere odd"}}
+            db.commit()
+        finally:
+            db.close()
+        p = self.client.get(f"/pfs/profiles/{pid}").json()
+        d = p["details"]
+        self.assertEqual((d["city"], d["state"], d["zip"]), ("Sacramento", "CA", "95814"))
+        self.assertNotIn("city_state_zip", d)
+        self.assertNotIn("spouse", d)
+        self.assertEqual(d["coBorrower"]["name"], "Archana Kadakia")
+        self.assertEqual(d["coBorrower"]["city"], "Somewhere odd")          # could not be split: kept whole
+        self.assertEqual(p["displayName"], "Test Guarantor and Archana Kadakia")
+        # The next save writes it the new way.
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Test Guarantor", "details": d})
+        self.assertEqual(r.status_code, 200, r.text)
+        db = database.SessionLocal()
+        try:
+            saved = db.query(models.PfsProfile).filter(models.PfsProfile.id == pid).first().details
+        finally:
+            db.close()
+        self.assertNotIn("spouse", saved)
+        self.assertNotIn("city_state_zip", saved)
+        self.assertEqual(saved["coBorrower"]["name"], "Archana Kadakia")
+        # An older client still sending the combined value or the spouse name.
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Test Guarantor", "details": {"city_state_zip": "Escondido CA 92025-1234", "spouse": "A. K."}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual({k: r.json()["details"][k] for k in ("city", "state", "zip")}, {"city": "Escondido", "state": "CA", "zip": "92025-1234"})
+        self.assertEqual(r.json()["details"]["coBorrower"], {"name": "A. K."})
+        # ZIP is 5 or 9 digits; the state is a US state; nine digits print with the hyphen.
+        ok = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Test Guarantor", "details": {"city": "Escondido", "state": "ca", "zip": "920251234"}})
+        self.assertEqual((ok.json()["details"]["state"], ok.json()["details"]["zip"]), ("CA", "92025-1234"))
+        for bad in ({"zip": "9202"}, {"zip": "92025-12"}, {"state": "XX"}, {"coBorrower": {"name": "A", "zip": "abcde"}}):
+            r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Test Guarantor", "details": bad})
+            self.assertEqual(r.status_code, 400, bad)
+
+    def test_split_city_state_zip(self):
+        split = pfs.split_city_state_zip
+        self.assertEqual(split("Sacramento, CA 95814"), {"city": "Sacramento", "state": "CA", "zip": "95814"})
+        self.assertEqual(split("San Luis Obispo, ca, 93401-1234"), {"city": "San Luis Obispo", "state": "CA", "zip": "93401-1234"})
+        self.assertEqual(split("Escondido, CA"), {"city": "Escondido", "state": "CA"})
+        self.assertEqual(split("Escondido 92025"), {"city": "Escondido", "zip": "92025"})
+        self.assertEqual(split("Pune, Maharashtra 411001 India"), {"city": "Pune, Maharashtra 411001 India"})
+        self.assertEqual(split(""), {})
 
     def test_jewelry_folds_into_personal_holdings(self):
         """Oct 6 (Charmi): no Jewelry or Personal Property section - their
@@ -500,7 +554,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual(pfs.classify_account("asset", "10100", "Cash - Chase 6532", ""), ("asset", "bank"))
         self.assertEqual(pfs.classify_account("asset", "16000", "Vehicle - Tesla Model X", ""), ("asset", "vehicles"))
         self.assertEqual(pfs.classify_account("asset", "13500", "Note Receivable - Greens LLC", ""), ("asset", "notes_receivable"))
-        self.assertEqual(pfs.classify_account("liability", "26500", "Policy Loan - MassMutual", ""), ("liability", "insurance_loan"))
+        self.assertEqual(pfs.classify_account("liability", "26500", "Policy Loan - MassMutual", ""), ("liability", "other_liability"))   # Oct 7
         pid = self._profile()["id"]
         self._line(pid, section="asset", category="bank", label="Chase Checking - 6532", manualValue=100)
         # Listed under Bank Accounts before the Cash section existed.
@@ -544,7 +598,14 @@ class PfsTests(unittest.TestCase):
         self._line(pid, section="asset", category="investment", label="Schwab", manualValue=5000)
         self._line(pid, section="liability", category="credit_card", label="Amex", manualValue=700)
         self._line(pid, section="liability", category="loc", label="Chase LOC", manualValue=300)
-        self._line(pid, section="liability", category="contingent", label="Guarantee - Greens Escondido loan", manualValue=1_000_000, ownershipPct=50)
+        # Contingent is not offered for a new line since Oct 7; one kept from before still prints.
+        db = database.SessionLocal()
+        try:
+            db.add(models.PfsLine(id="pfs-test-old-guarantee", profile_id=pid, section="liability", category="contingent", label="Guarantee - Greens Escondido loan",
+                                  ownership_pct=50, source="manual", manual_value=1_000_000, details={}, sort=0, notes="", updated_by=EDITOR, updated_at="2026-10-02"))
+            db.commit()
+        finally:
+            db.close()
         self._line(pid, section="real_estate", category="domestic_commercial", label="Greens Escondido", manualValue=2_000_000, ownershipPct=50,
                    details={"loan": {"source": "ledger", "entity": "70000", "accounts": ["25100"]}})
         st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
@@ -555,7 +616,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual((a["cash"]["amount"], a["bank"]["amount"], a["bank"]["ownership"], a["securities"]["amount"], a["real_estate"]["amount"], a["vehicles"]["amount"]),
                          (1000.0, 5500.0, "Various", 5000.0, 1_000_000.0, 0.0))
         liab = {x["key"]: x["amount"] for x in c["liabilities"]}
-        self.assertEqual(liab, {"notes_banks": 300.0, "mortgages": 600_000.0, "credit_cards": 700.0, "auto": 0.0, "insurance_loan": 0.0, "other": 0.0})
+        self.assertEqual(liab, {"notes_banks": 300.0, "mortgages": 600_000.0, "credit_cards": 700.0, "auto": 0.0, "other": 0.0})
         # The first page agrees with the statement; a guarantee is listed, not owed.
         self.assertEqual((c["totals"]["assets"], c["totals"]["liabilities"]), (st["totals"]["assets"], st["totals"]["liabilities"]))
         self.assertEqual(st["totals"]["liabilities"], 601_000.0)
