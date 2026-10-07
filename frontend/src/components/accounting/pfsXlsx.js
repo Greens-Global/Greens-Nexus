@@ -289,7 +289,7 @@ export function pfsSheets({ statement, preparedBy = '' }) {
   else h.push([{ text: 'No questions answered.', s: S.muted }]);
   if ((profile.executiveProfile || '').trim()) {
     h.blank();
-    h.heading('Executive Profile');
+    h.heading(`Executive Profile - ${profile.name || name}`);
     profile.executiveProfile.split(/\n/).forEach((t) => h.push([{ text: t, s: S.text }]));
   }
   out.push(h);

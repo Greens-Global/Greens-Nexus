@@ -152,7 +152,7 @@ _DETAIL_KEYS = ("address", "city_state_zip", "phone", "email", "date_of_birth", 
 # The co-borrower (Charmi, 10/01: "Spouse/Co-borrower details as well") mirrors
 # the borrower's fields, plus a name.
 _CO_BORROWER_KEYS = ("name", "address", "city_state_zip", "phone", "email", "date_of_birth", "marital_status", "employer",
-                     "title", "ssn_last4")
+                     "title", "ssn_last4", "photo")
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _PHOTO_MAX = 400_000   # characters of data URL (a downscaled JPEG is a tenth of this)
 
@@ -264,7 +264,13 @@ def _clean_co_borrower(v) -> dict:
         val = v.get(k)
         if val in (None, ""):
             continue
-        if k == "ssn_last4":
+        if k == "photo":
+            # Oct 7 (item 38): the co-borrower's cover photo, kept like the
+            # borrower's - a small downscaled image as a data URL, never a link.
+            if not isinstance(val, str) or not val.startswith("data:image/") or len(val) > _PHOTO_MAX:
+                raise HTTPException(status_code=400, detail="The co-borrower's photo must be an image under 300 KB.")
+            out[k] = val
+        elif k == "ssn_last4":
             digits = re.sub(r"\D", "", str(val))
             if len(digits) > 4:
                 raise HTTPException(status_code=400, detail="Enter only the last four digits of the co-borrower's Social Security number.")

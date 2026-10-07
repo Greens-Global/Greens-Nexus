@@ -2004,6 +2004,16 @@ export const api = {
   getLeaseIncomeAccounts: () => req('/accounting/leasing/from-ledger/income-accounts'),
   // MRI: the interest and loan income accounts by month, for the entities picked.
   getAccountingBucketsFor: ({ from, to, by = 'month', locations = [] }) => req(`/accounting/reports/buckets?to=${to}&by=${encodeURIComponent(by)}${from ? `&from=${from}` : ''}${locations.length === 1 ? `&location=${encodeURIComponent(locations[0])}` : locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}`),
+  // PFS, Neil's Oct 7 list (routers/pfs.py, routers/pfs_access.py): the share
+  // of an entity read from Affiliated Entities, lines whose % differs, the
+  // password-protected PDF (the password is never kept), and PFS access set
+  // from Accounting > Access (owners only).
+  getPfsAffiliatedShares: (id, entities = []) => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliated-shares?entities=${encodeURIComponent(entities.join(','))}`),
+  getPfsShareMismatches:  (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`),
+  resolvePfsShareMismatches: (id, ids, action) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`, { method: 'POST', body: JSON.stringify({ ids, action }) }),
+  encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
+  getPfsAccessPeople:     () => req('/pfs-access/people'),
+  setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

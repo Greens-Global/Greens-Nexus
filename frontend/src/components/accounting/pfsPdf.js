@@ -54,8 +54,10 @@ async function embedPhoto(doc, dataUrl) {
   }
 }
 
-/** statement: what /pfs/.../statements returned. photo: the profile's data URL. */
-export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
+/** statement: what /pfs/.../statements returned. photo: the profile's data URL.
+ * coPhoto: the co-borrower's (Oct 7, item 38) - by default the one kept in
+ * the statement's `details.coBorrower.photo`. */
+export async function buildPfsPdf({ statement, photo = '', coPhoto = null, preparedBy = '' }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -134,13 +136,28 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
   page = doc.addPage([W, H]);
   page.drawRectangle({ x: 0, y: H - 10, width: W, height: 10, color: BRAND });
   y = H - MARGIN;
-  const img = await embedPhoto(doc, photo);
-  if (img) {
-    const size = 64;
-    const scale = Math.min(size / img.width, size / img.height);
-    page.drawImage(img, { x: W - MARGIN - img.width * scale, y: y - img.height * scale + 8, width: img.width * scale, height: img.height * scale });
-  }
-  const textWidth = W - MARGIN * 2 - (img ? 76 : 0);
+  // Oct 7 (item 38): the borrower's photo and the co-borrower's, side by
+  // side at the top right, each captioned with the person's name; one photo
+  // alone when there is one.
+  const coDetails = profile.details?.coBorrower || {};
+  const photos = [
+    { img: await embedPhoto(doc, photo), name: profile.name || '' },
+    { img: await embedPhoto(doc, coPhoto ?? coDetails.photo ?? ''), name: coDetails.name || profile.details?.spouse || '' },
+  ].filter((p) => p.img);
+  const PHOTO = 64;
+  const SLOT = 84;
+  photos.forEach((p, i) => {
+    const scale = Math.min(PHOTO / p.img.width, PHOTO / p.img.height);
+    const w = p.img.width * scale;
+    const h = p.img.height * scale;
+    const left = W - MARGIN - (photos.length - 1 - i) * SLOT - PHOTO;
+    page.drawImage(p.img, { x: left + (PHOTO - w) / 2, y: y - h + 8, width: w, height: h });
+    if (photos.length > 1 && p.name) {
+      const cap = fit(font, 7, p.name, SLOT - 6);
+      page.drawText(cap, { x: left + (PHOTO - font.widthOfTextAtSize(cap, 7)) / 2, y: y - PHOTO, size: 7, font, color: MUTED });
+    }
+  });
+  const textWidth = W - MARGIN * 2 - (photos.length ? 12 + PHOTO + (photos.length - 1) * SLOT : 0);
   page.drawText('PERSONAL FINANCIAL STATEMENT', { x: MARGIN, y, size: 8.5, font: bold, color: BRAND });
   y -= 22;
   page.drawText('Statement of Financial Condition', { x: MARGIN, y, size: 17, font: bold, color: INK });
@@ -333,8 +350,10 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
     });
   }
   if ((profile.executiveProfile || '').trim()) {
-    newPage('Executive Profile');
-    wrap(font, 10, profile.executiveProfile, W - MARGIN * 2).forEach((t) => { room(0, 'Executive Profile'); if (t) page.drawText(t, { x: MARGIN, y, size: 10, font, color: INK }); y -= ROW; });
+    // Oct 7 (item 15): headed with the person's name, like the co-borrower's.
+    const execTitle = `Executive Profile - ${profile.name || name}`;
+    newPage(execTitle);
+    wrap(font, 10, profile.executiveProfile, W - MARGIN * 2).forEach((t) => { room(0, execTitle); if (t) page.drawText(t, { x: MARGIN, y, size: 10, font, color: INK }); y -= ROW; });
   }
   // Oct 6 (Charmi, 10/04): Affiliated Entities and the co-borrower's executive profile (pfsAffiliatedExport.js).
   pfsExtraPdf(statement, W - MARGIN * 2).forEach((x) => {

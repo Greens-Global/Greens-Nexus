@@ -393,6 +393,23 @@ class Oct07Tests(unittest.TestCase):
             self.assertNotIn(secret, r.text)
 
     # ── 41: PFS access from Accounting > Access ─────────────────────────────
+    # ── 38: a co-borrower photo ─────────────────────────────────────────────
+    def test_co_borrower_photo_is_kept_like_the_borrowers(self):
+        photo = "data:image/jpeg;base64," + "A" * 200
+        pid = self._file(details={"coBorrower": {"name": "Archana N. Kadakia", "photo": photo}})
+        d = self.client.get(f"/pfs/profiles/{pid}").json()["details"]
+        self.assertEqual(d["coBorrower"]["photo"], photo)      # the whole image, not cut at 200 characters
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "kind": "joint",
+                                                         "details": {"coBorrower": {"name": "Archana N. Kadakia", "photo": "https://example.com/x.jpg"}}})
+        self.assertEqual(r.status_code, 400)                    # a link is refused: images only, kept on the file
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "kind": "joint",
+                                                         "details": {"coBorrower": {"name": "Archana N. Kadakia", "photo": "data:image/jpeg;base64," + "A" * 500_000}}})
+        self.assertEqual(r.status_code, 400)                    # too large
+        r = self.client.put(f"/pfs/profiles/{pid}", json={"name": "Neil R. Kadakia", "kind": "joint",
+                                                         "details": {"coBorrower": {"name": "Archana N. Kadakia"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("photo", self.client.get(f"/pfs/profiles/{pid}").json()["details"]["coBorrower"])
+
     def test_owners_set_pfs_access(self):
         _as(EDITOR)
         self.assertEqual(self.client.get("/pfs-access/people").status_code, 403)
