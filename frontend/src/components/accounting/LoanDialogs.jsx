@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, Folder, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
-import { control, entityOptions } from './reportControls';
+import { EntityPicker, control } from './reportControls';
 import { formatDate } from '../../lib/datetime';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 
@@ -13,6 +13,9 @@ import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 // Change Loan edits one fin_loans row - the same row Data > Loans keeps - and
 // what Nexus keeps beside it:
 //   Loan Name and Loan #     editable; the GL wiring stays as it is
+//   Loan Type                Term Loan or Line of Credit (Oct 7: Draws show
+//                            only for a line of credit); Automatic = read
+//                            from the GL title ("LOC", "line of credit")
 //   Principal Account        the liability the balance and the principal
 //                            paid are read from (pick from the entity's
 //                            accounts, or none: kept by hand)
@@ -21,13 +24,25 @@ import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 //   Original Principal       blank = the ledger's first credit on the account
 //   Rate, Maturity, Monthly Payment   typed (the ledger cannot say them)
 //   Internal / External      intercompany loans start Internal
-//   Loan Documents / Loan Statements  an Egnyte folder each: Browse picks it
-//                            in the Files browser, or paste the path or the
-//                            Egnyte link
+//   Documents Folder / Statements Folder  an Egnyte folder each: Browse picks
+//                            it in the same Files picker as Save to Files, or
+//                            paste the path or the Egnyte link; Clear unwires
 //
 // + Add > Manual: a loan that is not in Intacct - lender, entity, loan #,
-// original principal, balance, rate, maturity, monthly payment, Internal /
-// External.
+// original principal, balance, rate, maturity, monthly payment, type,
+// Internal / External and the two folders.
+//
+// Oct 7 (Charmi, 23:21 - "the pencil opens Change Loan and it closes by
+// itself", a BLOCKER): the window closed on ANY click whose target was its
+// backdrop. A real browser sends exactly that in two everyday cases jsdom
+// never produces: the second click of a double-click on the pencil (the
+// backdrop appears under the pointer after the first click, so the second
+// lands on it), and a press that starts in a field and is released past the
+// window's edge (selecting the old value to type over it - the browser
+// fires the click on the common ancestor, the backdrop). The backdrop now
+// closes only on a single click that was also PRESSED on the backdrop, and
+// not in the first moments after the window opens; the window is portaled to
+// <body> so nothing in the Loans table's layout can clip or re-target it.
 
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
@@ -36,15 +51,37 @@ const hint = { fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 };
 const full = { ...control, width: '100%' };
 const section = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 4 };
 
-function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error, children, width = 720 }) {
+export const LOAN_TYPES = [['term', 'Term Loan'], ['line_of_credit', 'Line of Credit']];
+export const loanTypeLabel = (t) => (LOAN_TYPES.find(([k]) => k === t) || [null, 'Term Loan'])[1];
+/** The last part of an Egnyte path, for a link's text. */
+export const folderName = (p) => String(p || '').split('/').filter(Boolean).pop() || '';
+
+/** Backdrop handlers that close only on a deliberate click on the backdrop:
+ *  pressed AND released there, a single click, not right after opening. */
+export function useBackdropClose(onClose, graceMs = 400) {
+  const pressed = useRef(false);
+  const openedAt = useRef(Number.POSITIVE_INFINITY);
+  useEffect(() => { openedAt.current = Date.now(); }, []);
+  return {
+    onMouseDown: (e) => { pressed.current = e.target === e.currentTarget; },
+    onClick: (e) => {
+      const deliberate = e.target === e.currentTarget && pressed.current && (e.detail || 1) <= 1 && Date.now() - openedAt.current >= graceMs;
+      pressed.current = false;
+      if (deliberate) onClose();
+    },
+  };
+}
+
+export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error, children, width = 720, footer = null }) {
+  const backdrop = useBackdropClose(onClose);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} onSubmit={onSubmit} style={{ maxWidth: width }}>
+  const body = (
+    <div className="modal-overlay" role="presentation" {...backdrop}>
+      <form className="modal-content" role="dialog" aria-modal="true" aria-label={title} onSubmit={onSubmit} style={{ maxWidth: width }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{title}</h3>
@@ -57,16 +94,19 @@ function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error, child
           {children}
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '10px 24px 16px' }}>
+          {footer}
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="submit" className="primary-btn" disabled={busy}>{busy ? 'Saving...' : submitLabel}</button>
         </div>
       </form>
     </div>
   );
+  return typeof document === 'undefined' ? body : createPortal(body, document.body);
 }
 
-// An Egnyte folder: typed or pasted (path or link), or picked with Browse.
-function EgnyteField({ id, labelText, value, url, onChange }) {
+// An Egnyte folder: typed or pasted (path or link), or picked with Browse in
+// the Files picker (the one Save to Files uses); Clear unwires it.
+export function EgnyteField({ id, labelText, value, url, onChange }) {
   const [browsing, setBrowsing] = useState(false);
   return (
     <div>
@@ -75,6 +115,7 @@ function EgnyteField({ id, labelText, value, url, onChange }) {
         <input id={id} type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="/Shared/... or an Egnyte folder link" style={{ ...control, flex: 1, minWidth: 0 }} />
         <button type="button" className="secondary-btn" onClick={() => setBrowsing(true)} aria-haspopup="dialog" aria-label={`Browse for ${labelText}`}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}><Folder size={14} /> Browse</button>
+        {value && <button type="button" className="secondary-btn" onClick={() => onChange('')} aria-label={`Clear ${labelText}`} style={{ fontSize: '0.78rem', height: 30, padding: '0 10px' }}>Clear</button>}
         {url && <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${labelText} in Egnyte`} title="Open in Egnyte" style={{ ...control, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, padding: 0, color: 'var(--text-secondary)' }}><ExternalLink size={14} /></a>}
       </div>
       {browsing && createPortal(
@@ -102,6 +143,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
     balance: loan.wiring === 'manual' ? loan.balance : null,
     ratePct: loan.ratePct ?? '', rateType: loan.rateType || 'fixed', maturity: loan.maturity || '', monthlyPayment: loan.monthlyPayment ?? null,
     covenantMin: loan.covenantTyped ? loan.covenantMin : '', type: loan.internal ? 'internal' : 'external',
+    loanType: loan.loanTypeGuessed === false ? loan.loanType || '' : '',
     docsPath: loan.docsPath || '', statementsPath: loan.statementsPath || '', notes: loan.notes || '', isActive: loan.isActive !== false,
   }));
   const [accounts, setAccounts] = useState(null);   // { principal: [], interest: [] } | null while loading
@@ -111,7 +153,8 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   useEffect(() => {
     let alive = true;
     if (!loan.entityCode) return undefined;
-    api.getLoanAccounts(loan.entityCode, to)
+    const read = api.getLoanAccountsSlow || api.getLoanAccounts;
+    read(loan.entityCode, to)
       .then((a) => { if (alive) setAccounts(a); })
       .catch(() => { if (alive) setAccounts({ principal: [], interest: [], failed: true }); });
     return () => { alive = false; };
@@ -127,6 +170,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   const auto = loan.interestSource !== 'wired' && loan.interestAccounts?.length
     ? `Automatic (now ${loan.interestAccounts.map((a) => `GL ${a.code}`).join(', ')}${loan.interestSource === 'shared' ? ', shared' : ''})` : 'Automatic';
   const ledgerOriginal = loan.originalPrincipalLedger;
+  const autoType = loan.loanTypeGuessed === false ? 'Automatic (from the GL title)' : `Automatic (now ${loanTypeLabel(loan.loanType)})`;
 
   const save = (e) => {
     e.preventDefault();
@@ -142,6 +186,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
     if ((d.type === 'internal') !== !!loan.internal) body.internal = d.type === 'internal';
     if (d.glAccount !== (loan.glAccount || '')) body.glAccount = d.glAccount;
     if (!d.glAccount && d.balance != null) body.balance = Number(d.balance);
+    if (d.loanType !== (loan.loanTypeGuessed === false ? loan.loanType || '' : '')) body.loanType = d.loanType;
     api.updateLoan(loan.id, '', body)
       .then(onSaved).catch((err) => { setError(err?.message || 'Could not save.'); setBusy(false); });
   };
@@ -153,6 +198,14 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
         <div><label style={label} htmlFor="loan-lender">Loan Name (Lender)</label><input id="loan-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => set({ lender: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="loan-no">Loan #</label><input id="loan-no" type="text" value={d.loanNo} maxLength={40} onChange={(e) => set({ loanNo: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="loan-type">Internal or External</label><select id="loan-type" value={d.type} onChange={(e) => set({ type: e.target.value })} style={full}>{typeOptions}</select></div>
+        <div>
+          <label style={label} htmlFor="loan-kind">Loan Type</label>
+          <select id="loan-kind" value={d.loanType} onChange={(e) => set({ loanType: e.target.value })} style={full}>
+            <option value="">{autoType}</option>
+            {LOAN_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <div style={hint}>Draws show only for a Line of Credit.</div>
+        </div>
       </div>
 
       <div style={section}>Ledger Wiring</div>
@@ -197,8 +250,8 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
       </div>
 
       <div style={section}>Egnyte</div>
-      <EgnyteField id="loan-docs" labelText="Loan Documents" value={d.docsPath} url={loan.docsUrl} onChange={(v) => set({ docsPath: v })} />
-      <EgnyteField id="loan-statements" labelText="Loan Statements" value={d.statementsPath} url={loan.statementsUrl} onChange={(v) => set({ statementsPath: v })} />
+      <EgnyteField id="loan-docs" labelText="Documents Folder" value={d.docsPath} url={loan.docsUrl} onChange={(v) => set({ docsPath: v })} />
+      <EgnyteField id="loan-statements" labelText="Statements Folder" value={d.statementsPath} url={loan.statementsUrl} onChange={(v) => set({ statementsPath: v })} />
 
       <div><label style={label} htmlFor="loan-notes">Notes</label><input id="loan-notes" type="text" value={d.notes} maxLength={200} onChange={(e) => set({ notes: e.target.value })} style={full} /></div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem' }}>
@@ -209,8 +262,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
 }
 
 export function ManualLoanDialog({ entities, showHistorical = false, onClose, onSaved }) {
-  const options = useMemo(() => entityOptions(entities, { showHistorical }), [entities, showHistorical]);
-  const [d, setD] = useState({ lender: '', entityCode: '', loanNo: '', originalPrincipal: null, balance: null, ratePct: '', rateType: 'fixed', maturity: '', monthlyPayment: null, type: 'external' });
+  const [d, setD] = useState({ lender: '', entityCode: '', loanNo: '', originalPrincipal: null, balance: null, ratePct: '', rateType: 'fixed', maturity: '', monthlyPayment: null, type: 'external', loanType: 'term', docsPath: '', statementsPath: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (patch) => setD((x) => ({ ...x, ...patch }));
@@ -223,19 +275,19 @@ export function ManualLoanDialog({ entities, showHistorical = false, onClose, on
     api.createManualLoan({
       lender: d.lender.trim(), entityCode: d.entityCode, loanNo: d.loanNo.trim(), originalPrincipal: d.originalPrincipal, balance: d.balance ?? 0,
       ratePct: d.ratePct === '' ? null : Number(d.ratePct), rateType: d.rateType, maturity: d.maturity || null, monthlyPayment: d.monthlyPayment, internal: d.type === 'internal',
+      loanType: d.loanType, docsPath: d.docsPath.trim() || null, statementsPath: d.statementsPath.trim() || null,
     }).then(onSaved).catch((err) => { setError(err?.message || 'Could not add the loan.'); setBusy(false); });
   };
   return (
-    <Dialog title="Add a Loan by Hand" onClose={onClose} onSubmit={save} busy={busy} submitLabel="Add Loan" error={error} width={640}
+    <Dialog title="Add a Loan by Hand" onClose={onClose} onSubmit={save} busy={busy} submitLabel="Add Loan" error={error} width={680}
       sub="A loan that is not in Intacct. Its balance is kept by hand here; wire a principal account later under Change Loan to read it from the ledger.">
       <div style={grid}>
         <div><label style={label} htmlFor="manual-lender">Lender</label><input id="manual-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => set({ lender: e.target.value })} style={full} autoFocus /></div>
         <div>
-          <label style={label} htmlFor="manual-entity">Entity</label>
-          <select id="manual-entity" value={d.entityCode} onChange={(e) => set({ entityCode: e.target.value })} style={full}>
-            <option value="">Pick an entity...</option>
-            {options.map((o) => <option key={o.code} value={o.code}>{o.depth ? '  ' : ''}{o.name || 'Unnamed'} ({o.code})</option>)}
-          </select>
+          <span style={label} id="manual-entity-label">Entity</span>
+          <EntityPicker entities={entities} value={d.entityCode} onChange={(code) => set({ entityCode: code })} showHistorical={showHistorical}
+            placeholder="Pick an Entity" active={false} style={{ ...full, maxWidth: 'none' }} />
+
         </div>
         <div><label style={label} htmlFor="manual-no">Loan #</label><input id="manual-no" type="text" value={d.loanNo} maxLength={40} onChange={(e) => set({ loanNo: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="manual-original">Original Principal</label><AmountInput id="manual-original" value={d.originalPrincipal} onChange={(v) => set({ originalPrincipal: v })} style={full} /></div>
@@ -245,7 +297,11 @@ export function ManualLoanDialog({ entities, showHistorical = false, onClose, on
         <div><label style={label} htmlFor="manual-maturity">Maturity</label><input id="manual-maturity" type="date" value={d.maturity} onChange={(e) => set({ maturity: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="manual-payment">Monthly Payment</label><AmountInput id="manual-payment" value={d.monthlyPayment} onChange={(v) => set({ monthlyPayment: v })} style={full} /></div>
         <div><label style={label} htmlFor="manual-type">Internal or External</label><select id="manual-type" value={d.type} onChange={(e) => set({ type: e.target.value })} style={full}>{typeOptions}</select></div>
+        <div><label style={label} htmlFor="manual-kind">Loan Type</label><select id="manual-kind" value={d.loanType} onChange={(e) => set({ loanType: e.target.value })} style={full}>{LOAN_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
       </div>
+      <div style={section}>Egnyte</div>
+      <EgnyteField id="manual-docs" labelText="Documents Folder" value={d.docsPath} onChange={(v) => set({ docsPath: v })} />
+      <EgnyteField id="manual-statements" labelText="Statements Folder" value={d.statementsPath} onChange={(v) => set({ statementsPath: v })} />
     </Dialog>
   );
 }

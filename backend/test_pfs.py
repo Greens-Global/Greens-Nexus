@@ -351,7 +351,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual(pfs.classify_account("asset", "11500", "Vanguard Investments", ""), ("asset", "investment"))
         self.assertEqual(pfs.classify_account("asset", "13000", "Prepaid Insurance", ""), ("asset", "other_holding"))
         self.assertEqual(pfs.classify_account("liability", "26000", "Auto Loan - Toyota", ""), ("liability", "auto"))
-        self.assertEqual(pfs.classify_account("liability", "27000", "HDFC Loan - Pune", ""), ("liability", "international"))
+        self.assertEqual(pfs.classify_account("liability", "27000", "HDFC Loan - Pune", ""), ("liability", "business_loan"))   # Oct 7: no International Debt
 
     def test_move_a_line_between_categories(self):
         pid = self._profile()["id"]
@@ -500,7 +500,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual(pfs.classify_account("asset", "10100", "Cash - Chase 6532", ""), ("asset", "bank"))
         self.assertEqual(pfs.classify_account("asset", "16000", "Vehicle - Tesla Model X", ""), ("asset", "vehicles"))
         self.assertEqual(pfs.classify_account("asset", "13500", "Note Receivable - Greens LLC", ""), ("asset", "notes_receivable"))
-        self.assertEqual(pfs.classify_account("liability", "26500", "Policy Loan - MassMutual", ""), ("liability", "insurance_loan"))
+        self.assertEqual(pfs.classify_account("liability", "26500", "Policy Loan - MassMutual", ""), ("liability", "other_liability"))   # Oct 7
         pid = self._profile()["id"]
         self._line(pid, section="asset", category="bank", label="Chase Checking - 6532", manualValue=100)
         # Listed under Bank Accounts before the Cash section existed.
@@ -544,7 +544,14 @@ class PfsTests(unittest.TestCase):
         self._line(pid, section="asset", category="investment", label="Schwab", manualValue=5000)
         self._line(pid, section="liability", category="credit_card", label="Amex", manualValue=700)
         self._line(pid, section="liability", category="loc", label="Chase LOC", manualValue=300)
-        self._line(pid, section="liability", category="contingent", label="Guarantee - Greens Escondido loan", manualValue=1_000_000, ownershipPct=50)
+        # Contingent is not offered for a new line since Oct 7; one kept from before still prints.
+        db = database.SessionLocal()
+        try:
+            db.add(models.PfsLine(id="pfs-test-old-guarantee", profile_id=pid, section="liability", category="contingent", label="Guarantee - Greens Escondido loan",
+                                  ownership_pct=50, source="manual", manual_value=1_000_000, details={}, sort=0, notes="", updated_by=EDITOR, updated_at="2026-10-02"))
+            db.commit()
+        finally:
+            db.close()
         self._line(pid, section="real_estate", category="domestic_commercial", label="Greens Escondido", manualValue=2_000_000, ownershipPct=50,
                    details={"loan": {"source": "ledger", "entity": "70000", "accounts": ["25100"]}})
         st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
@@ -555,7 +562,7 @@ class PfsTests(unittest.TestCase):
         self.assertEqual((a["cash"]["amount"], a["bank"]["amount"], a["bank"]["ownership"], a["securities"]["amount"], a["real_estate"]["amount"], a["vehicles"]["amount"]),
                          (1000.0, 5500.0, "Various", 5000.0, 1_000_000.0, 0.0))
         liab = {x["key"]: x["amount"] for x in c["liabilities"]}
-        self.assertEqual(liab, {"notes_banks": 300.0, "mortgages": 600_000.0, "credit_cards": 700.0, "auto": 0.0, "insurance_loan": 0.0, "other": 0.0})
+        self.assertEqual(liab, {"notes_banks": 300.0, "mortgages": 600_000.0, "credit_cards": 700.0, "auto": 0.0, "other": 0.0})
         # The first page agrees with the statement; a guarantee is listed, not owed.
         self.assertEqual((c["totals"]["assets"], c["totals"]["liabilities"]), (st["totals"]["assets"], st["totals"]["liabilities"]))
         self.assertEqual(st["totals"]["liabilities"], 601_000.0)

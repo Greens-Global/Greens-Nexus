@@ -25,6 +25,7 @@ loans screen itself. Sync DB work runs in a thread (CLAUDE.md: never block
 the loop).
 """
 import asyncio
+import json
 import os
 import re
 import uuid
@@ -171,6 +172,121 @@ async def expected(month: Optional[str] = None, scope: dict = Depends(entity_sco
         if e:
             out[loan_id] = {**e, "source": source}
     return {"month": month, "loans": out}
+
+
+# ── Stress Test page (Charmi, Oct 7) ────────────────────────────────────────
+# Per entity: the NOI basis (T12 from the ledger / Annualized YTD / Manual)
+# and an Addback with its note, Adjusted NOI = NOI + Addback driving the
+# DSCR; per loan: left out of the stress run (restorable - the loan stays).
+NOI_BASES = ("t12", "ytd", "manual")
+
+
+def _ser_stress(r: models.AccountingLoanStressEntity) -> dict:
+    return {"entityCode": r.entity_code, "noiBasis": r.noi_basis or "", "noiManual": r.noi_manual, "addback": r.addback,
+            "addbackNote": r.addback_note or "", "by": r.updated_by or "", "at": r.updated_at or ""}
+
+
+def _audit(db, user: dict, action: str, resource_id: str, details: dict) -> None:
+    db.add(models.AuditLog(timestamp=_now(), user_email=user.get("email") or "", user_role=user.get("role", "") or "", action=action,
+                           resource_type="accounting_loan_stress", resource_id=str(resource_id)[:200], details=json.dumps(details, default=str)[:4000]))
+
+
+@router.get("/stress-settings")
+async def stress_settings(scope: dict = Depends(entity_scope)):
+    """The Stress Test's kept inputs the caller may read: per entity (NOI
+    basis, manual NOI, addback + note) and the loans left out of the run."""
+    allowed = scope["allowed"]
+    reach = None if allowed is None else (await accounting._with_children(allowed) if allowed else set())
+
+    def _load():
+        db = SessionLocal()
+        try:
+            q = db.query(models.AccountingLoanStressEntity)
+            x = db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.stress_excluded.is_(True))
+            if reach is not None:
+                q = q.filter(models.AccountingLoanStressEntity.entity_code.in_(tuple(reach) or ("",)))
+                x = x.filter(models.AccountingLoanSetting.entity_code.in_(tuple(reach) or ("",)))
+            return {"entities": {r.entity_code: _ser_stress(r) for r in q.all()}, "excluded": sorted(r.loan_id for r in x.all())}
+        finally:
+            db.close()
+    return await asyncio.to_thread(_load)
+
+
+class StressEntityBody(BaseModel):
+    noiBasis: Optional[str] = None
+    noiManual: Optional[float] = None
+    addback: Optional[float] = None
+    addbackNote: Optional[str] = None
+
+
+@router.put("/stress-settings/{entity}")
+async def save_stress_entity(entity: str, body: StressEntityBody, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    """Keep one entity's NOI basis / manual NOI / addback (only the fields
+    sent; null clears a figure). Audited."""
+    code = (entity or "").strip()
+    if not code or len(code) > 40:
+        raise HTTPException(status_code=400, detail="An entity code is needed.")
+    await accounting._limit(scope, code, None)
+    sent = body.model_fields_set
+    if body.noiBasis is not None and body.noiBasis not in ("", *NOI_BASES):
+        raise HTTPException(status_code=400, detail="NOI basis is T12, Annualized YTD or Manual.")
+    for v, what in ((body.noiManual, "NOI"), (body.addback, "Addback")):
+        if v is not None and (v != v or abs(v) > 1e13):
+            raise HTTPException(status_code=400, detail=f"{what} is out of range.")
+
+    def _save():
+        db = SessionLocal()
+        try:
+            r = db.query(models.AccountingLoanStressEntity).filter(models.AccountingLoanStressEntity.entity_code == code).first()
+            before = _ser_stress(r) if r else None
+            if not r:
+                r = models.AccountingLoanStressEntity(entity_code=code, noi_basis="", addback_note="")
+                db.add(r)
+            if "noiBasis" in sent:
+                r.noi_basis = body.noiBasis or ""
+            if "noiManual" in sent:
+                r.noi_manual = None if body.noiManual is None else round(body.noiManual, 2)
+            if "addback" in sent:
+                r.addback = None if body.addback is None else round(body.addback, 2)
+            if "addbackNote" in sent:
+                r.addback_note = (body.addbackNote or "").strip()[:300]
+            r.updated_by, r.updated_at = user["email"].lower(), _now()
+            after = _ser_stress(r)
+            _audit(db, user, "accounting_loan_stress_entity_saved", code, {"before": before, "after": after})
+            db.commit()
+            return after
+        finally:
+            db.close()
+    return {"entity": await asyncio.to_thread(_save)}
+
+
+class StressExcludeBody(BaseModel):
+    excluded: bool
+
+
+@router.put("/{loan_id}/stress-excluded")
+async def set_stress_excluded(loan_id: str, body: StressExcludeBody, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    """Take a loan out of the Stress Test run, or put it back. The loan
+    itself stays (removing it is Loans > Delete). Audited."""
+    loan = await _loan(scope, loan_id)
+    entity = str(loan.get("entity_code") or "")
+
+    def _save():
+        db = SessionLocal()
+        try:
+            s = db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.loan_id == loan_id).first()
+            if not s:
+                s = models.AccountingLoanSetting(loan_id=loan_id, interest_account="", docs_path="", statements_path="")
+                db.add(s)
+            s.entity_code, s.stress_excluded = entity, bool(body.excluded)
+            s.updated_by, s.updated_at = user["email"].lower(), _now()
+            _audit(db, user, "accounting_loan_stress_excluded" if body.excluded else "accounting_loan_stress_restored", loan_id,
+                   {"lender": loan.get("lender"), "entity": entity})
+            db.commit()
+        finally:
+            db.close()
+    await asyncio.to_thread(_save)
+    return {"ok": True, "loanId": loan_id, "excluded": bool(body.excluded)}
 
 
 @router.get("/{loan_id}/schedule")
