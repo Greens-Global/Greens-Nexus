@@ -212,9 +212,11 @@ describe('LoansTab', () => {
     render(<SetupDialog month="2026-09" pollMs={20} onClose={() => {}} onCreated={() => {}} />);
     const dialog = await screen.findByRole('dialog', { name: /Add loans from the ledger/ });
     await within(dialog).findByText('SBA EIDL Loan');
-    const header = within(dialog).getByRole('checkbox', { name: /Select (all|none) of the loans shown|Select all the loans shown/ });
-    // Two of the three new rows ticked: the header is part-ticked.
-    expect(header.indeterminate).toBe(true);
+    const headerBox = () => within(dialog).getByRole('checkbox', { name: /Select (all|none) of the loans shown|Select all the loans shown/ });
+    // Two of the three new rows ticked: the header is part-ticked. The default
+    // ticks land a render after the rows show, so wait for them (slow CI).
+    await waitFor(() => expect(headerBox().indeterminate).toBe(true));
+    const header = headerBox();
     fireEvent.click(header);                                  // all
     expect(within(dialog).getByRole('button', { name: 'Create 3 Loans' })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Select none of the loans shown' }));
