@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, FileText, FolderOpen } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { folderName } from './LoanDialogs';
+import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 
 // Accounting -> Loans & Financing, one loan opened under its row (Charmi and
 // Neil, 10/03-10/04):
@@ -124,7 +126,28 @@ function useHistory(loan, from, to, enabled) {
   return state.key === key ? state : { data: null, error: '' };
 }
 
-export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null, extras = null }) {
+export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null, extras = null, canEdit = false, onSaved = null }) {
+  // Wire a folder right here (Charmi, 10/07: "Browse" by "No documents
+  // folder") - the same Files picker and the same save as Change Loan.
+  const [picking, setPicking] = useState(null);       // 'docs' | 'statements'
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState('');
+  const saveFolder = (which, path) => {
+    setPicking(null);
+    setFolderBusy(true);
+    setFolderError('');
+    api.updateLoan(loan.id, '', which === 'docs' ? { docsPath: path } : { statementsPath: path })
+      .then(() => onSaved?.())
+      .catch((e) => setFolderError(e?.message || 'Could not save the folder.'))
+      .finally(() => setFolderBusy(false));
+  };
+  const browse = (which, label) => (canEdit ? (
+    <button type="button" className="secondary-btn" disabled={folderBusy} onClick={() => setPicking(which)} aria-haspopup="dialog"
+      aria-label={`${label} - Browse Egnyte`} title="Pick the folder in Egnyte"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', height: 24, padding: '0 8px' }}>
+      <FolderOpen size={12} /> Browse
+    </button>
+  ) : null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const ledger = loan.wiring === 'ok' || !!loan.interestAccount;
   const given = loan.kind === 'given';
@@ -167,14 +190,23 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
         {fact('Debt Service (T12)', loan.debtServiceT12 == null ? '-' : formatAmount(loan.debtServiceT12), `This loan's principal and interest over the twelve months; the entity's whole debt service is ${formatAmount(loan.entityDebtServiceT12)}.`)}
         <div style={{ minWidth: 150 }}>
           <div style={{ fontSize: '0.7rem', ...muted }}>Egnyte</div>
-          <div style={{ display: 'flex', gap: 10, fontSize: '0.8rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: '0.8rem' }}>
             {loan.docsUrl ? <a href={loan.docsUrl} target="_blank" rel="noreferrer" title={loan.docsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Documents: {folderName(loan.docsPath) || 'Folder'}</a>
               : loan.docsPath ? <span title={loan.docsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Documents: {folderName(loan.docsPath)}</span>
-                : <span style={muted}>No documents folder (Change Loan)</span>}
+                : <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>No documents folder {browse('docs', 'Documents Folder')}</span>}
             {loan.statementsUrl ? <a href={loan.statementsUrl} target="_blank" rel="noreferrer" title={loan.statementsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={13} /> Statements: {folderName(loan.statementsPath) || 'Folder'}</a>
               : loan.statementsPath ? <span title={loan.statementsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={13} /> Statements: {folderName(loan.statementsPath)}</span>
-                : <span style={muted}>No statements folder (Change Loan)</span>}
+                : <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>No statements folder {browse('statements', 'Statements Folder')}</span>}
           </div>
+          {folderBusy && <div style={{ fontSize: '0.72rem', ...muted }}>Saving the folder...</div>}
+          {folderError && <div role="alert" style={{ fontSize: '0.72rem', color: 'hsl(var(--color-red))' }}>{folderError}</div>}
+          {picking && createPortal(
+            <FolderPickModal startPath={(picking === 'docs' ? loan.docsPath : loan.statementsPath) || '/Shared'} showTree
+              title={`${picking === 'docs' ? 'Documents Folder' : 'Statements Folder'} - Pick a Folder`}
+              hint='Click through to the folder, then press "Use This Folder".'
+              onPick={(p) => saveFolder(picking, p)} onClose={() => setPicking(null)} />,
+            document.body,
+          )}
         </div>
       </div>
 
