@@ -184,9 +184,10 @@ describe('LedgerSearch grid', () => {
     expect(screen.getByText('Roof repair')).toBeTruthy();
     expect(screen.getByText('Debit > 100')).toBeTruthy();
     expect(screen.getByRole('note').textContent).toMatch(/Debit > 100 is checked on the lines loaded here: 1 of 3 pass/);
-    // A comparison is not sent to the server as text.
+    // A comparison is not sent to the server as text - it goes as an operator.
     await new Promise((r) => setTimeout(r, 450));
     expect(api.searchAccountingLedger.mock.calls.slice(before).every((c) => !c[0].cols)).toBe(true);
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ debit_op: 'gt', debit_v: 100 }));
 
     // Between on Credit, with Debit cleared.
     fireEvent.click(screen.getByRole('button', { name: 'Remove Debit > 100' }));
@@ -200,6 +201,25 @@ describe('LedgerSearch grid', () => {
     // "=" stays the server's match over the whole result.
     fireEvent.change(screen.getByLabelText('Operator for Credit'), { target: { value: '=' } });
     await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ credit: '100' }), { timeout: 2000 });
+  });
+
+  it('a ledger that applied the operator leaves the lines and the totals to it', async () => {
+    const big = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', debit: 600, credit: 0 };
+    api.searchAccountingLedger.mockImplementation(async (p) => (p.credit_op
+      ? { rows: [big], total: 1, debit: 600, credit: 0, cols: { credit_cmp: 'between:100:200' }, facets: {} }
+      : { rows: [line, big], total: 2, debit: 622.46, credit: 0, facets: {} }));
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    await screen.findByText('Roof repair');
+    fireEvent.change(screen.getByLabelText('Operator for Credit'), { target: { value: 'between' } });
+    fireEvent.change(screen.getByLabelText('Filter Credit'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Filter Credit up to'), { target: { value: '200' } });
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ credit_op: 'between', credit_v: 100, credit_v2: 200 })), { timeout: 2000 });
+    // The server's answer stands: no line is dropped here and no page-only note.
+    await screen.findByText('Roof repair');
+    expect(screen.queryByRole('note')).toBeNull();
+    // An open-ended Between is a plain >=.
+    fireEvent.change(screen.getByLabelText('Filter Credit up to'), { target: { value: '' } });
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ credit_op: 'gte', credit_v: 100 })), { timeout: 2000 });
   });
 
   it('opens the journal entry with every dimension as a column', async () => {

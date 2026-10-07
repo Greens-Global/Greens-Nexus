@@ -8,7 +8,7 @@ import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { PopoverPanel, usePopover } from './reportControls';
 import { linesBaseName } from './linesExport';
-import { DIM_KINDS, NUM_OPS, glLineParams, lineMatchesDims, numberFilterHit } from './reportModel';
+import { DIM_KINDS, NUM_OPS, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -138,6 +138,21 @@ const dimChipText = (d, names) => {
 const opSet = (f) => !!f && (String(f.a ?? '').trim() || String(f.b ?? '').trim());
 // What a filter box sends to the server: the text, or an amount box's "=" value.
 const filterText = (c, v) => (c.num ? (v && (v.op || '=') === '=' ? String(v.a || '') : '') : String(v || ''));
+// An operator box as the ledger's query params (10/07): debit_op=gt&debit_v=100.
+// "=" travels as typed text in `cols`; an open-ended Between is >= or <=.
+const OP_PARAM = { '>': 'gt', '<': 'lt', '>=': 'gte', '<=': 'lte' };
+function opQuery(key, f) {
+  const a = parseFigure(f.a);
+  const b = parseFigure(f.b);
+  const op = f.op || '=';
+  if (op === 'between') {
+    if (!Number.isNaN(a) && !Number.isNaN(b)) return { [`${key}_op`]: 'between', [`${key}_v`]: a, [`${key}_v2`]: b };
+    if (!Number.isNaN(a)) return { [`${key}_op`]: 'gte', [`${key}_v`]: a };
+    if (!Number.isNaN(b)) return { [`${key}_op`]: 'lte', [`${key}_v`]: b };
+    return {};
+  }
+  return OP_PARAM[op] && !Number.isNaN(a) ? { [`${key}_op`]: OP_PARAM[op], [`${key}_v`]: a } : {};
+}
 const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '...'} and ${f.b || '...'}` : `${label} ${f.op} ${f.a}`);
 
 export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false }) {
@@ -193,19 +208,28 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
   // An amount column's box is { op, a, b } (the Reports tables' operators);
-  // its "=" goes to the server like any typed text, the rest is checked here.
+  // its "=" goes to the server like any typed text, and the other operators
+  // go as debit_op / credit_op so the ledger's totals and paging follow them
+  // (10/07). A ledger that does not know them yet is caught below: the lines
+  // it hands back are checked here instead.
   const [typed, setTyped] = useState({});
   const [cols, setCols] = useState('');
+  const [opQs, setOpQs] = useState('');
   useEffect(() => {
     const kept = {};
-    LINE_COLUMNS.forEach((c) => { const v = filterText(c, typed[c.key]).trim(); if (c.filter && v) kept[c.key] = v; });
+    const ops = {};
+    LINE_COLUMNS.forEach((c) => {
+      const v = filterText(c, typed[c.key]).trim();
+      if (c.filter && v) kept[c.key] = v;
+      if (c.filter && c.num && opSet(typed[c.key])) Object.assign(ops, opQuery(c.key, typed[c.key]));
+    });
     const next = Object.keys(kept).length ? JSON.stringify(kept) : '';
-    const t = setTimeout(() => setCols(next), 350);
+    const nextOps = Object.keys(ops).length ? JSON.stringify(ops) : '';
+    const t = setTimeout(() => { setCols(next); setOpQs(nextOps); }, 350);
     return () => clearTimeout(t);
   }, [typed]);
   const filtering = LINE_COLUMNS.some((c) => (c.num ? opSet(typed[c.key]) : String(typed[c.key] || '').trim()));
-  const opFilters = LINE_COLUMNS.filter((c) => c.num && opSet(typed[c.key]) && (typed[c.key].op || '=') !== '=').map((c) => ({ c, f: typed[c.key] }));
-  const passesOps = (r) => opFilters.every(({ c, f }) => numberFilterHit(Number(r[c.key]) || 0, f));
+  const opFiltersAll = LINE_COLUMNS.filter((c) => c.num && opSet(typed[c.key]) && (typed[c.key].op || '=') !== '=').map((c) => ({ c, f: typed[c.key] }));
 
   // A new drill-down replaces whatever was picked before it.
   useEffect(() => {
@@ -233,7 +257,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     journal: journal || undefined,
     book: book === 'all' ? undefined : book,
     cols: cols || undefined,
-  }), [term, applied.place, usePeriod, drill, party, account, journal, book, cols]);
+    ...(opQs ? JSON.parse(opQs) : {}),
+  }), [term, applied.place, usePeriod, drill, party, account, journal, book, cols, opQs]);
 
   const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal || !!usePeriod;
 
@@ -252,6 +277,10 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // The toolbar's search box shows the spinner while this is working.
   useEffect(() => { onBusy?.(loading); return () => onBusy?.(false); }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The ledger echoes every operator it applied (`cols.debit_cmp`); only the
+  // rest are checked here, on the lines loaded.
+  const opFilters = opFiltersAll.filter(({ c }) => !data?.cols?.[`${c.key}_cmp`]);
+  const passesOps = (r) => opFilters.every(({ c, f }) => numberFilterHit(Number(r[c.key]) || 0, f));
   const total = data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));
   // The ledger narrows the lines by the report's filters (10/07); one that
