@@ -64,12 +64,12 @@ from pydantic import BaseModel
 import models
 from auth import require_module_grant
 from database import SessionLocal
-from routers import accounting, leasing
-from routers.accounting import _limit, entity_scope
-from routers.accounting_loans import ScanJob, _entities, _sem, forget_jobs, gather_tolerant, leaf_entities, month_bounds, scan_job, scan_result, shift_month
+from routers import accounting, acct_scan, leasing
+from routers.accounting import _csv, _limit, entity_scope
+from routers.accounting_loans import ScanJob, _entities, _sem, forget_jobs, leaf_entities, month_bounds, scan_job, scan_result, shift_month
 
 _HISTORICAL = re.compile(r"\(\s*H\s*\)", re.I)
-_CHUNK = 100       # entity codes per by=entity read
+_CHUNK = 20        # entity codes per by=entity read (Oct 7: 100 a read timed out on most batches)
 _BY_CUSTOMER = 300  # customers per /by-customer read
 SYNC_EMAIL = "ledger-sync"
 SYNC_EVERY_SEC = 6 * 3600
@@ -107,7 +107,7 @@ def active_leaves(entities: list[dict]) -> tuple[list[dict], int, int]:
     return active, parents, len(leaves) - len(active)
 
 
-def rent_by_entity(rows: list[dict], codes: list[str]) -> dict[str, list[dict]]:
+def rent_by_entity(rows: list[dict], codes: list[str], accounts: Optional[set] = None) -> dict[str, list[dict]]:
     """entity -> its rent accounts with activity, from by=entity buckets rows
     (one row per account and entity: account_no, title, section, bucket)."""
     out: dict[str, dict[str, dict]] = defaultdict(dict)
@@ -117,7 +117,7 @@ def rent_by_entity(rows: list[dict], codes: list[str]) -> dict[str, list[dict]]:
         if not ent or ent not in codes:
             continue
         acct = {"section": r.get("section") or "", "account_no": str(r.get("account_no") or ""), "title": r.get("title") or ""}
-        if acct["account_no"] and rent_accounts([acct]) and abs(_r2(r.get("credit")) - _r2(r.get("debit"))) > _POSTED:
+        if acct["account_no"] and _is_rent(acct, accounts) and abs(_r2(r.get("credit")) - _r2(r.get("debit"))) > _POSTED:
             out[ent].setdefault(acct["account_no"], acct)
     return {e: sorted(a.values(), key=lambda x: x["account_no"]) for e, a in out.items()}
 
@@ -163,13 +163,13 @@ async def _buckets(scope: dict, entity: str, by: str, from_: str, to: str, custo
         return await accounting._acct_get("/api/internal/reports/buckets", {"from": from_, "to": to, "by": by, "location": location, "customer": customer})
 
 
-async def _rent_entities(scope: dict, codes: list[str], from_: str, to: str) -> dict[str, list[dict]]:
+async def _rent_entities(scope: dict, codes: list[str], from_: str, to: str, accounts: Optional[set] = None) -> dict[str, list[dict]]:
     """Which of `codes` have rent-titled income in the window: ONE buckets
     by=entity read (the month summary - fast whatever the count)."""
     location, locations = await _limit(scope, codes[0] if len(codes) == 1 else None, None if len(codes) == 1 else ",".join(codes))
     async with _sem():
         data = await accounting._acct_get("/api/internal/reports/buckets", {"from": from_, "to": to, "by": "entity", "location": location, "locations": locations})
-    return rent_by_entity(data.get("rows") or [], codes)
+    return rent_by_entity(data.get("rows") or [], codes, accounts)
 
 
 async def _customers_of(scope: dict, e: dict, accounts: list[dict], from_: str, to: str) -> dict:
@@ -225,34 +225,107 @@ def _window() -> tuple[str, str]:
     return from_, to
 
 
-def _scan_key(scope: dict) -> tuple:
+def _scan_key(scope: dict, picked: Optional[set] = None, accounts: Optional[list[str]] = None) -> tuple:
     from_, to = _window()
-    return (scope["user"]["email"], "leases", from_, to)
+    return (scope["user"]["email"], "leases", from_, to, tuple(sorted(picked)) if picked else (), tuple(sorted(accounts)) if accounts else ())
 
 
-async def _scan(scope: dict, job: Optional[ScanJob] = None) -> dict:
-    from_, to = _window()
-    entities, parents, historical = active_leaves(await _entities(scope))
-    if job:
-        job.total = len(entities)
-    # 1. Which active entities have rent income at all: a read per 100 codes.
-    chunks = [entities[i:i + _CHUNK] for i in range(0, len(entities), _CHUNK)]
-    found, notes = await gather_tolerant([(lambda c=c: _rent_entities(scope, [e["code"] for e in c], from_, to)) for c in chunks],
-                                         [f"{len(c)} entities from {c[0]['code']}" for c in chunks], dict)
+def _is_rent(acct: dict, accounts: Optional[set]) -> bool:
+    """A rent account: one of the picked GL codes (any income account), or -
+    nothing picked - an income account whose title says rent."""
+    if accounts:
+        return acct["account_no"] in accounts and (acct.get("section") or "revenue") in _INCOME
+    return bool(rent_accounts([acct]))
+
+
+def parts_from_aggregate(rows: list[dict], entities: list[dict], accounts: Optional[set] = None) -> list[dict]:
+    """The aggregate op's rows as scan parts: per entity with rent postings,
+    its rent accounts, customer -> {'YYYY-MM': credit - debit}, and names."""
+    by_code = {e["code"]: e for e in entities}
+    accts: dict[str, dict[str, dict]] = defaultdict(dict)
+    money: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+    names: dict[str, dict[str, str]] = defaultdict(dict)
+    for r in rows:
+        ent, code, cust = str(r.get("entity") or ""), str(r.get("account_no") or ""), str(r.get("party") or "")
+        acct = {"section": r.get("section") or "", "account_no": code, "title": r.get("title") or ""}
+        if ent not in by_code or not code or not cust or not _is_rent(acct, accounts):
+            continue
+        accts[ent].setdefault(code, acct)
+        money[ent][cust][str(r.get("month") or "")[:7]] += _r2(r.get("credit")) - _r2(r.get("debit"))
+        if r.get("party_name"):
+            names[ent][cust] = str(r["party_name"])
+    out = []
+    for ent, custs in money.items():
+        kept = {c: {m: _r2(v) for m, v in months.items()} for c, months in custs.items() if sum(months.values()) > _POSTED}
+        if kept:
+            out.append({"entity": by_code[ent], "accounts": sorted(accts[ent].values(), key=lambda a: a["account_no"]), "by_customer": kept, "names": names[ent]})
+    return out
+
+
+_AGG_CHUNK = 200   # the op answers twelve months of every entity in about 1.2 s
+RENT_TITLE_WORDS = ["rent", "rental", "lease", "leasing", "tenant"]   # Nexus re-checks every title with RENT_WORDS
+
+
+async def _aggregate(scope: dict, entities: list[dict], from_: str, to: str, accounts: Optional[list[str]], deadline: acct_scan.Deadline) -> tuple[list[dict], list[dict]]:
+    """(parts read through the aggregate op, the entities it did not answer for)."""
+    if not entities or not acct_scan.aggregate_available():
+        return [], entities
+    chunks = [entities[i:i + _AGG_CHUNK] for i in range(0, len(entities), _AGG_CHUNK)]
+
+    async def read(chunk: list[dict]):
+        codes = [e["code"] for e in chunk]
+        await _limit(scope, None, ",".join(codes))
+        async with _sem():
+            return await acct_scan.party_months(codes, from_, to, "customer", sections=list(_INCOME), accounts=accounts,
+                                                words=None if accounts else RENT_TITLE_WORDS)
+    got = await acct_scan.bounded([(lambda c=c: read(c)) for c in chunks], deadline)
+    parts, rest = [], []
+    for chunk, (ok, rows) in zip(chunks, got):
+        if ok and rows is not None:
+            parts += parts_from_aggregate(rows, chunk, set(accounts) if accounts else None)
+        else:
+            rest += chunk
+    return parts, rest
+
+
+async def _scan_entities(scope: dict, entities: list[dict], from_: str, to: str, accounts: Optional[list[str]],
+                         deadline: acct_scan.Deadline, failed: dict, tick) -> list[dict]:
+    """The bounded line scan for the entities the aggregate op did not answer
+    for: which have rent (batches of 20; a failed batch is read again entity
+    by entity), their customers, then the months. An entity that cannot be
+    read in time lands in `failed` - never in "no rent"."""
+    picked = set(accounts) if accounts else None
     rent: dict[str, list[dict]] = {}
-    for f in found:
-        rent.update(f)
+    chunks = [entities[i:i + _CHUNK] for i in range(0, len(entities), _CHUNK)]
+    got = await acct_scan.bounded([(lambda c=c: _rent_entities(scope, [e["code"] for e in c], from_, to, picked)) for c in chunks], deadline)
+    singles = []
+    for chunk, (ok, found) in zip(chunks, got):
+        if ok:
+            rent.update(found)
+        elif len(chunk) == 1:
+            failed[chunk[0]["code"]] = acct_scan.failure(chunk[0], found)
+        else:
+            singles += chunk
+    if singles:
+        got = await acct_scan.bounded([(lambda e=e: _rent_entities(scope, [e["code"]], from_, to, picked)) for e in singles], deadline)
+        for e, (ok, found) in zip(singles, got):
+            if ok:
+                rent.update(found)
+            else:
+                failed[e["code"]] = acct_scan.failure(e, found)
     with_rent = [e for e in entities if e["code"] in rent]
-    if job:
-        job.done += len(entities) - len(with_rent)
-    # 2. Their customers: one by=customer read per entity with rent.
-    parts, more = await gather_tolerant([(lambda e=e: _customers_of(scope, e, rent[e["code"]], from_, to)) for e in with_rent],
-                                        [f"{e.get('name') or e['code']} ({e['code']})" for e in with_rent],
-                                        lambda: {"entity": {"code": ""}, "accounts": [], "customers": [], "names": {}},
-                                        on_done=job.tick if job else None)
-    notes += more
-    parts = [p for p in parts if p["entity"].get("code")]
-    # 3. Month by month: one consolidated read for every tenant seen on one
+    if tick:
+        for _ in range(len(entities) - len(with_rent)):
+            tick()
+    # Their customers: one by=customer read per entity with rent.
+    got = await acct_scan.bounded([(lambda e=e: _customers_of(scope, e, rent[e["code"]], from_, to)) for e in with_rent], deadline, on_done=tick)
+    parts = []
+    for e, (ok, p) in zip(with_rent, got):
+        if ok:
+            parts.append(p)
+        else:
+            failed[e["code"]] = acct_scan.failure(e, p)
+    # Month by month: one consolidated read for every tenant seen on one
     # entity; a per-entity month read for a tenant seen on several.
     seen: dict[str, int] = defaultdict(int)
     for p in parts:
@@ -260,14 +333,15 @@ async def _scan(scope: dict, job: Optional[ScanJob] = None) -> dict:
             seen[c] += 1
     single = sorted(c for c, n in seen.items() if n == 1)
     all_rent_accounts = {a["account_no"] for p in parts for a in p["accounts"]}
-    consolidated: dict = {}
+    consolidated: Optional[dict] = {}
     if single:
         try:
-            consolidated = await _months_by_customer(single, all_rent_accounts, from_, to)
+            consolidated = await asyncio.wait_for(_months_by_customer(single, all_rent_accounts, from_, to),
+                                                  timeout=max(1.0, min(acct_scan.READ_CEILING, deadline.left())))
         except Exception:  # noqa: BLE001 - fall back to the per-entity month reads
             consolidated = None
-    proposals = []
-    for p in parts:
+
+    async def months_of(p: dict) -> dict[str, dict[str, float]]:
         codes = {a["account_no"] for a in p["accounts"]}
         by_customer: dict[str, dict[str, float]] = {}
         split = [c for c in p["customers"] if consolidated is None or seen[c] > 1]
@@ -280,20 +354,53 @@ async def _scan(scope: dict, job: Optional[ScanJob] = None) -> dict:
                     for m, v in months.items():
                         cell[m] += v
             by_customer[c] = dict(cell)
-        months_read, failed = await gather_tolerant([(lambda c=c: _entity_months(scope, p["entity"], c, codes, from_, to)) for c in split],
-                                                    [f"{c} at {p['entity']['code']}" for c in split], dict)
-        notes += failed
-        by_customer.update(dict(zip(split, months_read)))
-        proposals += propose(p["entity"], p["accounts"], by_customer, p["names"])
+        reads = await asyncio.gather(*[_entity_months(scope, p["entity"], c, codes, from_, to) for c in split])
+        by_customer.update(dict(zip(split, reads)))
+        return by_customer
+    got = await acct_scan.bounded([(lambda p=p: months_of(p)) for p in parts], deadline)
+    out = []
+    for p, (ok, by_customer) in zip(parts, got):
+        if ok:
+            out.append({"entity": p["entity"], "accounts": p["accounts"], "by_customer": by_customer, "names": p["names"]})
+        else:
+            failed[p["entity"]["code"]] = acct_scan.failure(p["entity"], by_customer)
+    return out
+
+
+async def _scan(scope: dict, job: Optional[ScanJob] = None, picked: Optional[set] = None, accounts: Optional[list[str]] = None) -> dict:
+    from_, to = _window()
+    every = await _entities(scope)
+    if picked is not None:
+        every = [e for e in every if e["code"] in picked]
+    entities, parents, historical = active_leaves(every)
+    if job:
+        job.total = len(entities)
+    deadline = acct_scan.Deadline()
+    failed: dict[str, dict] = {}
+    tick = job.tick if job else None
+    # 1. The aggregate op, when the accounting app answers it: one grouped read per 50 entities.
+    parts, rest = await _aggregate(scope, entities, from_, to, accounts, deadline)
+    if tick:
+        for _ in range(len(entities) - len(rest)):
+            tick()
+    # 2. The bounded line scan for the rest.
+    parts += await _scan_entities(scope, rest, from_, to, accounts, deadline, failed, tick)
+    proposals = []
+    for p in parts:
+        proposals += propose(p["entity"], p["accounts"], p["by_customer"], p["names"])
+    fails = sorted(failed.values(), key=lambda f: (f["name"], f["code"]))
     out: dict[str, Any] = {
-        "notes": [f"Not read this time - {n}" for n in notes],
+        "notes": [],
         "from": from_, "to": to, "entitiesScanned": len(entities), "parentsSkipped": parents, "historicalSkipped": historical,
+        "entitiesRead": len(entities) - len(fails), "failed": fails, "status": acct_scan.status_text(len(entities), fails),
+        "source": "scan" if len(rest) == len(entities) else ("aggregate" if not rest else "mixed"),
+        "accounts": list(accounts or []),
         "entitiesWithRentAccounts": len(parts),
         "rentAccounts": [{"entityCode": p["entity"]["code"], "entityName": p["entity"].get("name") or p["entity"]["code"], "code": a["account_no"], "title": a["title"]} for p in parts for a in p["accounts"]],
         "proposals": sorted(proposals, key=lambda x: (x["entityName"], x["tenantName"])), "lookedFor": LOOKED_FOR,
     }
     if job:
-        job.cacheable = not notes   # a partial scan is shown, never kept as the answer
+        job.cacheable = not fails   # a partial scan is shown, never kept as the answer
     return out
 
 
@@ -309,16 +416,65 @@ def _with_status(scan: dict, have: dict) -> dict:
     return {**scan, "proposals": rows, "setUp": sum(1 for r in rows if r["status"] == "set_up"), "missing": sum(1 for r in rows if r["status"] == "new")}
 
 
+_GL = re.compile(r"^[\w.\-]{1,40}$")
+
+
+async def _picked(scope: dict, entities: Optional[str]) -> Optional[set]:
+    """The entity codes asked for (Retry: the ones the last scan could not
+    read), with their sub-entities - None for all. 403 outside the caller's limit."""
+    codes = _csv(entities)
+    if not codes:
+        return None
+    await _limit(scope, None, ",".join(codes))
+    return await accounting._with_children(set(codes))
+
+
+def _accounts(accounts: Optional[str]) -> Optional[list[str]]:
+    """The rent income accounts picked by hand (GL codes), or None for the title rule."""
+    codes = sorted({c for c in _csv(accounts) if _GL.match(c)})[:40]
+    return codes or None
+
+
 @router.get("/from-ledger/proposals")
-async def proposals(scope: dict = Depends(entity_scope)):
+async def proposals(entities: Optional[str] = None, accounts: Optional[str] = None, scope: dict = Depends(entity_scope)):
     """One proposed lease per (entity, customer) with rent postings in the last
     twelve months; customers already on an active lease are marked set up.
-    The scan runs in the background: 202 with the progress until it is done,
-    then the result."""
-    job = scan_job(_scan_key(scope), lambda job: _scan(scope, job))
+    `entities` narrows the scan (Retry reads only the entities the last one
+    could not); `accounts` names the rent income accounts instead of the
+    title rule. The scan runs in the background: 202 with the progress until
+    it is done, then the result - with `failed` ({code, name, reason}) for
+    every entity that could not be read in time."""
+    picked = await _picked(scope, entities)
+    accts = _accounts(accounts)
+    job = scan_job(_scan_key(scope, picked, accts), lambda job: _scan(scope, job, picked, accts))
     if job.result is None:
         return JSONResponse(status_code=202, content=job.progress())
     return _with_status(job.result, await asyncio.to_thread(_active_leases))
+
+
+@router.get("/from-ledger/income-accounts")
+async def income_accounts(scope: dict = Depends(entity_scope)):
+    """The income accounts with activity in the last twelve months (one P&L
+    read over every entity the caller may read), for picking the rent
+    accounts by hand. `rent` marks the ones the title rule would take."""
+    from_, to = _window()
+    location, locations = await _limit(scope, None, None)
+    try:
+        data = await accounting._acct_get("/api/internal/reports/pnl", {"from": from_, "to": to, "location": location, "locations": locations})
+    except HTTPException as e:
+        if e.status_code == 503:
+            raise
+        return {"accounts": [], "error": str(e.detail)}
+    out: dict[str, dict] = {}
+    for s in data.get("sections") or []:
+        if (s.get("key") or "") not in _INCOME:
+            continue
+        for a in s.get("accounts") or []:
+            code = str(a.get("account_no") or "")
+            if code and code not in out:
+                acct = {"section": s.get("key"), "account_no": code, "title": a.get("title") or ""}
+                out[code] = {"code": code, "title": acct["title"], "section": acct["section"], "rent": bool(rent_accounts([acct]))}
+    return {"accounts": sorted(out.values(), key=lambda a: a["code"]), "lookedFor": LOOKED_FOR}
 
 
 def _lease_from(p: dict, how: str = "Set up from the ledger") -> tuple[dict, list[dict]]:
@@ -340,6 +496,22 @@ class CreateItem(BaseModel):
 
 class CreateBody(BaseModel):
     items: list[CreateItem]
+    accounts: Optional[list[str]] = None
+
+
+async def _proposals_for(scope: dict, keys: list[tuple[str, str]], accounts: Optional[list[str]]) -> dict:
+    """(entity, customer) -> proposal, from the scans this person already ran
+    (the full scan and any Retry), scanning only the entities still missing."""
+    by_key: dict = {}
+    for res in acct_scan.finished_results(scope["user"]["email"], "leases"):
+        if list(res.get("accounts") or []) == list(accounts or []):
+            by_key.update({(p["entityCode"], p["customerId"]): p for p in res["proposals"]})
+    missing = sorted({e for e, _c in keys if (e, _c) not in by_key})
+    if missing or not by_key:
+        picked = set(missing) if missing else None
+        scan = await scan_result(_scan_key(scope, picked, accounts), lambda job: _scan(scope, job, picked, accounts))
+        by_key.update({(p["entityCode"], p["customerId"]): p for p in scan["proposals"]})
+    return by_key
 
 
 @router.post("/from-ledger/create", status_code=201)
@@ -349,12 +521,13 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
     skipped, never duplicated (idempotent)."""
     if not body.items:
         raise HTTPException(status_code=400, detail="Tick at least one lease to create.")
-    scan, have = await asyncio.gather(scan_result(_scan_key(scope), lambda job: _scan(scope, job)), asyncio.to_thread(_active_leases))
-    by_key = {(p["entityCode"], p["customerId"]): p for p in scan["proposals"]}
+    keys = [(it.entityCode.strip(), it.customerId.strip()) for it in body.items]
+    for e, _c in keys:
+        await leasing._must_reach(scope, e)
+    accts = _accounts(",".join(body.accounts or []))
+    by_key, have = await asyncio.gather(_proposals_for(scope, keys, accts), asyncio.to_thread(_active_leases))
     created, skipped = [], []
-    for it in body.items:
-        key = (it.entityCode.strip(), it.customerId.strip())
-        await leasing._must_reach(scope, key[0])
+    for key in keys:
         p = by_key.get(key)
         if not p:
             skipped.append({"entityCode": key[0], "customerId": key[1], "why": "no rent postings for this customer on the ledger"})

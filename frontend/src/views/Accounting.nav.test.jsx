@@ -107,6 +107,18 @@ describe('Accounting navigation', () => {
     await waitFor(() => expect(tab.parentElement.className).toContain('acct-dash--condensed'));
   });
 
+  it('drops Open Nexus Accounting everywhere and the search on PFS (Oct 7)', async () => {
+    const { unmount } = render(<Harness start="budget" />);
+    await screen.findByTestId('tab-budget');
+    expect(screen.queryByRole('button', { name: /Open Nexus Accounting/ })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Search the ledger' })).toBeTruthy();
+    unmount();
+    render(<Harness start="pfs" />);
+    await screen.findByTestId('tab-pfs');
+    expect(screen.queryByRole('textbox', { name: 'Search the ledger' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Open Nexus Accounting/ })).toBeNull();
+  });
+
   it('lists the ledger setups on the Import Hub and opens one', async () => {
     render(<Harness start="imports" />);
     fireEvent.click(await screen.findByRole('button', { name: /Scan the Ledger/ }));

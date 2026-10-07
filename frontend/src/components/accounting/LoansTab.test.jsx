@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // Render-smoke for Accounting -> Loans & Financing (Neil and Charmi, 10/02;
 // Oct 6 feedback): the loans for the period with the filters on top
@@ -11,7 +12,10 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // Ledger (polling scan) and Manual, Change Loan, the Export menu, skeleton
 // rows while loading, and the "not available" state.
 
-vi.mock('../../egnyte/EgnyteFolderPick', () => ({ default: () => null }));
+// The Files picker: one button that picks a fixed folder.
+vi.mock('../../egnyte/EgnyteFolderPick', () => ({
+  default: ({ title, onPick }) => <button type="button" onClick={() => onPick('/Shared/Loans/F&M/Statements')}>{`Pick in ${title}`}</button>,
+}));
 
 const loan = (over = {}) => ({
   id: 'FL1', loanNo: '6870', lender: 'F&M Bank', kind: 'external', internal: false, internalTyped: false, entityCode: '15000', entityName: 'Greens Escondido, LLC.', glAccount: '27100', glTitle: 'F&M Loan #6870',
@@ -69,6 +73,11 @@ vi.mock('../../api', () => ({
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
     saveAccountingPrefs: vi.fn(async () => ({ ok: true })),
     getAccountingEntry: vi.fn(async () => ({ entry: { entry_no: 'GJ-1001', date: '2026-10-01' }, lines: [], totals: { debit: 0, credit: 0 } })),
+    deleteLoan: vi.fn(async () => ({ ok: true, dismissed: true })),
+    getLoanStressSettings: vi.fn(async () => ({ entities: {}, excluded: [] })),
+    saveLoanStressEntity: vi.fn(async (code, body) => ({ entity: { entityCode: code, ...body } })),
+    setLoanStressExcluded: vi.fn(async () => ({ ok: true })),
+    getLoanEntityNoi: vi.fn(async () => ({ entities: { 15000: { noi: 200000, annualized: 266000 } } })),
   },
 }));
 
@@ -160,7 +169,10 @@ describe('LoansTab', () => {
     expect(api.getLoanHistory).toHaveBeenLastCalledWith('FL1', expect.objectContaining({ from: '' }));
     // The balance after each entry, back from today's balance.
     const funding = within(detail).getByText('Loan funding').closest('tr');
-    expect(within(funding).getByText('1,400,000.00')).toBeTruthy();        // the draw
+    // A term loan has no Draws (Oct 7: only for a Line of Credit).
+    expect(within(detail).queryByRole('columnheader', { name: 'Draws' })).toBeNull();
+    expect(within(detail).queryByText('Draws in Period')).toBeNull();
+    expect(within(funding).queryByText('1,400,000.00')).toBeNull();
     expect(within(funding).getByText('1,256,000.00')).toBeTruthy();        // the balance after it: today's 1,252,000 plus the 4,000 paid since
     const october = within(detail).getAllByText('October payment').at(-1).closest('tr');
     expect(within(october).getByText('1,252,000.00')).toBeTruthy();
@@ -180,20 +192,71 @@ describe('LoansTab', () => {
     const dialog = await screen.findByRole('dialog', { name: /Add loans from the ledger/ });
     await within(dialog).findByText('SBA EIDL Loan');
     expect(api.getLoanProposalsAsOf).toHaveBeenCalledWith({ asof: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), entities: [], historical: false });
-    expect(within(dialog).getByText('Set Up')).toBeTruthy();
-    expect(within(dialog).getAllByRole('checkbox')).toHaveLength(3);
-    expect(within(dialog).getByText('Intercompany')).toBeTruthy();
+    const table = within(dialog).getByRole('table');
+    expect(within(table).getByText('Set Up')).toBeTruthy();
+    expect(within(table).getAllByRole('checkbox', { name: /^Create / })).toHaveLength(3);
+    expect(within(table).getAllByText('Intercompany').length).toBeGreaterThan(0);
     expect(within(dialog).getByText(/26 historical \(H\) entities not read/)).toBeTruthy();
     const golden = within(dialog).getByText(/Golden 1 Credit Union - 5860/).closest('tr');
     expect(within(golden).getByText('14,500,000.00')).toBeTruthy();
     expect(within(dialog).queryByText('Debit Balance')).toBeNull();
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Due to Greens Global/ }));
+    // Only External loans start ticked (Oct 7): the intercompany one does not.
+    expect(within(dialog).getByRole('checkbox', { name: /Due to Greens Global/ }).checked).toBe(false);
+    expect(within(dialog).getByRole('button', { name: 'Create 2 Loans' })).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Golden 1/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Loan' }));
     await within(dialog).findByText('1 loan set up.');
     expect(api.createLoansFromLedger).toHaveBeenCalledWith(expect.objectContaining({ entities: '', historical: false, items: [{ entityCode: '12000', glAccount: '27300' }] }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(api.getLoansReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('+ Add > From the Ledger: select all on the rows shown, quick filters, search, live count', async () => {
+    render(<SetupDialog month="2026-09" pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Add loans from the ledger/ });
+    await within(dialog).findByText('SBA EIDL Loan');
+    const headerBox = () => within(dialog).getByRole('checkbox', { name: /Select (all|none) of the loans shown|Select all the loans shown/ });
+    // Two of the three new rows ticked: the header is part-ticked. The default
+    // ticks land a render after the rows show, so wait for them (slow CI).
+    await waitFor(() => expect(headerBox().indeterminate).toBe(true));
+    const header = headerBox();
+    fireEvent.click(header);                                  // all
+    expect(within(dialog).getByRole('button', { name: 'Create 3 Loans' })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Select none of the loans shown' }));
+    const none = within(dialog).getByRole('button', { name: 'Create 0 Loans' });
+    expect(none.disabled).toBe(true);
+    // Kind: Intercompany, then the header ticks only what is shown.
+    fireEvent.click(within(within(dialog).getByRole('group', { name: 'Kind' })).getByRole('button', { name: 'Intercompany' }));
+    expect(within(dialog).queryByText('SBA EIDL Loan')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Select all the loans shown' }));
+    expect(within(dialog).getByRole('button', { name: 'Create 1 Loan' })).toBeTruthy();
+    fireEvent.click(within(within(dialog).getByRole('group', { name: 'Kind' })).getByRole('button', { name: 'All' }));
+    // Search.
+    fireEvent.change(within(dialog).getByLabelText('Search the proposed loans'), { target: { value: 'golden' } });
+    expect(within(dialog).queryByText('SBA EIDL Loan')).toBeNull();
+    expect(within(dialog).getByText(/Golden 1 Credit Union - 5860/)).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('Search the proposed loans'), { target: { value: '' } });
+    // Status: Set Up shows the loan already there, nothing to tick.
+    fireEvent.click(within(within(dialog).getByRole('group', { name: 'Status' })).getByRole('button', { name: 'Set Up' }));
+    expect(within(dialog).getByText('F&M Loan #6870')).toBeTruthy();
+    expect(within(dialog).getByRole('checkbox', { name: 'Select all the loans shown' }).disabled).toBe(true);
+  });
+
+  it('+ Add > From the Ledger: a removed loan is offered again only under Show Removed', async () => {
+    api.getLoanProposalsAsOf.mockImplementation(async () => ({ ...proposals, removed: 1, proposals: [...proposals.proposals, { entityCode: '15000', entityName: 'Greens Escondido, LLC.', glAccount: '27027', title: 'Calle Boveda Loan 27027', balance: 5000, lender: 'Calle Boveda', kind: 'external', status: 'dismissed', loanId: null, removedBy: 'charmi@greensglobal.com' }] }));
+    render(<SetupDialog month="2026-09" pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Add loans from the ledger/ });
+    await within(dialog).findByText('SBA EIDL Loan');
+    expect(within(dialog).queryByText('Calle Boveda Loan 27027')).toBeNull();
+    fireEvent.click(within(dialog).getByLabelText(/Show Removed/));
+    expect(within(dialog).getByText('Calle Boveda Loan 27027')).toBeTruthy();
+    expect(within(dialog).getByRole('checkbox', { name: /Calle Boveda/ }).checked).toBe(false);
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Calle Boveda/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Golden 1/ }));
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /SBA EIDL/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Loan' }));
+    await waitFor(() => expect(api.createLoansFromLedger).toHaveBeenCalled());
+    expect(api.createLoansFromLedger.mock.calls[0][0].items).toEqual([{ entityCode: '15000', glAccount: '27027' }]);
   });
 
   it('polls the scan every few seconds, showing the progress until the table', async () => {
@@ -226,7 +289,14 @@ describe('LoansTab', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: /Manual/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Add a Loan by Hand' });
     fireEvent.change(within(dialog).getByLabelText('Lender'), { target: { value: 'Rajesh Family Trust' } });
-    fireEvent.change(within(dialog).getByLabelText('Entity'), { target: { value: '12000' } });
+    // The module's entity picker: found by its number, code on the left, (H) hidden.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Entity' }));
+    expect(screen.queryByRole('option', { name: /Old Holdings/ })).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '12000' } });
+    const opt = screen.getByRole('option', { name: /Greens Global, Inc\./ });
+    expect(opt.textContent.indexOf('12000')).toBeLessThan(opt.textContent.indexOf('Greens Global'));
+    fireEvent.click(opt);
+    expect(within(dialog).getByRole('button', { name: 'Entity' }).textContent).toContain('Greens Global, Inc. (12000)');
     fireEvent.change(within(dialog).getByLabelText('Loan #'), { target: { value: 'RFT-1' } });
     const bal = within(dialog).getByLabelText('Balance');
     fireEvent.change(bal, { target: { value: '250k' } });
@@ -257,6 +327,148 @@ describe('LoansTab', () => {
     expect(body).toMatchObject({ lender: 'F&M Bank - Escondido', loanNo: '6870-A', interestAccount: '71200', ratePct: 6.25, rateType: 'fixed', maturity: '2027-06-30', covenantMin: 1.25, monthlyPayment: 10000, originalPrincipal: null, docsPath: '/Shared/Loans/F&M' });
     expect(body).not.toHaveProperty('glAccount');      // the GL wiring is kept
     expect(body).not.toHaveProperty('internal');
+  });
+
+  // Charmi 10/07: "Browse" by "No statements folder" in the open loan - the
+  // folder is picked in Egnyte and saved right there, no dialog.
+  it('an open loan wires a missing Egnyte folder with Browse, in place', async () => {
+    render(<LoansTab canEdit />);
+    fireEvent.click(await rowOf('F&M Bank'));
+    const detail = await screen.findByLabelText('Details of F&M Bank');
+    expect(within(detail).queryByRole('button', { name: 'Documents Folder - Browse Egnyte' })).toBeNull();   // already wired
+    fireEvent.click(within(detail).getByRole('button', { name: 'Statements Folder - Browse Egnyte' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Pick in Statements Folder/ }));
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL1', '', { statementsPath: '/Shared/Loans/F&M/Statements' }));
+    await waitFor(() => expect(api.getLoansReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('a viewer sees no Browse in an open loan', async () => {
+    render(<LoansTab />);
+    fireEvent.click(await rowOf('F&M Bank'));
+    const detail = await screen.findByLabelText('Details of F&M Bank');
+    expect(within(detail).getByText(/No statements folder/)).toBeTruthy();
+    expect(within(detail).queryByRole('button', { name: /Browse Egnyte/ })).toBeNull();
+  });
+
+  // Item 47 (BLOCKER, Charmi 23:21): the pencil opened Change Loan and it closed by itself.
+  it('the pencil opens Change Loan and it stays open: a double-click, a drag out of a field, fields editable, Save', async () => {
+    const user = userEvent.setup();
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    await user.dblClick(screen.getByRole('button', { name: 'Edit F&M Bank' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change Loan' });
+    const backdrop = dialog.parentElement;
+    expect(backdrop.className).toContain('modal-overlay');
+    // The second click of a double-click lands on the backdrop that just appeared.
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop, { detail: 2 });
+    expect(screen.getByRole('dialog', { name: 'Change Loan' })).toBeTruthy();
+    // Selecting a field's text and letting go outside the window: the press was in the field.
+    const rate = within(dialog).getByLabelText('Rate %');
+    fireEvent.mouseDown(rate);
+    fireEvent.click(backdrop);
+    expect(screen.getByRole('dialog', { name: 'Change Loan' })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 450));
+    expect(screen.getByRole('dialog', { name: 'Change Loan' })).toBeTruthy();
+    // Fields editable.
+    await user.clear(rate);
+    await user.type(rate, '7.25');
+    await user.clear(within(dialog).getByLabelText('Maturity'));
+    fireEvent.change(within(dialog).getByLabelText('Maturity'), { target: { value: '2030-01-31' } });
+    const pay = within(dialog).getByLabelText('Monthly Payment');
+    await user.clear(pay);
+    await user.type(pay, '12,500');
+    fireEvent.blur(pay);
+    fireEvent.change(within(dialog).getByLabelText('Loan Type'), { target: { value: 'line_of_credit' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalled());
+    const [id, , body] = api.updateLoan.mock.calls[0];
+    expect(id).toBe('FL1');
+    expect(body).toMatchObject({ ratePct: 7.25, maturity: '2030-01-31', monthlyPayment: 12500, loanType: 'line_of_credit' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Change Loan' })).toBeNull());
+  });
+
+  it('a deliberate click on the backdrop still closes Change Loan', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit F&M Bank' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change Loan' });
+    await new Promise((r) => setTimeout(r, 450));
+    fireEvent.mouseDown(dialog.parentElement);
+    fireEvent.click(dialog.parentElement, { detail: 1 });
+    expect(screen.queryByRole('dialog', { name: 'Change Loan' })).toBeNull();
+  });
+
+  it('removes a loan after Remove / Keep in place', async () => {
+    render(<LoansTab canEdit />);
+    const fm = await rowOf('F&M Bank');
+    fireEvent.click(within(fm).getByRole('button', { name: 'Remove F&M Bank' }));
+    expect(within(fm).getByText('Remove?')).toBeTruthy();
+    fireEvent.click(within(fm).getByRole('button', { name: 'Keep' }));
+    expect(api.deleteLoan).not.toHaveBeenCalled();
+    fireEvent.click(within(fm).getByRole('button', { name: 'Remove F&M Bank' }));
+    fireEvent.click(within(fm).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(api.deleteLoan).toHaveBeenCalledWith('FL1'));
+    await screen.findByText(/Removed F&M Bank \(Greens Escondido, LLC\.\)\. \+ Add > From the Ledger will not offer it again/);
+    await waitFor(() => expect(api.getLoansReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows Draws only for a Line of Credit', async () => {
+    api.getLoansReview.mockImplementation(async () => ({ ...review, loans: [loan({ lineOfCredit: true, loanType: 'line_of_credit', draws: 25000 })] }));
+    render(<LoansTab canEdit />);
+    const fm = await rowOf('F&M Bank');
+    expect(within(fm).getByText('Line of Credit')).toBeTruthy();
+    fireEvent.click(fm);
+    const detail = await screen.findByLabelText('Details of F&M Bank');
+    expect(within(detail).getByText('Draws in Period')).toBeTruthy();
+    await within(detail).findByText('October payment');
+    expect(within(detail).getByRole('columnheader', { name: 'Draws' })).toBeTruthy();
+  });
+
+  it('says so when nothing was posted in the period, and opens on the last closed month', async () => {
+    api.getLoansReview.mockImplementation(async () => ({ ...review, loans: review.loans.map((l) => ({ ...l, principalPaid: 0, interestPaid: null, debtService: 0 })) }));
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    const { from, to } = api.getLoansReview.mock.calls[0][0];
+    const now = new Date();
+    const last = new Date(now.getFullYear(), now.getMonth(), 0);
+    expect(to).toBe(`${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`);
+    expect(from).toBe(`${to.slice(0, 8)}01`);
+    expect(screen.getByText(/No payments posted 10\/01\/2026 - 10\/06\/2026 on the loans shown/)).toBeTruthy();
+  });
+
+  it('Stress Test is its own tab: addback saved per entity, a loan left out and restored, pencil to Change Loan', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('tab', { name: 'Stress Test' }));
+    await waitFor(() => expect(api.getLoanStressSettings).toHaveBeenCalled());
+    expect(screen.queryByRole('dialog')).toBeNull();                    // not a pop-up
+    expect(screen.getByRole('columnheader', { name: 'Addback' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Adjusted NOI' })).toBeTruthy();
+    const add = screen.getByLabelText('Addback of Greens Escondido, LLC.');
+    fireEvent.change(add, { target: { value: '25k' } });
+    fireEvent.blur(add);
+    await waitFor(() => expect(api.saveLoanStressEntity).toHaveBeenCalledWith('15000', { addback: 25000 }));
+    const note = screen.getByLabelText('Addback note of Greens Escondido, LLC.');
+    fireEvent.change(note, { target: { value: 'Depreciation' } });
+    fireEvent.blur(note);
+    await waitFor(() => expect(api.saveLoanStressEntity).toHaveBeenCalledWith('15000', { addbackNote: 'Depreciation' }));
+    // NOI basis per entity.
+    fireEvent.change(screen.getByLabelText('NOI basis of Greens Escondido, LLC.'), { target: { value: 'ytd' } });
+    await waitFor(() => expect(api.getLoanEntityNoi).toHaveBeenCalledWith(expect.objectContaining({ entities: ['15000'] })));
+    // Filters: Below Covenant Only leaves MCD (DSCR 1.0x).
+    fireEvent.click(screen.getByLabelText('Below Covenant Only'));
+    // Trash leaves the loan out of the run; Show Excluded restores it.
+    fireEvent.click(screen.getByLabelText('Below Covenant Only'));
+    fireEvent.click(screen.getByRole('button', { name: 'Leave Chase out of the stress test' }));
+    await waitFor(() => expect(api.setLoanStressExcluded).toHaveBeenCalledWith('FL2', true));
+    fireEvent.click(screen.getByLabelText(/Show Excluded/));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    await waitFor(() => expect(api.setLoanStressExcluded).toHaveBeenCalledWith('FL2', false));
+    // The pencil opens Change Loan for that loan.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Chase' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Change Loan' });
+    expect(within(dialog).getByLabelText('Loan Name (Lender)').value).toBe('Chase');
   });
 
   it('shows skeleton rows while the ledger is read, and a failed read is not "no loans"', async () => {
@@ -292,5 +504,93 @@ describe('LoansTab', () => {
     expect(t.columns.map((c) => c.label).slice(0, 4)).toEqual(['Lender', 'Loan #', 'Entity', 'Monthly Payment']);
     expect(t.totals[5]).toBe(1252000 + 400000 + 20000 + 14500000);
     expect(t.subtitle).toContain('10/06/2026');
+  });
+});
+
+// Oct 7 (items 9, 21, 32, 33): the module's shared controls on Loans.
+describe('LoansTab shared controls', () => {
+  it('has the standard Customize: Row Density, Rows per Page, Show Historical Entities and Show Closed Loans', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    const btn = screen.getByRole('button', { name: /Customize/ });
+    expect(btn.querySelector('.lucide-sliders-horizontal')).toBeTruthy();
+    expect(btn.querySelector('.lucide-settings-2')).toBeNull();
+    fireEvent.click(btn);
+    const panel = screen.getByRole('dialog', { name: 'Customize' });
+    expect(within(panel).getByRole('group', { name: 'Row Density' })).toBeTruthy();
+    expect(within(panel).getByRole('group', { name: 'Rows per Page' })).toBeTruthy();
+    expect(within(panel).getByLabelText(/Show Historical Entities/)).toBeTruthy();
+    expect(within(panel).getByLabelText(/Show Closed Loans/)).toBeTruthy();
+  });
+
+  it('pages the loans from Customize > Rows per Page; totals and exports cover every loan', async () => {
+    const { container } = render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Rows per Page' })).getByRole('button', { name: 'Other' }));
+    fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '2' } });
+    await screen.findByText(/Page 1 of 2/);
+    expect(container.querySelectorAll('tbody.loan')).toHaveLength(2);
+    // The footer totals all four open loans, not the page.
+    expect(within(container.querySelector('tfoot')).getByText('16,172,000.00')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByText(/Page 2 of 2/);
+    expect(container.querySelectorAll('tbody.loan')).toHaveLength(2);
+    // The export table is built from every loan shown by the filters.
+    expect(_test.loansTable(_test.visibleLoans(review.loans), { from: '2026-10-01', to: '2026-10-06', entityLabel: 'All entities' }).rows).toHaveLength(4);
+  });
+
+  it('has a resize handle on every column, and + Add is the shared menu', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    for (const name of ['Lender', 'Loan #', 'Entity', 'Balance', 'Principal Paid', 'Interest Paid', 'Egnyte']) {
+      expect(screen.getByRole('separator', { name: `Resize the ${name} column` })).toBeTruthy();
+    }
+    expect(screen.getAllByRole('columnheader', { name: 'Balance' }).length).toBeGreaterThan(0);
+    const add = screen.getByRole('button', { name: /Add/ });
+    expect(add.querySelector('.lucide-chevron-down')).toBeTruthy();       // AddMenu's button
+    fireEvent.click(add);
+    const menu = screen.getByRole('menu', { name: 'Add a loan' });
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      expect.stringContaining('From the Ledger'), expect.stringContaining('Manual'),
+    ]);
+  });
+
+  it('Balance and Principal Paid open the ledger lines behind them in Reports', async () => {
+    const seen = [];
+    const onNav = (e) => seen.push(['nav', e.detail]);
+    const onDrill = (e) => seen.push(['drill', e.detail]);
+    window.addEventListener('nexus:navigate', onNav);
+    window.addEventListener('nexus:accounting-drill', onDrill);
+    try {
+      render(<LoansTab canEdit />);
+      await rowOf('F&M Bank');
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the balance of F&M Bank' }));
+      expect(seen[0]).toEqual(['nav', { view: 'accounting', sub: 'reports' }]);
+      expect(seen[1][1]).toMatchObject({ account: '27100', entity: '15000', from: '' });
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the principal paid on F&M Bank' }));
+      expect(seen[3][1]).toMatchObject({ account: '27100', entity: '15000', from: expect.stringMatching(/^\d{4}-\d{2}-01$/) });
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the interest paid on F&M Bank' }));
+      expect(seen[5][1]).toMatchObject({ account: '71100', entity: '15000' });
+    } finally {
+      window.removeEventListener('nexus:navigate', onNav);
+      window.removeEventListener('nexus:accounting-drill', onDrill);
+    }
+  });
+
+  it('the Stress Test has the entity picker, the standard Customize, a pager and resizable columns', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('tab', { name: 'Stress Test' }));
+    await waitFor(() => expect(api.getLoanStressSettings).toHaveBeenCalled());
+    expect(screen.getByRole('separator', { name: 'Resize the Adjusted NOI column' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Entity' }));
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '56000' } });
+    fireEvent.click(screen.getByRole('option', { name: /MCD Services/ }));
+    await waitFor(() => expect(screen.queryByRole('cell', { name: 'Greens Escondido, LLC.' })).toBeNull());
+    expect(screen.getByRole('cell', { name: 'MCD Services, Inc.' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    expect(screen.getByRole('group', { name: 'Rows per Page' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Row Density' })).toBeTruthy();
   });
 });

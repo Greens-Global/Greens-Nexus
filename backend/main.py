@@ -877,6 +877,12 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+            "ALTER TABLE pfs_affiliates ADD COLUMN roles JSON",   # PFS role per borrower (Neil, Oct 7)
+            # Accounting > Loans (Oct 7) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_type VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN stress_excluded BOOLEAN DEFAULT 0",
+            # MRI: one list of every income source (Oct 7) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN income_type VARCHAR DEFAULT 'lease'",
             # Job role -> Teams destination for BOD/EOD (Oct 7) - see the Postgres list.
             "ALTER TABLE nexus_groups ADD COLUMN bod_target VARCHAR DEFAULT 'chat'",
             "ALTER TABLE nexus_groups ADD COLUMN bod_chat_id VARCHAR DEFAULT ''",
@@ -1972,6 +1978,22 @@ def _run_migrations():
         # Ticket numbers / task codes that never repeat (Oct 2026): one row per
         # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
         "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
+        # PFS Affiliated Entities: a role per borrower (Neil, Oct 7). models.PfsAffiliate.roles.
+        "ALTER TABLE pfs_affiliates ADD COLUMN IF NOT EXISTS roles JSON",
+        # Accounting > Loans (Charmi, Oct 7): the loan's product (Line of Credit
+        # shows Draws) and the Stress Test's excluded loans; removed ledger
+        # loans and the Stress Test's per-entity NOI basis / Addback. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_type VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS stress_excluded BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_loan_dismissed ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_loan_stress_entities ENABLE ROW LEVEL SECURITY",
+        # MRI (Charmi, Oct 7): one list of every recurring income source - a
+        # lease, interest, a loan payment received, other - with a Type column.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS income_type VARCHAR DEFAULT 'lease'",
+        # Accounting > AMA, Asset Management Agreements (Priyanka, Oct 7). New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_ama_agreements ENABLE ROW LEVEL SECURITY",
         # Job role -> Teams destination for BOD/EOD/break posts (Neil, Oct 7):
         # set on the role in Access, wins over the shift group's binding.
         # models.NexusGroup.bod_*.
@@ -3116,3 +3138,7 @@ app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrou
 from routers import marketing_ads  # noqa: E402
 app.include_router(marketing_ads.router)           # Marketing > Google Ads: spend per campaign, budgets (read-only, Oct 2026)
 app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import acct_scan  # noqa: E402
+app.include_router(acct_scan.router)               # Accounting: amount by entity x account x customer / vendor x month - the party-months aggregate, entity-scoped (Oct 7)
+from routers import accounting_ama  # noqa: E402
+app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)

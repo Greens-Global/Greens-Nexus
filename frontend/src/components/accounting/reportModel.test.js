@@ -86,7 +86,7 @@ describe('periods', () => {
     expect(resolveConfig({ report: 'balance-sheet', compare: 'prior-month' }, NOW).cols).toBe('prior_month');
     // A layout the statement does not have falls back to the total.
     expect(resolveConfig({ report: 'balance-sheet', cols: 'vendor' }, NOW).cols).toBe('total');
-    expect(columnModes('pnl').map((m) => m.label)).toEqual(['Total Only', 'By Month', 'By Quarter', 'By Year', 'By Entity', 'By Department', 'By Vendor', 'By Customer', 'By Employee', 'By Project-Job', 'By Item', 'vs Prior Period', 'vs Prior Year']);
+    expect(columnModes('pnl').map((m) => m.label)).toEqual(['Total Only', 'By Month', 'By Quarter', 'By Year', 'By Entity', 'By Department', 'By Vendor', 'By Customer', 'By Employee', 'By Project-Job', 'By Item', 'vs Prior Period', 'vs Prior Year', 'Actual vs Budget']);
     expect(columnModes('trial-balance')).toHaveLength(1);
   });
 });
@@ -444,7 +444,8 @@ describe('general ledger', () => {
     expect(a.searchAccountingLedger).toHaveBeenCalledTimes(1);
     expect(a.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ limit: 1, from: '2026-01-01', to: '2026-09-28' });
     expect(a.searchAccountingLedger.mock.calls[0][0].account).toBeUndefined();
-    expect(r.summary).toEqual([{ label: 'Lines', value: '0' }]);
+    // Activity on the balances with no line counted is not "0 lines" (item 20).
+    expect(r.summary).toEqual([{ label: 'Lines', value: 'Not counted' }]);
     expect(r.notes[0]).toMatch(/30 accounts have activity/);
     // Picking accounts opens them.
     const r2 = await runReport(api(), resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', accounts: ['41101'] }, NOW));

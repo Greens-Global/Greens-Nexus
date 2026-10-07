@@ -126,7 +126,7 @@ class PunchPairTests(unittest.TestCase):
         r_out = self._request("out", day + timedelta(hours=8))
         resp = self.client.patch(f"/timeclock/punch-requests/{r_out}", json={"status": "approved", "note": ""})
         self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertIn("Also applied the pending clock-in", resp.json()["decisionNote"])
+        self.assertIn("Also added the clock-in", resp.json()["decisionNote"])
         self.assertEqual(self._status(r_in), "approved")
         self.assertEqual(self._status(r_out), "approved")
         self.assertEqual(self._kinds(), ["in", "out", "in", "out"])
@@ -148,7 +148,7 @@ class PunchPairTests(unittest.TestCase):
         r_out = self._request("out", day + timedelta(hours=8))
         resp = self.client.patch(f"/timeclock/punch-requests/{r_out}", json={"status": "approved", "note": ""})
         self.assertEqual(resp.status_code, 409, resp.text)
-        self.assertIn("isn't a valid punch sequence", resp.json()["detail"])
+        self.assertIn("a clock-out with no clock-in before it", resp.json()["detail"])
         self.assertEqual(self._status(r_out), "pending")
         self.assertEqual(self._kinds(), ["in", "out"])
 

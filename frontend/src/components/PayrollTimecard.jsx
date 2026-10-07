@@ -1182,8 +1182,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       if (note === null) return;
     }
     try {
-      await api.timeDecidePunchRequest(id, { status, note: note || '' });
-      toastOk?.(status === 'approved' ? 'Punch added to the timecard.' : 'Request rejected.');
+      const res = await api.timeDecidePunchRequest(id, { status, note: note || '' });
+      // Approving can also set aside a punch the fix replaces - say which (Oct 7).
+      const extra = /Replaced|Also added/.test(res?.decisionNote || '') ? ` ${res.decisionNote}` : '';
+      toastOk?.(status === 'approved' ? `Punch added to the timecard.${extra}` : 'Request rejected.');
       load();
     } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
   };

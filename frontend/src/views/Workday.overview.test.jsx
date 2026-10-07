@@ -153,10 +153,12 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText('What do you need?')).toBeNull();
   }, SLOW);
 
-  it('shows the time-tracking-off note instead of the clock for an exempt person', async () => {
+  it('shows an exempt person no clock, no time-tracking note and no Time Sheet tab', async () => {
     globalThis.__answers.timeStatus = { timeTrackingExempt: true, allowed: [], days: {} };
     await renderWorkday('overview');
-    expect(await screen.findByText('Time Tracking Is Off for You')).toBeTruthy();
+    await screen.findByText('Amy Test');
+    expect(screen.queryByText('Time Tracking Is Off for You')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: /Time Sheet/ })).toBeNull();
   }, SLOW);
 });

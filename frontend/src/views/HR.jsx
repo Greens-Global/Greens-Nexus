@@ -5782,7 +5782,7 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-attendance': 'attendance', 'hr-time-requests': 'requests' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
   const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
@@ -5797,6 +5797,9 @@ export default function HR({ activeSub, onSubChange }) {
     if (String(activeSub || '').startsWith('hr-esign')) {
       const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    } else if (activeSub === 'hr-time-attendance') {
+      // Who is on / off moved to Shifts > Schedule (Neil, 10/06).
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'schedule' } }));
     } else if (activeSub === 'hr-access') {
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
     }
@@ -5850,8 +5853,19 @@ export default function HR({ activeSub, onSubChange }) {
 
   // Stable across renders: children key their loaders on these, and a new
   // function per render made every toast reload the Time screens.
-  const toastErr = useCallback(msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); }, []);
-  const toastOk  = useCallback(msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); }, []);
+  // An error stays long enough to read (Neil, 10/06: the punch-sequence
+  // message "disappeared before I could read it"): 10s, plus time for a long
+  // message, paused while hovered, and closable. One timer - an older toast's
+  // timer can no longer cut a newer one short.
+  const toastTimer = useRef(null);
+  const showToast = useCallback((msg, kind, ms) => {
+    clearTimeout(toastTimer.current);
+    setToast({ msg, kind, ms });
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  }, []);
+  const toastErr = useCallback(msg => showToast(msg, 'error', Math.max(10000, String(msg || '').length * 70)), [showToast]);
+  const toastOk  = useCallback(msg => showToast(msg, 'ok', 4000), [showToast]);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   // Deep link from a person hover card anywhere in Nexus (openPersonProfile).
   // Two triggers, because this view may or may not be mounted when the jump
@@ -6338,8 +6352,15 @@ export default function HR({ activeSub, onSubChange }) {
           }} />
       )}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
-          {toast.msg}
+        <div role={toast.kind === 'error' ? 'alert' : 'status'}
+          onMouseEnter={() => clearTimeout(toastTimer.current)}
+          onMouseLeave={() => { clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 4000); }}
+          style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 10px 10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: 'min(640px, 90vw)', display: 'flex', alignItems: 'flex-start', gap: 10, lineHeight: 1.45 }}>
+          <span style={{ flex: 1 }}>{toast.msg}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => { clearTimeout(toastTimer.current); setToast(null); }}
+            style={{ background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', borderRadius: 6, width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <X size={13} />
+          </button>
         </div>
       )}
     </div>

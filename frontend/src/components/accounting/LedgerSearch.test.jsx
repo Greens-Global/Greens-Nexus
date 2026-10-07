@@ -35,7 +35,8 @@ import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMocks(); });
 
-const headers = () => screen.getAllByRole('columnheader').map((h) => h.textContent).filter(Boolean);
+// The first header row only: the filter row under it holds the amount operators.
+const headers = () => within(document.querySelector('.acct-lines thead tr')).getAllByRole('columnheader').map((h) => h.textContent).filter(Boolean);
 
 describe('LedgerSearch grid', () => {
   it('shows the working columns, keeps Doc No off until it is asked for', async () => {
@@ -116,6 +117,7 @@ describe('LedgerSearch grid', () => {
   });
 
   it('a total drills with no account into every line of the period, and the Journals filter follows the lines', async () => {
+    api.searchAccountingLedger.mockResolvedValue({ rows: [{ ...line, journal: 'APJ' }], total: 1, debit: 22.46, credit: 0, facets: {} });
     render(<LedgerSearch term="" entities={['15000']} entityName="Greens Escondido (15000)" onClose={() => {}} onClearDrill={() => {}}
       dims={{ journals: ['APJ', 'ARJ'] }} drill={{ account: '', accountName: 'Net Income', from: '2026-09-01', to: '2026-09-30', book: 'accrual' }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
@@ -123,7 +125,101 @@ describe('LedgerSearch grid', () => {
     expect(sent).toMatchObject({ location: '15000', from: '2026-09-01', to: '2026-09-30', book: 'accrual', journals: 'APJ,ARJ' });
     expect(sent.account).toBeUndefined();
     expect(screen.getByRole('heading', { name: 'Net Income - every line' })).toBeTruthy();
-    expect(screen.getByText(/journals APJ,ARJ/)).toBeTruthy();
+    expect(screen.getByText('Journals: APJ, ARJ')).toBeTruthy();
+  });
+
+  it('a drill keeps every report filter - vendor, customer, department, journals - and shows each as a chip (Oct 7)', async () => {
+    const hit = { ...line, customer_id: 'C1', customer_name: 'Tenant One' };
+    api.searchAccountingLedger.mockResolvedValue({ rows: [hit], total: 1, debit: 22.46, credit: 0, facets: {} });
+    const { unmount } = render(<LedgerSearch term="" entities={['12000']} entityName="Greens Global, Inc. (12000)" onClose={() => {}} onClearDrill={() => {}}
+      dims={{ departments: ['9500'], vendor: ['V00225'], customer: ['C1', 'C2'], employee: [], project: [], item: [], journals: ['CCJ'] }}
+      dimNames={{ vendor: { V00225: 'American Express' } }}
+      drill={{ account: '71100', accountName: 'General', from: '2026-08-01', to: '2026-08-31', book: 'accrual' }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    const sent = api.searchAccountingLedger.mock.calls.at(-1)[0];
+    expect(sent).toMatchObject({ location: '12000', account: '71100', from: '2026-08-01', to: '2026-08-31', book: 'accrual',
+      vendor: 'V00225', customer: 'C1,C2', departments: '9500', journals: 'CCJ' });
+    // Two kinds of party: neither is the search's single party.
+    expect(sent.party_kind).toBeUndefined();
+    expect(screen.getByText('Vendor: American Express (V00225)')).toBeTruthy();
+    expect(screen.getByText('Customers: C1, C2')).toBeTruthy();
+    expect(screen.getByText('Department: 9500')).toBeTruthy();
+    expect(screen.getByText('Journal: CCJ')).toBeTruthy();
+    expect(screen.queryByText(/not applied/)).toBeNull();
+    // A chip's x lifts that filter from the lines only.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Customers: C1, C2' }));
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0].customer).toBeUndefined());
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ vendor: 'V00225', party_kind: 'vendor', party: 'V00225' });
+    unmount();
+
+    // A drill from another tab (requestReportDrill) brings its own filters.
+    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '40100', accountName: 'Rent', from: '2026-01-01', to: '2026-01-31', book: 'accrual', dims: { customer: ['C1'], departments: ['9500'] } }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '40100', customer: 'C1', departments: '9500', party_kind: 'customer', party: 'C1' });
+    expect(screen.getByText('Customer: C1')).toBeTruthy();
+  });
+
+  it('leaves out lines the ledger did not narrow by the report filters, and says so', async () => {
+    api.searchAccountingLedger.mockResolvedValue({ rows: [line, { ...line, line_id: 'l2', description: 'Someone else', vendor_id: 'V99999', vendor_name: 'Other' }], total: 2, debit: 40, credit: 0, facets: {} });
+    render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
+      dims={{ vendor: ['V00225', 'V00412'] }} drill={{ account: '71100', accountName: 'General', from: '2026-08-01', to: '2026-08-31', book: 'accrual' }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(screen.queryByText('Someone else')).toBeNull();
+    expect(screen.getByRole('note').textContent).toMatch(/did not narrow these lines/);
+  });
+
+  it('filters Debit and Credit with the Reports operators (=, >, <, >=, <=, Between)', async () => {
+    const big = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', debit: 600, credit: 0 };
+    const cr = { ...line, line_id: 'l3', entry_no: 'IA-3', description: 'Refund', debit: 0, credit: 150 };
+    api.searchAccountingLedger.mockResolvedValue({ rows: [line, big, cr], total: 3, debit: 622.46, credit: 150, facets: {} });
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    await screen.findByText('Roof repair');
+    const before = api.searchAccountingLedger.mock.calls.length;
+    expect([...screen.getByLabelText('Operator for Debit').options].map((o) => o.textContent)).toEqual(['=', '>', '<', '>=', '<=', 'Between']);
+    fireEvent.change(screen.getByLabelText('Operator for Debit'), { target: { value: '>' } });
+    fireEvent.change(screen.getByLabelText('Filter Debit'), { target: { value: '100' } });
+    expect(screen.queryByText('Amazon Marketplace Pay - Mop stainless steel')).toBeNull();
+    expect(screen.queryByText('Refund')).toBeNull();
+    expect(screen.getByText('Roof repair')).toBeTruthy();
+    expect(screen.getByText('Debit > 100')).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toMatch(/Debit > 100 is checked on the lines loaded here: 1 of 3 pass/);
+    // A comparison is not sent to the server as text - it goes as an operator.
+    await new Promise((r) => setTimeout(r, 450));
+    expect(api.searchAccountingLedger.mock.calls.slice(before).every((c) => !c[0].cols)).toBe(true);
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ debit_op: 'gt', debit_v: 100 }));
+
+    // Between on Credit, with Debit cleared.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Debit > 100' }));
+    fireEvent.change(screen.getByLabelText('Operator for Credit'), { target: { value: 'between' } });
+    fireEvent.change(screen.getByLabelText('Filter Credit'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Filter Credit up to'), { target: { value: '200' } });
+    expect(screen.getByText('Refund')).toBeTruthy();
+    expect(screen.queryByText('Roof repair')).toBeNull();
+    expect(screen.getByText('Credit between 100 and 200')).toBeTruthy();
+
+    // "=" stays the server's match over the whole result.
+    fireEvent.change(screen.getByLabelText('Operator for Credit'), { target: { value: '=' } });
+    await waitFor(() => expect(JSON.parse(api.searchAccountingLedger.mock.calls.at(-1)[0].cols || '{}')).toEqual({ credit: '100' }), { timeout: 2000 });
+  });
+
+  it('a ledger that applied the operator leaves the lines and the totals to it', async () => {
+    const big = { ...line, line_id: 'l2', entry_no: 'IA-2', description: 'Roof repair', debit: 600, credit: 0 };
+    api.searchAccountingLedger.mockImplementation(async (p) => (p.credit_op
+      ? { rows: [big], total: 1, debit: 600, credit: 0, cols: { credit_cmp: 'between:100:200' }, facets: {} }
+      : { rows: [line, big], total: 2, debit: 622.46, credit: 0, facets: {} }));
+    render(<LedgerSearch term="repairs" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}} />);
+    await screen.findByText('Roof repair');
+    fireEvent.change(screen.getByLabelText('Operator for Credit'), { target: { value: 'between' } });
+    fireEvent.change(screen.getByLabelText('Filter Credit'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Filter Credit up to'), { target: { value: '200' } });
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ credit_op: 'between', credit_v: 100, credit_v2: 200 })), { timeout: 2000 });
+    // The server's answer stands: no line is dropped here and no page-only note.
+    await screen.findByText('Roof repair');
+    expect(screen.queryByRole('note')).toBeNull();
+    // An open-ended Between is a plain >=.
+    fireEvent.change(screen.getByLabelText('Filter Credit up to'), { target: { value: '' } });
+    await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toEqual(expect.objectContaining({ credit_op: 'gte', credit_v: 100 })), { timeout: 2000 });
   });
 
   it('opens the journal entry with every dimension as a column', async () => {
