@@ -135,6 +135,25 @@ describe('General Ledger groups, counter and inactive accounts (items 20 / 22 / 
     });
     expect(reportPages(r.rows, 0).pages).toHaveLength(1);
   });
+
+  it('splits an account with more lines than a page, its heading repeated', () => {
+    const lines = Array.from({ length: 120 }, (_, i) => ({ kind: 'line', section: 'A', group: 'Bank', label: `L${i}` }));
+    const rows = [
+      { kind: 'group', group: 'Bank', label: 'Bank' },
+      { kind: 'section', section: 'A', group: 'Bank', label: '10100 Checking' },
+      ...lines,
+      { kind: 'subtotal', section: 'A', group: 'Bank', label: 'Total 10100' },
+      { kind: 'grand', label: 'Total' },
+    ];
+    const { pages, pinned, total } = reportPages(rows, 50);
+    expect(total).toBe(123);
+    expect(pinned.map((x) => x.kind)).toEqual(['grand']);
+    expect(pages).toHaveLength(3);
+    pages.forEach((p) => expect(p.filter((x) => !x.continued).length).toBeLessThanOrEqual(50));
+    expect(pages.flat().filter((x) => !x.continued)).toHaveLength(123);
+    expect(pages[1].slice(0, 2).map((x) => x.label)).toEqual(['Bank (continued)', '10100 Checking (continued)']);
+    expect(pages[2].at(-1).label).toBe('Total 10100');
+  });
 });
 
 describe('Flux explanations (item 26b)', () => {
