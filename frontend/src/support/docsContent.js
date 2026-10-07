@@ -244,7 +244,7 @@ export const DOCS = [
     tips: [
       'If you see "Your Punch Did Not Record", try again from a phone or a stable connection. Nothing was saved.',
       'Approved time off is not punched in for you automatically.',
-      '"Time Tracking Is Off for You" means HR has not enabled the clock for your profile. Raise a ticket if that is wrong.',
+      'If Workday shows no clock and no Time Sheet tab, you are on a salaried, time-tracking-exempt setup - Nexus does not record punches or hours for you. Raise a ticket if that is wrong.',
     ],
   },
   {
