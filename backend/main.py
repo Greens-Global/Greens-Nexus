@@ -877,6 +877,7 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+            "ALTER TABLE pfs_affiliates ADD COLUMN roles JSON",   # PFS role per borrower (Neil, Oct 7)
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1959,6 +1960,8 @@ def _run_migrations():
         # Ticket numbers / task codes that never repeat (Oct 2026): one row per
         # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
         "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
+        # PFS Affiliated Entities: a role per borrower (Neil, Oct 7). models.PfsAffiliate.roles.
+        "ALTER TABLE pfs_affiliates ADD COLUMN IF NOT EXISTS roles JSON",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

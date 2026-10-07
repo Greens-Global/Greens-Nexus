@@ -184,21 +184,53 @@ export function pfsSheets({ statement, preparedBy = '' }) {
   // ── Assets and liabilities ────────────────────────────────────────────────
   const lineCols = [{ label: 'Description' }, { label: 'Institution' }, { label: 'Account' }, { label: 'Figure From' }, { label: 'Owned %', pct: true }, { label: 'Balance', num: true }, { label: 'Adjusted', num: true }];
   const lineRows = (g) => g.rows.map((r) => [r.label, r.institution, r.accountRef, sourceText(r), pct(r.ownershipPct), money(r.balance), money(r.adjusted)]);
-  const holdings = (sheetName, groups, totalLabel) => {
+  // Oct 7 (Charmi, 10/03): Investments on the Assets sheet - Investment
+  // Accounts and Business Interests (counted in the total, as before) and
+  // Real Estate at equity (shown only: its value and loans are counted once,
+  // on the Real Estate sheet), with a Total Investments row. A statement kept
+  // before Oct 7 has no `investments` and lays out as it did.
+  const inv = statement.investments?.groups?.length ? statement.investments : null;
+  const reEquityCols = [{ label: 'Property' }, { label: 'Kind' }, { label: '' }, { label: '' }, { label: 'Owned %', pct: true }, { label: 'Market Value', num: true }, { label: 'Equity', num: true }];
+  const holdings = (sheetName, groups, totalLabel, investments = null) => {
     const sh = sheet(sheetName);
     sh.title(sheetName, sub);
     const totals = [];
+    const invKeys = new Set(investments?.assetKeys || []);
+    let invDone = !investments;
+    const drawInvestments = () => {
+      const parts = [];
+      investments.groups.forEach((g) => {
+        sh.heading(`${investments.label || 'Investments'} - ${g.label}`);
+        if (g.key === 'real_estate_equity') {
+          parts.push(sh.table(reEquityCols, g.rows.map((r) => [r.label, r.categoryLabel || '', '', '', pct(r.ownershipPct), money(r.valueAdjusted), money(r.equity)]),
+            { totalLabel: 'Total Real Estate Equity', sumCols: [6] }));
+        } else {
+          const row = sh.table(lineCols, lineRows(g), { totalLabel: `Total ${g.label}`, sumCols: [6] });
+          totals.push(row);
+          parts.push(row);
+        }
+        sh.blank();
+      });
+      sh.push([{ text: `Total ${investments.label || 'Investments'}`, s: S.bold }, {}, {}, {}, {}, {}, { f: parts.map((r) => ref(6, r)).join('+'), num: money(investments.total), s: S.numTotal }]);
+      if (investments.note) sh.push([{ text: investments.note, s: S.muted }]);
+      sh.blank();
+    };
     groups.forEach((g) => {
+      if (invKeys.has(g.key)) {
+        if (!invDone) { drawInvestments(); invDone = true; }
+        return;
+      }
       sh.heading(g.label);
       totals.push(sh.table(lineCols, lineRows(g), { totalLabel: `Total ${g.label}`, sumCols: [6] }));
       sh.blank();
     });
+    if (!invDone) drawInvestments();
     if (!groups.length) sh.push([{ text: 'Nothing listed.', s: S.muted }]);
     const amount = groups.reduce((s, g) => s + g.total, 0);
     sh.push([{ text: totalLabel, s: S.bold }, {}, {}, {}, {}, {}, totals.length ? { f: totals.map((r) => ref(6, r)).join('+'), num: money(amount), s: S.numGrand } : { num: 0, s: S.numGrand }]);
     return sh;
   };
-  out.push(holdings('Assets', statement.assets, 'Total Assets (Excluding Real Estate)'));
+  out.push(holdings('Assets', statement.assets, 'Total Assets (Excluding Real Estate)', inv));
   out.push(holdings('Liabilities', statement.liabilities, 'Total Liabilities (Excluding Real Estate Loans)'));
 
   // ── Schedule of real estate ───────────────────────────────────────────────

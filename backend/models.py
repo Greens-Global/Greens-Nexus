@@ -5112,6 +5112,9 @@ class PfsAffiliate(Base):
     ledger_entity  = Column(String, default="")          # Intacct entity code when picked from the ledger list
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
+    # Oct 7 (Neil): a role per borrower, keyed like `ownership` ({"primary":
+    # "Managing Member", "co": "Member"}). `role` above stays = roles.primary.
+    roles          = Column(JSON, default=dict)
 
 
 class PfsProfileExtra(Base):

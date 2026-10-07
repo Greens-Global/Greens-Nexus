@@ -55,7 +55,7 @@ vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'me@gr
 
 import PfsTab from './PfsTab';
 import { api } from '../../api';
-import { affiliatedRows, pfsExtraPdf, pfsExtraSheets } from './pfsAffiliatedExport';
+import { affiliatedRows, pctText, pfsExtraPdf, pfsExtraSheets } from './pfsAffiliatedExport';
 import { buildPfsPdf } from './pfsPdf';
 import { pfsSheets } from './pfsXlsx';
 
@@ -208,11 +208,22 @@ describe('the exports', () => {
     executiveProfiles: [{ key: 'primary', name: 'Rajesh Kadakia', text: 'Founder.' }, { key: 'co', name: 'Darshana Kadakia', text: 'Runs the family office.' }],
   };
 
-  it('lists the entities with each borrower\'s share, never more than four EIN digits', () => {
+  it('lists the entities with each borrower\'s share and role, no EIN or State (Oct 7)', () => {
     const { columns, rows: out } = affiliatedRows(full);
-    expect(columns.map((c) => c.label)).toEqual(['Entity Name', 'Entity Type', 'EIN (Last 4)', 'State', 'Rajesh Kadakia Ownership', 'Darshana Kadakia Ownership', 'Beneficial Ownership', 'Role', 'Notes']);
-    expect(out[0]).toEqual(['Greens Storage LLC', 'Multi-Member LLC', 'XX-XXX1234', 'CA', 50, 50, 100, 'Managing Member', '']);
+    expect(columns.map((c) => c.label)).toEqual(['Entity Name', 'Entity Type', 'Rajesh Kadakia Ownership', 'Rajesh Kadakia Role', 'Darshana Kadakia Ownership', 'Darshana Kadakia Role', 'Beneficial Ownership', 'Notes']);
+    // A row saved before per-borrower roles: its one role is the primary's.
+    expect(out[0]).toEqual(['Greens Storage LLC', 'Multi-Member LLC', 50, 'Managing Member', 50, '', 100, '']);
+    const perBorrower = affiliatedRows({ ...full, affiliated: { borrowers, rows: [{ ...rows[0], roles: { primary: 'Managing Member', co: 'Member' } }] } });
+    expect(perBorrower.rows[0]).toEqual(['Greens Storage LLC', 'Multi-Member LLC', 50, 'Managing Member', 50, 'Member', 100, '']);
     expect(affiliatedRows(statement).rows).toEqual([]);    // a statement kept before 10/06
+  });
+
+  it('prints an empty percent as "-"', () => {
+    expect(pctText(null)).toBe('-');
+    expect(pctText('')).toBe('-');
+    expect(pctText(12.5)).toBe('12.5%');
+    const sheet = pfsExtraSheets(full)[0];
+    expect(sheet.rows[1]).toContain('-');     // the trust has no co-borrower share and no beneficial %
   });
 
   it('adds an Affiliated Entities sheet and the co-borrower profile to the workbook', () => {

@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { formatDate } from '../../lib/datetime';
 import { BAND, BRAND, INK, MARGIN, MUTED, RULE, clean, fit } from './reportPdf';
-import { conditionOf } from './pfsCondition';
+import { conditionOf, refSuffix } from './pfsCondition';
 import { pfsExtraPdf } from './pfsAffiliatedExport';
 
 // A personal financial statement as a PDF (Neil, Sep 25: "an enterprise grade,
@@ -225,10 +225,49 @@ export async function buildPfsPdf({ statement, photo = '', preparedBy = '' }) {
 
   // ── Assets ────────────────────────────────────────────────────────────────
   const figures = [{ label: 'Description', width: 190 }, { label: 'Institution', width: 124 }, { label: 'Balance', width: 80, num: true }, { label: 'Owned', width: 40, num: true }, { label: 'Adjusted', width: 70, num: true }];
-  const lineRows = (g) => g.rows.map((r) => [`${r.label}${r.accountRef ? `  (${r.accountRef})` : ''}`, r.institution, money(r.balance), pct(r.ownershipPct), money(r.adjusted)]);
-  if (statement.assets.length) {
+  // Oct 7 (Charmi): the account number once - not again when the label already ends in it.
+  const lineRows = (g) => g.rows.map((r) => { const ref = refSuffix(r.label, r.accountRef); return [`${r.label}${ref ? `  (${ref})` : ''}`, r.institution, money(r.balance), pct(r.ownershipPct), money(r.adjusted)]; });
+  // Oct 7 (Charmi, 10/03): Investments - Investment Accounts, Business
+  // Interests and Real Estate at equity, with a subtotal - in the place
+  // Investment Accounts held. Real estate's value and loans stay counted once
+  // in the totals; here it is shown, not added again. A statement kept before
+  // Oct 7 has no `investments` and prints as it did.
+  const inv = statement.investments?.groups?.length ? statement.investments : null;
+  const invKeys = new Set(inv?.assetKeys || []);
+  const reEquityCols = [{ label: 'Property', width: 190 }, { label: 'Market Value', width: 84, num: true }, { label: 'Loan Balance', width: 84, num: true }, { label: 'Owned', width: 46, num: true }, { label: 'Equity', width: 100, num: true }];
+  const bandTotal = (label, amount) => {
+    room(ROW);
+    page.drawRectangle({ x: MARGIN, y: y - 4, width: W - MARGIN * 2, height: ROW, color: BAND });
+    page.drawText(clean(label), { x: MARGIN, y, size: 9.5, font: bold, color: INK });
+    const t = money(amount);
+    page.drawText(t, { x: W - MARGIN - bold.widthOfTextAtSize(t, 9.5), y, size: 9.5, font: bold, color: INK });
+    y -= ROW + 8;
+  };
+  const drawInvestments = () => {
+    inv.groups.forEach((g) => {
+      heading(`${inv.label || 'Investments'} - ${g.label}`);
+      if (g.key === 'real_estate_equity') {
+        table(reEquityCols, g.rows.map((r) => [r.label, money(r.valueAdjusted), money(r.loanAdjusted), pct(r.ownershipPct), money(r.equity)]),
+          ['Total Real Estate Equity', '', '', '', money(g.total)], 'Assets');
+      } else {
+        table(figures, lineRows(g), [`Total ${g.label}`, '', '', '', money(g.total)], 'Assets');
+      }
+    });
+    bandTotal(`Total ${inv.label || 'Investments'}`, inv.total);
+    if (inv.note) wrap(font, 8, inv.note, W - MARGIN * 2).forEach((t) => { room(0, 'Assets'); page.drawText(t, { x: MARGIN, y, size: 8, font, color: MUTED }); y -= 11; });
+    y -= 6;
+  };
+  if (statement.assets.length || inv) {
     newPage('Assets');
-    statement.assets.forEach((g) => { heading(g.label); table(figures, lineRows(g), [`Total ${g.label}`, '', '', '', money(g.total)], 'Assets'); });
+    let invDone = !inv;
+    statement.assets.forEach((g) => {
+      if (invKeys.has(g.key)) {
+        if (!invDone) { drawInvestments(); invDone = true; }
+        return;
+      }
+      heading(g.label); table(figures, lineRows(g), [`Total ${g.label}`, '', '', '', money(g.total)], 'Assets');
+    });
+    if (!invDone) drawInvestments();
   }
   if (statement.liabilities.length) {
     newPage('Liabilities');
