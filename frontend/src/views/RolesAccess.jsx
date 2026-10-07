@@ -1256,7 +1256,7 @@ function dashboardScopeOf(bundle) {
     : bundle['manager-dashboard'] ? 'manager' : 'dashboard';
 }
 
-function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
+function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 300 }) {
   const [bulk, setBulk] = useState('');
   const [inheritFrom, setInheritFrom] = useState('');
   const grant = (id, level) => setBundle(b => {
@@ -1325,7 +1325,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
           {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
         </select>
       </div>
-      <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
+      <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: listMaxHeight, overflow: 'auto' }}>
         {GRANTABLE.filter(m => m.id !== 'manager-dashboard').map(m => {
           const isDashboard = m.id === 'dashboard';
           const on = isDashboard ? (bundle.dashboard || bundle['manager-dashboard']) : bundle[m.id];
@@ -1350,18 +1350,33 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
                   {DASHBOARD_SCOPES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               )}
-              <div style={{ display: 'inline-flex', gap: 4, flexShrink: 0 }} role="group" aria-label={`${m.label} level`}>
+              {/* The selected level wears an "x" on its top-right corner (Neil,
+                  10/06): one obvious click takes the screen away again. */}
+              <div style={{ display: 'inline-flex', gap: 6, flexShrink: 0, paddingTop: 4 }} role="group" aria-label={`${m.label} level`}>
                 {LEVEL_ORDER.map(l => {
                   const active = on === l;
+                  const pick = () => isDashboard ? grantDashboard(l) : grant(m.id, l);
                   return (
-                    <button key={l} type="button" onClick={() => isDashboard ? grantDashboard(l) : grant(m.id, l)}
-                      title={active ? `Click to remove ${m.label}` : capabilityText(m.id, l, m.label)}
-                      style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                        border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
-                        background: active ? 'var(--ink)' : 'transparent',
-                        color: active ? 'var(--card)' : 'var(--muted)' }}>
-                      {MODULE_LEVELS[l].label}
-                    </button>
+                    <span key={l} style={{ position: 'relative', display: 'inline-flex' }}>
+                      <button type="button" onClick={pick} aria-pressed={active}
+                        title={active ? `${m.label}: ${MODULE_LEVELS[l].label}` : capabilityText(m.id, l, m.label)}
+                        style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                          border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
+                          background: active ? 'var(--ink)' : 'transparent',
+                          color: active ? 'var(--card)' : 'var(--muted)', transition: 'background .12s, color .12s, border-color .12s' }}>
+                        {MODULE_LEVELS[l].label}
+                      </button>
+                      {active && (
+                        <button type="button" className="ra-chip-x" onClick={pick}
+                          aria-label={`Remove ${m.label} access`} title={`Remove ${m.label}`}
+                          style={{ position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: '50%', padding: 0,
+                            display: 'grid', placeItems: 'center', cursor: 'pointer', lineHeight: 0,
+                            background: 'var(--card)', color: 'var(--ink)', border: '1.5px solid var(--ink)',
+                            boxShadow: '0 1px 3px rgba(17,24,39,0.18)' }}>
+                          <X size={9} strokeWidth={3} />
+                        </button>
+                      )}
+                    </span>
                   );
                 })}
               </div>
@@ -1370,7 +1385,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [] }) {
         })}
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7 }}>
-        One click grants a screen at that level; click the active level again to remove it. {checkedCount} of {visibleIds.length} screens granted.
+        One click grants a screen at that level; the x on the selected level removes it. {checkedCount} of {visibleIds.length} screens granted.
       </div>
     </div>
   );
@@ -1504,8 +1519,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
   }
 
   return (
-    <Modal onClose={onClose} title={role?.id ? 'Edit job role' : 'New job role'} size="lg" isDirty={dirty} onSave={name.trim() ? save : undefined}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <Modal onClose={onClose} title={role?.id ? 'Edit Job Role' : 'New Job Role'} size="xl" isDirty={dirty} onSave={name.trim() ? save : undefined}>
+      {/* Two columns on a wide screen (Neil, 10/06: "make the screen larger"):
+          who the role is on the left, what it opens on the right with room to
+          show every module at once. Wraps to one column on a narrow screen. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
+      <div style={{ flex: '1 1 300px', maxWidth: 420, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Site Supervisor" style={input} /></label>
         <label style={fieldLabel}>Seniority tier
@@ -1529,11 +1548,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
         </label>
         <label style={fieldLabel}>Description
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
-        <div>
-          <div style={{ ...sectLabel, marginTop: 4 }}>Module bundle</div>
-          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={(jobRoles || []).filter(r => r.id !== role?.id)} />
-        </div>
-        <div style={{ ...sectLabel, marginTop: 4 }}>Time-clock monitoring</div>
+        <div style={{ ...sectLabel, marginTop: 4, marginBottom: 0 }}>Time Clock</div>
         <button type="button" onClick={() => setMonExempt(v => !v)}
           style={{ display: 'flex', alignItems: 'flex-start', gap: 11, textAlign: 'left', width: '100%', padding: '11px 13px',
             border: `1.5px solid ${monExempt ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 10,
@@ -1577,9 +1592,15 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
           </span>
         </button>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+      <div style={{ flex: '2 1 480px', minWidth: 0 }}>
+        <div style={{ ...sectLabel, marginTop: 0 }}>Module Bundle</div>
+        <BundleEditor bundle={bundle} setBundle={setBundle} listMaxHeight="max(320px, calc(94vh - 260px))"
+          inheritSources={(jobRoles || []).filter(r => r.id !== role?.id)} />
+      </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save job role</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save Job Role</button>
       </div>
     </Modal>
   );
@@ -1764,6 +1785,8 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 // keeps it from shrinking below the old `wide` size on a laptop, max-width
 // keeps it sane on an ultra-wide monitor, and on a phone it still falls back
 // to nearly full width exactly like `wide` always did.
+// size="xl" (the job-role editor again, Neil, 10/06: "make the screen larger"):
+// nearly the whole screen, details beside a tall module list.
 function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1782,9 +1805,9 @@ function Modal({ title, children, onClose, wide, size, isDirty = false, onSave }
     <div onClick={requestClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
       <div onClick={e => e.stopPropagation()} style={{
         background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)',
-        width: size === 'lg' ? 'min(60vw, 1200px)' : `min(${wide ? 560 : 440}px, 100%)`,
+        width: size === 'xl' ? 'min(1240px, 100%)' : size === 'lg' ? 'min(60vw, 1200px)' : `min(${wide ? 560 : 440}px, 100%)`,
         minWidth: size === 'lg' ? 'min(560px, 100%)' : undefined,
-        maxHeight: '86vh', overflow: 'auto', padding: 20,
+        maxHeight: size === 'xl' ? '94vh' : '86vh', overflow: 'auto', padding: size === 'xl' ? 24 : 20,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
           <h3 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</h3>
