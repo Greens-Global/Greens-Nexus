@@ -229,12 +229,12 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
     const names = () => within(screen.getByRole('listbox', { name: 'Entities' })).getAllByRole('option').map((o) => o.textContent);
-    expect(names()).toEqual(['Greens Escondido15000', 'Escondido North15020', 'Greens Capital32000']);
+    expect(names()).toEqual(['15000Greens Escondido', '15020Escondido North', '32000Greens Capital']);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show historical entities/));
+    fireEvent.click(screen.getByLabelText(/Show historical entities/i));
     fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
-    expect(names()).toEqual(['Greens Escondido15000', 'Escondido North15020', '(H) Old EscondidoH15001', 'Greens Capital32000']);
+    expect(names()).toEqual(['15000Greens Escondido', '15020Escondido North', 'H15001(H) Old Escondido', '32000Greens Capital']);
   });
 
   it('shows the filters in force as chips that come off in one click', async () => {
@@ -362,7 +362,7 @@ describe('ReportsTab controls', () => {
     expect(screen.getByLabelText('Summary').textContent).toBe('Revenue 1,500.00Expenses 400.00Net Income 1,100.00Net Margin 73.3%');
     expect(screen.getByText('Net Profit Margin %').closest('tr').textContent).toContain('73.3%');
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show zero balances/));
+    fireEvent.click(screen.getByLabelText(/Show zero balances/i));
     fireEvent.click(screen.getByRole('button', { name: /Memorize/ }));
     fireEvent.change(screen.getByLabelText('What would you like to name it?'), { target: { value: 'With Zeros' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -476,7 +476,7 @@ describe('ReportsTab controls', () => {
     expect(within(screen.getByRole('listbox', { name: 'Accounts' })).queryByText(/hidden/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show historical accounts/));
+    fireEvent.click(screen.getByLabelText(/Show historical accounts/i));
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
     expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Old Income (H)49000', 'Repairs61000']);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
