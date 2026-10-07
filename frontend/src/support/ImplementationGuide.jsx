@@ -8,12 +8,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpRight, BadgeCheck, Bell, BookOpen, Building2, CalendarClock, CheckSquare, ChevronLeft, ChevronRight,
   Clock, ClipboardList, Cloud, Compass, HelpCircle, Lightbulb, ListChecks, MousePointerClick, Package, Palette,
-  Plug, RefreshCw, Rocket, ShieldCheck, Target, TriangleAlert, Users, Waypoints,
+  RefreshCw, Rocket, ShieldCheck, Target, TriangleAlert, Users, Waypoints,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
-import { IMPL_INTRO, IMPL_CONCEPTS, IMPL_DISCOVERY, IMPL_INTEGRATIONS, IMPL_PHASES, IMPL_CHECK_IDS } from './implementationContent';
+import { IMPL_INTRO, IMPL_CONCEPTS, IMPL_DISCOVERY, IMPL_PHASES, IMPL_CHECK_IDS } from './implementationContent';
 
 const ICONS = { ClipboardList, Cloud, Palette, Building2, ShieldCheck, Users, Clock, CalendarClock, ListChecks, CheckSquare, Package, Bell, BadgeCheck, Rocket, RefreshCw };
 const BRAND = 'var(--wk-brand, #2b45e1)';
@@ -25,9 +25,8 @@ const PAGES = [
   { id: 'concepts', group: 'Start Here', name: 'How Nexus Is Organized', Icon: Waypoints },
   { id: 'discovery', group: 'Start Here', name: 'Discovery Questions', Icon: HelpCircle },
   ...IMPL_PHASES.map((p) => ({ id: p.id, group: 'Phases', name: p.title, Icon: ICONS[p.icon] || BookOpen, phase: p })),
-  { id: 'integrations', group: 'Reference', name: 'Integrations and Permissions', Icon: Plug },
 ];
-const GROUPS = ['Start Here', 'Phases', 'Reference'];
+const GROUPS = ['Start Here', 'Phases'];
 
 function readLast() {
   try { const v = localStorage.getItem(LAST_KEY); return PAGES.some((p) => p.id === v) ? v : 'overview'; } catch { return 'overview'; }
@@ -271,29 +270,6 @@ function DiscoveryPage() {
   );
 }
 
-function IntegrationsPage() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div>
-        <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>Integrations and Permissions</h2>
-        <p style={{ margin: 0, fontSize: 14.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          What each connected service does in Nexus, how it is set up, and the permissions it needs. Hand this page to the client’s IT before Phase 1.
-        </p>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {IMPL_INTEGRATIONS.map((x) => (
-          <div key={x.name} className="docs-card" style={{ display: 'grid', gap: 6 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>{x.name}</div>
-            <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}><strong>What it does:</strong> {x.what}</div>
-            <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}><strong>Setup:</strong> {x.setup}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}><strong>Permissions:</strong> <code style={{ fontSize: 12 }}>{x.perms}</code></div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function ImplementationGuide({ toastErr }) {
   const [activeId, setActiveId] = useState(readLast);
   const [done, setDone] = useState({});
@@ -390,7 +366,6 @@ export default function ImplementationGuide({ toastErr }) {
           {page.id === 'overview' ? <OverviewPage done={done} onOpen={select} />
             : page.id === 'concepts' ? <ConceptsPage />
               : page.id === 'discovery' ? <DiscoveryPage />
-                : page.id === 'integrations' ? <IntegrationsPage />
                   : <PhasePage p={page.phase} done={done} busyId={busyId} onToggle={toggle} nameOf={nameOf} />}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 28, paddingTop: 16, borderTop: '1px solid var(--line)' }}>

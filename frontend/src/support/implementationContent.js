@@ -90,19 +90,6 @@ export const IMPL_DISCOVERY = [
   ]},
 ];
 
-// Microsoft 365 and other integrations - the reference table for Phase 1.
-export const IMPL_INTEGRATIONS = [
-  { name: 'Microsoft Entra ID (sign-in)', what: 'Single sign-on for every internal person. Nexus keeps no passwords.', setup: 'An app registration in the client tenant with a web redirect to Nexus; tenant ID, client ID and secret go in the Nexus server settings. Admin consent once.', perms: 'openid, profile, email, offline_access' },
-  { name: 'Microsoft Graph (directory)', what: 'Directory sync, provisioning new accounts and licenses, the Microsoft 365 contact-info sync both ways, photos, offboarding (revoking sessions).', setup: 'Application permissions on the same app registration, with admin consent. Writes to Microsoft 365 happen from production only.', perms: 'User.ReadWrite.All, plus license assignment for provisioning' },
-  { name: 'Microsoft Teams', what: 'Beginning-of-day, end-of-day and break messages posted as the person into a chat or channel, and ticket-update chats. Each post ends with a small "Sent by Nexus" line.', setup: 'Delegated permissions, consented once by an admin. Each person must be a member of the chat or channel their role posts to.', perms: 'Chat.ReadBasic, Chat.Create, ChatMessage.Send, Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Send' },
-  { name: 'Outlook Actionable Messages', what: 'Task emails people can act on inside Outlook (optional).', setup: 'Register the originator in the Actionable Email Developer Dashboard and set the originator and audience in the server settings - see docs/Actionable-Messages-Setup.md.', perms: 'Entra ID token audience (the app ID URI and client ID)' },
-  { name: 'Email (Mail.Send)', what: 'Every Nexus email: notifications, the daily briefing, weekly digest, ticket and task emails, e-sign requests.', setup: 'A sending mailbox (shared inbox) and Mail.Send for it. Appearance is set in Branding & Policies > Email Appearance.', perms: 'Mail.Send (and Mail.ReadWrite for ticket replies by email)' },
-  { name: 'Egnyte', what: 'Files: browse and upload as yourself, property folders, signed documents filed automatically.', setup: 'Each person clicks Connect Egnyte once in Files; an admin maps Folder Groups and where new property folders and signed documents go.', perms: 'Per-user Egnyte OAuth' },
-  { name: 'Sage Intacct (Nexus Accounting)', what: 'The Accounting dashboard, close and reporting figures, leasing rent received.', setup: 'Connected through the Nexus Accounting app with an internal key; entity access per person in Accounting > Access.', perms: 'Intacct web services user (in the accounting app)' },
-  { name: 'Google Business Profile and Google Ads', what: 'Marketing: reviews, listings, ad spend and budgets.', setup: 'An admin connects each Google account once from Marketing.', perms: 'Google OAuth consent' },
-  { name: 'Workforce Analytics agent', what: 'Coverage, activity and screenshots while clocked in, on company computers.', setup: 'Install the desktop agent on each company computer (Workforce Analytics > Enroll a Company Computer), or use Chrome screen share.', perms: 'Disclosed in the sign-in policy everyone accepts' },
-];
-
 export const IMPL_PHASES = [
   // ── 0 ────────────────────────────────────────────────────────────────────
   {
@@ -149,7 +136,7 @@ export const IMPL_PHASES = [
     steps: [
       { title: 'Register the app and grant consent', where: 'Microsoft Entra admin center (client tenant)', items: [
         'Create the app registration for Nexus with the web redirect address of the client’s Nexus site.',
-        'Add the permissions listed under Integrations below (sign-in, Graph directory, Teams, Mail.Send) and click Grant admin consent.',
+        'Add the permissions and click Grant admin consent: sign-in (openid, profile, email, offline_access); directory (User.ReadWrite.All, plus license assignment for provisioning); Teams (Chat.ReadBasic, Chat.Create, ChatMessage.Send, Team.ReadBasic.All, Channel.ReadBasic.All, ChannelMessage.Send); email (Mail.Send, and Mail.ReadWrite for ticket replies by email).',
         'Hand the tenant ID, client ID and client secret to the Nexus team for the server settings.',
       ]},
       { title: 'Tell Nexus which domains are the client’s', where: 'Settings > Company Settings > a company > Overview > Email Domains', view: 'admin-console', sub: 'company', items: [
