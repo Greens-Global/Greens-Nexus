@@ -1997,6 +1997,13 @@ export const api = {
   getLoanStressSettings: ()                => req('/accounting/loan-plans/stress-settings'),
   saveLoanStressEntity:  (entity, body)    => req(`/accounting/loan-plans/stress-settings/${encodeURIComponent(entity)}`, { method: 'PUT', body: JSON.stringify(body) }),
   setLoanStressExcluded: (loanId, excluded) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/stress-excluded`, { method: 'PUT', body: JSON.stringify({ excluded }) }),
+  // MRI > Set Up From the Ledger (Charmi, Oct 7): `entities` reads only those
+  // again (Retry of the ones the last scan could not read); `accounts` names
+  // the rent income accounts instead of the title rule.
+  getLeaseProposalsFor: ({ entities = [], accounts = [] } = {}) => req(`/accounting/leasing/from-ledger/proposals${(() => { const q = new URLSearchParams(); if (entities.length) q.set('entities', entities.join(',')); if (accounts.length) q.set('accounts', accounts.join(',')); const s = q.toString(); return s ? `?${s}` : ''; })()}`),
+  getLeaseIncomeAccounts: () => req('/accounting/leasing/from-ledger/income-accounts'),
+  // MRI: the interest and loan income accounts by month, for the entities picked.
+  getAccountingBucketsFor: ({ from, to, by = 'month', locations = [] }) => req(`/accounting/reports/buckets?to=${to}&by=${encodeURIComponent(by)}${from ? `&from=${from}` : ''}${locations.length === 1 ? `&location=${encodeURIComponent(locations[0])}` : locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

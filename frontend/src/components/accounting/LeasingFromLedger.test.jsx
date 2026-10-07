@@ -20,7 +20,9 @@ const proposals = {
 
 vi.mock('../../api', () => ({
   api: {
-    getLeaseProposals: vi.fn(async () => proposals),
+    getLeaseProposalsFor: vi.fn(async () => proposals),
+    getLeaseIncomeAccounts: vi.fn(async () => ({ accounts: [{ code: '41101', title: 'Rental Income', section: 'revenue', rent: true }, { code: '43000', title: 'Space Income - Suites', section: 'revenue', rent: false }] })),
+    getAccountingBucketsFor: vi.fn(async () => ({ rows: [] })),
     createLeasesFromLedger: vi.fn(async ({ items }) => ({ created: items.map((i) => ({ ...proposals.proposals.find((p) => p.customerId === i.customerId), leaseId: 'L9' })), skipped: [] })),
     getLeasingRentRollFor: vi.fn(async () => ({ year: 2026, asOf: '2026-09-30', rows: [], totals: [], summary: { leases: 0, behind: 0, owed: 0, expectedToDate: 0, receivedToDate: 0 } })),
     getLeasingCustomers: vi.fn(async () => ({ customers: [] })),
@@ -37,7 +39,7 @@ import LeasingFromLedger from './LeasingFromLedger';
 import LeasingTab from './LeasingTab';
 import { api } from '../../api';
 
-beforeEach(() => { vi.clearAllMocks(); api.getLeaseProposals.mockImplementation(async () => proposals); });
+beforeEach(() => { vi.clearAllMocks(); api.getLeaseProposalsFor.mockImplementation(async () => proposals); });
 
 describe('LeasingFromLedger', () => {
   it('proposes one lease per customer with rent postings and creates the ticked ones', async () => {
@@ -61,7 +63,7 @@ describe('LeasingFromLedger', () => {
   });
 
   it('says which account titles it looked for when nothing posted', async () => {
-    api.getLeaseProposals.mockImplementation(async () => ({ ...proposals, proposals: [], entitiesWithRentAccounts: 1 }));
+    api.getLeaseProposalsFor.mockImplementation(async () => ({ ...proposals, proposals: [], entitiesWithRentAccounts: 1 }));
     render(<LeasingFromLedger onClose={() => {}} onCreated={() => {}} />);
     await screen.findByText('No rent postings found.');
     expect(screen.getByText(/Rent, Rental, Lease \/ Leasing, Tenant in 3 active entities/)).toBeTruthy();
@@ -73,7 +75,7 @@ describe('LeasingFromLedger', () => {
   it('polls the scan every few seconds, showing the progress until the table', async () => {
     let n = 0;
     const scanning = (done, total) => ({ scanning: true, done, total, startedAt: '2026-10-02T18:00:00Z' });
-    api.getLeaseProposals.mockImplementation(async () => { n += 1; return n === 1 ? scanning(0, 253) : n === 2 ? scanning(120, 253) : proposals; });
+    api.getLeaseProposalsFor.mockImplementation(async () => { n += 1; return n === 1 ? scanning(0, 253) : n === 2 ? scanning(120, 253) : proposals; });
     render(<LeasingFromLedger pollMs={20} onClose={() => {}} onCreated={() => {}} />);
     const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
     await within(dialog).findByText('Reading the ledger... 0 of 253 entities');
@@ -81,12 +83,12 @@ describe('LeasingFromLedger', () => {
     expect(within(dialog).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('120');
     await within(dialog).findByText('Santos Blancas Jr.');
     expect(within(dialog).queryByRole('progressbar')).toBeNull();
-    expect(api.getLeaseProposals).toHaveBeenCalledTimes(3);
+    expect(api.getLeaseProposalsFor).toHaveBeenCalledTimes(3);
   });
 
   it('shows why a scan failed and starts it over on Try Again', async () => {
     let n = 0;
-    api.getLeaseProposals.mockImplementation(async () => { n += 1; if (n === 1) { const e = new Error('Accounting service error: the ledger is closed for maintenance'); e.status = 424; throw e; } return proposals; });
+    api.getLeaseProposalsFor.mockImplementation(async () => { n += 1; if (n === 1) { const e = new Error('Accounting service error: the ledger is closed for maintenance'); e.status = 424; throw e; } return proposals; });
     render(<LeasingFromLedger pollMs={20} onClose={() => {}} onCreated={() => {}} />);
     const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
     await within(dialog).findByText(/closed for maintenance/);
@@ -95,15 +97,15 @@ describe('LeasingFromLedger', () => {
   });
 
   it('says so when the accounting service is not connected', async () => {
-    api.getLeaseProposals.mockImplementation(async () => { const e = new Error('Accounting service is not configured'); e.status = 503; throw e; });
+    api.getLeaseProposalsFor.mockImplementation(async () => { const e = new Error('Accounting service is not configured'); e.status = 503; throw e; });
     render(<LeasingFromLedger onClose={() => {}} onCreated={() => {}} />);
     await screen.findByText('Not available here.');
   });
 
-  it('opens from the Leasing tab beside New Lease and reloads the rent roll after', async () => {
+  it('opens from + Add on MRI and reloads the list after', async () => {
     render(<LeasingTab canEdit />);
-    await screen.findByRole('button', { name: /New Lease/ });
-    fireEvent.click(screen.getByRole('button', { name: /Set Up From the Ledger/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Set Up From the Ledger/ }));
     const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
     await within(dialog).findByText('Santos Blancas Jr.');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Lease' }));
@@ -111,5 +113,41 @@ describe('LeasingFromLedger', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(api.getLeasingRentRollFor).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // Oct 7 (Charmi): most batches timed out, then "none had one".
+  it('says how many entities were read, never "none had one" while some were not, and retries just those', async () => {
+    const partial = { ...proposals, entitiesScanned: 142, entitiesRead: 37, entitiesWithRentAccounts: 0, rentAccounts: [], proposals: [],
+      failed: [{ code: '79000', name: 'Oversite Inv2', reason: 'took too long to read' }, { code: '80000', name: 'RC INV', reason: 'That covers too many ledger lines to finish in time.' }] };
+    const recovered = { ...proposals, entitiesScanned: 2, entitiesRead: 2, failed: [], proposals: [{ ...proposals.proposals[1], entityCode: '79000', entityName: 'Oversite Inv2' }] };
+    api.getLeaseProposalsFor.mockImplementation(async ({ entities = [] } = {}) => (entities.length ? recovered : partial));
+    render(<LeasingFromLedger pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
+    expect(await within(dialog).findByText('Read 140 of 142 entities - 2 could not be read.')).toBeTruthy();
+    expect(within(dialog).getByText('No rent postings found in the entities that were read.')).toBeTruthy();
+    expect(within(dialog).queryByText(/; none had one\./)).toBeNull();
+    expect(within(dialog).getByText(/2 more could not be read - Retry them above before deciding/)).toBeTruthy();
+    expect(within(dialog).getByText(/Oversite Inv2 \(79000\): took too long to read/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry 2 Entities' }));
+    await within(dialog).findByText('Santos Blancas Jr.');
+    expect(api.getLeaseProposalsFor).toHaveBeenLastCalledWith({ entities: ['79000', '80000'], accounts: [] });
+    expect(within(dialog).getByText('Read all 142 entities.')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Create 1 Lease' })).toBeTruthy();
+  });
+
+  it('lets the rent accounts be picked by hand and scans with them', async () => {
+    render(<LeasingFromLedger onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
+    await within(dialog).findByText('Santos Blancas Jr.');
+    expect(api.getLeaseProposalsFor).toHaveBeenCalledWith({ accounts: [] });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rent accounts' }));
+    fireEvent.click(await screen.findByRole('option', { name: /43000 Space Income - Suites/ }));
+    fireEvent.click(screen.getByRole('option', { name: /41101 Rental Income/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(api.getLeaseProposalsFor).toHaveBeenLastCalledWith({ accounts: ['41101', '43000'] }));
+    expect(within(dialog).getByRole('button', { name: 'Rent accounts' }).textContent).toContain('41101, 43000');
+    await within(dialog).findByText('Santos Blancas Jr.');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Lease' }));
+    await waitFor(() => expect(api.createLeasesFromLedger).toHaveBeenCalledWith({ items: [{ entityCode: '15000', customerId: 'C00497' }], accounts: ['41101', '43000'] }));
   });
 });

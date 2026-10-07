@@ -38,6 +38,9 @@ vi.mock('../../api', () => ({
     updateLeasingLease: vi.fn(async (id, body) => ({ id, ...body })),
     replaceLeasingTenant: vi.fn(async (id, body) => ({ id: 'L3', ...body })),
     createLeasingLease: vi.fn(async (body) => ({ id: 'L9', ...body })),
+    getAccountingBucketsFor: vi.fn(async () => ({ rows: [] })),
+    searchAccountingLedger: vi.fn(async () => ({ rows: [] })),
+    getAccountingEntry: vi.fn(async () => ({ entry: { entry_no: 'JE-1042' }, lines: [], intacct: [] })),
   },
 }));
 
@@ -106,7 +109,7 @@ describe('LeasingTab', () => {
   it('puts a new tenant in a space without overwriting the old one', async () => {
     render(<LeasingTab canEdit />);
     await screen.findByText('910 SECR - Ste 100, San Clemente');
-    fireEvent.click(screen.getByRole('button', { name: 'Tenants' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Payers' }));
     fireEvent.click(screen.getByRole('button', { name: 'New tenant at 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'New tenant in this space' });
     // The space comes along; the tenant does not.
@@ -160,7 +163,7 @@ describe('LeasingTab - the 10/04 feedback', () => {
     expect(within(paidAhead).getByText('16,000.00')).toBeTruthy();
     expect(within(paidAhead).getByText('(3,200.00)')).toBeTruthy();
     // The grand total row: received and the balance over the leases shown.
-    const grand = screen.getByText(/Received - 2 leases/).closest('tr');
+    const grand = screen.getByText(/Received - 2 sources/).closest('tr');
     expect(within(grand).getByText('24,955.00')).toBeTruthy();
     expect(within(grand).getByText('400.00')).toBeTruthy();
   });
@@ -182,14 +185,14 @@ describe('LeasingTab - the 10/04 feedback', () => {
     fireEvent.click(screen.getByLabelText(/Show Expired/));
     fireEvent.click(screen.getByLabelText(/Show Inactive/));
     await waitFor(() => expect(screen.queryByText('Suite 300, Escondido')).toBeNull());
-    fireEvent.change(screen.getByLabelText('Filter by property or tenant'), { target: { value: 'old tenant' } });
+    fireEvent.change(screen.getByLabelText('Filter by property, payer or account'), { target: { value: 'old tenant' } });
     expect(within(screen.getByText('Suite 300, Escondido').closest('tr')).getByText('Expired')).toBeTruthy();
   });
 
   it('narrows to the tenants picked, to the months picked, and asks for the entities picked', async () => {
     render(<LeasingTab canEdit />);
     await screen.findByText('910 SECR - Ste 100, San Clemente');
-    fireEvent.click(screen.getByRole('button', { name: 'Tenant filter' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Payer filter' }));
     fireEvent.click(screen.getByRole('option', { name: /Santos Blancas Jr\./ }));
     expect(screen.queryByText('910 SECR - Ste 100, San Clemente')).toBeNull();
     expect(screen.getByText('47385 RCR, Temecula')).toBeTruthy();
@@ -239,5 +242,117 @@ describe('LeasingTab - the 10/04 feedback', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sync Now/ }));
     expect(await screen.findByText(/Linked 1 lease to the Intacct customer by name/)).toBeTruthy();
     expect(screen.getByText(/Added 1 new tenant from the ledger: New Tenant Inc. at Greens Escondido/)).toBeTruthy();
+  });
+});
+
+// Oct 7 (Charmi, MRI items 53-55): one list of every income source with a
+// Type column and filter, one + Add menu, Row Density that works, the
+// journal entries behind a month, and money posted outside the lease.
+describe('LeasingTab - one list of every income source (10/07)', () => {
+  const interestRows = [
+    { account_no: '42500', title: 'Interest Income', section: 'other_income', bucket: '2026-01-01', debit: 0, credit: 120.5 },
+    { account_no: '42500', title: 'Interest Income', section: 'other_income', bucket: '2026-02-01', debit: 0, credit: 130 },
+    { account_no: '42600', title: 'Loan Income - Note Receivable', section: 'other_income', bucket: '2026-02-01', debit: 0, credit: 900 },
+    { account_no: '41101', title: 'Rental Income', section: 'revenue', bucket: '2026-01-01', debit: 0, credit: 3000 },
+  ];
+  beforeEach(() => { api.getAccountingBucketsFor.mockResolvedValue({ rows: interestRows }); api.getLeasingRentRollFor.mockResolvedValue(roll); });
+
+  it('lists leases and the interest and loan income accounts together, with a Type column and filter', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(screen.getByRole('columnheader', { name: 'Type' })).toBeTruthy();
+    const interest = screen.getByText('Interest Income').closest('tr');
+    expect(within(interest).getByText('Interest')).toBeTruthy();
+    expect(within(interest).getByText('250.50')).toBeTruthy();
+    expect(within(screen.getByText('Loan Income - Note Receivable').closest('tr')).getByText('Loan Payment')).toBeTruthy();
+    expect(screen.queryByText('Rental Income')).toBeNull();                       // rent is the leases'
+    expect(within(screen.getByText('910 SECR - Ste 100, San Clemente').closest('tr')).getByText('Lease')).toBeTruthy();
+    expect(screen.getByText(/Received - 4 sources/)).toBeTruthy();
+    // No tabs any more: a Type filter instead.
+    expect(screen.queryByRole('tab', { name: /Interest and Loan Payments/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Type filter' }));
+    fireEvent.click(screen.getByRole('option', { name: /Interest/ }));
+    expect(screen.queryByText('910 SECR - Ste 100, San Clemente')).toBeNull();
+    expect(screen.getByText('Interest Income')).toBeTruthy();
+    expect(screen.queryByText('Loan Income - Note Receivable')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Type filter' }).textContent).toContain('Interest');
+  });
+
+  it('does not count twice what a source kept here already reads from an income account', async () => {
+    const note = { lease: lease({ id: 'L7', propertyName: 'Note - Oversite Inv2', incomeType: 'interest', incomeAccounts: ['42500'], customerId: 'C00700' }),
+      months: months([cell('01', 'paid', 100, { expected: 100, balance: 0, byAccount: { 42500: 100 } })]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0 };
+    api.getLeasingRentRollFor.mockResolvedValue({ ...roll, rows: [note] });
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('Interest Income')).closest('tr');
+    expect(within(row).getByText('150.50')).toBeTruthy();       // 250.50 posted, 100 of it is the note's
+    expect(within(screen.getByText('Note - Oversite Inv2').closest('tr')).getByText('Interest')).toBeTruthy();
+  });
+
+  it('has one + Add menu: New Lease, New Interest or Loan Payment, Set Up From the Ledger', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(screen.queryByRole('button', { name: /^New Lease/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Set Up From the Ledger/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    const menu = screen.getByRole('menu', { name: 'Add an income source' });
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(3);
+    expect(within(menu).getByRole('menuitem', { name: /New Lease/ })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: /Set Up From the Ledger/ })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /New Interest or Loan Payment/ }));
+    const dialog = screen.getByRole('dialog', { name: 'New interest or loan payment' });
+    expect(within(dialog).getByLabelText('Type').value).toBe('interest');
+    fireEvent.change(within(dialog).getByLabelText('Source'), { target: { value: 'Note - Oversite Inv2' } });
+    fireEvent.change(within(dialog).getByLabelText('Payer Name'), { target: { value: 'Oversite Inv2' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.createLeasingLease).toHaveBeenCalled());
+    expect(api.createLeasingLease.mock.calls[0][0]).toMatchObject({ incomeType: 'interest', propertyName: 'Note - Oversite Inv2', tenantName: 'Oversite Inv2' });
+  });
+
+  it('starts a new lease on the 1st of the month and moves the first rent with the lease start', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /New Lease/ }));
+    const dialog = screen.getByRole('dialog', { name: 'New lease' });
+    expect(within(dialog).getByLabelText('Lease Start').value.endsWith('-01')).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText('Lease Start'), { target: { value: '2026-01-01' } });
+    expect(within(dialog).getByLabelText('Rent 1 starts').value).toBe('2026-01-01');
+  });
+
+  it('applies Row Density from Customize to the table itself', async () => {
+    render(<LeasingTab canEdit />);
+    const table = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('table');
+    expect(table.style.getPropertyValue('--acct-row-py')).toBe('5px');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Condensed' }));
+    await waitFor(() => expect(screen.getByText('910 SECR - Ste 100, San Clemente').closest('table').style.getPropertyValue('--acct-row-py')).toBe('2px'));
+  });
+
+  it('lists the journal entries behind a month, each opening the entry; Open Entry when there is one', async () => {
+    api.searchAccountingLedger.mockResolvedValue({ rows: [{ entry_id: '11111111-2222-3333-4444-555555555555', entry_no: 'JE-1042', entry_date: '2026-02-03', description: 'Rent Feb - Overstie', debit: 0, credit: 2800 }] });
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /910 SECR.*Feb 2026: Short/ }));
+    const dialog = screen.getByRole('dialog', { name: /910 SECR - Ste 100, San Clemente, Feb 2026/ });
+    const link = await within(dialog).findByRole('button', { name: 'JE-1042' });
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith({ account: '41101', party_kind: 'customer', party: 'C00498', from: '2026-02-01', to: '2026-02-28', limit: 100 });
+    expect(within(dialog).getByText('02/03/2026')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /Open Entry/ })).toBeTruthy();
+    fireEvent.click(link);
+    await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555'));
+  });
+
+  it('shows money posted outside the lease without counting it', async () => {
+    const typedLate = { lease: lease({ id: 'L8', propertyName: 'Nicole Miller Suite', leaseStart: '2026-10-02' }),
+      months: months([cell('01', 'outside', 2275, { expected: 0, balance: 0 }), cell('02', 'outside', 2275, { expected: 0, balance: 0 })]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0,
+      outsideLease: { months: ['2026-01', '2026-02'], received: 4550 } };
+    api.getLeasingRentRollFor.mockResolvedValue({ ...roll, rows: [typedLate] });
+    api.getAccountingBucketsFor.mockResolvedValue({ rows: [] });
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('Nicole Miller Suite')).closest('tr');
+    expect(within(row).getByText('Posted Outside Lease')).toBeTruthy();
+    expect(within(row).getByRole('button', { name: /Jan 2026: Outside the Lease/ })).toBeTruthy();
+    const grand = screen.getByText(/Received - 1 source/).closest('tr');
+    expect(within(grand).queryByText('4,550.00')).toBeNull();     // shown in the cells, not counted
   });
 });

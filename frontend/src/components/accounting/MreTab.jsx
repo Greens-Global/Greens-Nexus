@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Database, FolderUp, Mail, MapPin, Pencil, Phone, Plus, Search, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Database, FolderUp, Mail, MapPin, Pencil, Phone, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, PopoverPanel, control, entityOptions, usePopover } from './reportControls';
+import { CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, PopoverPanel, control, entityOptions } from './reportControls';
 import { downloadBlob, iso } from './reportModel';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
-import { ScanProgress, entitiesScannedText, useLedgerScan, POLL_MS } from './LedgerScan';
+import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry, POLL_MS } from './LedgerScan';
+import AddMenu from './AddMenu';
 
 // Accounting -> Reporting -> MRE, Monthly Recurring Expenses (Oct 6: Neil
 // listed MRE as pending; Charmi wants it under Reporting next to MRI). The
@@ -181,7 +182,12 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
               { key: 'email', group: 'send', label: 'Email...', hint: 'From your own mailbox, the grid attached', Icon: Mail, onPick: () => setSending('email') },
               { key: 'egnyte', group: 'send', label: 'Save to Files...', hint: 'Into a folder in Files, named as you like', Icon: FolderUp, onPick: () => setSending('egnyte') },
             ]} />
-            {canEdit && <AddMenu onLedger={() => setFromLedger(true)} onManual={() => setEditing(blankLine(picked[0], entities))} />}
+            {canEdit && (
+              <AddMenu ariaLabel="Add a recurring expense" items={[
+                { key: 'ledger', label: 'From the Ledger', hint: 'Vendors paid the same amount month after month', Icon: Database, onPick: () => setFromLedger(true) },
+                { key: 'manual', label: 'Manual', hint: 'One vendor, accounts and amount by hand', Icon: Pencil, onPick: () => setEditing(blankLine(picked[0], entities)) },
+              ]} />
+            )}
           </div>
         </div>
 
@@ -253,31 +259,6 @@ function Legend() {
         <span key={k} style={{ fontSize: '0.7rem', fontWeight: 700, color: STATUS[k].fg, background: STATUS[k].bg, border: k === 'upcoming' ? '1px dashed var(--border-color)' : 'none', borderRadius: 999, padding: '1px 8px' }}>{STATUS[k].label}</span>
       ))}
     </span>
-  );
-}
-
-function AddMenu({ onLedger, onManual }) {
-  const [open, setOpen, ref] = usePopover();
-  const item = { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: 'none', padding: '7px 8px', font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' };
-  const pick = (fn) => { setOpen(false); fn(); };
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-        <Plus size={14} /> Add <ChevronDown size={13} />
-      </button>
-      <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align="right" role="menu" aria-label="Add"
-        style={{ width: 290, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 6 }}>
-        <button type="button" role="menuitem" style={item} onClick={() => pick(onLedger)}>
-          <Database size={14} style={{ color: 'var(--text-muted)', marginTop: 2 }} />
-          <span><span style={{ display: 'block', fontWeight: 600 }}>From the Ledger</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>Vendors paid the same amount month after month</span></span>
-        </button>
-        <button type="button" role="menuitem" style={item} onClick={() => pick(onManual)}>
-          <Pencil size={14} style={{ color: 'var(--text-muted)', marginTop: 2 }} />
-          <span><span style={{ display: 'block', fontWeight: 600 }}>Manual</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>One vendor, accounts and amount by hand</span></span>
-        </button>
-      </PopoverPanel>
-    </div>
   );
 }
 
@@ -580,7 +561,12 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
 export function MreFromLedger({ entities = [], entityLabel = 'All entities', onClose, onCreated, pollMs = POLL_MS }) {
   const [min, setMin] = useState(3);
   const scan = useLedgerScan(() => api.getMreProposals(min, entities), [min, entities.join(',')], pollMs);
-  const { data, progress, retry } = scan;
+  const { progress, retry } = scan;
+  // Oct 7 (Charmi: stuck at "133 of 142 entities" for 5+ minutes): the scan
+  // has a time limit; what it could not read is listed with Retry for just those.
+  const again = useScanRetry((codes) => api.getMreProposals(min, codes), pollMs);
+  const data = useMemo(() => mergeScans(scan.data, again.retries, (p) => `${p.entityCode}|${p.vendorId}`), [scan.data, again.retries]);
+  const failed = data?.failed || [];
   const [error, setError] = useState(null);
   const [unticked, setUnticked] = useState(() => new Set());
   const [categories, setCategories] = useState({});
@@ -617,7 +603,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
           {!done && (
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               At least
-              <select value={min} onChange={(e) => { setMin(Number(e.target.value)); setUnticked(new Set()); }} aria-label="Minimum months at a stable amount" style={control}>
+              <select value={min} onChange={(e) => { setMin(Number(e.target.value)); setUnticked(new Set()); again.reset(); }} aria-label="Minimum months at a stable amount" style={control}>
                 {[2, 3, 4, 6, 9, 12].map((n) => <option key={n} value={n}>{n} months</option>)}
               </select>
               at a stable amount (within 10%)
@@ -631,12 +617,12 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
                 {scan.error && <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>}
               </div>
             ))}
-          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
           {data && !done && (
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
               {entitiesScannedText(data)}.
             </div>
           )}
+          {data && !done && <ScanOutcome total={data.entitiesScanned ?? 0} failed={failed} onRetry={again.run} running={again.running} error={again.error} />}
           {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} recurring {done.created.length === 1 ? 'expense' : 'expenses'} added{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
@@ -646,8 +632,8 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
           ) : !rows.length ? (
             shown && notAvailable(shown) ? null : (
               <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
-                <strong style={{ color: 'var(--text-primary)' }}>No recurring vendor payments found.</strong>
-                <span>Read {data.entitiesScanned ?? 0} active {data.entitiesScanned === 1 ? 'entity' : 'entities'}; {data.entitiesWithExpenses ?? 0} had expense postings, but no vendor posted the same amount in at least {min} months. Lower the bar above, or add one with Manual.</span>
+                <strong style={{ color: 'var(--text-primary)' }}>{failed.length ? 'No recurring vendor payments found in the entities that were read.' : 'No recurring vendor payments found.'}</strong>
+                <span>Read {data.entitiesRead ?? 0} active {data.entitiesRead === 1 ? 'entity' : 'entities'}{failed.length ? ` (${failed.length} more could not be read - Retry them above before deciding)` : ''}; {data.entitiesWithExpenses ?? 0} had expense postings, but no vendor posted the same amount in at least {min} months. Lower the bar above, or add one with Manual.</span>
               </div>
             )
           ) : (

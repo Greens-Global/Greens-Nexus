@@ -174,4 +174,29 @@ describe('MreFromLedger', () => {
     fireEvent.change(screen.getByLabelText('Minimum months at a stable amount'), { target: { value: '6' } });
     await waitFor(() => expect(api.getMreProposals).toHaveBeenLastCalledWith(6, ['15000']));
   });
+
+  // Oct 7 (Charmi: "stuck at 133 of 142 entities" for 5+ minutes).
+  it('shows what was read, lists what was not, and retries just those', async () => {
+    const partial = { ...proposals, entitiesScanned: 142, entitiesRead: 133, failed: Array.from({ length: 9 }, (_v, i) => ({ code: `9${i}000`, name: `Big Entity ${i + 1}`, reason: 'took too long to read' })) };
+    const rest = { ...proposals, entitiesScanned: 9, entitiesRead: 9, failed: [], proposals: [{ ...proposals.proposals[1], entityCode: '90000', entityName: 'Big Entity 1', vendorId: 'V-PGE', vendorName: 'PG&E' }] };
+    api.getMreProposals.mockImplementation(async (_min, entities = []) => (entities.length && entities[0] === '90000' ? rest : partial));
+    render(<MreFromLedger pollMs={20} onClose={() => {}} onCreated={() => {}} />);
+    const dialog = await screen.findByRole('dialog', { name: /Add recurring expenses from the ledger/ });
+    expect(await within(dialog).findByText('Read 133 of 142 entities - 9 could not be read.')).toBeTruthy();
+    expect(within(dialog).getByText('State Farm')).toBeTruthy();                  // what was read is usable now
+    expect(within(dialog).queryByRole('progressbar')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry 9 Entities' }));
+    await within(dialog).findByText('PG&E');
+    expect(api.getMreProposals).toHaveBeenLastCalledWith(3, partial.failed.map((f) => f.code));
+    expect(within(dialog).getByText('Read all 142 entities.')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Add 2 Expenses' })).toBeTruthy();
+  });
+
+  it('offers + Add with From the Ledger and Manual', async () => {
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    const menu = screen.getByRole('menu', { name: 'Add a recurring expense' });
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.querySelector('span span').textContent)).toEqual(['From the Ledger', 'Manual']);
+  });
 });
