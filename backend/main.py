@@ -1978,6 +1978,9 @@ def _run_migrations():
         # MRI (Charmi, Oct 7): one list of every recurring income source - a
         # lease, interest, a loan payment received, other - with a Type column.
         "ALTER TABLE leases ADD COLUMN IF NOT EXISTS income_type VARCHAR DEFAULT 'lease'",
+        # Accounting > AMA, Asset Management Agreements (Priyanka, Oct 7). New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_ama_agreements ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3095,3 +3098,5 @@ app.include_router(marketing_ads.router)           # Marketing > Google Ads: spe
 app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
 from routers import acct_scan  # noqa: E402
 app.include_router(acct_scan.router)               # Accounting: amount by entity x account x customer / vendor x month - the party-months aggregate, entity-scoped (Oct 7)
+from routers import accounting_ama  # noqa: E402
+app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)
