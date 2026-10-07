@@ -330,7 +330,7 @@ export const DOCS = [
           'Administrators: open Settings > Global Settings > Shifts.',
           'Under Shift Types, add one: name, a short code for the grid, color, start and end time, unpaid break, grace minutes, time zone and days. Click Save.',
           'Under Groups, add one: name it, pick its members from the People list, then click Save.',
-          'To send the group\'s BOD, EOD and break messages to Microsoft Teams, choose Group Chat or Channel under Microsoft Teams. Click Bind A Chat (or Bind A Channel, then pick the team\'s channel) and Save. Members must be in that chat, or in that team and channel, for their messages to post; in a channel each message is a new post.',
+          'To send the group\'s BOD, EOD and break messages to Microsoft Teams, choose Group Chat or Channel under Microsoft Teams. Click Bind A Chat (or Bind A Channel, then pick the team\'s channel) and Save. Members must be in that chat, or in that team and channel, for their messages to post; in a channel each message is a new post. Every message Nexus posts to Teams (BOD, EOD, break and ticket updates) goes out as the person and ends with a small grey "Sent by Nexus" line, so it is easy to tell apart from something typed by hand.',
         ],
       },
       {
