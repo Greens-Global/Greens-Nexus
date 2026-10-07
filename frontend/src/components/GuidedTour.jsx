@@ -29,6 +29,10 @@ export default function GuidedTour({ steps, onClose }) {
   const i = Math.max(0, Math.min(rawI, steps.length - 1));
   const step = steps[i];
   const findTries = useRef(0);
+  // The pending retry / frame, so closing the tour (or moving to another
+  // step) cancels it - a retry that fired after unmount touched `document`
+  // once the page was gone (failed CI on PR #462 after a test tore down).
+  const retryTimer = useRef(null);
   const compact = useIsMobile(COMPACT_QUERY);
   const cardRef = useRef(null);
   const [cardH, setCardH] = useState(0);
@@ -42,7 +46,7 @@ export default function GuidedTour({ steps, onClose }) {
     const el = document.querySelector(`[data-tour="${step.target}"]`);
     if (!el) {
       // The element may still be rendering after before() switched tabs - retry briefly.
-      if (findTries.current < 20) { findTries.current += 1; setTimeout(locate, 60); }
+      if (findTries.current < 20) { findTries.current += 1; clearTimeout(retryTimer.current); retryTimer.current = setTimeout(locate, 60); }
       else setRect(null);
       return;
     }
@@ -58,8 +62,9 @@ export default function GuidedTour({ steps, onClose }) {
   useLayoutEffect(() => {
     findTries.current = 0;
     let cancelled = false;
-    Promise.resolve(step?.before?.()).then(() => { if (!cancelled) requestAnimationFrame(locate); });
-    return () => { cancelled = true; };
+    let frame = 0;
+    Promise.resolve(step?.before?.()).then(() => { if (!cancelled) frame = requestAnimationFrame(locate); });
+    return () => { cancelled = true; cancelAnimationFrame(frame); clearTimeout(retryTimer.current); };
   }, [i, step, locate]);
 
   useEffect(() => {
