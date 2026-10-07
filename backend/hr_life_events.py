@@ -353,7 +353,7 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
     company = entity.name if entity else "this company"
     if not setting:
         raise PacketError(f"No hiring packet is set up for {company} yet - add one under "
-                          f"People > Checklists > Packets.", 409)
+                          f"People > Hiring > Packets.", 409)
     problems = setting_problems(db, setting)
     if problems:
         raise PacketError(f"The {company} hiring packet needs fixing: {problems[0]}", 409)
