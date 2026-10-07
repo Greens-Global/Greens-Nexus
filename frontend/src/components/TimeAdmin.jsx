@@ -341,7 +341,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     try {
       const res = await api.timeDecidePunchRequest(id, { status, note });
       if (res && res.status && res.status !== status) toastOk('That punch is already on the timecard - closed as a duplicate.');
-      else toastOk(`Request ${status}.`);
+      // Approving can also set aside a punch the fix replaces - say which (Oct 7).
+      else toastOk(status === 'approved' && /Replaced|Also added/.test(res?.decisionNote || '') ? `Approved. ${res.decisionNote}` : `Request ${status}.`);
       loadPunchReqs();
       load(true);   // an approved add/remove changes the timecard - keep the rows in sync
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }

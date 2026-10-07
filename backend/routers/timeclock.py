@@ -2841,69 +2841,162 @@ def _punch_when(p) -> tuple:
     return (f"{loc.hour % 12 or 12}:{loc:%M} {'AM' if loc.hour < 12 else 'PM'}", loc.strftime("%m/%d/%Y"))
 
 
-def _collision_msg(this, other, before: bool) -> str:
-    """The 409 a punch-fix approval answers with, naming exactly which punch
-    collides: 'This break end at 4:00 PM on 09/23/2026 would come right before
-    another break end at 4:12 PM - edit the punches on the timecard instead.'"""
-    kind = getattr(this, "punch_kind", None) or getattr(this, "kind", "")
-    t, d = _punch_when(this)
-    if other is None:
-        return (f"This {_kind_label(kind)} at {t} on {d} has no clock-in before it - "
-                "edit the punches on the timecard instead.")
-    okind = getattr(other, "punch_kind", None) or getattr(other, "kind", "")
-    ot, od = _punch_when(other)
-    article = "another" if okind == kind else "a"
-    where = ot if od == d else f"{ot} on {od}"
-    return (f"This {_kind_label(kind)} at {t} on {d} would come right {'before' if before else 'after'} "
-            f"{article} {_kind_label(okind)} at {where} - edit the punches on the timecard instead.")
+_PROBLEM_WORDS = {
+    "missing_out":       "a shift with no clock-out",
+    "out_without_in":    "a clock-out with no clock-in before it",
+    "missing_break_end": "a break that never ended",
+    "inverted":          "a clock-out earlier than its clock-in",
+}
+
+
+def _first_name(db: Session, email: str) -> str:
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    if emp and (emp.first_name or "").strip():
+        return emp.first_name.strip()
+    return (email or "").split("@")[0].split(".")[0].title() or "the employee"
+
+
+def _punch_list_text(punches: list, day: str) -> str:
+    """'Clock In 8:00 AM, Break Start 12:00 PM, Clock Out 5:00 PM' for one day."""
+    names = {"in": "Clock In", "out": "Clock Out", "break_start": "Break Start", "break_end": "Break End"}
+    parts = [f"{names.get(p.kind, p.kind)} {_punch_when(p)[0]}" for p in punches if p.local_date == day]
+    return ", ".join(parts) if parts else "no punches"
+
+
+def _day_problems(db: Session, email: str, punches: list, days: set) -> set:
+    """(local_date, problem) pairs that block sign-off - judged by the SAME
+    engine the timesheet, Submit and HR sign-off use (_day_summaries), plus a
+    clock-out earlier than its clock-in (_inverted_days)."""
+    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email))
+    out = {(d, f) for d, v in summ.items() if d in days for f in v.get("flags", []) if f in _BLOCKING_EXCEPTIONS}
+    return out | {(d, "inverted") for d in _inverted_days(punches, days)}
+
+
+def _cannot_apply_msg(db: Session, reqs: list, problems: set, punches_after: list) -> str:
+    """Plain words for the one case approving really cannot go ahead, e.g.
+    "Vicki's break start at 5:32 PM on 09/15/2026 can't be added as it stands:
+    the timecard for 09/15/2026 would then have a break that never ended. With
+    it, that day reads: Clock In 9:00 AM, Break Start 5:32 PM, Clock Out
+    9:10 PM. Ask Vicki for the missing time, or open the timecard and set the
+    times there." (Visesh, Oct 7: the old wording - "would place a 'break_end'
+    after a 'in'" - meant nothing to HR and kept sign-off blocked.)"""
+    r = reqs[0]
+    who = _first_name(db, r.employee_email)
+    t, d = _punch_when(r)
+    if len(reqs) > 1:
+        what = " and ".join(f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs)
+    else:
+        what = f"{_kind_label(r.punch_kind)} at {t}"
+    day, prob = sorted(problems)[0]
+    try:
+        us_day = datetime.strptime(day, "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        us_day = d
+    return (f"{who}'s {what} on {d} can't be added as it stands: the timecard for {us_day} would then have "
+            f"{_PROBLEM_WORDS.get(prob, 'a punch out of order')}. With it, that day reads: "
+            f"{_punch_list_text(punches_after, day)}. Ask {who} for the missing time, or open the timecard "
+            f"and set the times there.")
 
 
 def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
-    """Insert the punches a run of pending 'add' requests ask for (sorted by
-    time), after checking that the whole run keeps the punch sequence legal
-    between the real punches on either side. Nothing is inserted unless every
-    step passes. Raises 409 otherwise. Returns the times of any stray
-    clock-outs voided on the way (see below)."""
-    first, last = reqs[0], reqs[-1]
-    prev, _ = _punch_neighbors(db, first.employee_email, first.at)
-    _, nxt = _punch_neighbors(db, last.employee_email, last.at)
-    # Stray-aware (Sep 8): when the ONLY thing in the way of a clock-out
-    # request is a stray clock-out - one pressed a day later for the very
-    # shift this request closes - void the stray and apply the request.
-    # A stray carries no worked time (its pair already exceeds the 16h
-    # guard), so voiding it changes nothing on the timesheet except
-    # letting the real clock-out land. Anything else still gets refused.
-    voided_strays = []
-    if any(q.punch_kind == "out" for q in reqs):
-        for cand in (nxt, prev):
-            if cand is not None and _is_stray_out(db, cand):
-                cand.voided = 1
-                cand.adjusted_by = user["email"]
-                cand.adjusted_at = now
-                cand.adjust_note = ("Voided while approving a punch-fix request: stray clock-out "
-                                    "pressed more than 16 hours after the shift's clock-in.")
-                voided_strays.append(cand.at)
-                db.flush()
-        if voided_strays:
-            prev, _ = _punch_neighbors(db, first.employee_email, first.at)
-            _, nxt = _punch_neighbors(db, last.employee_email, last.at)
-    last_kind = prev.kind if prev else None
-    last = prev
-    for q in reqs:
-        if q.punch_kind not in _allowed_kinds(last_kind):
-            raise HTTPException(409, _collision_msg(q, last, before=False))
-        last_kind, last = q.punch_kind, q
-    if nxt and nxt.kind not in _allowed_kinds(last_kind):
-        raise HTTPException(409, _collision_msg(reqs[-1], nxt, before=True))
+    """Insert the punches a run of pending 'add' requests ask for.
+
+    Judged by what actually matters - the timesheet the employee and HR sign
+    (Visesh, Oct 7: HR could not approve plain fixes like "my break ended at
+    2:01 PM" because a later break end already sat on the card, so sign-off
+    stayed blocked). The day is run through the same engine that pays and that
+    blocks sign-off (_day_problems); the fix goes in unless it would leave the
+    day with a NEW blocking problem (a shift with no clock-out, a clock-out
+    with no clock-in, a break that never ended, an out before its in). A day
+    that is already messy never blocks a fix that does not make it worse.
+
+    A fix often REPLACES a punch pressed by mistake - Break instead of Clock
+    Out, or a clock-out a few minutes off. When the only thing in the way is
+    one punch of the same kind on the same day, that punch is set aside
+    (voided, kept for audit with who and why) and the employee's time is used:
+    HR approving the request is the sign-off for that change.
+
+    Returns human descriptions of anything replaced ("the clock-out at
+    5:00 PM"). Raises 409 with a plain-English message otherwise."""
+    from types import SimpleNamespace
+    email = reqs[0].employee_email
+    req_ids = {q.id for q in reqs}
+    req_days = {q.local_date for q in reqs if q.local_date}
+    days = set()
+    for dd in req_days:
+        base = date.fromisoformat(dd[:10])
+        days |= {(base + timedelta(days=k)).isoformat() for k in (-1, 0, 1)}
+    live = _live_punches(db, email, min(days), max(days)) if days else []
+    cols = [c.key for c in TimePunch.__table__.columns]
+
+    def copy(p):
+        return SimpleNamespace(**{c: getattr(p, c) for c in cols})
+
+    def requested(q):
+        blank = {k: None for k in cols}
+        blank.update(id=q.id, employee_email=email, kind=q.punch_kind, at=(q.at or "")[:19], local_date=q.local_date,
+                     tz_offset_min=q.tz_offset_min or 0, voided=0, source="manual", geo_status="no_location")
+        return SimpleNamespace(**blank)
+
+    def simulate(skip: set) -> list:
+        rows = [copy(p) for p in live if p.id not in skip] + [requested(q) for q in reqs]
+        # A requested punch at the same second as a real one goes first, so a
+        # break end typed for 2:23 PM ends the break that started at 2:23 PM.
+        return sorted(rows, key=lambda c: ((c.at or "")[:19], 0 if c.id in req_ids else 1))
+
+    before = _day_problems(db, email, [copy(p) for p in live], days)
+    after_rows = simulate(set())
+    new = _day_problems(db, email, after_rows, days) - before
+    replaced = []
+    pick = None
+    if new:
+        kinds = {q.punch_kind for q in reqs}
+        times = [t for t in (_parse_iso(q.at or "") for q in reqs) if t]
+
+        def distance(p):
+            t = _parse_iso(p.at or "")
+            return min((abs((t - x).total_seconds()) for x in times), default=1e12) if t else 1e12
+
+        cands = sorted((p for p in live if p.local_date in req_days and p.kind in kinds), key=distance)
+        pick = next((c for c in cands if not (_day_problems(db, email, simulate({c.id}), days) - before)), None)
+        if pick is None:
+            raise HTTPException(409, _cannot_apply_msg(db, reqs, new, after_rows))
+        pick.voided = 1
+        pick.adjusted_by, pick.adjusted_at = user["email"], now
+        pick.adjust_note = ("Replaced by an approved punch fix: " + ", ".join(
+            f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs) + f" (approved by {user['email']}).")
+        replaced.append(f"the {_kind_label(pick.kind)} at {_punch_when(pick)[0]}")
+        db.flush()
+    # A break punch the fix makes redundant - the old break end pressed at
+    # the end of the day once the real one is in (Michael, 09/30: break end
+    # 2:01 PM approved, the 6:29 PM one left over), or a second break start
+    # right after the first - is cleared off the card. Pay already ignored it,
+    # so totals do not move; the timecard just stops showing two in a row.
+    final = simulate({pick.id} if replaced else set())
+    gone = {pick.id} if replaced else set()
+    for i, c in enumerate(final):
+        if (i and c.id not in req_ids and c.kind in ("break_start", "break_end")
+                and c.local_date in req_days and final[i - 1].kind == c.kind
+                and (final[i - 1].id in req_ids or final[i - 1].id in gone)):
+            row = next((p for p in live if p.id == c.id), None)
+            if row is not None and not row.voided:
+                row.voided = 1
+                row.adjusted_by, row.adjusted_at = user["email"], now
+                row.adjust_note = (f"No longer needed: the approved punch fix set this {_kind_label(c.kind)} "
+                                   f"at {_punch_when(final[i - 1])[0]} (approved by {user['email']}).")
+                replaced.append(f"the extra {_kind_label(c.kind)} at {_punch_when(c)[0]}")
+                gone.add(c.id)
+    db.flush()
     for q in reqs:
         tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
                        at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
                        geo_status="no_location", source="manual", note=(q.reason or "")[:300],
                        created_by=user["email"], created_at=now,
                        adjust_note=f"Approved punch-fix request by {user['email']}")
-        db.add(tp); db.flush()
+        db.add(tp)
+        db.flush()
         q.applied_punch_id = tp.id
-    return voided_strays
+    return replaced
 
 
 def _pending_partners(db: Session, r) -> list:
@@ -2945,7 +3038,9 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     if r.status != "pending":
         # A copy already closed as a duplicate (its twin was decided first):
         # nothing to do, so a bulk "Approve selected" skips it instead of failing.
-        if (r.decision_note or "").startswith("Duplicate of"):
+        # Same for one already decided the way it is asked again (approved
+        # together with its partner earlier in the same "Approve selected").
+        if (r.decision_note or "").startswith("Duplicate of") or r.status == body.status:
             return _pr_dict(r)
         raise HTTPException(409, f"This request was already {r.status}.")
     _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
@@ -2971,38 +3066,37 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
             # Re-validate the sequence at approval time: inserting this punch must
             # not create an illegal transition (e.g. two 'in's with no 'out'
             # between), which would corrupt the FIFO worked-minute pairing.
-            try:
-                voided_strays = _apply_add_chain(db, [r], user, now)
-            except HTTPException as first_err:
-                if first_err.status_code != 409:
-                    raise
-                # Requests arrive in pairs (clock-in + clock-out, break start + break
-                # end) and the approver usually clicks the later one first, so the
-                # earlier partner is still pending and the sequence looks broken
-                # (Charmi, Sep 9: "out after out"). Validate and apply the pending
-                # partners that sit between the neighboring real punches together
-                # with this request, as one chain. If the chain is still invalid
-                # the original refusal stands and nothing is applied.
-                partners = _pending_partners(db, r)
-                if not partners:
-                    raise
+            # Requests arrive in pairs (clock-in + clock-out, break start + break
+            # end) and the approver usually clicks the later one first (Charmi,
+            # Sep 9). The pending partners between the neighboring real punches
+            # go in together with this one as one chain; if that chain cannot
+            # go in, this request is tried on its own. Nothing is half applied.
+            partners = _pending_partners(db, r)
+            voided_strays = None
+            if partners:
                 chain = sorted(partners + [r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9)))
                 try:
+                    # _apply_add_chain writes nothing until every check passed.
                     voided_strays = _apply_add_chain(db, chain, user, now)
-                except HTTPException:
-                    raise first_err
+                except HTTPException as chain_err:
+                    if chain_err.status_code != 409:
+                        raise
+                    partners = []
+            if voided_strays is None:
+                voided_strays = _apply_add_chain(db, [r], user, now)
+            if partners:
                 for p in partners:
                     p.status = "approved"
                     p.decided_by, p.decided_at = user["email"], now
-                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} request "
-                                       f"at {r.at[:16].replace('T', ' ')} UTC.")
+                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} "
+                                       f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
                     _hr_notify(db, p.employee_email, "Timesheet fix approved",
                                "Your request to add a punch was approved.",
                                ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
-                note = (note + " " if note else "") + "Also applied the pending " + ", ".join(
-                    f"{_kind_label(p.punch_kind)} at {p.at[:16].replace('T', ' ')} UTC" for p in partners) + "."
+                note = (note + " " if note else "") + "Also added the " + ", ".join(
+                    f"{_kind_label(p.punch_kind)} at {_punch_when(p)[0]}" for p in partners) + " from the same fix."
             if voided_strays:
-                note = (note + " " if note else "") + f"Voided stray clock-out at {', '.join(v[:16].replace('T', ' ') for v in voided_strays)} UTC."
+                note = (note + " " if note else "") + f"Replaced {', '.join(voided_strays)} on the timecard."
         else:  # remove → void the target punch (kept for audit, excluded from totals)
             tp = db.query(TimePunch).filter(TimePunch.id == r.target_punch_id).first()
             if tp:

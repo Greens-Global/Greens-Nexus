@@ -217,30 +217,77 @@ class PunchRequestDupeTests(unittest.TestCase):
         self.assertEqual([k for k, _ in self._kinds()], ["in", "out", "in", "out"])
         self.assertEqual(sorted([self._req(in1)[0], self._req(in2)[0]]), ["approved", "rejected"])
 
-    def test_real_collision_names_the_punch(self):
-        # A real break end at 4:12 PM; the request asks for one at 4:00 PM.
+    def test_earlier_break_end_goes_in_and_the_late_one_is_cleared(self):
+        # Michael, 09/30: break 1:31 PM, a break end only at 6:29 PM (pressed at
+        # the end of the day). He asks for break end 2:01 PM. That is a plain fix,
+        # never a "conflict": it goes in, and the leftover break end is cleared.
         self._punch("in", self.day)
         self._punch("break_start", self.day + timedelta(hours=6))
         self._punch("break_end", self.day + timedelta(hours=7, minutes=12))
         self._punch("out", self.day + timedelta(hours=9))
         rid = self._request("break_end", self.day + timedelta(hours=7))
         resp = self._decide(rid)
-        self.assertEqual(resp.status_code, 409, resp.text)
-        us = self.day.strftime("%m/%d/%Y")
-        self.assertEqual(resp.json()["detail"],
-                         f"This break end at 4:00 PM on {us} would come right before another break end "
-                         "at 4:12 PM - edit the punches on the timecard instead.")
-        self.assertEqual(self._req(rid)[0], "pending")
-        self.assertEqual(len(self._kinds()), 4)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(self._req(rid)[0], "approved")
+        self.assertEqual(self._kinds(), [("in", "09:00"), ("break_start", "15:00"), ("break_end", "16:00"), ("out", "18:00")])
+        self.assertIn("extra break end at 4:12 PM", resp.json()["decisionNote"])
 
-    def test_out_after_out_names_the_earlier_punch(self):
+    def test_later_clock_out_replaces_the_earlier_one(self):
+        # "I left at 6:00 PM, not 5:00 PM": the employee's time is used and the
+        # 5:00 PM clock-out is set aside (kept for audit), not refused.
         self._punch("in", self.day)
         self._punch("out", self.day + timedelta(hours=8))
         rid = self._request("out", self.day + timedelta(hours=9))
         resp = self._decide(rid)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(self._kinds(), [("in", "09:00"), ("out", "18:00")])
+        self.assertIn("Replaced the clock-out at 5:00 PM", resp.json()["decisionNote"])
+
+    def test_break_pressed_instead_of_clock_out(self):
+        # Jeremy, 09/22: "Forgot clock out did break instead" - pressed Break at
+        # 2:15 PM, a clock-out was put in at 5:00 PM. He asks for clock-out 2:15 PM.
+        self._punch("in", self.day)
+        self._punch("break_start", self.day + timedelta(hours=5, minutes=15, seconds=24))
+        self._punch("out", self.day + timedelta(hours=8))
+        rid = self._request("out", self.day + timedelta(hours=5, minutes=15))
+        resp = self._decide(rid)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        kinds = [k for k, _ in self._kinds()]
+        self.assertEqual(kinds[:2], ["in", "out"])
+        self.assertNotIn(("out", "17:00"), self._kinds())
+
+    def test_messy_day_with_two_break_starts_still_takes_the_break_end(self):
+        # Miranda, 09/22: break start 1:53 PM, then two break starts at 2:23 PM
+        # (an earlier wrong edit), break end 2:37 PM. She asks for break end
+        # 2:23 PM. The day was already odd - that never blocks a sane fix.
+        self._punch("in", self.day)
+        self._punch("break_start", self.day + timedelta(hours=4, minutes=53))
+        self._punch("break_start", self.day + timedelta(hours=5, minutes=23))
+        self._punch("break_start", self.day + timedelta(hours=5, minutes=23))
+        self._punch("break_end", self.day + timedelta(hours=5, minutes=37))
+        self._punch("out", self.day + timedelta(hours=8))
+        rid = self._request("break_end", self.day + timedelta(hours=5, minutes=23))
+        resp = self._decide(rid)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(self._req(rid)[0], "approved")
+
+    def test_a_fix_that_really_cannot_go_in_says_so_in_plain_words(self):
+        # A break start with no break end and nothing to pair with: the day would
+        # have a break that never ended. Plain words, the day's punches listed,
+        # what to do next - no "break_end"/"in" jargon.
+        self._punch("in", self.day)
+        self._punch("out", self.day + timedelta(hours=9))
+        rid = self._request("break_start", self.day + timedelta(hours=3))
+        resp = self._decide(rid)
         self.assertEqual(resp.status_code, 409, resp.text)
-        self.assertIn("This clock-out at 6:00 PM on", resp.json()["detail"])
-        self.assertIn("would come right after another clock-out at 5:00 PM", resp.json()["detail"])
+        msg = resp.json()["detail"]
+        us = self.day.strftime("%m/%d/%Y")
+        self.assertIn(f"Jeremy's break start at 12:00 PM on {us} can't be added as it stands", msg)
+        self.assertIn("a break that never ended", msg)
+        self.assertIn("Clock In 9:00 AM, Break Start 12:00 PM, Clock Out 6:00 PM", msg)
+        self.assertIn("Ask Jeremy for the missing time", msg)
+        for jargon in ("break_end", "break_start", "'in'", "UTC", "sequence"):
+            self.assertNotIn(jargon, msg)
         self.assertEqual(self._req(rid)[0], "pending")
 
 
