@@ -169,7 +169,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -559,13 +559,12 @@ describe('ReportsTab controls', () => {
     expect((await screen.findByLabelText('Active filters')).textContent).toContain('Journal: Accounts Payable (APJ)');
   });
 
-  it('shows Not available yet for Journals until the accounting app lists them (R7)', async () => {
+  it('hides Journals until the accounting app lists them (R7; item 35, 10/07)', async () => {
     api.getAccountingJournals.mockResolvedValue({ available: false, journals: [] });
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Journals/ }));
-    await screen.findByText('Not available yet.');
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Journals/ })).toBeNull());
     // Everything else still works.
     fireEvent.click(screen.getByRole('button', { name: /^Department/ }));
     await screen.findByRole('option', { name: /Property Management/ });
@@ -589,17 +588,38 @@ describe('ReportsTab controls', () => {
     expect(within(repairs).getByText('Review')).toBeTruthy();
     // Rental Income moved by nothing: no flag.
     expect(screen.getByText('Rental Income').closest('tr').className).not.toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1');
-    // The kept explanation shows; a new one is saved for this entity set and period.
+    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1 to review · 0 explained');
+    // The kept explanation shows; a new one is written in the cell itself (item 26a), no dialog.
     await screen.findByText('New tenant in suite B.');
     fireEvent.click(within(repairs).getByRole('button', { name: /Add explanation for 61000/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Explanation' });
-    fireEvent.change(within(dialog).getByLabelText('Why did this account move?'), { target: { value: 'Roof repair last year, one-time.' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Explanation' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const box = within(screen.getByText('Repairs').closest('tr')).getByLabelText('Explanation for 61000 Repairs');
+    fireEvent.change(box, { target: { value: 'Roof repair last year, one-time.' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalled());
     expect(api.saveAccountingFluxNote.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', note: 'Roof repair last year, one-time.' });
     expect(api.saveAccountingFluxNote.mock.calls[0][0].period).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/);
     await screen.findByText('Roof repair last year, one-time.');
+    // Explained = answered (item 26b): the flag reads Explained, still a flagged line.
+    const done = screen.getByText('Repairs').closest('tr');
+    expect(within(done).getByText('Explained')).toBeTruthy();
+    expect(within(done).queryByText('Review')).toBeNull();
+    expect(done.className).toContain('acct-flag');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 0 to review · 1 explained');
+    // Esc leaves an edit without saving; the trash asks Remove / Keep in place.
+    fireEvent.click(within(done).getByRole('button', { name: /Edit explanation for 61000/ }));
+    const again = within(screen.getByText('Repairs').closest('tr')).getByLabelText('Explanation for 61000 Repairs');
+    fireEvent.change(again, { target: { value: 'Changed my mind' } });
+    fireEvent.keyDown(again, { key: 'Escape' });
+    expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Remove explanation for 61000/ }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: 'Keep' }));
+    expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Remove explanation for 61000/ }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(2));
+    expect(api.saveAccountingFluxNote.mock.calls[1][0]).toMatchObject({ accountNo: '61000', note: '' });
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Review')).toBeTruthy());
     // Customize carries the thresholds; a looser one takes the flag off.
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.change(screen.getByLabelText('Flux variance amount threshold'), { target: { value: '6000' } });

@@ -173,6 +173,15 @@ export function statementCells({ title, result, entities = [] }) {
   const subtotalRow = {};         // label -> row number, for the subtotals that build on each other
 
   result.rows.forEach((r) => {
+    // A General Ledger account group (Bank, Credit Card, ...): its heading
+    // here, its "Total <group>" row after its accounts (Oct 7, item 22).
+    if (r.kind === 'group') {
+      closeSection();
+      const cells = [{ text: r.label, s: S.sectionText }, { text: '', s: S.sectionText }];
+      columns.forEach((_c, i) => { cells[sheetCol(i)] = { text: '', s: S.sectionText }; });
+      push(cells);
+      return;
+    }
     if (r.kind === 'section') {
       closeSection();
       // A General Ledger account heading carries its opening balance; a

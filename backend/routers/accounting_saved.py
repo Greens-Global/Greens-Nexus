@@ -41,7 +41,10 @@ router = APIRouter(
     dependencies=[Depends(require_module_grant("accounting", "viewer"))],
 )
 
-_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position", "general-ledger")
+# Every key of REPORTS in frontend/src/components/accounting/reportModel.js
+# (test_accounting_reports.py holds the two lists together): Flux Analysis
+# (10/02) and the Statement of Cash Flows (item 26c, 10/07) included.
+_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position", "general-ledger", "flux", "cash-flow")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
 _PREFS_MAX = 6000      # characters of JSON - one person's column layout
 _PACKAGE_MAX = 40      # statements in one package

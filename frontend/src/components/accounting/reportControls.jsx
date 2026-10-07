@@ -319,15 +319,16 @@ export function SelectAllCheckbox({ checked, total, onChange, label = 'Select Al
 // Department, vendor, customer, employee, Project-Job and item behind one
 // "Filters" button (Charmi, 09/29 call). The kinds are listed on the left
 // with what is picked; the right side is the searchable list of the kind
-// that is open. `onNames` hands the names of each list up as it loads, so
+// that is open. `kinds` (optional, Oct 7) narrows the list - Reports leaves
+// Journals out while the accounting app lists none. `onNames` hands the names of each list up as it loads, so
 // the chips under the report can say "Vendor: Amazon" instead of a code.
-export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left' }) {
+export function FiltersButton({ dims, onChange, onNames, showHistorical = false, align = 'left', kinds = POPOVER_DIMS }) {
   const [open, setOpen, ref] = usePopover();
-  const [kind, setKind] = useState(POPOVER_DIMS[0]);
+  const [kind, setKind] = useState(kinds[0] || POPOVER_DIMS[0]);
   const [lists, setLists] = useState({});       // kind -> { values } | { error } | { unavailable }
   const n = countDims(dims);
   // A picked kind loads its names even while the panel is closed, for the chips.
-  const wanted = POPOVER_DIMS.filter((k) => (dims[k.key] || []).length && !lists[k.kind]).map((k) => k.kind);
+  const wanted = kinds.filter((k) => (dims[k.key] || []).length && !lists[k.kind]).map((k) => k.kind);
   const need = open && !lists[kind.kind] ? kind.kind : wanted[0];
   useEffect(() => {
     if (!need) return undefined;
@@ -371,7 +372,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Filters" style={{ ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
         <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
           <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
-          {POPOVER_DIMS.map((k) => {
+          {kinds.map((k) => {
             const c = (dims[k.key] || []).length;
             return (
               <button key={k.key} type="button" style={row(k.key === kind.key)} onClick={() => setKind(k)} aria-pressed={k.key === kind.key}>

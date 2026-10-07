@@ -10,6 +10,7 @@ import { formatDateTime } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { dialog } from '../../ui/dialog';
 import { MONTHS, actualsByAccount, budgetVsActual, copyActuals, gridTotals, pctText, rowTotal } from './budgetModel';
+import { intacctBudgetFile } from './budgetExport';
 
 // Accounting > Budget (Charmi and Neil, 10/01: "add a budget - open and
 // edit"). One entity, one year: every P&L account by month, editable in
@@ -44,7 +45,11 @@ export default function BudgetTab({ canEdit = false }) {
   const [busy, setBusy] = useState('');
   const seq = useRef(0);
   // Historical (H) entities follow the person's Customize choice elsewhere in the module.
-  const [prefs] = useAccountingPrefs();
+  const [prefs, setPrefs] = useAccountingPrefs();
+  // Export Intacct Import File (item 43): the panel, the budget ID typed
+  // (remembered per viewer), and what stops the file.
+  const [intacct, setIntacct] = useState(null);    // null | { problems: [] }
+  const [budgetId, setBudgetId] = useState(() => prefs.intacctBudgetId || '');
 
   useEffect(() => {
     let alive = true;
@@ -153,6 +158,15 @@ export default function BudgetTab({ canEdit = false }) {
       [['Account', 'Title', ...MONTHS, 'Total'], ...rows.map((r) => [r.accountNo, r.title, ...r.months, rowTotal(r.months)]), ['', 'Total', ...totals.months, totals.total]]);
   }
 
+  function exportIntacct(e) {
+    e.preventDefault();
+    const file = intacctBudgetFile({ budgetId, location, year, rows, dirty });
+    if (file.problems.length) { setIntacct({ problems: file.problems }); return; }
+    if (budgetId.trim() !== (prefs.intacctBudgetId || '')) setPrefs({ intacctBudgetId: budgetId.trim() });
+    downloadCsv(`Intacct Budget Import - ${location} - ${year} - ${budgetId.trim().replace(/[^A-Za-z0-9._-]+/g, '-')}.csv`, file.lines);
+    setIntacct({ problems: [], done: `${(file.lines.length - 1).toLocaleString('en-US')} rows written. Import it in Intacct under General Ledger > Budgets.` });
+  }
+
   if (state.notReady) {
     return (
       <div style={{ ...card, padding: 24, textAlign: 'center' }}>
@@ -200,8 +214,35 @@ export default function BudgetTab({ canEdit = false }) {
               </>
             )}
             <button type="button" className="secondary-btn" disabled={!rows.length} onClick={exportCsv} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+            {view === 'grid' && (
+              <button type="button" className="secondary-btn" disabled={!rows.length} aria-expanded={!!intacct} onClick={() => setIntacct((v) => (v ? null : { problems: [] }))}
+                style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct Import File</button>
+            )}
           </div>
         </div>
+
+        {intacct && view === 'grid' && (
+          <form onSubmit={exportIntacct} aria-label="Export Intacct Import File" style={{ ...card, padding: '10px 12px', display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                Intacct Budget ID
+                <input type="text" value={budgetId} onChange={(e) => setBudgetId(e.target.value)} maxLength={40} placeholder="e.g. 2026 Operating" style={{ ...control, width: 200 }} />
+              </label>
+              <button type="submit" className="primary-btn" style={{ fontSize: '0.78rem' }}>Download File</button>
+              <button type="button" className="secondary-btn" onClick={() => setIntacct(null)} style={{ fontSize: '0.78rem' }}>Close</button>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              One row per account and month for {entityName || 'the entity'} {year}: Budget ID, Account No., Location ID, Period Name (&quot;Month Ended January {year}&quot;), Amount. Months at zero are left out. The layout is provisional until it is matched to the Intacct import template.
+            </div>
+            {intacct.problems.length > 0 && (
+              <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}>
+                <strong>Fix these first - no file was made:</strong>
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{intacct.problems.map((p) => <li key={p}>{p}</li>)}</ul>
+              </div>
+            )}
+            {intacct.done && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{intacct.done}</div>}
+          </form>
+        )}
 
         {state.error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{state.error}</div>}
 

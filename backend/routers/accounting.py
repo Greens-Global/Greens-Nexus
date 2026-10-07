@@ -167,12 +167,16 @@ async def _limit(scope: dict, location: str | None, locations: str | None) -> tu
 
 
 _BOOKS = ("accrual", "cash")
+# A user-defined Intacct book (Charmi, item 35, 10/07: "Fair Market Journal",
+# "KJECA - Greens Global") travels by the key the accounting app lists it under
+# (GET /accounting/books): accrual plus that book's own journals.
+_USER_BOOK = re.compile(r"^[a-z0-9_-]{1,24}$")
 
 
 def _book(book: str | None) -> str | None:
-    b = (book or "accrual").lower()
-    if b not in _BOOKS:
-        raise HTTPException(status_code=400, detail="book must be accrual or cash")
+    b = (book or "accrual").strip().lower()
+    if b not in _BOOKS and not _USER_BOOK.fullmatch(b):
+        raise HTTPException(status_code=400, detail="book must be accrual, cash or a book the accounting app lists")
     # The accounting app defaults to accrual; leaving it out keeps the cache key
     # the dashboard widgets already use.
     return None if b == "accrual" else b
@@ -357,6 +361,12 @@ async def search_ledger(
     account: str | None = None,
     journal: str | None = None,
     journals: str | None = None,
+    departments: str | None = None,
+    vendor: str | None = None,
+    customer: str | None = None,
+    employee: str | None = None,
+    project: str | None = None,
+    item: str | None = None,
     min_: str | None = Query(default=None, alias="min"),
     max_: str | None = Query(default=None, alias="max"),
     book: str | None = None,
@@ -373,7 +383,14 @@ async def search_ledger(
     words, one `account` (GL code), a period and an entity. `cols` is a JSON
     object of column -> text, one filter box per column (Charmi, Sep 25), and
     narrows the whole result. Returns one page of lines, the totals over the
-    WHOLE result, and the facets to narrow it with."""
+    WHOLE result, and the facets to narrow it with.
+
+    Oct 7 (Charmi, item 31): the report's dimension filters narrow the lines
+    too - `departments`, `vendor`, `customer`, `employee`, `project`, `item`,
+    each a comma-separated list of codes, the same params the report reads
+    take. Before, a General Ledger with a vendor picked listed every line of
+    the account (1,763 payments to other payees) and timed out on All
+    entities."""
     location, locations = await _limit(scope, location, locations)
     col_filters = None
     if cols:
@@ -389,8 +406,71 @@ async def search_ledger(
         "q": (q or "").strip() or None, "location": location, "locations": locations, "from": from_, "to": to,
         "party_kind": party_kind if party else None, "party": party,
         "account": account, "journal": journal, "journals": _journals(journals), "min": min_, "max": max_,
-        "book": book, "cols": col_filters, "offset": max(0, offset), "limit": max(1, min(limit, 1000)),
+        "book": _search_book(book), "cols": col_filters, "offset": max(0, offset), "limit": max(1, min(limit, 1000)),
+        **_dims(None, departments, vendor, customer, employee, project, item),
     })
+
+
+def _search_book(book: str | None) -> str | None:
+    """The search's own `book` (all | accrual | cash, or a user book key);
+    anything else is refused rather than passed through."""
+    if not book:
+        return None
+    b = book.strip().lower()
+    if b == "all" or b in _BOOKS or _USER_BOOK.fullmatch(b):
+        return b
+    raise HTTPException(status_code=400, detail="book must be all, accrual, cash or a book the accounting app lists")
+
+
+@router.get("/reports/budget")
+async def report_budget(
+    from_: str = Query(alias="from"), to: str = Query(...), location: str | None = None, locations: str | None = None,
+    budget_id: str | None = None, scope: dict = Depends(entity_scope),
+):
+    """The Intacct budget by account and month for a period (Charmi, item
+    43: "Actual vs Budget" on the Income Statement). Answers
+    {available, budget_id, budgets, rows: [{account_no, title, section, month,
+    amount}], total}; {available: false} while the accounting app has no such
+    route, and the screen falls back to the budget saved in Nexus."""
+    location, locations = await _limit(scope, location, locations)
+    if budget_id is not None and not re.fullmatch(r"[A-Za-z0-9 _.-]{1,40}", budget_id):
+        raise HTTPException(status_code=400, detail="budget_id is not a budget ID")
+    try:
+        data = await _acct_get("/api/internal/reports/budget", {"from": from_, "to": to, "location": location, "locations": locations, "budget_id": budget_id})
+    except HTTPException as e:
+        if getattr(e, "upstream_status", None) == 404 or "returned 404" in str(e.detail):
+            return {"available": False, "rows": [], "budgets": []}
+        raise
+    return {**data, "available": True}
+
+
+@router.get("/books")
+async def list_books(scope: dict = Depends(entity_scope)):
+    """The books a report can read, for the Book selector (Charmi, item 35):
+    Accrual, Cash and the user-defined Intacct books (FMV, KJE ...). The
+    accounting app may not have the route yet: its 404 answers
+    {available: false} and the selector keeps Accrual / Cash."""
+    try:
+        data = await _acct_get("/api/internal/books", {})
+    except HTTPException as e:
+        if getattr(e, "upstream_status", None) == 404 or "returned 404" in str(e.detail):
+            return {"available": False, "books": []}
+        raise
+    out = []
+    seen = set()
+    for b in data.get("books") or []:
+        if not isinstance(b, dict):
+            continue
+        key = str(b.get("id") or "").strip().lower()
+        if not key or key in seen or not (key in _BOOKS or _USER_BOOK.fullmatch(key)):
+            continue
+        seen.add(key)
+        out.append({
+            "key": key, "label": str(b.get("title") or b.get("code") or key).strip()[:80],
+            "kind": "user" if b.get("kind") == "user" else "standard",
+            "journals": [str(j).upper() for j in (b.get("journals") or []) if isinstance(j, str)],
+        })
+    return {"available": bool(out), "books": out}
 
 
 @router.get("/entry/{entry_id}")

@@ -2014,6 +2014,31 @@ export const api = {
   encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
   getPfsAccessPeople:     () => req('/pfs-access/people'),
   setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
+  // ── Accounting > Reports, Oct 7 (Charmi, item 35): the books a report can
+  //    read ({available, books: [{key, label, kind, journals}]}; available
+  //    false = the accounting app lists none yet), and one report read with
+  //    any params - a user-defined book (fmv, kje ...) travels as `book`.
+  //    kind: pnl | balance-sheet | trial-balance | buckets. Array params go
+  //    as comma-separated codes; empty ones are left out. ──
+  getAccountingBooks: () => req('/accounting/books'),
+  // The Intacct budget by account and month for a period ({available, budget_id,
+  // budgets, rows: [{account_no, title, section, month, amount}]}), for Actual vs
+  // Budget on the Income Statement (item 43).
+  getAccountingReportBudget: ({ from, to, location, locations, budgetId } = {}) => {
+    const qs = new URLSearchParams({ from, to });
+    if (location) qs.set('location', location);
+    if (locations?.length) qs.set('locations', locations.join(','));
+    if (budgetId) qs.set('budget_id', budgetId);
+    return req(`/accounting/reports/budget?${qs.toString()}`);
+  },
+  readAccountingReport: (kind, params = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      const val = Array.isArray(v) ? v.join(',') : v;
+      if (val !== undefined && val !== null && val !== '') qs.set(k, val);
+    });
+    return req(`/accounting/reports/${encodeURIComponent(kind)}?${qs.toString()}`);
+  },
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
