@@ -1267,7 +1267,7 @@ export const DOCS = [
     gains: [
       'Help from the right team, with the right questions asked up front.',
       'Live status of everything you have raised.',
-      'This Documentation tab, for learning any module.',
+      'This Documentation (the Documentation card on Support), for learning any module.',
     ],
     shot: 'support',
     walkthroughs: [
@@ -1314,6 +1314,7 @@ export const DOCS = [
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
       { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
       { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
+      { name: 'Help Center', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
       { name: 'Legal', desc: 'The Privacy Policy and Terms & Conditions, one page with a tab each. Open it from Legal in the menu under your name (top right), or Legal in the phone menu.' },
       { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from Support or from the menu under your name.' },
       { name: 'Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated and the latest comment. Sort, search and page through it, or mark one Resolved yourself.' },

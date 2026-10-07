@@ -16,8 +16,9 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 import {
   Ticket, Users, ArrowUpRight, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw, ClipboardList, Rocket,
+  Pencil, CheckCircle2, RotateCcw, ClipboardList, Rocket, CircleHelp,
 } from 'lucide-react';
+import { HELP_OPEN_EVENT } from '../support/HelpMenu';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
 import { formatDateTime } from '../lib/datetime';
@@ -39,13 +40,13 @@ const ImplementationGuide = lazy(() => import('../support/ImplementationGuide'))
 
 // 'help' is the page as it always was; 'documentation' is the module guide.
 // URL: /support (help) or /support/documentation.
+// One tab in the header (Pranshu, 10/07): Documentation and the
+// Implementation Guide open from their cards, not the top bar, and "Help
+// Center" is now the card that opens the help panel - so the page's own tab
+// is just Support, and clicking it always comes back to the cards.
 const SUPPORT_TABS = [
-  { key: 'help', label: 'Help Center', Icon: LifeBuoy },
-  { key: 'documentation', label: 'Documentation', Icon: BookOpen },
+  { key: 'help', label: 'Support', Icon: LifeBuoy },
 ];
-// Administrators also get the Implementation Guide (Neil, 10/06): how to set
-// Nexus up for an organization, as opposed to Documentation (how to use it).
-const IMPLEMENTATION_TAB = { key: 'implementation', label: 'Implementation Guide', Icon: Rocket };
 
 // Tour id this page reports to the server (routers/user_tours.py) - same
 // pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
@@ -162,7 +163,6 @@ const SUPPORT_PAGE_SIZE = 10;
 export default function Support({ activeSub, onSubChange }) {
   const { can = () => false, isExternal = false } = useRole() || {};
   const canImplement = !isExternal && can('administrator');
-  const tabs = canImplement ? [...SUPPORT_TABS, IMPLEMENTATION_TAB] : SUPPORT_TABS;
   const tab = activeSub === 'documentation' ? 'documentation'
     : activeSub === 'implementation' && canImplement ? 'implementation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
@@ -274,6 +274,10 @@ export default function Support({ activeSub, onSubChange }) {
       onOpen: () => setWalking(true) }] : []),
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
+    // The help panel the header's "?" opens: search, ask a question, What's
+    // New, help for this page (support/HelpMenu.jsx listens for the event).
+    { icon: CircleHelp, title: 'Help Center', desc: 'Search for help, ask a question, or see what is new in Nexus.',
+      onOpen: () => window.dispatchEvent(new CustomEvent(HELP_OPEN_EVENT)) },
     // Privacy Policy and Terms & Conditions moved to Legal in the profile menu
     // (Neil, 10/06: "this has nothing to do with Support").
     { icon: BookOpen, title: 'Documentation', desc: 'How every Nexus module works, step by step.',
@@ -331,7 +335,15 @@ export default function Support({ activeSub, onSubChange }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <ModuleTabs tabs={tabs} active={tab} onChange={setTab} />
+      <ModuleTabs tabs={SUPPORT_TABS} active="help" onChange={setTab} />
+
+      {tab !== 'help' && (
+        <button type="button" onClick={() => setTab('help')}
+          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px 6px 8px', borderRadius: 8,
+            border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: -8 }}>
+          <ChevronLeft size={15} /> Back to Support
+        </button>
+      )}
 
       {tab === 'documentation' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
