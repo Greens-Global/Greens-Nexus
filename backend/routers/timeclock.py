@@ -5300,12 +5300,37 @@ def reorder_groups(body: GroupOrderIn, user: dict = Depends(require_shift_manage
     return {"ok": True}
 
 
+def _role_teams_target(db: Session, email: str) -> dict:
+    """The Teams destination set on this person's job role (Neil, 10/07: "it
+    isn't even based on the person, it's based on a role"). A person holding
+    several roles (one per company) gets the first, by name, that sets one."""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(func.lower(NexusGroupMember.email) == email).all()]
+    if not gids:
+        return {}
+    r = (db.query(NexusGroup)
+         .filter(NexusGroup.id.in_(gids), NexusGroup.is_job_role == 1, NexusGroup.bod_chat_id != "")
+         .order_by(NexusGroup.name).first())
+    if not r:
+        return {}
+    channel = (r.bod_target or "") == "channel"
+    if channel and not r.bod_team_id:
+        return {}
+    return {"type": "channel" if channel else "chat", "id": r.bod_chat_id, "name": r.bod_chat_name or "",
+            "teamId": (r.bod_team_id or "") if channel else "", "teamName": (r.bod_team_name or "") if channel else "",
+            "group": r.name, "source": "role"}
+
+
 def _resolve_group_target(db: Session, email: str) -> dict:
-    """Where this person's BOD/EOD/Break posts go: the Teams chat OR channel
-    bound to their first group that has one. The SERVER-SIDE source of truth,
-    so a client that couldn't fetch it (a network blip) never loses the
-    routing. {} when nothing is bound."""
+    """Where this person's BOD/EOD/Break posts go: the Teams chat or channel
+    set on their job role (Oct 7), else the one bound to their first shift
+    group that has one (the older setting, kept as the fallback). The
+    SERVER-SIDE source of truth, so a client that couldn't fetch it (a network
+    blip) never loses the routing. {} when nothing is bound."""
     email = (email or "").lower()
+    role = _role_teams_target(db, email)
+    if role:
+        return role
     group_ids = [m.group_id for m in db.query(ShiftGroupMember)
                  .filter(ShiftGroupMember.employee_email == email).all()]
     if not group_ids:
@@ -5316,7 +5341,8 @@ def _resolve_group_target(db: Session, email: str) -> dict:
     if not g:
         return {}
     return {"type": _target_of(g), "id": g.teams_chat_id, "name": g.teams_chat_name or "",
-            "teamId": g.teams_team_id or "", "teamName": g.teams_team_name or "", "group": g.name}
+            "teamId": g.teams_team_id or "", "teamName": g.teams_team_name or "", "group": g.name,
+            "source": "shift_group"}
 
 
 @router.get("/my-chat")
@@ -5326,7 +5352,8 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
     to wins. Empty chatId means no binding → the client falls back to a picker."""
     t = _resolve_group_target(db, user["email"])
     return {"chatId": t.get("id", ""), "chatName": t.get("name", ""), "groupName": t.get("group", ""),
-            "targetType": t.get("type", "chat"), "teamId": t.get("teamId", ""), "teamName": t.get("teamName", "")}
+            "targetType": t.get("type", "chat"), "teamId": t.get("teamId", ""), "teamName": t.get("teamName", ""),
+            "source": t.get("source", "")}
 
 
 @router.delete("/shift-groups/{group_id}")

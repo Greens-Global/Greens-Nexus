@@ -1117,6 +1117,7 @@ export const DOCS = [
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status.' },
       { name: 'Employee Record', desc: 'Job, reporting line, contact, emergency contact, documents with expiry dates, and history.' },
+      { name: 'Office & Contact', desc: 'Office, mobile phone, office phone, street address, city, state, ZIP and country or region - the contact info Microsoft 365 shows in Outlook and Teams. It is kept in step both ways: edit it here (Edit on the profile) and Microsoft 365 updates when you save; a change made in the Microsoft 365 admin center comes into Nexus within 15 minutes, or straight away with Sync Now. If both sides changed the same field, the Nexus value wins. Job title and department sync the same way. Only production writes to Microsoft 365.' },
       { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
@@ -1387,6 +1388,7 @@ export const DOCS = [
     },
     tips: [
       'Changes to a job role apply to everyone with that role right away.',
+      'Where BOD, EOD and break messages post in Microsoft Teams is set on the job role: open the role, then under Teams Messages pick Group Chat or Channel and bind it. Everyone given the role posts there. A shift group chat is only used for people whose role sets none.',
       'Not sure which category a setting is in? Type a word like "email" or "SLA" in Filter Settings.',
     ],
   },

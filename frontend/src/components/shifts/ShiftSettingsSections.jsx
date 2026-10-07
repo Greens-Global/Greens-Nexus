@@ -6,9 +6,9 @@
 // scheduled together, who schedules them, their Teams chat). Registered in
 // views/AdminConsole.jsx GLOBAL_CATEGORIES / GLOBAL_SECTIONS.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, X, Check, MessageSquare, Link2, Search, ChevronUp, ChevronDown, Pencil, Hash } from 'lucide-react';
+import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash } from 'lucide-react';
 import { api } from '../../api';
-import { graphTokenSilent, graphTokenInteractive, listMyChats, channelTokenInteractive, listMyChannels } from '../../teamsGraph';
+import TeamsTargetPicker from '../TeamsTargetPicker';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
 import { dialog } from '../../ui/dialog';
@@ -275,10 +275,6 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
   const [canGroups, setCanGroups] = useState(true);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [chatList, setChatList] = useState(null);
-  const [chatLoading, setChatLoading] = useState(false);
-  // Channels of the teams you are in (Oct 6) - the other kind of binding.
-  const [channelList, setChannelList] = useState(null);
   const [q, setQ] = useState('');
   useEffect(() => {
     let live = true;
@@ -292,42 +288,6 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
   const who = (email) => { const p = people.find((x) => emailOf(x) === (email || '').toLowerCase()); return nameOf(email, p?.name); };
   const directory = useMemo(() => people.filter((p) => emailOf(p)).map((p) => ({ email: emailOf(p), name: nameOf(emailOf(p), p.name), photoUrl: p.photoUrl || p.photo_url || '' })).sort((a, b) => a.name.localeCompare(b.name)), [people, nameOf]);
 
-  async function loadChatOptions() {
-    setChatLoading(true);
-    let serverReason = '';
-    try {
-      const r = await api.timeMyChats();
-      if (r?.chats?.length) { setChatList(r.chats); setChatLoading(false); return; }
-      serverReason = r?.reason || 'no chats returned';
-    } catch (e) { serverReason = e?.message || 'request failed'; }
-    try {
-      const tok = (await graphTokenSilent()) || (await graphTokenInteractive());
-      setChatList(await listMyChats(tok));
-    } catch (e) {
-      toastErr?.(`Could not load your Teams chats - ${serverReason}; Microsoft sign-in: ${e?.errorCode || e?.message || 'failed'}.`);
-      setChatList([]);
-    }
-    setChatLoading(false);
-  }
-  async function loadChannelOptions() {
-    setChatLoading(true);
-    let serverReason;
-    try {
-      const r = await api.timeMyChannels();
-      if (r?.channels?.length) { setChannelList(r.channels); setChatLoading(false); return; }
-      serverReason = r?.reason || 'no channels returned';
-    } catch (e) { serverReason = e?.message || 'request failed'; }
-    try {
-      setChannelList(await listMyChannels(await channelTokenInteractive()));
-    } catch (e) {
-      toastErr?.(`Could not load your Teams channels - ${serverReason}; Microsoft sign-in: ${e?.errorCode || e?.message || 'failed'}.`);
-      setChannelList([]);
-    }
-    setChatLoading(false);
-  }
-  // Group chat or channel - switching clears a half-made choice of the other kind.
-  const setTarget = (target) => setForm((f) => (f.teamsTarget === target ? f
-    : { ...f, teamsTarget: target, teamsChatId: '', teamsChatName: '', teamsTeamId: '', teamsTeamName: '' }));
   async function save() {
     if (!form.name.trim()) { toastErr?.('Name the group.'); return; }
     setBusy(true);
@@ -357,7 +317,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
   const dirty = !!form && baseline.current !== null && JSON.stringify(form) !== JSON.stringify(baseline.current);
   const guard = useUnsavedGuard(dirty, () => setForm(null), save);
   const openForm = (g) => {
-    setChatList(null); setChannelList(null); setQ('');
+    setQ('');
     setForm(g ? { id: g.id, name: g.name, members: g.members, schedulers: g.schedulers || [], teamsChatId: g.chatId || '', teamsChatName: g.chatName || '',
       teamsTarget: g.teamsTarget || 'chat', teamsTeamId: g.teamId || '', teamsTeamName: g.teamName || '' }
       : { name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '', teamsTarget: 'chat', teamsTeamId: '', teamsTeamName: '' });
@@ -443,75 +403,16 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
               </div>
               <div style={{ marginTop: 14 }}>
                 <div style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><MessageSquare size={12} /> Microsoft Teams - where BOD / EOD / break messages post</div>
+                {/* A job role's Teams setting comes first (Neil, 10/07: set it on
+                    the role in Access); this binding covers people whose role
+                    sets none. */}
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                  Set this on the job role instead (Access &gt; Job Roles) - a role's chat or channel is used first. This group's binding is used only for members whose role sets none.
+                </div>
                 {/* Group chat or a channel in a team (Pranshu, 10/06) - whichever the organization runs. */}
-                <div role="radiogroup" aria-label="Post to" style={{ display: 'inline-flex', gap: 4, padding: 3, borderRadius: 9, background: 'var(--bg)', marginBottom: 8 }}>
-                  {[['chat', 'Group Chat', MessageSquare], ['channel', 'Channel', Hash]].map(([v, l, Icon]) => (
-                    <button key={v} type="button" role="radio" aria-checked={(form.teamsTarget || 'chat') === v} onClick={() => setTarget(v)}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                        background: (form.teamsTarget || 'chat') === v ? 'var(--surface, #fff)' : 'transparent',
-                        color: (form.teamsTarget || 'chat') === v ? 'var(--ink, inherit)' : 'var(--muted)',
-                        boxShadow: (form.teamsTarget || 'chat') === v ? '0 1px 2px rgba(0,0,0,.12)' : 'none' }}>
-                      <Icon size={12} /> {l}
-                    </button>
-                  ))}
-                </div>
-                {form.teamsChatId ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, padding: '5px 11px', borderRadius: 9, background: 'var(--bg)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      {form.teamsTarget === 'channel'
-                        ? <><Hash size={12} /> {form.teamsTeamName || 'Team'} › {form.teamsChatName || 'Channel'}</>
-                        : (form.teamsChatName || 'Bound chat')}
-                    </span>
-                    <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} onClick={() => setForm({ ...form, teamsChatId: '', teamsChatName: '', teamsTeamId: '', teamsTeamName: '' })}>Change Or Clear</button>
-                  </div>
-                ) : form.teamsTarget === 'channel' ? (
-                  channelList === null ? (
-                    <button type="button" className="secondary-btn" onClick={loadChannelOptions} disabled={chatLoading} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      {chatLoading ? <Spinner size={12} /> : <Link2 size={12} />} Bind A Channel
-                    </button>
-                  ) : channelList.length === 0 ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                      No Teams channels found for your account. This list only shows channels of teams you are a member of - join the team in Microsoft Teams first, then{' '}
-                      <button type="button" onClick={loadChannelOptions} disabled={chatLoading} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 700, fontSize: 11.5 }}>refresh</button>.
-                    </div>
-                  ) : (
-                    <select className="form-input" value="" aria-label="Teams channel" style={{ fontSize: 12.5, width: '100%' }}
-                      onChange={(e) => {
-                        const c = channelList.find((x) => x.channelId === e.target.value);
-                        if (c) setForm({ ...form, teamsTarget: 'channel', teamsChatId: c.channelId, teamsChatName: c.channelName, teamsTeamId: c.teamId, teamsTeamName: c.teamName });
-                      }}>
-                      <option value="">Pick a channel</option>
-                      {[...new Set(channelList.map((c) => c.teamId))].map((tid) => {
-                        const inTeam = channelList.filter((c) => c.teamId === tid);
-                        return (
-                          <optgroup key={tid} label={inTeam[0].teamName}>
-                            {inTeam.map((c) => <option key={c.channelId} value={c.channelId}>{c.channelName}{c.membershipType === 'private' ? ' (private)' : c.membershipType === 'shared' ? ' (shared)' : ''}</option>)}
-                          </optgroup>
-                        );
-                      })}
-                    </select>
-                  )
-                ) : chatList === null ? (
-                  <button type="button" className="secondary-btn" onClick={loadChatOptions} disabled={chatLoading} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {chatLoading ? <Spinner size={12} /> : <Link2 size={12} />} Bind A Chat
-                  </button>
-                ) : chatList.length === 0 ? (
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                    No Teams chats found for your account. This list only shows chats you are already a member of - create or join the group chat in Microsoft Teams first, then{' '}
-                    <button type="button" onClick={loadChatOptions} disabled={chatLoading} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 700, fontSize: 11.5 }}>refresh</button>.
-                  </div>
-                ) : (
-                  <select className="form-input" value="" aria-label="Teams chat" style={{ fontSize: 12.5, width: '100%' }}
-                    onChange={(e) => { const c = chatList.find((x) => x.id === e.target.value); if (c) setForm({ ...form, teamsChatId: c.id, teamsChatName: c.name }); }}>
-                    <option value="">Pick a group chat</option>
-                    {chatList.map((c) => <option key={c.id} value={c.id}>{c.name}{c.chatType === 'oneOnOne' ? ' (direct)' : ''}</option>)}
-                  </select>
-                )}
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 5 }}>
-                  {form.teamsTarget === 'channel'
-                    ? 'Members must be in this team (and in the channel, if it is private) for their message to post. Each message is a new post in the channel.'
-                    : 'Members must be in this chat for their message to post.'}
-                </div>
+                <TeamsTargetPicker toastErr={toastErr}
+                  value={{ type: form.teamsTarget || 'chat', id: form.teamsChatId || '', name: form.teamsChatName || '', teamId: form.teamsTeamId || '', teamName: form.teamsTeamName || '' }}
+                  onChange={(t) => setForm((f) => ({ ...f, teamsTarget: t.type, teamsChatId: t.id, teamsChatName: t.name, teamsTeamId: t.teamId, teamsTeamName: t.teamName }))} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
                 <button type="button" className="secondary-btn" onClick={() => setForm(null)}>Cancel</button>

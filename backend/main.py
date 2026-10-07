@@ -883,6 +883,19 @@ def _run_migrations():
             "ALTER TABLE accounting_loan_settings ADD COLUMN stress_excluded BOOLEAN DEFAULT 0",
             # MRI: one list of every income source (Oct 7) - see the Postgres list.
             "ALTER TABLE leases ADD COLUMN income_type VARCHAR DEFAULT 'lease'",
+            # Job role -> Teams destination for BOD/EOD (Oct 7) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN bod_target VARCHAR DEFAULT 'chat'",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_chat_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_chat_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_team_name VARCHAR DEFAULT ''",
+            # Microsoft 365 contact info two-way (Oct 7) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN office_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN street_address VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN city VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN state VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN postal_code VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN m365_sync JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1981,6 +1994,23 @@ def _run_migrations():
         # Accounting > AMA, Asset Management Agreements (Priyanka, Oct 7). New
         # table - RLS per CLAUDE.md.
         "ALTER TABLE accounting_ama_agreements ENABLE ROW LEVEL SECURITY",
+        # Job role -> Teams destination for BOD/EOD/break posts (Neil, Oct 7):
+        # set on the role in Access, wins over the shift group's binding.
+        # models.NexusGroup.bod_*.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_target VARCHAR DEFAULT 'chat'",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_chat_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_chat_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_team_name VARCHAR DEFAULT ''",
+        # Microsoft 365 contact info kept in step both ways (Neil, Oct 7):
+        # office phone, work street address, city, state, ZIP, plus the
+        # three-way-merge base in m365_sync. models.NexusEmployee, m365_profile_sync.py.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS office_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS street_address VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS city VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS postal_code VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS m365_sync JSON",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2636,6 +2666,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
+        # Microsoft 365 contact info both ways, every 15 minutes (Neil, Oct 7 -
+        # m365_profile_sync.py). Deployed worker only: a laptop must not poll
+        # the live directory, and Entra writes stay production-only inside.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from m365_profile_sync import m365_contact_sync_loop
+                _tasks.append(_a.create_task(m365_contact_sync_loop()))
+            else:
+                print("[startup] M365 contact sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] M365 contact sync skipped: {e}")
         # Google Business Profile mirror (Marketing, Oct 2026): locations and
         # reviews every 30 minutes. Deployed worker only - one connected Google
         # account, and a laptop must not spend its quota or race the deploy.
