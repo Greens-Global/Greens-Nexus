@@ -655,7 +655,7 @@ export const api = {
   getTaskChangelogComments: (id) => req(`/task-changelog/${id}/comments`),
   addTaskChangelogComment: (id, data) => req(`/task-changelog/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   // Long-running: pulls commits + calls Claude, so it needs the AI timeout (not the 18s default).
-  generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST", timeoutMs: 120_000 }),
+  generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST", timeoutMs: 300_000 }),   // Claude may think for a few minutes
   // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
   getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
   markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
@@ -1983,6 +1983,8 @@ export const api = {
   mapAdsCampaigns: (changes) => req('/marketing/ads/campaigns/facilities', { method: 'PUT', body: JSON.stringify({ changes }) }),
   getAdBudgets: () => req('/marketing/ads/budgets'),
   setAdBudgets: (budgets) => req('/marketing/ads/budgets', { method: 'PUT', body: JSON.stringify({ budgets }) }),
+  // What's New automatic drafting: last run, last error, next run (changelog_auto.py).
+  getTaskChangelogAutoStatus: () => req('/task-changelog/auto-status'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
