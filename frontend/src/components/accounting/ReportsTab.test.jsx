@@ -91,7 +91,7 @@ vi.mock('./LedgerSearch', async () => {
     onBusy?.(false);
     // The real grid hands the report's Export menu a builder for its lines.
     useEffect(() => { onExport?.({ build: async () => LINES_TABLE, lines: 1, name: 'Ledger Lines - 61000 Repairs', title: 'Ledger Lines - 61000 Repairs' }); return () => onExport?.(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return <div data-testid="ledger-search" data-from={drill?.from}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
+    return <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
   }
   return { default: LedgerSearchMock };
 });
@@ -160,6 +160,15 @@ describe('ReportsTab statement table', () => {
     requestReportDrill({ account: '11452', accountName: 'GC Chase Chkg', from: '', to: '2026-08-31', entity: '32000' });
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11452:2026-08-31:accrual'));
+  });
+});
+
+describe('Cross-tab drill with filters (Oct 7)', () => {
+  it('carries a party and the report filters from another tab into the lines', async () => {
+    requestReportDrill({ accountName: 'Rent', from: '2026-01-01', to: '2026-01-31', entity: '32000', party: { kind: 'customer', code: 'C1', name: 'Tenant One' }, dims: { departments: ['9500'], journals: ['ARJ'] } });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('C1'));
+    expect(JSON.parse(screen.getByTestId('ledger-search').dataset.drillDims)).toEqual({ departments: ['9500'], journals: ['ARJ'] });
   });
 });
 

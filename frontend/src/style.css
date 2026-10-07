@@ -5311,3 +5311,9 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
 }
 .acct-report .acct-op-filter input { min-width: 56px; }
+.acct-lines .acct-op-filter { display: flex; gap: 3px; align-items: center; }
+.acct-lines .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+.acct-lines .acct-op-filter input { min-width: 48px; text-align: right; }

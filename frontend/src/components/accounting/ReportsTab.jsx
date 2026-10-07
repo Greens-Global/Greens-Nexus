@@ -167,9 +167,13 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
   // A drill-down asked for from another tab (see drill.js) lands here.
   useEffect(() => {
     const take = (d) => {
-      if (!d || !d.account) return;
+      // Oct 7: a drill may carry a party ({ kind, code, name }) and report
+      // filters (`dims`: vendor, customer, departments, journals ...) - they
+      // follow into the lines like the report's own.
+      if (!d || !(d.account || d.party || d.dims)) return;
       if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
-      setDrill({ account: d.account, accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual' });
+      setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
+        ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}) });
       toTop();
     };
     take(takePendingDrill());
@@ -564,7 +568,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport} />
+          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport} />
       )}
 
       {!searching && error && <div role="alert" style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{plainError(error)}</div>}
