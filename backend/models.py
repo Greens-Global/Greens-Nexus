@@ -4819,6 +4819,9 @@ class Lease(Base):
     team_note_by     = Column(String, default="")
     team_note_at     = Column(String, default="")
     link_source      = Column(String, default="")
+    # Oct 7 (Charmi): MRI is one list of every recurring income source, so a
+    # row says what it is - lease | interest | loan_payment | other.
+    income_type      = Column(String, default="lease")
 
 
 class LeaseRate(Base):

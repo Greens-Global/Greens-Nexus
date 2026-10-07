@@ -45,7 +45,7 @@ from pydantic import BaseModel
 import models
 from auth import require_module_grant
 from database import SessionLocal
-from routers import accounting, accounting_partners
+from routers import accounting, accounting_partners, acct_scan
 from routers.accounting import _csv, _limit, entity_scope
 from routers.accounting_loans import ScanJob, _entities, _sem, forget_jobs, gather_tolerant, leaf_entities, month_bounds, scan_job, scan_result, shift_month
 
@@ -415,7 +415,63 @@ def _scan_key(scope: dict, min_count: int, picked: Optional[set]) -> tuple:
     return (scope["user"]["email"], "mre", from_, to, min_count, tuple(sorted(picked)) if picked else ())
 
 
+NOT_MRE_TITLES = "interest|loan|mortgage|principal|notes? payable|debt service|depreciation|amorti"   # the accounting app's titleExclude
+_AGG_CHUNK = 50
+
+
+def parts_from_aggregate(rows: list[dict], entities: list[dict], min_count: int) -> list[dict]:
+    """The aggregate op's rows (party = vendor) as scan parts: per entity, the
+    expense accounts posted to and one proposal per stable vendor."""
+    by_code = {e["code"]: e for e in entities}
+    accts: dict[str, dict[str, dict]] = defaultdict(dict)
+    by_vendor: dict[str, dict[str, dict[str, dict[str, float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(float))))
+    names: dict[str, dict[str, str]] = defaultdict(dict)
+    for r in rows:
+        ent, gl, vendor = str(r.get("entity") or ""), str(r.get("account_no") or ""), str(r.get("party") or "")
+        acct = {"section": r.get("section") or "", "account_no": gl, "title": r.get("title") or ""}
+        if ent not in by_code or not gl or not vendor or not expense_accounts([acct]):
+            continue
+        accts[ent].setdefault(gl, acct)
+        cell = by_vendor[ent][vendor][str(r.get("month") or "")[:7]]
+        cell[gl] = _r2(cell[gl] + _spent(r))
+        if r.get("party_name"):
+            names[ent][vendor] = str(r["party_name"])
+    out = []
+    for ent, e in by_code.items():
+        vendors = {v: {m: dict(c) for m, c in months.items()} for v, months in by_vendor.get(ent, {}).items()
+                   if sum(sum(c.values()) for c in months.values()) > _POSTED}
+        out.append({"entity": e, "accounts": len(accts.get(ent, {})), "proposals": propose(e, list(accts.get(ent, {}).values()), vendors, names.get(ent, {}), min_count)})
+    return out
+
+
+async def _aggregate(scope: dict, entities: list[dict], min_count: int, deadline: acct_scan.Deadline) -> tuple[list[dict], list[dict]]:
+    """(parts read through the aggregate op, the entities it did not answer for)."""
+    if not entities or not acct_scan.aggregate_available():
+        return [], entities
+    from_, to, _ = _window()
+    chunks = [entities[i:i + _AGG_CHUNK] for i in range(0, len(entities), _AGG_CHUNK)]
+
+    async def read(chunk: list[dict]):
+        codes = [e["code"] for e in chunk]
+        await _limit(scope, None, ",".join(codes))
+        async with _sem():
+            return await acct_scan.party_months(codes, from_, to, "vendor", sections=list(_COSTS), title_exclude=NOT_MRE_TITLES)
+    got = await acct_scan.bounded([(lambda c=c: read(c)) for c in chunks], deadline)
+    parts, rest = [], []
+    for chunk, (ok, rows) in zip(chunks, got):
+        if ok and rows is not None:
+            parts += parts_from_aggregate(rows, chunk, min_count)
+        else:
+            rest += chunk
+    return parts, rest
+
+
 async def _scan(scope: dict, min_count: int, picked: Optional[set], job: Optional[ScanJob] = None) -> dict:
+    """Oct 7 (Charmi: stuck at 133 of 142 entities for 5+ minutes): the
+    aggregate op when the accounting app answers it; otherwise one entity at
+    a time, each under a hard ceiling and the whole scan under a deadline. An
+    entity not read in time is listed in `failed` (Retry reads just those) and
+    the rest is shown - never an endless bar."""
     from_, to, _ = _window()
     every = await _entities(scope)
     historical = sum(1 for e in every if is_historical(e))
@@ -424,19 +480,28 @@ async def _scan(scope: dict, min_count: int, picked: Optional[set], job: Optiona
     entities, parents = active_leaves(every)
     if job:
         job.total = len(entities)
-    parts, notes = await gather_tolerant([(lambda e=e: _scan_entity(scope, e, min_count)) for e in entities],
-                                         [f"{e.get('name') or e['code']} ({e['code']})" for e in entities],
-                                         lambda: {"entity": {"code": "", "name": ""}, "accounts": 0, "proposals": []},
-                                         on_done=job.tick if job else None)
-    parts = [p for p in parts if p["entity"].get("code")]
+    deadline = acct_scan.Deadline()
+    parts, rest = await _aggregate(scope, entities, min_count, deadline)
+    if job:
+        job.done += len(entities) - len(rest)
+    got = await acct_scan.bounded([(lambda e=e: _scan_entity(scope, e, min_count)) for e in rest], deadline, on_done=job.tick if job else None)
+    failed = []
+    for e, (ok, p) in zip(rest, got):
+        if ok:
+            parts.append(p)
+        else:
+            failed.append(acct_scan.failure(e, p))
+    failed.sort(key=lambda f: (f["name"], f["code"]))
     out: dict[str, Any] = {
-        "notes": [f"Not read this time - {n}" for n in notes],
+        "notes": [],
         "from": from_, "to": to, "minCount": min_count, "entitiesScanned": len(entities), "parentsSkipped": parents, "historicalSkipped": historical,
+        "entitiesRead": len(entities) - len(failed), "failed": failed, "status": acct_scan.status_text(len(entities), failed),
+        "source": "scan" if len(rest) == len(entities) else ("aggregate" if not rest else "mixed"),
         "entitiesWithExpenses": sum(1 for p in parts if p["accounts"]),
         "proposals": [x for p in parts for x in p["proposals"]],
     }
     if job:
-        job.cacheable = not notes
+        job.cacheable = not failed
     return out
 
 
@@ -649,12 +714,23 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
         raise HTTPException(status_code=400, detail="Tick at least one expense to add.")
     n = _min(body.min)
     picked = await _picked(scope, body.entities)
-    scan, have = await asyncio.gather(scan_result(_scan_key(scope, n, picked), lambda job: _scan(scope, n, picked, job)), asyncio.to_thread(_set_up))
-    by_key = {(p["entityCode"], p["vendorId"]): p for p in scan["proposals"]}
+    for it in body.items:
+        await _must_reach(scope, it.entityCode.strip())
+    # The proposals from the scans already run (the full one and any Retry of
+    # the entities it could not read); only what is still missing is scanned.
+    by_key = {}
+    for res in acct_scan.finished_results(scope["user"]["email"], "mre"):
+        if res.get("minCount") == n:
+            by_key.update({(p["entityCode"], p["vendorId"]): p for p in res["proposals"]})
+    missing = {it.entityCode.strip() for it in body.items if (it.entityCode.strip(), it.vendorId.strip()) not in by_key}
+    if missing or not by_key:
+        again = missing if by_key else picked
+        scan = await scan_result(_scan_key(scope, n, again), lambda job: _scan(scope, n, again, job))
+        by_key.update({(p["entityCode"], p["vendorId"]): p for p in scan["proposals"]})
+    have = await asyncio.to_thread(_set_up)
     created, skipped = [], []
     for it in body.items:
         key = (it.entityCode.strip(), it.vendorId.strip())
-        await _must_reach(scope, key[0])
         p = by_key.get(key)
         if not p:
             skipped.append({"entityCode": key[0], "vendorId": key[1], "why": "no recurring postings for this vendor on the ledger"})

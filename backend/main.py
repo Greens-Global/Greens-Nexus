@@ -881,6 +881,8 @@ def _run_migrations():
             # Accounting > Loans (Oct 7) - see the Postgres list.
             "ALTER TABLE accounting_loan_settings ADD COLUMN loan_type VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_loan_settings ADD COLUMN stress_excluded BOOLEAN DEFAULT 0",
+            # MRI: one list of every income source (Oct 7) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN income_type VARCHAR DEFAULT 'lease'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1973,6 +1975,9 @@ def _run_migrations():
         "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS stress_excluded BOOLEAN DEFAULT FALSE",
         "ALTER TABLE accounting_loan_dismissed ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_loan_stress_entities ENABLE ROW LEVEL SECURITY",
+        # MRI (Charmi, Oct 7): one list of every recurring income source - a
+        # lease, interest, a loan payment received, other - with a Type column.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS income_type VARCHAR DEFAULT 'lease'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

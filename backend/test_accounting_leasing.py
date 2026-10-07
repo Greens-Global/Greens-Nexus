@@ -35,7 +35,7 @@ import cache
 import database
 import main
 import models
-from routers import accounting, accounting_leasing, accounting_loans, leasing
+from routers import accounting, accounting_leasing, accounting_loans, acct_scan, leasing
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -129,6 +129,24 @@ def _rows_by_customer(location, extra=None):
     return out
 
 
+def _aggregate_rows(locations, extra, accounts=None):
+    """The aggregate op: amount by entity x account x customer x month."""
+    picked = set((accounts or "").split(",")) - {""}
+    out = []
+    for loc in locations:
+        for cust, months in _postings(loc, extra).items():
+            for m, cell in months.items():
+                for acct, v in cell.items():
+                    section, title = TITLES[acct]
+                    if picked and acct not in picked:
+                        continue
+                    if not picked and not any(w in title.lower() for w in ("rent", "leas", "tenant")):
+                        continue
+                    out.append({"entity": loc, "account_no": acct, "title": title, "section": section, "party": cust, "party_name": LABELS.get(cust, ""),
+                                "month": m, "debit": 0, "credit": v, "lines": 1})
+    return out
+
+
 def _rows_by_month(location, cust, extra=None):
     return [{"bucket": f"{m}-01", "section": TITLES[acct][0], "account_no": acct, "title": TITLES[acct][1], "debit": 0, "credit": v}
             for m, cell in _postings(location, extra or {}).get(cust, {}).items() for acct, v in cell.items()]
@@ -213,6 +231,11 @@ class EndpointTests(unittest.TestCase):
         self.gate = threading.Event()      # the by=customer reads wait for this (a slow ledger)
         self.gate.set()
         self.fail_locations = False
+        self.fail_codes: set = set()       # entities whose buckets reads fail (Oct 7: a statement timeout)
+        self.slow_codes: set = set()       # entities whose buckets reads hang
+        self.aggregate = False              # whether the accounting app answers the aggregate op
+        acct_scan._AGG_DOWN.clear()
+        self._ceilings = (acct_scan.READ_CEILING, acct_scan.SCAN_CEILING)
         self.extra: dict[str, dict] = {}     # location -> customer -> month -> {account: amount}, on top of POSTINGS
         self.customers = [{"code": c, "name": n} for c, n in LABELS.items()]
 
@@ -225,8 +248,18 @@ class EndpointTests(unittest.TestCase):
                 return {"ok": True, "entities": ENTITIES}
             if path.endswith("/reports/pnl"):
                 raise AssertionError("the scan no longer reads a P&L per entity")
+            if path.endswith("/reports/party-months"):
+                if not self.aggregate:
+                    raise accounting.UpstreamError(404, "Accounting service returned 404")
+                locs = clean["locations"].split(",")
+                return {"ok": True, "op": "party-months", "rows": _aggregate_rows(locs, self.extra, clean.get("accounts"))}
             if path.endswith("/reports/buckets"):
                 loc = clean.get("location")
+                locs_asked = {loc} if loc else set(clean.get("locations", "").split(","))
+                if locs_asked & self.fail_codes:
+                    raise HTTPException(status_code=424, detail="That covers too many ledger lines to finish in time.")
+                if locs_asked & self.slow_codes:
+                    await asyncio.sleep(5)
                 if clean.get("by") == "entity":
                     while not self.gate.is_set():
                         await asyncio.sleep(0.01)
@@ -254,6 +287,8 @@ class EndpointTests(unittest.TestCase):
 
     def tearDown(self):
         self.gate.set()
+        acct_scan.READ_CEILING, acct_scan.SCAN_CEILING = self._ceilings
+        acct_scan._AGG_DOWN.clear()
         accounting._acct_get = self._get
         leasing._partner_customers = self._partners
         accounting._ACCT_BASE, accounting._ACCT_KEY = self._base, self._key
@@ -467,6 +502,102 @@ class EndpointTests(unittest.TestCase):
         accounting._acct_get = self._get
         accounting._ACCT_BASE = ""
         self.assertEqual(self._settled().status_code, 503)
+
+    # ── Oct 7 (Charmi): timeouts, partial results, Retry, picked accounts, the aggregate op ──
+    def _settled_at(self, url, timeout=15.0):
+        end = time.monotonic() + timeout
+        while True:
+            r = self.client.get(url)
+            if r.status_code != 202 or time.monotonic() > end:
+                return r
+            time.sleep(0.05)
+
+    def test_an_entity_that_cannot_be_read_is_reported_never_none_had_one(self):
+        _as(EDITOR)
+        self.fail_codes = {"15000"}          # its batch fails, then the entity alone fails too
+        d = self._settled().json()
+        self.assertEqual((d["entitiesScanned"], d["entitiesRead"]), (3, 2))
+        self.assertEqual([(f["code"], f["name"]) for f in d["failed"]], [("15000", "Greens Escondido, LLC.")])
+        self.assertIn("too many ledger lines", d["failed"][0]["reason"])
+        self.assertEqual(d["status"], "Read 2 of 3 entities - 1 could not be read.")
+        # The batch failed, so the others were read again one by one - and their tenants are shown.
+        self.assertEqual({(p["entityCode"], p["customerId"]) for p in d["proposals"]}, {("12027-1", "C00300")})
+        self.assertIn("12027-1", self._entity_calls())
+        # Retry reads only the failed entity, once it answers again.
+        self.fail_codes = set()
+        r = self._settled_at(URL + "?entities=15000")
+        self.assertEqual(r.status_code, 200, r.text)
+        d2 = r.json()
+        self.assertEqual((d2["entitiesScanned"], d2["entitiesRead"], d2["failed"]), (1, 1, []))
+        self.assertEqual({p["customerId"] for p in d2["proposals"]}, {"C00498", "C00497"})
+        # Creating a lease found by the Retry needs no third scan.
+        before = len(self._entity_calls())
+        made = self.client.post("/accounting/leasing/from-ledger/create", json={"items": [{"entityCode": "15000", "customerId": "C00498"}, {"entityCode": "12027-1", "customerId": "C00300"}]})
+        self.assertEqual((made.status_code, len(made.json()["created"])), (201, 2), made.text)
+        self.assertEqual(len(self._entity_calls()), before)
+
+    def test_a_read_that_hangs_hits_the_ceiling_and_the_rest_is_shown(self):
+        _as(EDITOR)
+        acct_scan.READ_CEILING = 0.4
+        self.slow_codes = {"12027-1"}
+        started = time.monotonic()
+        d = self._settled().json()
+        self.assertLess(time.monotonic() - started, 4.0)     # never an endless bar
+        self.assertEqual([f["code"] for f in d["failed"]], ["12027-1"], d["failed"])
+        self.assertEqual(d["failed"][0]["reason"], "took too long to read")
+        self.assertEqual({p["customerId"] for p in d["proposals"]}, {"C00498", "C00497"})
+
+    def test_the_scan_deadline_reports_what_was_not_reached(self):
+        _as(EDITOR)
+        acct_scan.SCAN_CEILING = 0.0
+        d = self._settled().json()
+        self.assertEqual((d["entitiesRead"], len(d["failed"])), (0, 3))
+        self.assertEqual({f["reason"] for f in d["failed"]}, {"not reached before the scan's time limit"})
+        self.assertEqual(d["status"], "Read 0 of 3 entities - 3 could not be read.")
+
+    def test_rent_accounts_picked_by_hand(self):
+        _as(EDITOR)
+        # Only 41102 (CAM): the title rule is not used, C00498 is the only one posting there.
+        d = self._settled_at(URL + "?accounts=41102").json()
+        self.assertEqual(d["accounts"], ["41102"])
+        self.assertEqual({(p["entityCode"], p["customerId"], tuple(p["incomeAccounts"])) for p in d["proposals"]}, {("15000", "C00498", ("41102",))})
+        # A non-rent income account picked by hand counts too (storage, 42000).
+        d = self._settled_at(URL + "?accounts=42000").json()
+        self.assertEqual({p["customerId"] for p in d["proposals"]}, {"C00001"})
+
+    def test_income_accounts_for_the_picker(self):
+        _as(EDITOR)
+        pnl = {"ok": True, "sections": [{"key": "revenue", "accounts": [{"account_no": "41101", "title": "Rental Income"}, {"account_no": "42000", "title": "Storage Income"}]},
+                                        {"key": "expense", "accounts": [{"account_no": "61000", "title": "Repairs"}]}]}
+        fake = accounting._acct_get
+
+        async def with_pnl(path, params):
+            return pnl if path.endswith("/reports/pnl") else await fake(path, params)
+        accounting._acct_get = with_pnl
+        d = self.client.get("/accounting/leasing/from-ledger/income-accounts").json()
+        self.assertEqual(d["accounts"], [{"code": "41101", "title": "Rental Income", "section": "revenue", "rent": True},
+                                         {"code": "42000", "title": "Storage Income", "section": "revenue", "rent": False}])
+
+    def test_the_aggregate_op_answers_in_one_read(self):
+        _as(EDITOR)
+        self.aggregate = True
+        d = self._settled().json()
+        self.assertEqual(d["source"], "aggregate")
+        self.assertEqual({(p["entityCode"], p["customerId"]) for p in d["proposals"]}, {("15000", "C00498"), ("15000", "C00497"), ("12027-1", "C00300")})
+        o = next(p for p in d["proposals"] if p["customerId"] == "C00498")
+        self.assertEqual((o["monthlyRent"], o["incomeAccounts"], o["postedMonths"]), (3200.0, ["41101", "41102"], 9))
+        # No line scan at all.
+        self.assertEqual((self._entity_calls(), self._bucket_calls("customer"), self._by_customer_calls()), ([], [], []))
+        agg = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")]
+        self.assertEqual((len(agg), agg[0]["party"], agg[0]["sections"], agg[0]["titleMatch"]), (1, "customer", "revenue,other_income", "rent|leas|tenant"))
+
+    def test_without_the_aggregate_op_the_scan_runs_and_it_is_not_asked_again(self):
+        _as(EDITOR)
+        d = self._settled().json()
+        self.assertEqual(d["source"], "scan")
+        accounting_loans._JOBS.clear()
+        self._settled()
+        self.assertEqual(len([c for c in self.calls if c[0].endswith("/reports/party-months")]), 1)   # remembered for ten minutes
 
 
 if __name__ == "__main__":

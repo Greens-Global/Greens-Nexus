@@ -12,6 +12,7 @@ is replaced by a recorder.
 
     python -m pytest test_accounting_mre.py -q
 """
+import asyncio
 import os
 import time
 import unittest
@@ -28,7 +29,7 @@ import cache
 import database
 import main
 import models
-from routers import accounting, accounting_loans, accounting_mre, accounting_partners
+from routers import accounting, accounting_loans, accounting_mre, accounting_partners, acct_scan
 from routers.accounting_loans import shift_month
 
 models.Base.metadata.create_all(bind=database.engine)
@@ -178,13 +179,34 @@ class EndpointTests(unittest.TestCase):
         accounting._ACCT_CACHE.clear()
         self.calls = []
         self.postings = {k: dict(v) for k, v in POSTINGS.items()}
+        self.fail_codes: set = set()     # Oct 7: entities whose reads fail
+        self.slow_codes: set = set()     # entities whose reads hang
+        self.aggregate = False           # whether the accounting app answers the aggregate op
+        acct_scan._AGG_DOWN.clear()
+        self._ceilings = (acct_scan.READ_CEILING, acct_scan.SCAN_CEILING)
 
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
             self.calls.append((path, clean))
             if path.endswith("/reports/locations"):
                 return {"ok": True, "entities": ENTITIES}
+            if path.endswith("/reports/party-months"):
+                if not self.aggregate:
+                    return {"ok": True}          # an older accounting app: no rows, so not there
+                rows = []
+                for ent in clean["locations"].split(","):
+                    for vendor, months in self.postings.get(ent, {}).items():
+                        for m, cell in months.items():
+                            for acct, v in cell.items():
+                                if _in(m, clean["from"], clean["to"]) and TITLES[acct][0] in clean["sections"].split(","):
+                                    rows.append({"entity": ent, "account_no": acct, "title": TITLES[acct][1], "section": TITLES[acct][0], "party": vendor,
+                                                 "party_name": LABELS.get(vendor, ""), "month": m, "debit": v, "credit": 0, "lines": 1})
+                return {"ok": True, "op": "party-months", "rows": rows}
             loc = clean.get("location")
+            if loc in self.fail_codes:
+                raise HTTPException(status_code=424, detail="That covers too many ledger lines to finish in time.")
+            if loc in self.slow_codes:
+                await asyncio.sleep(5)
             if path.endswith("/reports/pnl"):
                 sections = {}
                 for c in PNL.get(loc, []):
@@ -214,6 +236,8 @@ class EndpointTests(unittest.TestCase):
         self._partners, accounting_partners._get = accounting_partners._get, fake_partners
 
     def tearDown(self):
+        acct_scan.READ_CEILING, acct_scan.SCAN_CEILING = self._ceilings
+        acct_scan._AGG_DOWN.clear()
         accounting._acct_get = self._get
         accounting_partners._get = self._partners
         accounting._ACCT_BASE, accounting._ACCT_KEY = self._base, self._key
@@ -377,6 +401,48 @@ class EndpointTests(unittest.TestCase):
             raise HTTPException(status_code=501, detail="Not available yet")
         accounting_partners._get = missing
         self.assertEqual(self.client.get("/accounting/mre/vendors/V-SDGE").json(), {"available": False, "vendor": None})
+
+    # ── Oct 7 (Charmi: "stuck at 133 of 142 entities" for 5+ minutes) ──
+    def test_an_entity_that_hangs_is_reported_and_the_rest_shown(self):
+        _as(EDITOR)
+        acct_scan.READ_CEILING = 0.4
+        self.slow_codes = {"15000"}
+        started = time.monotonic()
+        d = self._settled().json()
+        self.assertLess(time.monotonic() - started, 4.0)
+        self.assertEqual((d["entitiesScanned"], d["entitiesRead"]), (3, 2))
+        self.assertEqual([(f["code"], f["reason"]) for f in d["failed"]], [("15000", "took too long to read")])
+        self.assertEqual(d["status"], "Read 2 of 3 entities - 1 could not be read.")
+        self.assertEqual({p["vendorId"] for p in d["proposals"]}, {"V-MSFT", "V-EDISON"})
+        # Retry: just the one, once it answers; a create from it needs no new scan.
+        self.slow_codes = set()
+        d2 = self._settled(f"{URL}?entities=15000").json()
+        self.assertEqual((d2["entitiesScanned"], d2["failed"]), (1, []))
+        reads = len(self.calls)
+        made = self.client.post("/accounting/mre/from-ledger/create", json={"items": [{"entityCode": "15000", "vendorId": "V-SDGE"}, {"entityCode": "56000", "vendorId": "V-MSFT"}]})
+        self.assertEqual((made.status_code, len(made.json()["created"])), (201, 2), made.text)
+        self.assertEqual(len([c for c in self.calls[reads:] if c[0].endswith("/reports/buckets")]), 0)
+
+    def test_a_failing_entity_is_reported(self):
+        _as(EDITOR)
+        self.fail_codes = {"56000"}
+        d = self._settled().json()
+        self.assertEqual([f["code"] for f in d["failed"]], ["56000"])
+        self.assertIn("too many ledger lines", d["failed"][0]["reason"])
+        self.assertEqual(d["source"], "scan")
+
+    def test_the_aggregate_op_replaces_the_scan(self):
+        _as(EDITOR)
+        self.aggregate = True
+        d = self._settled().json()
+        self.assertEqual((d["source"], d["failed"]), ("aggregate", []))
+        got = {(p["entityCode"], p["vendorId"]): p for p in d["proposals"]}
+        self.assertEqual(set(got), {("15000", "V-SDGE"), ("15000", "V-STATE"), ("56000", "V-MSFT"), ("12027-1", "V-EDISON")})
+        self.assertEqual((got[("15000", "V-SDGE")]["expectedAmount"], got[("15000", "V-STATE")]["frequency"]), (410.0, "quarterly"))
+        self.assertEqual(self._pnl_calls(), [])       # no line reads at all
+        agg = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")]
+        self.assertEqual((len(agg), agg[0]["party"], agg[0]["sections"]), (1, "vendor", "cogs,expense,other_expense"))
+        self.assertIn("interest", agg[0]["titleExclude"])
 
 
 if __name__ == "__main__":
