@@ -4,7 +4,10 @@ import { api } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, PopoverPanel, control, usePopover } from './reportControls';
+import { ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, control, usePopover } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
+import { cellStyle, headStyle } from './columnStyles';
+import { requestReportDrill } from './drill';
 import { downloadBlob, iso } from './reportModel';
 import { useAccountingPrefs } from './prefs';
 import { linesFile } from './linesExport';
@@ -65,6 +68,12 @@ import EntryDetail from './EntryDetail';
 //   - Money posted in a month the lease is not in force is shown, not
 //     counted, and the row says so (a lease typed in on Oct 2 for a tenant
 //     paying since January showed a 20,548.39 "prepayment" credit).
+//   - The module's shared controls (items 9, 12, 21, 32, 33): the standard
+//     Customize adds Rows per Page (a Pager under each list; totals and
+//     exports always cover every row), the Income Roll's columns resize by
+//     dragging a header edge, the entity on a lease is the module's entity
+//     picker (search by number), and the Total of a ledger income account
+//     opens its lines in Reports.
 
 const SECTIONS = [{ key: 'roll', label: 'Income Roll' }, { key: 'outstanding', label: 'Outstanding' }, { key: 'tenants', label: 'Payers' }];
 export const TYPES = [{ key: 'lease', label: 'Lease' }, { key: 'interest', label: 'Interest' }, { key: 'loan_payment', label: 'Loan Payment' }, { key: 'other', label: 'Other' }];
@@ -203,8 +212,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const seq = useRef(0);
   const showInactive = !!prefs.mriShowInactive;
   const showExpired = !!prefs.mriShowExpired;
-  const density = DENSITIES.some((d) => d.key === prefs.density) ? prefs.density : 'compact';
-  const py = DENSITIES.find((d) => d.key === density)?.py || '5px';
+  const cz = useCustomizePrefs(['density', 'pageSize', 'historicalEntities']);
+  const py = DENSITIES.find((d) => d.key === cz.density)?.py || '5px';
   const entityKey = entities.join(',');
 
   const load = useCallback((y, ents) => {
@@ -261,6 +270,14 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const sum = roll?.summary || {};
   const thisMonth = iso(new Date()).slice(0, 7);
   const behind = sources.filter((r) => r.monthsBehind);
+  // Rows per Page: back to page 1 whenever the filters or the section change.
+  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showExpired, showInactive];
+  const pageSize = cz.pageSize;
+  // A ledger income account's Total opens its lines in Reports for the months shown (item 33).
+  const drillAccount = (r) => {
+    const last = new Date(year, span[1] + 1, 0).getDate();
+    requestReportDrill({ account: r.account.code, accountName: r.account.title, from: `${year}-${String(span[0] + 1).padStart(2, '0')}-01`, to: `${year}-${String(span[1] + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`, entity: entities.length === 1 ? entities[0] : '' });
+  };
   const updateNote = (id, note) => setRoll((d) => d && { ...d, rows: d.rows.map((r) => (r.lease.id === id ? { ...r, lease: { ...r.lease, teamNote: note } } : r)) });
 
   // What the Export menu writes: the section on screen, as on screen.
@@ -348,8 +365,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by property, payer or account" aria-label="Filter by property, payer or account" style={{ ...control, width: '100%', paddingLeft: 28 }} />
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
-              active={showInactive || showExpired}>
+            <CustomizeButton {...cz} active={showInactive || showExpired}>
               {[['mriShowInactive', showInactive, 'Show Inactive', 'Sources whose customer is inactive in Intacct.'], ['mriShowExpired', showExpired, 'Show Expired', 'Leases that have ended. The text filter finds both either way.']].map(([k, on, text, hint]) => (
                 <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
                   <input type="checkbox" checked={on} onChange={(e) => setPrefs({ [k]: e.target.checked })} style={{ marginTop: 2 }} />
@@ -412,9 +428,10 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
         {loading ? <SkeletonBlocks count={4} /> : (
           <div>
-            {section === 'roll' && <RentRoll rows={rows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote} />}
-            {section === 'outstanding' && <Outstanding rows={behind} year={year} py={py} />}
-            {section === 'tenants' && <Tenants rows={sources} py={py} canEdit={canEdit} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
+            {section === 'roll' && <RentRoll rows={rows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
+              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} />}
+            {section === 'outstanding' && <Outstanding rows={behind} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
+            {section === 'tenants' && <Tenants rows={sources} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
           </div>
         )}
       </div>
@@ -573,7 +590,11 @@ function NoteCell({ lease, canEdit, onSaved }) {
   );
 }
 
-function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote }) {
+// The Income Roll's resizable columns (Oct 7, item 32), saved per viewer:
+// property, type, amount, each month (m0..m11), total, balance, notes.
+function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null }) {
+  const cw = useColumnWidths('mriRoll');
+  const paged = usePaged(rows, pageSize, pageKey);
   if (!rows.length) {
     return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > Set Up From the Ledger proposes one for every customer who posted rent in the last twelve months, or + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
   }
@@ -587,23 +608,23 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
         <table className="acct-lines acct-roll" style={{ width: '100%', tableLayout: 'auto', '--acct-row-py': py }}>
           <thead>
             <tr>
-              <th scope="col" style={{ position: 'sticky', left: 0, zIndex: 5, minWidth: 250 }}>Property or Source</th>
-              <th scope="col">Type</th>
-              <th scope="col" className="acct-num">Amount</th>
-              {idx.map((i) => <th key={MONTHS[i]} scope="col" className="acct-num" style={`${year}-${String(i + 1).padStart(2, '0')}` === thisMonth ? { color: 'var(--wk-brand, #2b45e1)' } : undefined}>{MONTHS[i]}</th>)}
-              <th scope="col" className="acct-num" title="Received in the months shown">Total</th>
-              <th scope="col" className="acct-num" title="Expected less received in the months shown. A credit (in parentheses) is a prepayment.">Balance</th>
-              <th scope="col" style={{ minWidth: 180 }}>Notes</th>
+              <th scope="col" aria-label="Property or Source" style={headStyle(cw.width('property'), { position: 'sticky', left: 0, zIndex: 5, minWidth: cw.width('property') || 250 })}>Property or Source<ColumnResizer {...cw.resizer('property', 'Property or Source')} /></th>
+              <th scope="col" aria-label="Type" style={headStyle(cw.width('type'))}>Type<ColumnResizer {...cw.resizer('type', 'Type')} /></th>
+              <th scope="col" aria-label="Amount" className="acct-num" style={headStyle(cw.width('amount'))}>Amount<ColumnResizer {...cw.resizer('amount', 'Amount')} /></th>
+              {idx.map((i) => <th key={MONTHS[i]} scope="col" aria-label={MONTHS[i]} className="acct-num" style={headStyle(cw.width(`m${i}`), `${year}-${String(i + 1).padStart(2, '0')}` === thisMonth ? { color: 'var(--wk-brand, #2b45e1)' } : null)}>{MONTHS[i]}<ColumnResizer {...cw.resizer(`m${i}`, MONTHS[i])} /></th>)}
+              <th scope="col" aria-label="Total" className="acct-num" title="Received in the months shown" style={headStyle(cw.width('total'))}>Total<ColumnResizer {...cw.resizer('total', 'Total')} /></th>
+              <th scope="col" aria-label="Balance" className="acct-num" title="Expected less received in the months shown. A credit (in parentheses) is a prepayment." style={headStyle(cw.width('balance'))}>Balance<ColumnResizer {...cw.resizer('balance', 'Balance')} /></th>
+              <th scope="col" aria-label="Notes" style={headStyle(cw.width('notes'), { minWidth: cw.width('notes') || 180 })}>Notes<ColumnResizer {...cw.resizer('notes', 'Notes')} /></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {paged.rows.map((r) => {
               const f = rowFigures(r, span);
               const name = rowName(r);
               if (r.kind === 'account') {
                 return (
                   <tr key={r.key}>
-                    <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: 250 }}>
+                    <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: cw.width('property') || 250, ...(cw.width('property') ? { width: cw.width('property'), maxWidth: cw.width('property'), overflow: 'hidden' } : {}) }}>
                       <span style={{ fontWeight: 600 }}><span className="acct-code">{r.account.code}</span>{r.account.title}</span>
                       <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>From the ledger - every posting to this account, no schedule</div>
                     </td>
@@ -621,7 +642,11 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
                         </td>
                       );
                     })}
-                    <td className="acct-num" style={{ fontWeight: 700 }}>{f.received ? <Amount value={f.received} /> : '-'}</td>
+                    <td className="acct-num" style={{ fontWeight: 700 }}>
+                      {f.received && onDrillAccount
+                        ? <button type="button" className="acct-drill" onClick={() => onDrillAccount(r)} aria-label={`Ledger lines behind the total of ${name}`} title="Open the ledger lines in Reports"><Amount value={f.received} /></button>
+                        : f.received ? <Amount value={f.received} /> : '-'}
+                    </td>
                     <td className="acct-num" style={{ color: 'var(--text-muted)' }} title="No schedule, so nothing is expected">-</td>
                     <td style={{ color: 'var(--text-muted)' }}>-</td>
                   </tr>
@@ -631,7 +656,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
               const rate = [...l.rates].reverse().find((x) => x.startDate <= `${thisMonth}-31`) || l.rates[0];
               return (
                 <tr key={l.id} style={r.expired || r.customerActive === false ? { color: 'var(--text-secondary)' } : undefined}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: 250 }}>
+                  <td style={{ position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'normal', minWidth: cw.width('property') || 250, ...(cw.width('property') ? { width: cw.width('property'), maxWidth: cw.width('property'), overflow: 'hidden' } : {}) }}>
                     <button type="button" className="acct-drill" onClick={() => onLease(l)} style={{ fontWeight: 600, textAlign: 'left' }}>{l.propertyName}</button>
                     <StandingChips row={r} />
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
@@ -657,7 +682,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
                     title={f.balance < -0.005 ? 'Credit - paid ahead' : undefined}>
                     {Math.abs(f.balance) > 0.005 ? <Amount value={f.balance} /> : '-'}
                   </td>
-                  <td style={{ maxWidth: 260, minWidth: 180, whiteSpace: 'normal' }}><NoteCell lease={l} canEdit={canEdit} onSaved={onNote} /></td>
+                  <td style={cw.width('notes') ? cellStyle(cw.width('notes'), { whiteSpace: 'normal' }) : { maxWidth: 260, minWidth: 180, whiteSpace: 'normal' }}><NoteCell lease={l} canEdit={canEdit} onSaved={onNote} /></td>
                 </tr>
               );
             })}
@@ -671,6 +696,7 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
           </tbody>
         </table>
       </div>
+      <Pager {...paged} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
         {['paid', 'short', 'unpaid', 'due', 'upcoming', 'outside'].map((k) => (
           <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -691,9 +717,10 @@ function reminder(row, year) {
   return `mailto:${encodeURIComponent(l.email)}?subject=${encodeURIComponent(`Rent outstanding - ${l.propertyName}`)}&body=${encodeURIComponent(body)}`;
 }
 
-function Outstanding({ rows, year, py }) {
+function Outstanding({ rows, year, py, pageSize = 0, pageKey = '' }) {
+  const sorted = useMemo(() => [...rows].sort((a, b) => b.owed - a.owed), [rows]);
+  const paged = usePaged(sorted, pageSize, pageKey);
   if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>Nobody is behind for {year}.</div>;
-  const sorted = [...rows].sort((a, b) => b.owed - a.owed);
   return (
     <div style={{ ...card, padding: 10 }}>
       <div className="acct-lines-wrap">
@@ -702,7 +729,7 @@ function Outstanding({ rows, year, py }) {
             <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Months Behind</th><th scope="col" className="acct-num">Balance Due</th><th scope="col" className="acct-num">Late Fees</th><th scope="col">Contact</th><th scope="col" aria-label="Write" /></tr>
           </thead>
           <tbody>
-            {sorted.map((r) => {
+            {paged.rows.map((r) => {
               const l = r.lease;
               const months = r.months.filter((c) => ['late', 'short', 'unpaid'].includes(c.status)).map((c) => MONTHS[Number(c.month.slice(5, 7)) - 1]);
               return (
@@ -726,12 +753,14 @@ function Outstanding({ rows, year, py }) {
           </tbody>
         </table>
       </div>
+      <Pager {...paged} />
       <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>Write to Tenant opens your own email with the months and amounts filled in. Nothing is sent until you press send.</div>
     </div>
   );
 }
 
-function Tenants({ rows, py, canEdit, onEdit, onReplace }) {
+function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey = '' }) {
+  const paged = usePaged(rows, pageSize, pageKey);
   if (!rows.length) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>No lease matches.</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
@@ -741,7 +770,7 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace }) {
             <tr><th scope="col">Property or Source</th><th scope="col">Type</th><th scope="col">Payer</th><th scope="col">Landlord</th><th scope="col">Dates</th><th scope="col" className="acct-num">Amount</th><th scope="col" className="acct-num">CAM</th><th scope="col" className="acct-num">Deposit</th><th scope="col">Status</th><th scope="col" aria-label="Change" /></tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {paged.rows.map((r) => {
               const l = r.lease;
               const rate = l.rates[l.rates.length - 1];
               return (
@@ -769,6 +798,7 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace }) {
           </tbody>
         </table>
       </div>
+      <Pager {...paged} />
     </div>
   );
 }
@@ -1066,12 +1096,10 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
 
           <div style={grid}>
             <div>
-              <label style={label} htmlFor="lease-entity">Entity the Income Posts To</label>
-              <select id="lease-entity" value={l.entityCode} onChange={(e) => set({ entityCode: e.target.value })} style={{ ...control, width: '100%' }}>
-                <option value="">Not set</option>
-                {entities.map((e) => <option key={e.code} value={e.code}>{e.name ? `${e.name} (${e.code})` : e.code}</option>)}
-                {l.entityCode && !entities.some((e) => e.code === l.entityCode) && <option value={l.entityCode}>{l.entityCode}</option>}
-              </select>
+              <span style={label}>Entity the Income Posts To</span>
+              <EntityPicker entities={entities} value={l.entityCode || ''} onChange={(code) => set({ entityCode: code })} noneLabel="Not Set"
+                ariaLabel="Entity the Income Posts To" active={false} style={{ width: '100%', maxWidth: 'none' }} />
+
             </div>
             <div>
               <label style={label} htmlFor="lease-accounts">{isLease ? 'Rental Income Accounts' : 'Income Accounts'}</label>

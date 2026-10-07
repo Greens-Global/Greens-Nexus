@@ -356,3 +356,69 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
     expect(within(grand).queryByText('4,550.00')).toBeNull();     // shown in the cells, not counted
   });
 });
+
+// Oct 7 (items 9, 12, 21, 32, 33): the module's shared controls on MRI.
+describe('LeasingTab shared controls', () => {
+  beforeEach(() => {
+    api.getLeasingRentRollFor.mockResolvedValue(roll);
+    api.getAccountingBucketsFor.mockResolvedValue({ rows: [] });
+    api.getAccountingLocations.mockResolvedValue({ entities: [{ code: '15000', name: 'Greens Escondido' }] });
+  });
+
+  it('Customize has Row Density and Rows per Page; the pager keeps the totals over every source', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    const btn = screen.getByRole('button', { name: /Customize/ });
+    expect(btn.querySelector('.lucide-sliders-horizontal')).toBeTruthy();
+    fireEvent.click(btn);
+    expect(screen.getByRole('group', { name: 'Row Density' })).toBeTruthy();
+    expect(screen.getByLabelText(/Show Expired/)).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Rows per Page' })).getByRole('button', { name: 'Other' }));
+    fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '1' } });
+    await screen.findByText(/Page 1 of 2/);
+    expect(screen.queryByText('47385 RCR, Temecula')).toBeNull();
+    expect(screen.getByText(/Received - 2 sources/)).toBeTruthy();       // the total row counts both
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('47385 RCR, Temecula')).toBeTruthy();
+  });
+
+  it('has a resize handle on the Income Roll columns', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    for (const name of ['Property or Source', 'Type', 'Total', 'Balance', 'Notes']) {
+      expect(screen.getByRole('separator', { name: `Resize the ${name} column` })).toBeTruthy();
+    }
+    expect(screen.getByRole('columnheader', { name: 'Property or Source' })).toBeTruthy();
+  });
+
+  it('the entity on a lease is the module picker, found by its number', async () => {
+    api.getAccountingLocations.mockResolvedValue({ entities: [{ code: '15000', name: 'Greens Escondido' }, { code: '12000', name: 'Greens Global, Inc.' }, { code: '13000', name: '(H) Old Holdings' }] });
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    const pick = await within(dialog).findByRole('button', { name: 'Entity the Income Posts To' });
+    await waitFor(() => expect(pick.textContent).toContain('Greens Escondido (15000)'));
+    fireEvent.click(pick);
+    expect(screen.queryByRole('option', { name: /Old Holdings/ })).toBeNull();     // historical hidden
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '12000' } });
+    fireEvent.click(screen.getByRole('option', { name: /Greens Global/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][1].entityCode).toBe('12000');
+  });
+
+  it('the Total of a ledger income account opens its lines in Reports', async () => {
+    const y = new Date().getFullYear();
+    api.getAccountingBucketsFor.mockResolvedValue({ rows: [{ account_no: '45100', title: 'Interest Income', section: 'other_income', bucket: `${y}-02-01`, credit: 125, debit: 0 }] });
+    const seen = [];
+    const onDrill = (e) => seen.push(e.detail);
+    window.addEventListener('nexus:accounting-drill', onDrill);
+    try {
+      render(<LeasingTab canEdit />);
+      fireEvent.click(await screen.findByRole('button', { name: /Ledger lines behind the total of 45100 Interest Income/ }));
+      expect(seen[0]).toMatchObject({ account: '45100', from: `${y}-01-01`, to: `${y}-12-31`, entity: '' });
+    } finally {
+      window.removeEventListener('nexus:accounting-drill', onDrill);
+    }
+  });
+});
