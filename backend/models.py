@@ -5190,6 +5190,11 @@ class AccountingLoanSetting(Base):
     statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
     updated_by         = Column(String, default="")
     updated_at         = Column(String, default="")
+    # Oct 7 (Charmi): the loan's product - '' = guessed from the GL title,
+    # 'term' or 'line_of_credit' (Draws show only for a line of credit) - and
+    # whether the Stress Test leaves it out (restorable; the loan stays).
+    loan_type          = Column(String, default="")
+    stress_excluded    = Column(Boolean, default=False)
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
@@ -5482,3 +5487,39 @@ class NexusCounter(Base):
     name       = Column(String, primary_key=True)
     value      = Column(BigInteger, nullable=False, default=0)
     updated_at = Column(String, default="")
+
+
+class AccountingLoanDismissed(Base):
+    """A loan-like ledger account someone removed from Accounting > Loans &
+    Financing (Charmi, Oct 7: "there should be a delete option"). The
+    fin_loans row is deleted in the accounting app; this remembers the entity
+    + GL account so + Add > From the Ledger stops offering it (listed again
+    under "Show Removed", and creating it again clears this row). New table -
+    create_all builds it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_dismissed"
+    id           = Column(String, primary_key=True)                # uuid
+    entity_code  = Column(String, nullable=False, index=True)
+    gl_account   = Column(String, nullable=False)
+    loan_id      = Column(String, default="")                      # the fin_loans id it had
+    lender       = Column(String, default="")
+    title        = Column(String, default="")
+    dismissed_by = Column(String, default="")
+    dismissed_at = Column(String, default="")
+    __table_args__ = (UniqueConstraint("entity_code", "gl_account", name="uq_accounting_loan_dismissed"),)
+
+
+class AccountingLoanStressEntity(Base):
+    """Per entity on Loans & Financing > Stress Test (Charmi, Oct 7): which
+    NOI the DSCR starts from (`noi_basis`: t12 | ytd | manual, '' = the page
+    default), the typed NOI for Manual, and the Addback (typed, with a note -
+    depreciation, one-off costs, owner comp) that makes Adjusted NOI = NOI +
+    Addback. New table - create_all builds it; RLS must be enabled on dev
+    and prod at release."""
+    __tablename__ = "accounting_loan_stress_entities"
+    entity_code  = Column(String, primary_key=True)
+    noi_basis    = Column(String, default="")
+    noi_manual   = Column(Float, nullable=True)
+    addback      = Column(Float, nullable=True)
+    addback_note = Column(String, default="")
+    updated_by   = Column(String, default="")
+    updated_at   = Column(String, default="")

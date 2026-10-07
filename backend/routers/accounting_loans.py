@@ -86,6 +86,7 @@ Live run, 10/02 (317 entities, 811 liability accounts):
 import asyncio
 import calendar
 import contextvars
+import json
 import os
 import re
 import time
@@ -680,7 +681,35 @@ def _clear_tables_cache() -> None:
 
 
 # ── What Nexus keeps per loan (accounting_loan_settings) ────────────────────
-_SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path")
+_SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path", "loan_type", "stress_excluded")
+LOAN_TYPES = ("term", "line_of_credit")
+_LOC = re.compile(r"line of credit|\bloc\b|heloc|credit line|\brevolv", re.I)
+
+
+def guess_loan_type(*texts: str) -> str:
+    """A line of credit by its words (Charmi, Oct 7: Draws only for lines of
+    credit): "LOC", "line of credit", "HELOC", "credit line", "revolving" in
+    the GL title (or the lender / notes); anything else is a term loan."""
+    return "line_of_credit" if any(_LOC.search(t or "") for t in texts) else "term"
+
+
+def loan_type_of(setting: dict, *texts: str) -> tuple[str, bool]:
+    """(type, guessed): the type typed under Change Loan, else the guess."""
+    typed = str((setting or {}).get("loan_type") or "")
+    if typed in LOAN_TYPES:
+        return typed, False
+    return guess_loan_type(*texts), True
+
+
+def _audit_sync(user: dict, action: str, resource_id: str, details: dict) -> None:
+    db = database.SessionLocal()
+    try:
+        db.add(models.AuditLog(timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"), user_email=user.get("email") or "",
+                               user_role=user.get("role", "") or "", action=action, resource_type="accounting_loan", resource_id=str(resource_id)[:200],
+                               details=json.dumps(details, default=str)[:4000]))
+        db.commit()
+    finally:
+        db.close()
 
 
 def _settings_sync(ids: list[str]) -> dict[str, dict]:
@@ -801,16 +830,46 @@ def _forget(email: str) -> None:
     forget_jobs(email, "loans")
 
 
-def _with_status(scan: dict, existing: list[dict]) -> dict:
+def _dismissed_sync() -> dict[tuple[str, str], dict]:
+    """(entity, GL) -> the removed loan (Oct 7): + Add > From the Ledger does
+    not offer these again unless asked."""
+    db = database.SessionLocal()
+    try:
+        return {(r.entity_code, r.gl_account): {"lender": r.lender or "", "by": r.dismissed_by or "", "at": r.dismissed_at or ""}
+                for r in db.query(models.AccountingLoanDismissed).all()}
+    finally:
+        db.close()
+
+
+def _undismiss_sync(keys: list[tuple[str, str]]) -> None:
+    if not keys:
+        return
+    db = database.SessionLocal()
+    try:
+        for entity, gl in keys:
+            db.query(models.AccountingLoanDismissed).filter(models.AccountingLoanDismissed.entity_code == entity,
+                                                            models.AccountingLoanDismissed.gl_account == gl).delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _with_status(scan: dict, existing: list[dict], dismissed: Optional[dict] = None) -> dict:
     have = {_set_up_key(r): r for r in existing}
+    dismissed = dismissed or {}
     rows = []
     for p in scan["proposals"]:
         row = dict(p)
-        cur = have.get((p["entityCode"], p["glAccount"]))
-        row["status"] = "set_up" if cur else "new"
+        key = (p["entityCode"], p["glAccount"])
+        cur = have.get(key)
+        row["status"] = "set_up" if cur else "dismissed" if key in dismissed else "new"
         row["loanId"] = cur.get("id") if cur else None
+        row["loanType"] = guess_loan_type(p.get("title") or "", p.get("lender") or "")
+        if row["status"] == "dismissed":
+            row["removedBy"], row["removedAt"] = dismissed[key]["by"], dismissed[key]["at"]
         rows.append(row)
-    return {**scan, "proposals": rows, "setUp": sum(1 for r in rows if r["status"] == "set_up"), "missing": sum(1 for r in rows if r["status"] == "new")}
+    return {**scan, "proposals": rows, "setUp": sum(1 for r in rows if r["status"] == "set_up"), "missing": sum(1 for r in rows if r["status"] == "new"),
+            "removed": sum(1 for r in rows if r["status"] == "dismissed")}
 
 
 @router.get("/proposals")
@@ -826,12 +885,17 @@ async def proposals(month: Optional[str] = None, asof: Optional[str] = None, ent
     job = scan_job(_scan_key(scope, a, picked, historical), lambda job: _scan(scope, a, picked, historical, job))
     if job.result is None:
         return JSONResponse(status_code=202, content=job.progress())
-    return _with_status(job.result, await _loan_rows(scope, a[:7]))
+    existing, dismissed = await asyncio.gather(_loan_rows(scope, a[:7]), asyncio.to_thread(_dismissed_sync))
+    return _with_status(job.result, existing, dismissed)
 
 
 class CreateItem(BaseModel):
     entityCode: str
     glAccount: str
+    # Optional at setup (Charmi, Oct 7) - can be done later under Change Loan.
+    docsPath: Optional[str] = None
+    statementsPath: Optional[str] = None
+    loanType: Optional[str] = None
 
 
 class CreateBody(BaseModel):
@@ -864,7 +928,11 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
     by_key = {(p["entityCode"], p["glAccount"]): p for p in scan["proposals"]}
     accounting_dashboard._require_configured()
     by = accounting_dashboard._display_name(db, user["email"])
-    created, skipped = [], []
+    for it in body.items:
+        if it.loanType and it.loanType not in LOAN_TYPES:
+            raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
+    folders = {(it.entityCode.strip(), it.glAccount.strip()): (egnyte_folder(it.docsPath), egnyte_folder(it.statementsPath)) for it in body.items}
+    created, skipped, restored = [], [], []
     for it in body.items:
         key = (it.entityCode.strip(), it.glAccount.strip())
         await _limit(scope, key[0], None)
@@ -879,8 +947,21 @@ async def create_from_ledger(body: CreateBody, user: dict = Depends(_edit), scop
                "gl_account": p["glAccount"], "balance_source": "ledger", "balance": p["balance"], "rate_pct": 0, "rate_type": "fixed", "maturity": None,
                "monthly_pi": 0, "dscr": None, "covenant_min": None, "is_active": True, "notes": f"Set up from the ledger ({p['title']}) as of {scan['asOf']}"}
         await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-save", "table": "fin_loans", "row": row, "by": by})
+        docs, statements = folders[key]
+        patch: dict[str, Any] = {}
+        if docs:
+            patch["docs_path"] = docs
+        if statements:
+            patch["statements_path"] = statements
+        if it.loanType:
+            patch["loan_type"] = it.loanType
+        if patch:
+            await asyncio.to_thread(_save_settings_sync, row["id"], key[0], patch, user["email"])
         have.add(key)
+        restored.append(key)
         created.append({**p, "loanNo": row["loan_no"], "loanId": row["id"]})
+    # Set up again = no longer removed (the way back from Delete, Oct 7).
+    await asyncio.to_thread(_undismiss_sync, restored)
     _clear_tables_cache()
     _forget(user["email"])
     return {"created": created, "skipped": skipped}
@@ -898,6 +979,9 @@ class ManualBody(BaseModel):
     monthlyPayment: Optional[float] = None
     internal: bool = False
     notes: str = ""
+    docsPath: Optional[str] = None
+    statementsPath: Optional[str] = None
+    loanType: Optional[str] = None
 
 
 @router.post("/manual", status_code=201)
@@ -917,6 +1001,9 @@ async def create_manual(body: ManualBody, user: dict = Depends(_edit), scope: di
     if body.rateType not in ("fixed", "variable"):
         raise HTTPException(status_code=400, detail="Rate is fixed or variable.")
     maturity = _day(body.maturity, "maturity") if body.maturity else None
+    if body.loanType and body.loanType not in LOAN_TYPES:
+        raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
+    docs, statements = egnyte_folder(body.docsPath), egnyte_folder(body.statementsPath)
     for v, what in ((body.balance, "balance"), (body.originalPrincipal, "original principal"), (body.ratePct, "rate"), (body.monthlyPayment, "monthly payment")):
         if v is not None and v < 0:
             raise HTTPException(status_code=400, detail=f"The {what} cannot be negative.")
@@ -926,7 +1013,8 @@ async def create_manual(body: ManualBody, user: dict = Depends(_edit), scope: di
            "gl_account": "", "balance_source": "manual", "balance": _r2(body.balance), "rate_pct": body.ratePct or 0, "rate_type": body.rateType, "maturity": maturity,
            "monthly_pi": body.monthlyPayment or 0, "dscr": None, "covenant_min": None, "is_active": True, "notes": body.notes.strip()[:200] or "Added by hand in Nexus (not in Intacct)"}
     await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-save", "table": "fin_loans", "row": row, "by": by})
-    await asyncio.to_thread(_save_settings_sync, row["id"], entity, {"original_principal": body.originalPrincipal, "internal": bool(body.internal)}, user["email"])
+    await asyncio.to_thread(_save_settings_sync, row["id"], entity, {"original_principal": body.originalPrincipal, "internal": bool(body.internal),
+                                                                     "docs_path": docs, "statements_path": statements, "loan_type": body.loanType or ""}, user["email"])
     _clear_tables_cache()
     _forget(user["email"])
     return {"ok": True, "loanId": row["id"], "row": row}
@@ -1013,11 +1101,13 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
             for m in members:
                 share = (max(0.0, m["owed"]) / total) if total > 0 else 1.0 / len(members)
                 m["interest"], m["interest12"], m["shared"] = _r2(month_i * share), _r2(t12_i * share), len(members) - 1
+                m["share"] = round(share, 6)
         entity_ds = 0.0
         for f in figs:
             f.setdefault("interest", None)
             f.setdefault("interest12", None)
             f.setdefault("shared", 0)
+            f.setdefault("share", 1.0)
             f["ds"] = _r2((f["paid"] or 0) + (f["interest"] or 0))
             f["ds12"] = _r2((f["paid12"] or 0) + (f["interest12"] or 0))
             entity_ds += f["ds12"]
@@ -1030,6 +1120,7 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
             typed = s.get("original_principal")
             internal = s.get("internal")
             titles = {c: (tp.get(c) or ty.get(c) or {}).get("title") or cands.get(c, "") for c in f["accounts"]}
+            ltype, guessed = loan_type_of(s, f["glTitle"], l.get("lender") or "", l.get("notes") or "")
             out.append({
                 "id": l.get("id"), "loanNo": l.get("loan_no") or "", "lender": l.get("lender") or "", "kind": l.get("kind") or "external",
                 "internal": bool(internal) if internal is not None else (l.get("kind") == "intercompany"), "internalTyped": internal is not None,
@@ -1042,6 +1133,11 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
                 "principalPaidT12": f["paid12"], "interestPaidT12": f["interest12"], "debtServiceT12": f["ds12"],
                 "interestAccount": ",".join(f["accounts"]), "interestAccounts": [{"code": c, "title": titles[c]} for c in f["accounts"]],
                 "interestSource": f["interestSource"], "interestSharedWith": f["shared"], "sharedWith": f["shared"],
+                # The part of the interest account(s) this loan carries (1 unless
+                # shared by balance): the payments table scales by it, so its
+                # Interest Paid is the row's (Oct 7, 38,891.83 vs 61,554.19).
+                "interestShare": f["share"],
+                "loanType": ltype, "lineOfCredit": ltype == "line_of_credit", "loanTypeGuessed": guessed, "stressExcluded": bool(s.get("stress_excluded")),
                 "entityDebtServiceT12": _r2(entity_ds), "noiT12": n["noi"], "incomeT12": n["income"], "operatingExpensesT12": n["operatingExpenses"],
                 "dscr": cov, "covenantMin": round(minimum, 2), "covenantTyped": bool(_num(l.get("covenant_min"))), "belowCovenant": cov is not None and cov < minimum and not f["closed"],
                 "ratePct": _num(l.get("rate_pct")) or None, "rateType": l.get("rate_type") or "", "maturity": str(l.get("maturity"))[:10] if l.get("maturity") else None,
@@ -1151,6 +1247,54 @@ async def loan_accounts(entity: str, to: Optional[str] = None, scope: dict = Dep
     return {"entity": entity, "to": t, "principal": principal, "interest": costs}
 
 
+_BY_ENTITY_FIELDS = ("id", "lender", "loanNo", "entityCode", "entityName", "balance", "ratePct", "rateType", "maturity", "monthlyPayment",
+                     "dscr", "covenantMin", "belowCovenant", "debtServiceT12", "noiT12", "loanType", "internal",
+                     "docsPath", "docsUrl", "statementsPath", "statementsUrl")
+
+
+@router.get("/by-entity/{code}")
+async def loans_by_entity(code: str, to: Optional[str] = None, scope: dict = Depends(entity_scope)):
+    """The open loans of one entity (and its sub-entities) for another module -
+    Asset Management's property (Charmi 10/03 #25, "wire this data into Asset
+    Mgt"): lender, loan #, balance as of `to` (today by default), rate,
+    maturity, monthly payment, DSCR, trailing-12 debt service and the Egnyte
+    folders. Behind the same accounting entity scope as the Loans screen: an
+    entity the caller may not read answers 403."""
+    entity = (code or "").strip()
+    if not entity or not _GL.match(entity):
+        raise HTTPException(status_code=400, detail="An entity code is needed.")
+    t = _day(to, "to") if to else date.today().isoformat()
+    data = await review(from_=f"{t[:8]}01", to=t, month=None, entities=entity, scope=scope)
+    loans = [{k: r.get(k) for k in _BY_ENTITY_FIELDS} for r in data["loans"] if not r["closed"]]
+    return {"entityCode": entity, "asOf": t, "trailingFrom": data["trailingFrom"], "loans": loans,
+            "totals": {"loans": len(loans), "balance": _r2(sum(x["balance"] or 0 for x in loans)),
+                       "monthlyPayment": _r2(sum(x["monthlyPayment"] or 0 for x in loans)), "debtServiceT12": _r2(sum(x["debtServiceT12"] or 0 for x in loans))},
+            "notes": data["notes"]}
+
+
+@router.get("/noi")
+async def entity_noi(entities: str, from_: Optional[str] = Query(default=None, alias="from"), to: Optional[str] = None, scope: dict = Depends(entity_scope)):
+    """NOI per entity for a window (the Stress Test's Annualized YTD basis,
+    Oct 7): income less operating costs - interest, depreciation and
+    amortization left out, the review's rule - and the same annualized
+    (x 365 / days in the window). From January 1 of `to`'s year by default."""
+    t = _day(to, "to") if to else date.today().isoformat()
+    f = _day(from_, "from") if from_ else f"{t[:4]}-01-01"
+    if f > t:
+        raise HTTPException(status_code=400, detail="from must be on or before to")
+    codes = list(dict.fromkeys(_csv(entities)))[:300]
+    if not codes:
+        raise HTTPException(status_code=400, detail="Name at least one entity.")
+    await _limit(scope, None, ",".join(codes))
+    days = (date.fromisoformat(t) - date.fromisoformat(f)).days + 1
+    results, notes = await gather_tolerant([(lambda c=c: _trial(scope, c, f, t)) for c in codes], [f"{c} trial balance {f} - {t}" for c in codes], dict)
+    out = {}
+    for c, tb in zip(codes, results):
+        n = noi(pnl_from_trial(tb))
+        out[c] = {**n, "annualized": _r2(n["noi"] * 365 / days) if days > 0 else None}
+    return {"from": f, "to": t, "days": days, "entities": out, "notes": [f"Not read this time - {n}" for n in notes]}
+
+
 @router.get("/{loan_id}/history")
 async def loan_history(loan_id: str, from_: Optional[str] = Query(default=None, alias="from"), to: Optional[str] = None, interest: Optional[str] = None,
                        scope: dict = Depends(entity_scope)):
@@ -1199,6 +1343,7 @@ class LoanEdit(BaseModel):
     internal: Optional[bool] = None
     docsPath: Optional[str] = None
     statementsPath: Optional[str] = None
+    loanType: Optional[str] = None          # term | line_of_credit; '' = guess from the GL title
 
 
 _EDIT_MAP = {"lender": "lender", "loanNo": "loan_no", "ratePct": "rate_pct", "rateType": "rate_type", "maturity": "maturity", "monthlyPi": "monthly_pi",
@@ -1245,6 +1390,10 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
         setting_patch["docs_path"] = egnyte_folder(body.docsPath)
     if "statementsPath" in sent:
         setting_patch["statements_path"] = egnyte_folder(body.statementsPath)
+    if "loanType" in sent:
+        if body.loanType and body.loanType not in LOAN_TYPES:
+            raise HTTPException(status_code=400, detail="Loan type is Term Loan or Line of Credit.")
+        setting_patch["loan_type"] = body.loanType or ""
 
     row = {k: v for k, v in cur.items() if k not in ("ledger_balance", "ledger_asof")}
     changed = False
@@ -1276,5 +1425,61 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
         _clear_tables_cache()
     if setting_patch:
         await asyncio.to_thread(_save_settings_sync, loan_id, str(cur.get("entity_code") or ""), setting_patch, user["email"])
+    if changed or setting_patch:
+        changes = {k: getattr(body, k) for k in sorted(sent)}
+        await asyncio.to_thread(_audit_sync, user, "accounting_loan_changed", loan_id,
+                                {"lender": row.get("lender"), "entity": cur.get("entity_code"), "glAccount": row.get("gl_account"), "changes": changes})
     _forget(user["email"])
     return {"ok": True, "row": data.get("row") or row}
+
+
+def _remove_loan_sync(loan_id: str, cur: dict, dismiss: bool, user: dict) -> None:
+    """What Nexus keeps beside a removed loan goes with it - its amortization
+    schedule, stress scenarios, settings (interest account, Egnyte folders,
+    type, stress exclusion) - and a ledger loan is remembered as removed so
+    the ledger setup does not offer it again. Audited."""
+    entity, gl = str(cur.get("entity_code") or ""), str(cur.get("gl_account") or "").strip()
+    db = database.SessionLocal()
+    try:
+        db.query(models.AccountingLoanSchedule).filter(models.AccountingLoanSchedule.loan_id == loan_id).delete(synchronize_session=False)
+        db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id == loan_id).delete(synchronize_session=False)
+        db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.loan_id == loan_id).delete(synchronize_session=False)
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        if dismiss:
+            row = db.query(models.AccountingLoanDismissed).filter(models.AccountingLoanDismissed.entity_code == entity,
+                                                                  models.AccountingLoanDismissed.gl_account == gl).first()
+            if not row:
+                row = models.AccountingLoanDismissed(id=str(uuid.uuid4()), entity_code=entity, gl_account=gl)
+                db.add(row)
+            row.loan_id, row.lender, row.title = loan_id, str(cur.get("lender") or "")[:200], str(cur.get("notes") or "")[:200]
+            row.dismissed_by, row.dismissed_at = user.get("email") or "", now
+        db.add(models.AuditLog(timestamp=now, user_email=user.get("email") or "", user_role=user.get("role", "") or "", action="accounting_loan_removed",
+                               resource_type="accounting_loan", resource_id=loan_id,
+                               details=json.dumps({"lender": cur.get("lender"), "loanNo": cur.get("loan_no"), "entity": entity, "glAccount": gl,
+                                                   "balanceSource": cur.get("balance_source"), "dismissed": dismiss}, default=str)))
+        db.commit()
+    finally:
+        db.close()
+
+
+@router.delete("/{loan_id}")
+async def delete_loan(loan_id: str, user: dict = Depends(_edit), scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
+    """Remove a loan (Charmi, Oct 7: "there should be a delete option"). The
+    fin_loans row is deleted where it was created - the accounting app, through
+    the same row-delete Data > Loans uses. A loan set up from the ledger is
+    remembered as removed (entity + GL account) so + Add > From the Ledger
+    does not offer it again; ticking it there under Show Removed sets it up
+    again. Its schedule, scenarios and settings go with it."""
+    rows = await _loan_rows(scope, date.today().isoformat()[:7])
+    cur = next((r for r in rows if str(r.get("id")) == loan_id), None)
+    if not cur:
+        raise HTTPException(status_code=404, detail="Loan not found in your entities.")
+    await _limit(scope, str(cur.get("entity_code") or "") or None, None)
+    accounting_dashboard._require_configured()
+    by = accounting_dashboard._display_name(db, user["email"])
+    await asyncio.to_thread(accounting_dashboard._post_sync, {"op": "row-delete", "table": "fin_loans", "match": {"id": loan_id}, "by": by})
+    _clear_tables_cache()
+    dismiss = (cur.get("balance_source") or "manual") == "ledger" and bool(str(cur.get("gl_account") or "").strip())
+    await asyncio.to_thread(_remove_loan_sync, loan_id, cur, dismiss, user)
+    _forget(user["email"])
+    return {"ok": True, "loanId": loan_id, "dismissed": dismiss}

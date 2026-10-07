@@ -878,6 +878,9 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
             "ALTER TABLE pfs_affiliates ADD COLUMN roles JSON",   # PFS role per borrower (Neil, Oct 7)
+            # Accounting > Loans (Oct 7) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_type VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN stress_excluded BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1962,6 +1965,14 @@ def _run_migrations():
         "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
         # PFS Affiliated Entities: a role per borrower (Neil, Oct 7). models.PfsAffiliate.roles.
         "ALTER TABLE pfs_affiliates ADD COLUMN IF NOT EXISTS roles JSON",
+        # Accounting > Loans (Charmi, Oct 7): the loan's product (Line of Credit
+        # shows Draws) and the Stress Test's excluded loans; removed ledger
+        # loans and the Stress Test's per-entity NOI basis / Addback. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_type VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS stress_excluded BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_loan_dismissed ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_loan_stress_entities ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

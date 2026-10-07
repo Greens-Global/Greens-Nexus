@@ -336,6 +336,9 @@ class EndpointTests(unittest.TestCase):
 
         def fake_post(body):
             self.saves.append(body)
+            if body.get("op") == "row-delete":
+                self.loans = [l for l in self.loans if l["id"] != body["match"]["id"]]
+                return {"ok": True}
             row = dict(body["row"])
             row.setdefault("id", f"FL{len(self.loans) + 1}")
             self.loans = [l for l in self.loans if l["id"] != row["id"]] + [row]
@@ -372,6 +375,11 @@ class EndpointTests(unittest.TestCase):
             db.query(models.NexusGroup).filter(models.NexusGroup.id.in_(tuple(GROUPS))).delete(synchronize_session=False)
             db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.updated_by.in_(EVERYONE)).delete(synchronize_session=False)
+            db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.loan_id.in_(("FL1", "FLM"))).delete(synchronize_session=False)
+            db.query(models.AccountingLoanSchedule).filter(models.AccountingLoanSchedule.loan_id.in_(("FL1", "FLM"))).delete(synchronize_session=False)
+            db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id.in_(("FL1", "FLM"))).delete(synchronize_session=False)
+            db.query(models.AccountingLoanDismissed).filter(models.AccountingLoanDismissed.dismissed_by.in_(EVERYONE)).delete(synchronize_session=False)
+            db.query(models.AuditLog).filter(models.AuditLog.user_email.in_(EVERYONE)).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -621,6 +629,106 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual([x["entityCode"] for x in r["loans"]], ["15000"])
         self.assertEqual(self.client.put("/accounting/loans/FL2", json={"ratePct": 1}).status_code, 404)
         self.assertEqual(self.client.get("/accounting/loans/FL2/history").status_code, 404)
+
+    # ── Oct 7: delete, loan type, by entity, NOI ────────────────────────────
+    def test_delete_removes_the_loan_and_what_nexus_keeps_and_remembers_a_ledger_loan(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.AccountingLoanSchedule(id=str(uuid.uuid4()), loan_id="FL1", entity_code="15000", rows=[]))
+            db.add(models.AccountingLoanStressScenario(id=str(uuid.uuid4()), loan_id="FL1", entity_code="15000", name="x", params={}))
+            db.add(models.AccountingLoanSetting(loan_id="FL1", entity_code="15000", docs_path="/Shared/Loans", interest_account="", statements_path=""))
+            db.commit()
+        finally:
+            db.close()
+        _as(VIEWER)
+        self.assertEqual(self.client.delete("/accounting/loans/FL1").status_code, 403)
+        _as(EDITOR)
+        self.assertEqual(self.client.delete("/accounting/loans/NOPE").status_code, 404)
+        r = self.client.delete("/accounting/loans/FL1")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["dismissed"])
+        self.assertEqual({k: self.saves[-1][k] for k in ("op", "table", "match")}, {"op": "row-delete", "table": "fin_loans", "match": {"id": "FL1"}})
+        self.assertEqual(self._review()["loans"], [])
+        db = database.SessionLocal()
+        try:
+            for m in (models.AccountingLoanSchedule, models.AccountingLoanStressScenario, models.AccountingLoanSetting):
+                self.assertEqual(db.query(m).filter(m.loan_id == "FL1").count(), 0, m.__name__)
+            [gone] = db.query(models.AccountingLoanDismissed).filter(models.AccountingLoanDismissed.entity_code == "15000").all()
+            self.assertEqual((gone.gl_account, gone.loan_id, gone.dismissed_by), ("27100", "FL1", EDITOR))
+            [audit] = db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_loan_removed").all()
+            self.assertEqual((audit.user_email, audit.resource_id), (EDITOR, "FL1"))
+        finally:
+            db.close()
+        # The ledger setup does not offer it again; ticking it (Show Removed) sets it up and forgets the removal.
+        d = self._settled().json()
+        fm = next(p for p in d["proposals"] if p["glAccount"] == "27100")
+        self.assertEqual((fm["status"], d["removed"]), ("dismissed", 1))
+        r = self.client.post("/accounting/loans/create", json={"month": "2026-09", "items": [{"entityCode": "15000", "glAccount": "27100", "docsPath": "/Shared/Loans/F&M", "loanType": "term"}]})
+        self.assertEqual([c["glAccount"] for c in r.json()["created"]], ["27100"])
+        d = self._settled().json()
+        self.assertEqual(next(p for p in d["proposals"] if p["glAccount"] == "27100")["status"], "set_up")
+        row = next(x for x in self._review()["loans"] if x["glAccount"] == "27100")
+        self.assertEqual((row["docsPath"], row["loanType"], row["loanTypeGuessed"]), ("/Shared/Loans/F&M", "term", False))
+        # A loan kept by hand is simply removed.
+        self.loans.append({"id": "FLM", "loan_no": "M1", "kind": "external", "lender": "Hand", "entity_code": "15000", "gl_account": "", "balance_source": "manual", "balance": 5, "is_active": True})
+        self.assertFalse(self.client.delete("/accounting/loans/FLM").json()["dismissed"])
+        # A limited person cannot remove a loan outside their entities.
+        self.loans.append({"id": "FL9", "loan_no": "9", "kind": "external", "lender": "SBA", "entity_code": "12000", "gl_account": "27300", "balance_source": "ledger", "balance": 0, "is_active": True})
+        _as(LIMITED)
+        self.assertEqual(self.client.delete("/accounting/loans/FL9").status_code, 404)
+
+    def test_line_of_credit_is_typed_or_guessed_from_the_title(self):
+        self.assertEqual(accounting_loans.guess_loan_type("City National Bank - Gr. FLP LOC"), "line_of_credit")
+        self.assertEqual(accounting_loans.guess_loan_type("HELOC - Chase"), "line_of_credit")
+        self.assertEqual(accounting_loans.guess_loan_type("Line of Credit"), "line_of_credit")
+        self.assertEqual(accounting_loans.guess_loan_type("F&M Loan #6870", "F&M Bank"), "term")
+        self.assertEqual(accounting_loans.loan_type_of({"loan_type": "line_of_credit"}, "F&M Loan"), ("line_of_credit", False))
+        _as(EDITOR)
+        row = self._review()["loans"][0]
+        self.assertEqual((row["loanType"], row["lineOfCredit"], row["loanTypeGuessed"]), ("term", False, True))
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"loanType": "balloon"}).status_code, 400)
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"loanType": "line_of_credit"}).status_code, 200)
+        row = self._review()["loans"][0]
+        self.assertEqual((row["loanType"], row["lineOfCredit"], row["loanTypeGuessed"]), ("line_of_credit", True, False))
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_loan_changed", models.AuditLog.resource_id == "FL1").count(), 1)
+        finally:
+            db.close()
+
+    def test_interest_share_matches_the_row(self):
+        loans = [{"id": "A", "lender": "Alpha", "entity_code": "15000", "gl_account": "27100", "balance_source": "ledger", "is_active": True},
+                 {"id": "B", "lender": "Beta", "entity_code": "15000", "gl_account": "27200", "balance_source": "ledger", "is_active": True}]
+        tb = {"27100": {"title": "Loan A", "section": "liability", "opening": -300000, "debit": 0, "credit": 0, "closing": -300000},
+              "27200": {"title": "Loan B", "section": "liability", "opening": -100000, "debit": 0, "credit": 0, "closing": -100000},
+              "71900": {"title": "Interest Expense", "section": "expense", "opening": 0, "debit": 4000, "credit": 0, "closing": 4000}}
+        rows = {r["id"]: r for r in accounting_loans.review_rows(loans, {}, {("15000", "period"): tb, ("15000", "t12"): tb}, NAMES)}
+        self.assertEqual((rows["A"]["interestSource"], rows["A"]["interestShare"], rows["A"]["interestPaid"]), ("shared", 0.75, 3000.0))
+        self.assertEqual((rows["B"]["interestShare"], rows["B"]["interestPaid"]), (0.25, 1000.0))
+
+    def test_loans_by_entity_for_asset_management(self):
+        _as(EDITOR)
+        r = self.client.get("/accounting/loans/by-entity/15000?to=2026-09-30")
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        [loan] = d["loans"]
+        self.assertEqual({k: loan[k] for k in ("lender", "loanNo", "balance", "ratePct", "maturity", "monthlyPayment", "dscr", "debtServiceT12", "docsPath")},
+                         {"lender": "F&M Bank", "loanNo": "6870", "balance": 1252000.0, "ratePct": 6.1, "maturity": "2027-06-30", "monthlyPayment": 10000.0, "dscr": 2.2, "debtServiceT12": 120000.0, "docsPath": ""})
+        self.assertEqual(d["totals"], {"loans": 1, "balance": 1252000.0, "monthlyPayment": 10000.0, "debtServiceT12": 120000.0})
+        self.assertEqual(self.client.get("/accounting/loans/by-entity/56000").json()["loans"], [])
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/accounting/loans/by-entity/12000").status_code, 403)
+        self.assertEqual(self.client.get("/accounting/loans/by-entity/15000?to=2026-09-30").status_code, 200)
+
+    def test_noi_per_entity_annualized(self):
+        _as(EDITOR)
+        d = self.client.get("/accounting/loans/noi?entities=15000&from=2026-01-01&to=2026-06-30").json()
+        e = d["entities"]["15000"]
+        # Jan-Jun 2026: 6 x (25,000 rent - 3,000 repairs); interest left out.
+        self.assertEqual((e["noi"], d["days"]), (132000.0, 181))
+        self.assertEqual(e["annualized"], round(132000 * 365 / 181, 2))
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/accounting/loans/noi?entities=12000").status_code, 403)
 
     def test_scans_are_per_caller(self):
         _as(EDITOR)
