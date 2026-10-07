@@ -35,6 +35,7 @@ A deployed API with no Graph credentials fails closed (503): a file must never
 open on a code that was only ever printed to a log.
 """
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -48,6 +49,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import auth
+import cache
 import graph_mail
 import models
 from auth import require_module_grant
@@ -409,6 +411,118 @@ def lock(file_id: str, request: Request, user: dict = Depends(_read), db: Sessio
     if n:
         log(db, file_id, user["email"], "locked", _ip(request))
     db.commit()
+
+
+# ── Who may open PFS: Accounting > Access (Charmi, Oct 7: "Access need to
+# include access for PFS") ───────────────────────────────────────────────────
+# The grant every PFS route reads is the "pfs" module grant of an Access Group
+# (auth.require_module_grant("pfs", ...), bypass for owners only). This screen
+# sets it per person through two Access Groups it keeps for the purpose -
+# "PFS Viewer" (pfs:viewer) and "PFS Editor" (pfs:editor) - so it writes
+# exactly what Roles & Access writes, and both screens show the same thing.
+# A "pfs" grant that comes from some OTHER group is shown (`otherGroups`) but
+# not changed here. Owners only may change it; every change is audited.
+PFS_GROUPS = {"viewer": ("grp-pfs-viewer", "PFS Viewer"), "editor": ("grp-pfs-editor", "PFS Editor")}
+_LEVEL_NAMES = {0: "none", 1: "viewer", 2: "editor", 3: "full", 4: "owner"}
+
+
+def _owner_only(user: dict = Depends(_read)) -> dict:
+    if user["level"] < auth._LEVELS["owner"]:
+        raise HTTPException(status_code=403, detail="Only an owner can change who sees personal financial statements.")
+    return user
+
+
+def _pfs_groups(db: Session) -> dict[str, tuple[str, int]]:
+    """{group id: (name, pfs rank)} for every Access Group granting "pfs"."""
+    out = {}
+    for g in db.query(models.NexusGroup).all():
+        for part in (g.allowed_modules or "").split(","):
+            mid, _, lvl = part.strip().partition(":")
+            if mid == "pfs":
+                rank = auth._MODULE_LEVEL_RANK.get(lvl, auth._MODULE_LEVEL_RANK["viewer"])
+                out[g.id] = (g.name or g.id, max(rank, out.get(g.id, ("", 0))[1]))
+    return out
+
+
+def _people(db: Session) -> list[dict]:
+    groups = _pfs_groups(db)
+    managed_ids = {gid: lvl for lvl, (gid, _n) in PFS_GROUPS.items()}
+    members: dict[str, list[str]] = {}
+    for m in db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(list(groups) or [""])).all():
+        members.setdefault((m.email or "").lower(), []).append(m.group_id)
+    owners = {(r.email or "").lower() for r in db.query(models.NexusRole).filter(models.NexusRole.role == "owner").all()}
+    names: dict[str, str] = {}
+    for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email != "",
+                                                   models.NexusEmployee.status.notin_(("inactive", "offboarded"))).all():
+        email = (e.work_email or "").strip().lower()
+        if email:
+            names[email] = (getattr(e, "display_name", "") or "").strip() or f"{e.first_name or ''} {e.last_name or ''}".strip() or email
+    out = []
+    for email in sorted(set(names) | set(members) | owners):
+        gids = members.get(email, [])
+        rank = max((groups[g][1] for g in gids), default=0)
+        managed = max((auth._MODULE_LEVEL_RANK[managed_ids[g]] for g in gids if g in managed_ids), default=0)
+        out.append({"email": email, "name": names.get(email) or person_name(db, email), "isOwner": email in owners,
+                    "level": "owner" if email in owners else _LEVEL_NAMES.get(rank, "viewer"),
+                    "managedLevel": _LEVEL_NAMES.get(managed, "none"),
+                    "otherGroups": [{"id": g, "name": groups[g][0], "level": _LEVEL_NAMES.get(groups[g][1], "viewer")}
+                                    for g in gids if g not in managed_ids],
+                    "canChange": email not in owners})
+    return out
+
+
+@router.get("/people")
+def pfs_people(user: dict = Depends(_owner_only), db: Session = Depends(get_db)):
+    """Everyone on Nexus People (active), plus anyone holding a "pfs" grant,
+    with their PFS access. -> {"people": [{email, name, isOwner, level
+    ("none"|"viewer"|"editor"|"full"|"owner" - what they get today, from any
+    group or the owner role), managedLevel ("none"|"viewer"|"editor" - what
+    this screen set), otherGroups [{id, name, level}], canChange}],
+    "levels": ["none", "viewer", "editor"]}. Owners only."""
+    return {"people": _people(db), "levels": ["none", "viewer", "editor"]}
+
+
+class PfsLevelBody(BaseModel):
+    level: str    # none | viewer | editor
+
+
+def _ensure_group(db: Session, level: str, by: str) -> str:
+    gid, name = PFS_GROUPS[level]
+    if not db.query(models.NexusGroup).filter(models.NexusGroup.id == gid).first():
+        db.add(models.NexusGroup(id=gid, name=name, allowed_modules=f"pfs:{level}", created_by=by, created_at=_iso(_now()),
+                                 description=f"Personal Financial Statements - {level}. Kept by Accounting > Access."))
+    return gid
+
+
+@router.put("/people/{email}")
+def set_pfs_level(email: str, body: PfsLevelBody, user: dict = Depends(_owner_only), db: Session = Depends(get_db)):
+    """Set one person's PFS access: "none" | "viewer" | "editor". Writes the
+    PFS Viewer / PFS Editor group membership; a grant from another group stays
+    (and is reported in `otherGroups`). Audited ("pfs_access_changed").
+    -> the person's row as GET /people returns it."""
+    email = (email or "").strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Give the person's email.")
+    level = (body.level or "").strip().lower()
+    if level not in ("none", "viewer", "editor"):
+        raise HTTPException(status_code=400, detail="level must be none, viewer or editor")
+    if db.query(models.NexusRole).filter(models.NexusRole.email == email, models.NexusRole.role == "owner").first():
+        raise HTTPException(status_code=400, detail="An owner always sees personal financial statements.")
+    before = next((p for p in _people(db) if p["email"] == email), None)
+    managed_ids = [gid for gid, _n in PFS_GROUPS.values()]
+    db.query(models.NexusGroupMember).filter(models.NexusGroupMember.email == email,
+                                            models.NexusGroupMember.group_id.in_(managed_ids)).delete(synchronize_session=False)
+    if level != "none":
+        gid = _ensure_group(db, level, user["email"])
+        db.add(models.NexusGroupMember(group_id=gid, email=email, added_by=user["email"], added_at=_iso(_now())))
+    db.add(models.AuditLog(timestamp=_iso(_now()), user_email=user["email"], user_role=user.get("role", ""), action="pfs_access_changed",
+                           resource_type="pfs", resource_id=email,
+                           details=json.dumps({"email": email, "from": (before or {}).get("managedLevel", "none"), "to": level})))
+    db.commit()
+    cache.module_grants.invalidate(email)
+    row = next((p for p in _people(db) if p["email"] == email), None)
+    return row or {"email": email, "name": person_name(db, email), "isOwner": False, "level": level, "managedLevel": level,
+                   "otherGroups": [], "canChange": True}
 
 
 @router.get("/log")

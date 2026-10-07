@@ -26,6 +26,8 @@ vi.mock('../../api', () => ({
     getLoanStressScenarios: vi.fn(async () => ({ scenarios: [] })),
     saveLoanStressScenario: vi.fn(async (_id, body) => ({ scenario: { id: 'X1', ...body, by: 'me', at: '' } })),
     deleteLoanStressScenario: vi.fn(async () => ({ ok: true })),
+    getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
+    saveAccountingPrefs: vi.fn(async () => ({ ok: true })),
   },
 }));
 vi.mock('../../investor/lib/upload', () => ({ uploadToSupabase: vi.fn(async () => ({ url: '', error: null })), safeFileName: (s) => s }));

@@ -98,11 +98,24 @@ def _pct(v, what: str) -> Optional[float]:
     return n
 
 
+def roles_of(a: models.PfsAffiliate) -> dict:
+    """The role of each borrower in the entity (Neil, Oct 7: "different
+    Guarantors must have different role in the entity"). A row saved before
+    `roles` existed has one `role`, filled in for the borrower: it reads as
+    the primary borrower's role."""
+    if isinstance(a.roles, dict) and a.roles:
+        return {k: v for k, v in a.roles.items() if k in ("primary", "co") and v}
+    return {"primary": a.role} if (a.role or "").strip() else {}
+
+
 def _out(a: models.PfsAffiliate) -> dict:
+    # Oct 7: `roles` = {"primary": str, "co": str} (per borrower; falls back to
+    # the old single `role` as the primary's). `role` stays = roles.primary.
+    # `einLast4` / `state` are still returned (kept data) but no longer asked or exported.
     return {"id": a.id, "name": a.name or "", "entityType": a.entity_type or "other",
             "entityTypeLabel": _TYPE_LABEL.get(a.entity_type or "", "Other"), "einLast4": a.ein_last4 or "",
             "state": a.state or "", "ownership": a.ownership if isinstance(a.ownership, dict) else {},
-            "beneficialPct": a.beneficial_pct, "role": a.role or "", "notes": a.notes or "",
+            "beneficialPct": a.beneficial_pct, "role": a.role or "", "roles": roles_of(a), "notes": a.notes or "",
             "ledgerEntity": a.ledger_entity or "", "sort": a.sort or 0, "updatedBy": a.updated_by or "", "updatedAt": a.updated_at or ""}
 
 
@@ -114,11 +127,34 @@ class AffiliateBody(BaseModel):
     ownership: Optional[dict[str, Any]] = None
     beneficialPct: Optional[Any] = None
     role: Optional[str] = ""
+    # Oct 7: {"primary": "Managing Member", "co": "Member"} - a borrower key of
+    # the file -> one of ROLES or any text up to 60 characters. When omitted,
+    # `role` alone is read as the primary borrower's role (older clients).
+    roles: Optional[dict[str, Any]] = None
     notes: Optional[str] = ""
     ledgerEntity: Optional[str] = ""
 
 
-def _clean(body: AffiliateBody) -> dict:
+def _clean_roles(body: AffiliateBody, keys: list[str]) -> dict:
+    if body.roles is None:
+        role = (body.role or "").strip()[:60]
+        return {"primary": role} if role else {}
+    out = {}
+    for k, v in body.roles.items():
+        if k not in keys:
+            raise HTTPException(status_code=400, detail="A role is given for a borrower who is not on this statement.")
+        if v is None:
+            continue
+        if not isinstance(v, str):
+            raise HTTPException(status_code=400, detail="A role is text.")
+        v = v.strip()
+        if v:
+            # One of ROLES, or the borrower's own words (kept, at most 60 characters).
+            out[k] = next((r for r in ROLES if r.lower() == v.lower()), v[:60])
+    return out
+
+
+def _clean(body: AffiliateBody, keys: Optional[list[str]] = None) -> dict:
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Give the entity a name.")
@@ -133,10 +169,10 @@ def _clean(body: AffiliateBody) -> dict:
             n = _pct(v, "Ownership")
             if n is not None:
                 ownership[k] = n
-    role = (body.role or "").strip()
+    roles = _clean_roles(body, keys or ["primary", "co"])
     return {"name": name[:160], "entity_type": etype, "ein_last4": digits, "state": (body.state or "").strip()[:40],
             "ownership": ownership, "beneficial_pct": _pct(body.beneficialPct, "Beneficial ownership"),
-            "role": role[:60], "notes": (body.notes or "").strip()[:400], "ledger_entity": (body.ledgerEntity or "").strip()[:40]}
+            "roles": roles, "role": roles.get("primary", ""), "notes": (body.notes or "").strip()[:400], "ledger_entity": (body.ledgerEntity or "").strip()[:40]}
 
 
 def _rows(db: Session, profile_id: str) -> list[models.PfsAffiliate]:
@@ -163,12 +199,12 @@ def list_affiliates(profile_id: str, db: Session = Depends(get_db)):
 
 @router.post("/profiles/{profile_id}/affiliates", status_code=201)
 def add_affiliate(profile_id: str, body: AffiliateBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
-    _profile(db, profile_id)
+    p = _profile(db, profile_id)
     have = _rows(db, profile_id)
     if len(have) >= MAX_ROWS:
         raise HTTPException(status_code=400, detail="That is the most entities one statement can list.")
     a = models.PfsAffiliate(id=str(uuid.uuid4()), profile_id=profile_id, sort=(max([r.sort or 0 for r in have], default=0) + 1),
-                            updated_by=user["email"], updated_at=_now(), **_clean(body))
+                            updated_by=user["email"], updated_at=_now(), **_clean(body, [b["key"] for b in borrowers(p)]))
     db.add(a)
     _audit(db, user, "pfs_affiliate_added", profile_id, {"affiliate": a.id, "name": a.name})
     db.commit()
@@ -186,7 +222,8 @@ def _get(db: Session, profile_id: str, affiliate_id: str) -> models.PfsAffiliate
 @router.put("/profiles/{profile_id}/affiliates/{affiliate_id}")
 def update_affiliate(profile_id: str, affiliate_id: str, body: AffiliateBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
     a = _get(db, profile_id, affiliate_id)
-    for k, v in _clean(body).items():
+    keys = [b["key"] for b in borrowers(_profile(db, profile_id))]
+    for k, v in _clean(body, keys).items():
         setattr(a, k, v)
     a.updated_by, a.updated_at = user["email"], _now()
     _audit(db, user, "pfs_affiliate_changed", profile_id, {"affiliate": a.id, "name": a.name})
@@ -264,6 +301,43 @@ def forget(db: Session, profile_id: str) -> None:
     with it (the caller commits). The access log is kept."""
     db.query(models.PfsAffiliate).filter(models.PfsAffiliate.profile_id == profile_id).delete(synchronize_session=False)
     db.query(models.PfsProfileExtra).filter(models.PfsProfileExtra.profile_id == profile_id).delete(synchronize_session=False)
+
+
+# ── The share a statement line takes from here (Charmi, Oct 7) ──────────────
+def share_of(a: models.PfsAffiliate, people: list[dict]) -> Optional[dict]:
+    """The guarantor's share of an entity by its row here: the Beneficial % when
+    it is filled in, else the sum of the borrowers' ownership % (capped at
+    100). None when neither is entered.
+    -> {pct, basis: "beneficial"|"ownership", parts: [{key, name, pct}], text,
+        affiliateId, affiliateName, entity}"""
+    own = a.ownership if isinstance(a.ownership, dict) else {}
+    names = {b["key"]: b["name"] for b in people}
+    parts = [{"key": k, "name": names.get(k, k), "pct": float(own[k])} for k in ("primary", "co") if own.get(k) is not None]
+    base = {"affiliateId": a.id, "affiliateName": a.name or "", "entity": a.ledger_entity or "", "parts": parts}
+    fmt = lambda n: f"{float(n):g}%"  # noqa: E731
+    if a.beneficial_pct is not None:
+        return {**base, "pct": float(a.beneficial_pct), "basis": "beneficial", "text": f"Beneficial {fmt(a.beneficial_pct)}"}
+    if not parts:
+        return None
+    total = min(100.0, round(sum(x["pct"] for x in parts), 4))
+    return {**base, "pct": total, "basis": "ownership", "text": " + ".join(f"{x['name']} {fmt(x['pct'])}" for x in parts)}
+
+
+def shares(db: Session, profile_id: str) -> dict:
+    """{ledger entity code: share_of(row)} for every row of a file that names
+    a ledger entity and has a percent. The first row wins if two name one entity."""
+    p = db.query(models.PfsProfile).filter(models.PfsProfile.id == profile_id).first()
+    if not p:
+        return {}
+    people = borrowers(p)
+    out: dict = {}
+    for a in _rows(db, profile_id):
+        code = (a.ledger_entity or "").strip()
+        if code and code not in out:
+            s = share_of(a, people)
+            if s:
+                out[code] = s
+    return out
 
 
 # ── Into every statement ─────────────────────────────────────────────────────

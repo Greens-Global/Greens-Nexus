@@ -73,13 +73,41 @@ def _post_sync(body: dict) -> dict:
     return data
 
 
-async def _get(op: str, params: dict) -> dict:
+# Oct 7 (Priyanka: "Refresh does nothing"): the dashboard's Refresh button
+# sends fresh=1, which skips the cached answer and replaces it. One caller's
+# repeated fresh reads of the same query within this many seconds are served
+# from the cache like any other read, so a stuck button cannot hammer the
+# accounting app.
+_FRESH_MIN_GAP = 10.0
+_FRESH_SEEN: dict[tuple[str, str], float] = {}
+
+
+def _take_fresh(who: str, key: str, now: float) -> bool:
+    """True when this caller may bypass the cache for this query now."""
+    if len(_FRESH_SEEN) > 2000:
+        for k in [k for k, t in _FRESH_SEEN.items() if now - t >= _FRESH_MIN_GAP]:
+            _FRESH_SEEN.pop(k, None)
+    last = _FRESH_SEEN.get((who, key))
+    if last is not None and now - last < _FRESH_MIN_GAP:
+        return False
+    _FRESH_SEEN[(who, key)] = now
+    return True
+
+
+def fresh_caller(fresh: bool = False, user: dict = Depends(get_current_user)) -> str | None:
+    """The caller's email when the read asked for fresh figures (fresh=1), else None."""
+    if not fresh:
+        return None
+    return (user.get("email") or "").lower() or "?"
+
+
+async def _get(op: str, params: dict, fresh_by: str | None = None) -> dict:
     _require_configured()
     clean = {"op": op, **{k: v for k, v in params.items() if v not in (None, "")}}
     key = "&".join(f"{k}={v}" for k, v in sorted(clean.items()))
     hit = _CACHE.get(key)
     now = time.monotonic()
-    if hit and now - hit[0] < _TTL.get(op, 60.0):
+    if hit and now - hit[0] < _TTL.get(op, 60.0) and not (fresh_by and _take_fresh(fresh_by, key, now)):
         return hit[1]
     data = await asyncio.to_thread(_get_sync, clean)
     _CACHE[key] = (now, data)
@@ -94,46 +122,46 @@ def _display_name(db: Session, email: str) -> str:
 
 
 @router.get("/ledger")
-async def ledger(scope: str = "ALL", from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual"):
+async def ledger(scope: str = "ALL", from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual", fresh_by: str | None = Depends(fresh_caller)):
     """Per account per month activity plus opening balances - the one aggregate every widget derives from."""
-    return await _get("monthly", {"scope": scope, "from": from_, "to": to, "book": book})
+    return await _get("monthly", {"scope": scope, "from": from_, "to": to, "book": book}, fresh_by)
 
 
 @router.get("/cash-entities")
-async def cash_entities(scope: str = "ALL", asof: str = Query(...), book: str = "accrual"):
+async def cash_entities(scope: str = "ALL", asof: str = Query(...), book: str = "accrual", fresh_by: str | None = Depends(fresh_caller)):
     """Cash on hand per top-level entity with the partner flag."""
-    return await _get("cash-entities", {"scope": scope, "asof": asof, "book": book})
+    return await _get("cash-entities", {"scope": scope, "asof": asof, "book": book}, fresh_by)
 
 
 @router.get("/recon-accounts")
-async def recon_accounts(scope: str = "ALL", asof: str = Query(...), book: str = "accrual"):
+async def recon_accounts(scope: str = "ALL", asof: str = Query(...), book: str = "accrual", fresh_by: str | None = Depends(fresh_caller)):
     """Bank and card GL accounts per entity with their balance as of a date -
     the bookkeeper's reconciliation list (Charmi, Sep 23)."""
-    return await _get("recon-accounts", {"scope": scope, "asof": asof, "book": book})
+    return await _get("recon-accounts", {"scope": scope, "asof": asof, "book": book}, fresh_by)
 
 
 @router.get("/budget")
-async def budget(from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual"):
+async def budget(from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual", fresh_by: str | None = Depends(fresh_caller)):
     """Budget per account per month, prorated from posted budget journals."""
-    return await _get("budget", {"from": from_, "to": to, "book": book})
+    return await _get("budget", {"from": from_, "to": to, "book": book}, fresh_by)
 
 
 @router.get("/noi")
-async def noi(from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual"):
+async def noi(from_: str = Query(alias="from"), to: str = Query(...), book: str = "accrual", fresh_by: str | None = Depends(fresh_caller)):
     """Revenue and operating cost per top-level entity for a window."""
-    return await _get("noi", {"from": from_, "to": to, "book": book})
+    return await _get("noi", {"from": from_, "to": to, "book": book}, fresh_by)
 
 
 @router.get("/entities")
-async def entities():
+async def entities(fresh_by: str | None = Depends(fresh_caller)):
     """Entities with the dashboard flags (partner, investors, currency, asset type)."""
-    return await _get("entities", {})
+    return await _get("entities", {}, fresh_by)
 
 
 @router.get("/tables")
-async def tables(period: str = Query(...)):
+async def tables(period: str = Query(...), fresh_by: str | None = Depends(fresh_caller)):
     """Reference and team tables for one month: loans, intercompany, holdings, close plan and ticks, marks, notes, views, packages, bank recs, feed lines."""
-    return await _get("tables", {"period": period})
+    return await _get("tables", {"period": period}, fresh_by)
 
 
 class Action(BaseModel):
@@ -142,19 +170,24 @@ class Action(BaseModel):
 
 
 # Writes the accounting app accepts on this path. Anything else is rejected
-# here so a typo can never reach it.
-_WRITE_OPS = {"close-task", "recon-mark", "note", "close-day", "view-save", "view-delete", "package-save", "package-delete", "seed"}
+# here so a typo can never reach it. "recon-mark" is deliberately absent
+# (Neil, Oct 7): reconciling is an Intacct function only, never Nexus.
+_WRITE_OPS = {"close-task", "note", "close-day", "view-save", "view-delete", "package-save", "package-delete", "seed"}
 _EDIT_OPS = {"row-save", "row-delete"}
+# The four Overview role views (Oct 7): they reset, they never delete.
+_ROLE_VIEWS = {"principal", "cfo", "controller", "bookkeeper"}
 
 
 @router.post("/action")
 async def action(body: Action, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """One write: tick a close task, mark a reconciliation, save a note or a view. Reference-data edits need the editor level."""
+    """One write: tick a close task, save a note or a view. Reference-data edits need the editor level."""
     if body.op in _EDIT_OPS:
         # Setup-style edits (loans, holdings, close plan...) are for editors and up.
         require_module_grant("accounting", "editor")(user=user, db=db)
     elif body.op not in _WRITE_OPS:
         raise HTTPException(status_code=400, detail="Unknown dashboard action")
+    if body.op == "view-delete" and str(body.payload.get("id") or "") in _ROLE_VIEWS:
+        raise HTTPException(status_code=400, detail="Role views cannot be deleted - reset one to its default widgets instead")
     _require_configured()
     payload = {**body.payload, "op": body.op, "by": _display_name(db, user["email"])}
     data = await asyncio.to_thread(_post_sync, payload)

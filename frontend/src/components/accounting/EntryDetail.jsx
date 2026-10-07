@@ -49,7 +49,14 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     setData(null);
     setError('');
     api.getAccountingEntry(entryId)
-      .then((d) => { if (alive) setData(d); })
+      // An answer without totals (an older app, or a partial read) adds its
+      // own lines up rather than crashing the panel.
+      .then((d) => {
+        if (!alive) return;
+        const ls = d?.lines || [];
+        const totals = d?.totals || { debit: ls.reduce((t, l) => t + (Number(l.debit) || 0), 0), credit: ls.reduce((t, l) => t + (Number(l.credit) || 0), 0) };
+        setData({ ...(d || {}), lines: ls, totals });
+      })
       .catch((e) => { if (alive) setError(e?.message || 'Could not load the entry.'); });
     return () => { alive = false; };
   }, [entryId]);

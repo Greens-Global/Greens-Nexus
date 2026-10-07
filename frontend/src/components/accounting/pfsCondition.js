@@ -17,5 +17,16 @@ export function conditionOf(statement) {
   };
 }
 
+/** The account reference to print after a line's label, or '' when the label
+ * already shows it (Charmi, Oct 7: "RJK - Citi - 3536  3536"). '' too when
+ * there is no ref. The ref counts as shown when it appears in the label as a
+ * whole number - "Citi - 3536", "Chase-2554" - not inside a longer one. */
+export function refSuffix(label, ref) {
+  const r = String(ref ?? '').trim();
+  if (!r) return '';
+  const esc = r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^0-9A-Za-z])${esc}($|[^0-9A-Za-z])`, 'i').test(String(label ?? '')) ? '' : r;
+}
+
 /** "Neil R. Kadakia and Archana Kadakia" - the names the first page is headed with. */
 export const statementName = (statement) => statement?.profile?.displayName || statement?.profile?.name || 'Guarantor';

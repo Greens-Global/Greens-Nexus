@@ -8,24 +8,33 @@
 // record before 10/06 has neither, and every helper here returns nothing for
 // it - the export then looks exactly as it did.
 
-const pctText = (n) => (n == null || n === '' ? '' : `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`);
+// Oct 7 (Neil/Charmi): an empty percent prints "-", like every other
+// accounting table; EIN and State are no longer printed (still kept on the row).
+export const pctText = (n) => (n == null || n === '' ? '-' : `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`);
 
-/** The Affiliated Entities table of a statement: the borrowers (one ownership
- * column each), the column headers, and one row of raw values per entity
- * ([name, type, EIN last 4, state, ...ownership per borrower, beneficial, role, notes]). */
+/** Each borrower's role in an entity row (Oct 7): `roles` keyed like
+ * `ownership`; a row saved before then has one `role`, the primary's. */
+export const rolesOf = (r) => (r?.roles && Object.keys(r.roles).length ? r.roles : r?.role ? { primary: r.role } : {});
+
+/** The Affiliated Entities table of a statement: the borrowers (an ownership
+ * and a role column each), the column headers, and one row of raw values per
+ * entity ([name, type, ...(ownership, role) per borrower, beneficial, notes]). */
 export function affiliatedRows(statement) {
   const a = statement?.affiliated;
   const borrowers = a?.borrowers?.length ? a.borrowers : [{ key: 'primary', name: statement?.profile?.name || 'Borrower' }];
   const columns = [
-    { key: 'name', label: 'Entity Name' }, { key: 'type', label: 'Entity Type' }, { key: 'ein', label: 'EIN (Last 4)' }, { key: 'state', label: 'State' },
-    ...borrowers.map((b) => ({ key: `own:${b.key}`, label: `${b.name} Ownership`, pct: true })),
-    { key: 'beneficial', label: 'Beneficial Ownership', pct: true }, { key: 'role', label: 'Role' }, { key: 'notes', label: 'Notes' },
+    { key: 'name', label: 'Entity Name' }, { key: 'type', label: 'Entity Type' },
+    ...borrowers.flatMap((b) => [{ key: `own:${b.key}`, label: `${b.name} Ownership`, pct: true }, { key: `role:${b.key}`, label: `${b.name} Role` }]),
+    { key: 'beneficial', label: 'Beneficial Ownership', pct: true }, { key: 'notes', label: 'Notes' },
   ];
-  const rows = (a?.rows || []).map((r) => [
-    r.name || '', r.entityTypeLabel || '', r.einLast4 ? `XX-XXX${r.einLast4}` : '', r.state || '',
-    ...borrowers.map((b) => (r.ownership?.[b.key] ?? null)),
-    r.beneficialPct ?? null, r.role || '', r.notes || '',
-  ]);
+  const rows = (a?.rows || []).map((r) => {
+    const roles = rolesOf(r);
+    return [
+      r.name || '', r.entityTypeLabel || '',
+      ...borrowers.flatMap((b) => [r.ownership?.[b.key] ?? null, roles[b.key] || '']),
+      r.beneficialPct ?? null, r.notes || '',
+    ];
+  });
   return { borrowers, columns, rows };
 }
 
@@ -44,12 +53,14 @@ export function pfsExtraPdf(statement, width) {
   const { columns, rows } = affiliatedRows(statement);
   if (rows.length) {
     const shown = columns.filter((c) => c.key !== 'notes');
-    const fixed = { type: 78, ein: 46, state: 36, beneficial: 54 };
-    const pcts = shown.filter((c) => c.key.startsWith('own:')).length;
-    const rest = width - Object.values(fixed).reduce((s, v) => s + v, 0) - pcts * 54;
+    const fixed = { type: 78, beneficial: 54 };
+    const per = shown.filter((c) => c.key.startsWith('own:')).length;
+    const name = Math.max(90, width - fixed.type - fixed.beneficial - per * (46 + 72));
+    const first = (label, suffix) => `${label.replace(suffix, '').split(' ')[0]}`;
     const cols = shown.map((c) => ({
-      label: c.key.startsWith('own:') ? `${c.label.replace(/ Ownership$/, '').split(' ')[0]} %` : c.key === 'beneficial' ? 'Beneficial %' : c.label,
-      width: fixed[c.key] || (c.key.startsWith('own:') ? 54 : c.key === 'name' ? Math.round(rest * 0.62) : Math.round(rest * 0.38)),
+      label: c.key.startsWith('own:') ? `${first(c.label, / Ownership$/)} %` : c.key.startsWith('role:') ? `${first(c.label, / Role$/)} Role`
+        : c.key === 'beneficial' ? 'Beneficial %' : c.label,
+      width: fixed[c.key] || (c.key.startsWith('own:') ? 46 : c.key.startsWith('role:') ? 72 : name),
       num: !!c.pct,
     }));
     const notesAt = columns.findIndex((c) => c.key === 'notes');
@@ -70,7 +81,7 @@ export function pfsExtraPdf(statement, width) {
 
 /** Excel sheets to add: [{ name, title, cols?, rows?, text? }], with cols in
  * pfsXlsx.js's table shape. Percents go as text ("50%"): a share nobody
- * entered must read blank, never 0%. */
+ * entered must read "-", never 0%. */
 export function pfsExtraSheets(statement) {
   const out = [];
   const { columns, rows } = affiliatedRows(statement);
