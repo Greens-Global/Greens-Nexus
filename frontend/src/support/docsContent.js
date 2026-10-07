@@ -1083,7 +1083,27 @@ export const DOCS = [
         steps: [
           'Click the Hiring tab, then Add Candidate.',
           'Move them through Screening, Interview and Offer as things progress.',
-          'At Offer, send the offer letter for signature. Mark them Hired to start onboarding.',
+          'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
+          'Only for an offer signed on paper: Mark Hired By Hand. Nothing is sent or filed that way.',
+        ],
+      },
+      {
+        title: 'Set Up a Hiring Packet',
+        steps: [
+          "Build the packet in Documents > Nexus Sign > Templates: one template with the company's documents (offer letter, NDA and the rest) and where each person signs. Put the new hire's role last.",
+          'In People > Hiring, click Packets. Pick the company (or Default for every company without its own).',
+          'Click Packet For Everyone, pick the template, choose which role the new hire signs as, write the welcome note for the email, and click Save. Add a separate packet for contractors if they sign different documents.',
+          "The Egnyte Subfolder is where the signed packet is filed inside the new hire's own folder. Blank uses Hiring Documents.",
+        ],
+      },
+      {
+        title: 'Send a Hiring Packet',
+        steps: [
+          'Move the candidate to Offer, open them and click Send Hiring Packet.',
+          'Enter the job title, start date, employment type, supervisor and pay, then click Review Packet. Check the documents, the signing order and the Egnyte folder; fill in anything the template still needs.',
+          'Tick the confirmation and click Send And Sign. You sign for the company right away; the new hire is then emailed at their personal address and signs last.',
+          'The candidate card shows who has signed. Void stops a packet; after a decline or void you can send a new one.',
+          "When the new hire signs, Nexus adds them to People as Onboarding, sets their pay from the start date, starts the onboarding checklist and files the signed packet in their Egnyte folder (Human Resources > Employees > their name), which they see in My HR > My Documents. If Egnyte is down it retries; use Retry Filing on the candidate if it says Not Filed.",
         ],
       },
       {

@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
+import { PacketsModal, SendHiringPacketModal, HiringPacketStatus, PacketSigner, packetIsActive } from '../components/HiringPacket';
 import {
   Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
@@ -2042,16 +2043,27 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
   );
 }
 
-function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy }) {
+function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy,
+  onSendPacket, onSignPacket, packetRefresh, toastOk, toastErr }) {
   const [history, setHistory] = useState(null);
+  const [packetEvents, setPacketEvents] = useState(null);   // the hiring packet(s) on this candidate
   const [note, setNote] = useState('');
   const [ivEdit, setIvEdit] = useState(false);
   const [ivAt, setIvAt] = useState(c.interviewAt ? c.interviewAt.slice(0, 16) : '');
   const [ivBusy, setIvBusy] = useState(false);
   const [resumeBusy, setResumeBusy] = useState(false);
   const resumeRef = useRef(null);
-  useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
+  useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id, packetRefresh]);
   const idx = STAGES.indexOf(c.stage);
+  const packetOut = packetIsActive(packetEvents);
+  // Offer -> the hiring packet is the way forward (Neil, Oct 8); a signed
+  // packet hires the candidate by itself. Mark Hired stays for paper offers.
+  const usePacket = c.stage === 'offer' && !!onSendPacket;
+  async function markHiredByHand() {
+    if (!await dialog.confirm(`Mark ${candName(c)} hired without the hiring packet? Use this only when they signed on paper - nothing is sent or filed.`,
+      { title: 'Mark Hired', confirmText: 'Mark Hired' })) return;
+    onStage(c, 'hired', note || 'Marked hired by hand (no hiring packet)');
+  }
   const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
   const terminal = c.stage === 'hired' || c.stage === 'rejected';
   const sm = STAGE_META[c.stage];
@@ -2160,6 +2172,10 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
               </button>
             )}
           </div>
+          {['offer', 'hired'].includes(c.stage) && (
+            <HiringPacketStatus candidateId={c.id} refreshKey={packetRefresh} onEvents={setPacketEvents}
+              onSignNow={onSignPacket} onChanged={() => onUpdated?.(c)} toastOk={toastOk} toastErr={toastErr} />
+          )}
           {/* Stage history timeline */}
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -2190,7 +2206,18 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
               style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
               <XCircle size={13} /> Reject
             </button>
-            {next && (
+            {usePacket && (
+              <button className="secondary-btn" onClick={markHiredByHand} disabled={busy} style={{ fontSize: 12.5 }}>
+                Mark Hired By Hand
+              </button>
+            )}
+            {usePacket && !packetOut && (
+              <button className="primary-btn" onClick={() => onSendPacket(c)} disabled={busy || packetEvents === null}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <FileText size={14} /> Send Hiring Packet
+              </button>
+            )}
+            {next && !usePacket && (
               <button className="primary-btn" onClick={() => onStage(c, next, note)} disabled={busy}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: next === 'hired' ? 'hsl(var(--color-green))' : undefined }}>
                 {busy ? <Spinner size={14} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
@@ -2214,6 +2241,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
+  const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
+  const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
+  const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
+  const [packetRefresh, setPacketRefresh] = useState(0);
+  const { canAccessModule } = useRole();
+  const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
 
   const loadCandidates = useCallback(() => {
     setLoadErr(false); setCandidates(null);
@@ -2286,6 +2319,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setPacketsOpen(true)}>Packets</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
             {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
@@ -2363,7 +2397,23 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
       {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
         onOpenInterviews={cand => { setDetail(null); setIvFor(cand); }}
-        onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }} />}
+        onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }}
+        onSendPacket={cand => setPacketFor(cand)} onSignPacket={setSignParty} packetRefresh={packetRefresh}
+        toastOk={toastOk} toastErr={toastErr} />}
+      {packetsOpen && <PacketsModal onClose={() => setPacketsOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
+        onClose={() => setPacketFor(null)}
+        onSent={ev => {
+          setPacketFor(null); setPacketRefresh(n => n + 1);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
+        }} />}
+      <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => { setSignParty(null); setPacketRefresh(n => n + 1); }}
+        onDone={() => {
+          setSignParty(null); setPacketRefresh(n => n + 1);
+          toastOk('Signed - the new hire has been emailed the packet to sign.');
+        }} />
       {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); api.getCandidates().then(setCandidates).catch(() => {}); }} toastOk={toastOk} toastErr={toastErr} />}
