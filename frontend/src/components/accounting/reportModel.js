@@ -1324,14 +1324,27 @@ export function reportPages(rows, pageSize) {
   const pages = [];
   let page = [];
   let count = 0;
+  const cont = (r) => ({ ...r, continued: true, label: `${r.label} (continued)` });
   units.forEach((u) => {
-    if (count && count + u.length > size) { pages.push(page); page = []; count = 0; }
-    if (!page.length && u[0].group && u[0].kind !== 'group' && headers.has(u[0].group)) {
-      const h = headers.get(u[0].group);
-      page.push({ ...h, continued: true, label: `${h.label} (continued)` });
+    // A unit bigger than a page (a General Ledger account with hundreds of
+    // lines - Priyanka, 10/07: "the pagination options are not working") is
+    // split across pages, its account heading repeated as "(continued)".
+    const head = u.find((r) => r.kind === 'section') || null;
+    let rest = u;
+    while (rest.length) {
+      if (count && (count + rest.length > size) && (rest.length <= size || count >= size)) { pages.push(page); page = []; count = 0; }
+      if (!page.length) {
+        const g = rest[0].group;
+        if (g && rest[0].kind !== 'group' && headers.has(g)) page.push(cont(headers.get(g)));
+        if (head && rest !== u && rest[0] !== head) page.push(cont(head));
+      }
+      const room = Math.max(1, size - count);
+      const take = rest.slice(0, room);
+      page.push(...take);
+      count += take.length;
+      rest = rest.slice(room);
+      if (rest.length) { pages.push(page); page = []; count = 0; }
     }
-    page.push(...u);
-    count += u.length;
   });
   if (page.length) pages.push(page);
   return { pages, pinned, total: body.length };
