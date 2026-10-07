@@ -347,6 +347,7 @@ async def report_buckets(
     })
 
 
+_AMOUNT_OPS = ("eq", "gt", "lt", "gte", "lte", "between")
 _COLUMN_KEYS = ("date", "entry", "doc", "description", "account", "entity", "department", "party", "vendor", "customer", "employee", "journal", "debit", "credit")
 
 
@@ -372,6 +373,12 @@ async def search_ledger(
     max_: str | None = Query(default=None, alias="max"),
     book: str | None = None,
     cols: str | None = None,
+    debit_op: str | None = None,
+    debit_v: float | None = None,
+    debit_v2: float | None = None,
+    credit_op: str | None = None,
+    credit_v: float | None = None,
+    credit_v2: float | None = None,
     offset: int = 0,
     limit: int = 100,
     scope: dict = Depends(entity_scope),
@@ -391,7 +398,21 @@ async def search_ledger(
     each a comma-separated list of codes, the same params the report reads
     take. Before, a General Ledger with a vendor picked listed every line of
     the account (1,763 payments to other payees) and timed out on All
-    entities."""
+    entities.
+
+    Debit / Credit compared with an operator (Charmi, 10/07): `debit_op` /
+    `credit_op` one of eq gt lt gte lte between, with `_v` (and `_v2` for
+    between). The ledger echoes the ones it applied in `cols` as
+    `debit_cmp` / `credit_cmp`; the screen checks the rest itself."""
+    amount_ops = {}
+    for side, op, v, v2 in (("debit", debit_op, debit_v, debit_v2), ("credit", credit_op, credit_v, credit_v2)):
+        if not op:
+            continue
+        if op not in _AMOUNT_OPS:
+            raise HTTPException(status_code=400, detail=f"{side}_op must be eq, gt, lt, gte, lte or between")
+        if v is None or (op == "between" and v2 is None):
+            raise HTTPException(status_code=400, detail=f"{side}_op needs a value")
+        amount_ops.update({f"{side}_op": op, f"{side}_v": v, **({f"{side}_v2": v2} if op == "between" else {})})
     location, locations = await _limit(scope, location, locations)
     col_filters = None
     if cols:
@@ -409,6 +430,7 @@ async def search_ledger(
         "account": account, "journal": journal, "journals": _journals(journals), "min": min_, "max": max_,
         "book": _search_book(book), "cols": col_filters, "offset": max(0, offset), "limit": max(1, min(limit, 1000)),
         **_dims(None, departments, vendor, customer, employee, project, item),
+        **amount_ops,
     })
 
 

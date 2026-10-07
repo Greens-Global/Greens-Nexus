@@ -569,14 +569,62 @@ describe('PfsTab', () => {
     await screen.findByText('Operating Account moved to Retirement Accounts.');
   });
 
-  it('carries a spouse on the statement', async () => {
+  it('the co-borrower name is the one spouse field (Oct 7)', async () => {
     render(<PfsTab canEdit />);
     await loaded();
     tab('Borrower(s)');
-    fireEvent.change(screen.getByLabelText('Spouse or Co-Borrower'), { target: { value: 'Archana Kadakia' } });
+    expect(screen.queryByLabelText('Spouse or Co-Borrower')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Archana Kadakia' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
-    expect(api.updatePfsProfile.mock.calls[0][1].details.spouse).toBe('Archana Kadakia');
+    const sent = api.updatePfsProfile.mock.calls[0][1].details;
+    expect(sent.spouse).toBeUndefined();
+    expect(sent.coBorrower.name).toBe('Archana Kadakia');
+  });
+
+  it('reads an old combined City, State, ZIP and spouse into the new fields, saved that way next time', async () => {
+    const old = { ...profile, details: { ...profile.details, city_state_zip: 'Sacramento, CA 95814', spouse: 'Archana Kadakia', coBorrower: { city_state_zip: 'Somewhere odd' } } };
+    api.getPfsProfile.mockImplementation(async () => old);
+    try {
+      render(<PfsTab canEdit />);
+      await loaded();
+      tab('Borrower(s)');
+      await waitFor(() => expect(screen.getAllByLabelText('City')[0].value).toBe('Sacramento'));
+      expect(screen.getAllByLabelText('State')[0].value).toBe('CA');
+      expect(screen.getAllByLabelText('ZIP')[0].value).toBe('95814');
+      expect(screen.getByLabelText('Name').value).toBe('Archana Kadakia');
+      expect(screen.getAllByLabelText('City')[1].value).toBe('Somewhere odd');   // could not be split: kept whole
+      expect(screen.getByRole('button', { name: 'Save Changes' }).disabled).toBe(true);   // reading it is not an edit
+      fireEvent.change(screen.getAllByLabelText('Phone')[0], { target: { value: '(916) 555-0100' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
+      const sent = api.updatePfsProfile.mock.calls[0][1].details;
+      expect(sent).toMatchObject({ city: 'Sacramento', state: 'CA', zip: '95814', coBorrower: { name: 'Archana Kadakia', city: 'Somewhere odd' } });
+      expect(sent.city_state_zip).toBeUndefined();
+      expect(sent.spouse).toBeUndefined();
+      expect(sent.coBorrower.city_state_zip).toBeUndefined();
+    } finally {
+      api.getPfsProfile.mockImplementation(async () => profile);
+    }
+  });
+
+  it('checks the ZIP as it is typed, on both blocks', async () => {
+    render(<PfsTab canEdit />);
+    await loaded();
+    tab('Borrower(s)');
+    const [zip, coZip] = screen.getAllByLabelText('ZIP');
+    fireEvent.change(zip, { target: { value: '9202' } });
+    expect(screen.getByText('ZIP is 5 digits, or 9 as 12345-6789.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save Changes' }).disabled).toBe(true);
+    fireEvent.change(zip, { target: { value: '92025-1234' } });
+    expect(screen.queryByText('ZIP is 5 digits, or 9 as 12345-6789.')).toBeNull();
+    fireEvent.change(coZip, { target: { value: '1234567' } });
+    expect(screen.getByText('ZIP is 5 digits, or 9 as 12345-6789.')).toBeTruthy();
+    fireEvent.change(coZip, { target: { value: '92025' } });
+    fireEvent.change(screen.getAllByLabelText('State')[0], { target: { value: 'CA' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
+    expect(api.updatePfsProfile.mock.calls[0][1].details).toMatchObject({ state: 'CA', zip: '92025-1234', coBorrower: { zip: '92025' } });
   });
 
   it('keeps a co-borrower, with four digits of the Social Security number at most', async () => {
@@ -651,7 +699,7 @@ describe('PfsTab', () => {
     expect(within(dialog).getByLabelText('Second Name on the Statement').value).toBe('Charmi Desai');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(api.createPfsProfile).toHaveBeenCalled());
-    expect(api.createPfsProfile.mock.calls[0][0]).toEqual({ name: 'Sahil Desai', kind: 'joint', details: { email: 'sahil@greensglobal.com', spouse: 'Charmi Desai' } });
+    expect(api.createPfsProfile.mock.calls[0][0]).toEqual({ name: 'Sahil Desai', kind: 'joint', details: { email: 'sahil@greensglobal.com', coBorrower: { name: 'Charmi Desai' } } });
   });
 
   it('produces the statement as an Excel workbook, kept on record', async () => {
