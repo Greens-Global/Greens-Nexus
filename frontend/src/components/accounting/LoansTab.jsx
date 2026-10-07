@@ -507,7 +507,7 @@ export default function LoansTab({ canEdit = false }) {
                       <tr className="loan-detail">
                         <td colSpan={cols} style={{ padding: 0 }}>
                           <LoanDetail loan={r} from={from} to={to} onOpenEntry={(l) => setEntry({ id: l.entryId, no: l.entryNo })}
-                            onDrill={(d) => requestReportDrill({ ...d, to, entity: r.entityCode || '' })} extras={renderLoanExtras(r, { onPlan: (kind) => setDialog({ plan: kind, loan: r }) })} />
+                            onDrill={(d) => requestReportDrill({ ...d, to, entity: r.entityCode || '' })} canEdit={canEdit} onSaved={load} extras={renderLoanExtras(r, { onPlan: (kind) => setDialog({ plan: kind, loan: r }) })} />
                         </td>
                       </tr>
                     )}

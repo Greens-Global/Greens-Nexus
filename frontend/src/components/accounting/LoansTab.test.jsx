@@ -12,7 +12,10 @@ import userEvent from '@testing-library/user-event';
 // Ledger (polling scan) and Manual, Change Loan, the Export menu, skeleton
 // rows while loading, and the "not available" state.
 
-vi.mock('../../egnyte/EgnyteFolderPick', () => ({ default: () => null }));
+// The Files picker: one button that picks a fixed folder.
+vi.mock('../../egnyte/EgnyteFolderPick', () => ({
+  default: ({ title, onPick }) => <button type="button" onClick={() => onPick('/Shared/Loans/F&M/Statements')}>{`Pick in ${title}`}</button>,
+}));
 
 const loan = (over = {}) => ({
   id: 'FL1', loanNo: '6870', lender: 'F&M Bank', kind: 'external', internal: false, internalTyped: false, entityCode: '15000', entityName: 'Greens Escondido, LLC.', glAccount: '27100', glTitle: 'F&M Loan #6870',
@@ -324,6 +327,27 @@ describe('LoansTab', () => {
     expect(body).toMatchObject({ lender: 'F&M Bank - Escondido', loanNo: '6870-A', interestAccount: '71200', ratePct: 6.25, rateType: 'fixed', maturity: '2027-06-30', covenantMin: 1.25, monthlyPayment: 10000, originalPrincipal: null, docsPath: '/Shared/Loans/F&M' });
     expect(body).not.toHaveProperty('glAccount');      // the GL wiring is kept
     expect(body).not.toHaveProperty('internal');
+  });
+
+  // Charmi 10/07: "Browse" by "No statements folder" in the open loan - the
+  // folder is picked in Egnyte and saved right there, no dialog.
+  it('an open loan wires a missing Egnyte folder with Browse, in place', async () => {
+    render(<LoansTab canEdit />);
+    fireEvent.click(await rowOf('F&M Bank'));
+    const detail = await screen.findByLabelText('Details of F&M Bank');
+    expect(within(detail).queryByRole('button', { name: 'Documents Folder - Browse Egnyte' })).toBeNull();   // already wired
+    fireEvent.click(within(detail).getByRole('button', { name: 'Statements Folder - Browse Egnyte' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Pick in Statements Folder/ }));
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL1', '', { statementsPath: '/Shared/Loans/F&M/Statements' }));
+    await waitFor(() => expect(api.getLoansReview).toHaveBeenCalledTimes(2));
+  });
+
+  it('a viewer sees no Browse in an open loan', async () => {
+    render(<LoansTab />);
+    fireEvent.click(await rowOf('F&M Bank'));
+    const detail = await screen.findByLabelText('Details of F&M Bank');
+    expect(within(detail).getByText(/No statements folder/)).toBeTruthy();
+    expect(within(detail).queryByRole('button', { name: /Browse Egnyte/ })).toBeNull();
   });
 
   // Item 47 (BLOCKER, Charmi 23:21): the pencil opened Change Loan and it closed by itself.

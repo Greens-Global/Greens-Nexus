@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
-  Pencil, Plus, X, CheckCircle, Ban, Camera, MoonStar,
-  CalendarDays, Activity, Inbox, Banknote, CalendarOff,
+  Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
+  Pencil, Plus, X, CheckCircle, Ban,
+  Activity, Inbox, Banknote, CalendarOff,
   Search, Lock,
 } from 'lucide-react';
 import { api } from '../api';
@@ -11,7 +11,6 @@ import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
 import PayrollTimecard from './PayrollTimecard';
 import TimeInsights from './TimeInsights';
-import ImageLightbox from './ImageLightbox';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
@@ -25,7 +24,6 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 
-const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 // Confidential time off (Sep 29): the server blanks the note for anyone but
 // the requester and approver ("redacted"); the type still shows (Neil, Sep
 // 30: "Time off - Medical", never the detail).
@@ -128,7 +126,11 @@ const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // The manager tier sees its team's hours, never pay (Oct 6).
   const { hrTeam } = useRole() || {};
-  const [view, setView] = useState(initialView || 'payroll');   // payroll (the timecard) | attendance | insights | requests | screenshots | shifts | timeoff
+  // payroll (the timecard) | actions (punch requests + missing punches) | timeoff | hours.
+  // Attendance, Screenshots and By Location left People (Neil, 10/06): who is
+  // on lives in Shifts > Schedule, screenshots and location hours in Workforce
+  // Analytics.
+  const [view, setView] = useState(initialView || 'payroll');
   // Live map tab removed Aug 4 - superseded by the top-level Locations map.
   // A specific employee + period to open (Sep 29): Timesheets to Review, the
   // "Timesheet to review" bell, and the Daily Briefing / Weekly Digest link.
@@ -155,10 +157,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   const focusPunchRequest = useCallback((id) => {
     if (!id) return;
     setFocusReq(id);
-    setView('requests');
+    setView('actions');
   }, []);
   useEffect(() => {
-    if (!focusReq || view !== 'requests') return undefined;
+    if (!focusReq || view !== 'actions') return undefined;
     // A copy of a duplicated fix has no row of its own - it lives on its twin's.
     const t = setTimeout(() => (document.getElementById(`punch-req-${focusReq}`)
       || [...document.querySelectorAll('[data-req-ids]')].find(el => el.dataset.reqIds.split(' ').includes(focusReq)))
@@ -214,12 +216,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   }, []);
   useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
 
-  const [attMonth, setAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const shiftMonth = (delta) => {
-    const [y, m] = attMonth.split('-').map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    setAttMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-  };
 
   // Per-day approvals: a day is "approved" only while its punches are untouched -
   // any add/adjust after sign-off marks it stale and it must be re-approved.
@@ -258,27 +254,11 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
 
-  // Disclosed-monitoring: manager-scoped screenshot gallery (team-scoped API).
-  const [shotDate, setShotDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [shotPeople, setShotPeople] = useState(null);
-  const [shotWho, setShotWho] = useState(null);       // {email, name}
-  const [shotFrames, setShotFrames] = useState(null);
-  const [shotView, setShotView] = useState(null);     // open lightbox at this frame index
-  useEffect(() => {
-    if (view !== 'screenshots') return;
-    setShotPeople(null); setShotWho(null); setShotFrames(null); setShotView(null);
-    api.timeTeamShots(shotDate).then(r => setShotPeople(r.people || [])).catch(() => setShotPeople([]));
-  }, [view, shotDate]);
-  useEffect(() => {
-    if (!shotWho) { setShotFrames(null); return; }
-    setShotFrames(null); setShotView(null);
-    api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
-  }, [shotWho, shotDate]);
-
-
   // Punch-fix requests (employee add/remove) awaiting this approver's decision.
   const [punchReqs, setPunchReqs] = useState([]);
   const [reqSearch, setReqSearch] = useState('');
+  const [actDept, setActDept] = useState('');      // Action Log: one department, '' = all
+  const [actKind, setActKind] = useState('all');   // all | requests | missing
   const [selReqs, setSelReqs] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const loadPunchReqs = useCallback(() =>
@@ -371,16 +351,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     return () => window.removeEventListener('nexus:timeclock-changed', onChange);
   }, [loadExceptions]);
   const exBlocking = (exceptions || []).reduce((a, r) => a + (r.blocking || 0), 0);
-
-  // Billable time by location (Neil, Aug 25) - per-employee hours split by work
-  // site. Loaded only when the tab is open and reloaded with the range.
-  const [billable, setBillable] = useState(null);
-  const loadBillable = useCallback(() => {
-    if (view !== 'billable') return;
-    setBillable(null);
-    api.timeBillableByLocation(start, end).then(r => setBillable(r?.rows || [])).catch(() => setBillable([]));
-  }, [start, end, view]);
-  useEffect(() => { loadBillable(); }, [loadBillable]);
 
   // Manager+ files a time-off request FOR an employee (Neil, Aug 11) - the
   // sanctioned path, so nobody needs Act As (Global Admin only) for this.
@@ -574,12 +544,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           Documents-style underline tab band (icons, brand underline, hairline
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
-        {[['payroll', 'Payroll', Banknote], ['attendance', 'Attendance', CalendarDays],
-          ['requests', 'Punch requests', Inbox, new Set(punchReqs.map(punchReqKey)).size],
-          ['exceptions', 'Missing punches', AlertTriangle, exBlocking],
-          ['screenshots', 'Screenshots', Camera],
-          ['billable', 'By location', MapPin],
-          ['timeoff', 'Time off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
+        {[['payroll', 'Payroll', Banknote],
+          ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking],
+          ['timeoff', 'Time Off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => { setView(key); setTimeoffPendingOnly(false); }}
@@ -597,8 +564,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         })}
       </div>
 
-      {/* Range picker - shared by Insights, Missing punches, and By-location (all scan a range) */}
-      {(view === 'insights' || view === 'hours' || view === 'exceptions' || view === 'billable') && (
+      {/* Range picker - shared by Team Hours and the Action Log's missing punches (both scan a range) */}
+      {(view === 'insights' || view === 'hours' || view === 'actions') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -614,48 +581,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
       </div>
-      )}
-
-      {view === 'billable' && (
-        billable === null ? (
-          <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
-        ) : billable.length === 0 ? (
-          <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
-            No billable time in this range. Register each property as a Location (People &gt; Locations) with its address and radius, so clock-ins geofence to it and hours attribute per property.
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              Worked hours split by the location each shift was clocked from. A worker who clocks out at one property and in at another splits automatically; the GPS-verified line shows time on each site from the mobile trail when a worker moves between properties within one clock-in.
-            </div>
-            {billable.map(r => {
-              const segTotal = r.byLocation.reduce((a, x) => a + (x.workedMin || 0), 0);
-              return (
-                <div key={r.email} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: r.byLocation.length ? '1px solid var(--line)' : 'none' }}>
-                    <button onClick={() => setPerson(r)} title="Open their time profile"
-                      style={{ fontSize: 13, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontFamily: 'var(--wk-font)', color: 'var(--wk-brand)' }}>{r.name}</button>
-                    <div style={{ flex: 1 }} />
-                    <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(segTotal)}</span>
-                  </div>
-                  {r.byLocation.map(loc => (
-                    <div key={loc.workSiteId || loc.workSite} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 26px', fontSize: 12.5, borderTop: '1px solid var(--line)' }}>
-                      <MapPin size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.workSite || 'No location'}</span>
-                      <span style={{ width: 70, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(loc.workedMin)}</span>
-                      {!hrTeam && <span style={{ width: 80, textAlign: 'right', color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>${(loc.pay || 0).toFixed(2)}</span>}
-                    </div>
-                  ))}
-                  {(r.pingByLocation || []).length > 0 && (
-                    <div style={{ padding: '8px 14px 10px 26px', fontSize: 11, color: 'var(--muted)', borderTop: '1px solid var(--line)', background: 'var(--mist)' }}>
-                      GPS-verified time on site: {r.pingByLocation.map(l => `${l.workSite || 'unknown'} ${fmtMin(l.minutes)}`).join('  ·  ')}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )
       )}
 
       {view === 'timecards' && (<>
@@ -764,62 +689,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       ))}
       </>)}
 
-      {/* Attendance - month calendar with leave bars (TrackingTime overview) */}
-      {view === 'attendance' && (() => {
-        const [y, m] = attMonth.split('-').map(Number);
-        const daysIn = new Date(y, m, 0).getDate();
-        const offset = new Date(y, m - 1, 1).getDay();   // Sunday-start (getDay() is 0=Sun)
-        const cells = [...Array(offset).fill(null), ...Array.from({ length: daysIn }, (_, i) => i + 1)];
-        const leaves = timeoff.filter(r => r.status === 'approved' || r.status === 'pending');
-        const onDay = (n) => {
-          const ds = `${attMonth}-${String(n).padStart(2, '0')}`;
-          return leaves.filter(r => r.startDate <= ds && ds <= r.endDate);
-        };
-        const today = new Date().toISOString().slice(0, 10);
-        return (
-          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-              <button className="secondary-btn" onClick={() => shiftMonth(-1)} style={{ padding: '4px 8px' }}><ChevronLeft size={13} /></button>
-              <span style={{ fontSize: 14, fontWeight: 800, width: 150, textAlign: 'center' }}>
-                {new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </span>
-              <button className="secondary-btn" onClick={() => shiftMonth(1)} style={{ padding: '4px 8px' }}><ChevronRight size={13} /></button>
-              <div style={{ flex: 1 }} />
-              {Object.entries(TYPE_COLOR).map(([t, c]) => (
-                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--muted)', textTransform: 'capitalize' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} /> {t}
-                </span>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', padding: '2px 6px' }}>{d}</div>
-              ))}
-              {cells.map((n, i) => {
-                if (n === null) return <div key={`e${i}`} />;
-                const ds = `${attMonth}-${String(n).padStart(2, '0')}`;
-                const entries = onDay(n);
-                return (
-                  <div key={n} style={{ minHeight: 72, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 6px',
-                    background: ds === today ? 'var(--wk-brand-tint)' : 'var(--card)' }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : 'var(--muted)' }}>{n}</div>
-                    {entries.slice(0, 3).map(r => (
-                      <div key={r.id} title={`${r.name || r.email} - ${timeoffLabel(r)} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
-                        style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: TYPE_COLOR[r.type] || '#6b7280',
-                          borderRadius: 4, padding: '1px 5px', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          opacity: r.status === 'pending' ? 0.55 : 1 }}>
-                        {(r.name || r.email).split(' ')[0]}
-                      </div>
-                    ))}
-                    {entries.length > 3 && <div style={{ fontSize: 9.5, color: 'var(--muted)', marginTop: 2 }}>+{entries.length - 3} more</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
       {/* Insights - activity dashboard (Top Apps / Websites / productivity), then
           the hours breakdown from the punch data. */}
       {view === 'insights' && (
@@ -879,191 +748,214 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
 
 
-      {/* Punch-fix requests - employee asked to add/remove a punch; approve applies it.
-          One card per person (photo, name, count) with every request underneath;
-          search by name, tick individual requests or a whole person, approve or
-          reject the selection in one go (Visesh, Sep 8). */}
-      {view === 'requests' && (() => {
+      {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two
+          tabs over the same job - get every timecard payable. One list now, one
+          card per person carrying both: requests to approve or reject (tick
+          several, decide in one go) and the punches still missing (fix on the
+          timecard). Filter by department so HR can clear one team at a time;
+          the server already limits it to the people you manage. A shift that
+          is still running is not "missing" its clock-out. */}
+      {view === 'actions' && (() => {
         const q = reqSearch.trim().toLowerCase();
-        const visible = punchReqs.slice(0, 500).filter(r => !q || (r.employeeName || '').toLowerCase().includes(q) || (r.employeeEmail || '').toLowerCase().includes(q) || (r.reason || '').toLowerCase().includes(q));
-        const groups = new Map();
-        visible.forEach(r => {
-          const key = (r.employeeEmail || '').toLowerCase() || r.employeeName || '?';
-          if (!groups.has(key)) groups.set(key, { email: r.employeeEmail, name: r.employeeName || r.employeeEmail, items: [] });
-          groups.get(key).items.push(r);
-        });
-        // Oldest first within a person, clock-in before clock-out at equal times:
-        // approving top-down then follows the punch sequence (the server also
-        // pulls in a pending partner when the later half is approved first).
         const kindRank = { in: 0, break_start: 1, break_end: 2, out: 3 };
-        groups.forEach(g => g.items.sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))));
-        // Copies of the same fix (same punch, same minute) show as ONE row with
-        // one Approve / Reject - deciding it closes the copies (Charmi, Oct 7).
-        groups.forEach(g => {
-          const rowsByKey = new Map();
-          g.items.forEach(r => {
-            const k = punchReqKey(r);
-            if (!rowsByKey.has(k)) rowsByKey.set(k, { rep: r, ids: [] });
-            rowsByKey.get(k).ids.push(r.id);
-          });
-          g.rows = [...rowsByKey.values()];
+        const people = new Map();
+        const slot = (email, name, dept) => {
+          const key = (email || name || '?').toLowerCase();
+          if (!people.has(key)) people.set(key, { email, name: name || email, dept: dept || '', reqs: [], missing: [], blocking: 0 });
+          const g = people.get(key);
+          if (!g.dept && dept) g.dept = dept;
+          if ((!g.name || g.name === g.email) && name) g.name = name;
+          return g;
+        };
+        punchReqs.slice(0, 500).forEach(r => slot(r.employeeEmail, r.employeeName, r.department).reqs.push(r));
+        (exceptions || []).forEach(r => {
+          const g = slot(r.email, r.name || (rows || []).find(x => x.email === r.email)?.name, r.department);
+          g.missing.push(...r.exceptions);
+          g.blocking += r.blocking || 0;
         });
-        const people = [...groups.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        const visibleIds = visible.map(r => r.id);
+        const all = [...people.values()];
+        const depts = [...new Set(all.map(g => g.dept).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        const matches = (g) => (!actDept || (actDept === '__none' ? !g.dept : g.dept === actDept))
+          && (!q || (g.name || '').toLowerCase().includes(q) || (g.email || '').toLowerCase().includes(q)
+            || g.reqs.some(r => (r.reason || '').toLowerCase().includes(q)));
+        const inScope = all.filter(matches);
+        const shown = inScope.map(g => ({
+          ...g,
+          reqs: actKind === 'missing' ? [] : [...g.reqs].sort((a, b) => (a.at || '').localeCompare(b.at || '') || ((kindRank[a.punchKind] ?? 9) - (kindRank[b.punchKind] ?? 9))),
+          missing: actKind === 'requests' ? [] : g.missing,
+        })).filter(g => g.reqs.length || g.missing.length)
+          .map(g => {
+            // Copies of the same fix (same person, punch and minute) are ONE
+            // row with one Approve / Reject - deciding it closes the copies
+            // (Visesh, Oct 7, carried into the Action Log).
+            const byKey = new Map();
+            g.reqs.forEach(r => {
+              const k = punchReqKey(r);
+              if (!byKey.has(k)) byKey.set(k, { rep: r, ids: [] });
+              byKey.get(k).ids.push(r.id);
+            });
+            return { ...g, rows: [...byKey.values()] };
+          })
+          .sort((a, b) => (b.blocking - a.blocking) || (b.rows.length - a.rows.length) || (a.name || '').localeCompare(b.name || ''));
+        const reqTotal = new Set(inScope.flatMap(g => g.reqs.map(punchReqKey))).size;
+        const missTotal = inScope.reduce((n, g) => n + g.blocking, 0);
+        const visibleIds = shown.flatMap(g => g.reqs.map(r => r.id));
         const selected = visibleIds.filter(id => selReqs.has(id));
-        const selectedFixes = new Set(visible.filter(r => selReqs.has(r.id)).map(punchReqKey)).size;
+        const selectedFixes = new Set(punchReqs.filter(r => selReqs.has(r.id) && visibleIds.includes(r.id)).map(punchReqKey)).size;
         const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
+        const filtered = !!(actDept || q || actKind !== 'all');
         const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
-        const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+        const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
         const verb = (r) => {
           const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
-          return r.action === 'add' ? `Adding a ${kindLabel}` : 'Removing a punch';
+          return r.action === 'add' ? `Add a ${kindLabel}` : 'Remove a punch';
         };
         const cb = (checked, onChange, label) => (
           <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} aria-label={label}
             style={{ width: 16, height: 16, accentColor: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', flexShrink: 0 }} />
         );
+        const pill = (bg, fg) => ({ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: fg, background: bg, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' });
+        const seg = (k, label, n) => {
+          const on = actKind === k;
+          return (
+            <button key={k} type="button" role="tab" aria-selected={on} onClick={() => setActKind(k)}
+              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600,
+                background: on ? 'var(--wk-card, var(--card))' : 'transparent', color: on ? 'var(--wk-ink, var(--ink))' : 'var(--wk-dim, var(--muted))',
+                boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {label}{n != null && <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--muted)', fontWeight: 700 }}>{n}</span>}
+            </button>
+          );
+        };
         return (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', flex: '0 1 280px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div role="tablist" aria-label="Show" style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)' }}>
+                {seg('all', 'All', null)}
+                {seg('requests', 'Punch Requests', reqTotal)}
+                {seg('missing', 'Missing Punches', missTotal)}
+              </div>
+              <div style={{ position: 'relative', flex: '0 1 260px' }}>
                 <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
-                <input value={reqSearch} onChange={e => setReqSearch(e.target.value)} placeholder="Search by name or reason"
+                <input value={reqSearch} onChange={e => setReqSearch(e.target.value)} placeholder="Search by name or reason" aria-label="Search the Action Log"
                   style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
               </div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
-                {cb(allSelected, on => toggle(visibleIds, on), 'Select all requests')}
-                Select all ({visibleIds.length})
-              </label>
-              {selected.length > 0 && (
-                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selectedFixes} selected</span>
-                  <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'rejected')}
-                    style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject selected</button>
-                  <button className="primary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'approved')}
-                    style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <CheckCircle size={13} /> Approve selected
-                  </button>
-                </div>
+              <select className="form-input" value={actDept} onChange={e => setActDept(e.target.value)} aria-label="Department"
+                style={{ fontSize: 12.5, width: 'auto', minWidth: 170, padding: '6px 10px' }}>
+                <option value="">All Departments</option>
+                {depts.map(d => <option key={d} value={d}>{d}</option>)}
+                {all.some(g => !g.dept) && <option value="__none">No Department</option>}
+              </select>
+              {filtered && (
+                <button type="button" className="secondary-btn" onClick={() => { setActDept(''); setReqSearch(''); setActKind('all'); }}
+                  style={{ fontSize: 12, padding: '5px 10px' }}>Clear Filters</button>
+              )}
+              {visibleIds.length > 0 && (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer', marginLeft: 'auto' }}>
+                  {cb(allSelected, on => toggle(visibleIds, on), 'Select every request shown')}
+                  Select All Requests ({visibleIds.length})
+                </label>
               )}
             </div>
-            {punchReqs.length === 0 ? (
-              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-                No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
+            {selected.length > 0 && (
+              <div style={{ position: 'sticky', top: 8, zIndex: 3, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 14px', marginBottom: 10,
+                borderRadius: 12, background: 'var(--card)', border: '1px solid var(--wk-brand, #2b45e1)', boxShadow: 'var(--wk-shadow)' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selectedFixes} request{selectedFixes === 1 ? '' : 's'} selected</span>
+                <button type="button" className="secondary-btn" onClick={() => setSelReqs(new Set())} style={{ fontSize: 12, padding: '4px 10px' }}>Clear</button>
+                <div style={{ flex: 1 }} />
+                <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'rejected')}
+                  style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject Selected</button>
+                <button className="primary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'approved')}
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  {bulkBusy ? <Spinner size={13} /> : <CheckCircle size={13} />} Approve Selected
+                </button>
               </div>
-            ) : people.length === 0 ? (
-              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-                Nobody matches "{reqSearch}".
+            )}
+            {exceptions === null && punchReqs.length === 0 ? (
+              <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
+            ) : shown.length === 0 ? (
+              <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <CheckCircle size={22} style={{ color: 'hsl(var(--color-green))' }} />
+                {all.length && filtered
+                  ? 'Nothing matches these filters.'
+                  : 'All clear - no punch requests waiting and no missing punches in this range.'}
               </div>
-            ) : people.map(g => {
-              const ids = g.items.map(r => r.id);
+            ) : shown.map(g => {
+              const ids = g.reqs.map(r => r.id);
               const gSel = ids.filter(id => selReqs.has(id)).length;
-              const gSelFixes = g.rows.filter(row => row.ids.some(id => selReqs.has(id))).length;
               return (
                 <div key={g.email || g.name} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                    {cb(gSel === ids.length, on => toggle(ids, on), `Select all requests from ${g.name}`)}
+                    {ids.length > 0 && cb(gSel === ids.length, on => toggle(ids, on), `Select every request from ${g.name}`)}
                     <Avatar email={g.email} name={g.name} size={32} />
-                    <span style={{ fontSize: 13.5, fontWeight: 800 }}>{g.name}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.email}</span>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: 'var(--wk-line2)', padding: '3px 9px', borderRadius: 999 }}>
-                      {gSel ? `${gSelFixes} of ${g.rows.length} selected` : `${g.rows.length} request${g.rows.length === 1 ? '' : 's'}`}
-                    </span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {g.dept || 'No department'} · {g.email}
+                      </div>
+                    </div>
+                    {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
+                    {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
                     {g.email && (
-                      <button className="secondary-btn" onClick={() => { setPayrollEmail(g.email); setView('payroll'); }}
+                      <button className="secondary-btn" onClick={() => openTimecard(g.email, '', '')}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <Pencil size={12} /> Open timecard
+                        <Pencil size={12} /> Open Timecard
                       </button>
                     )}
                   </div>
-                  <div>
-                    {g.rows.map(({ rep: r, ids: rowIds }, i) => {
-                      const focused = rowIds.includes(focusReq);
-                      const rowSel = rowIds.some(id => selReqs.has(id));
-                      return (
-                      <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
-                        background: rowSel || focused ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
-                        boxShadow: focused ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
-                        {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
-                        <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
-                          <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
-                          {rowIds.length > 1 && (
-                            <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."
-                              style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: 'var(--wk-line2)', padding: '2px 8px', borderRadius: 999 }}>
-                              {rowIds.length} Requests - Same Punch
-                            </span>
-                          )}
-                          {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
-                        </div>
-                        <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
-                          style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
-                        <button className="primary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'approved')}
-                          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                          <CheckCircle size={13} /> Approve
-                        </button>
+                  {g.rows.map(({ rep: r, ids: rowIds }, i) => {
+                    const focused = rowIds.includes(focusReq);
+                    const rowSel = rowIds.some(id => selReqs.has(id));
+                    return (
+                    <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
+                      background: rowSel || focused ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
+                      boxShadow: focused ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
+                      {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
+                      <span style={pill('var(--wk-hover)', 'var(--ink)')}>Request</span>
+                      <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
+                        <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
+                        {rowIds.length > 1 && (
+                          <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."
+                            style={pill('var(--wk-line2)', 'var(--ink)')}>
+                            {rowIds.length} Requests - Same Punch
+                          </span>
+                        )}
+                        {r.reason && <span style={{ fontSize: 12, color: 'var(--muted)' }}>"{r.reason}"</span>}
                       </div>
-                      );
-                    })}
-                  </div>
+                      <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
+                        style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
+                      <button className="primary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'approved')}
+                        style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <CheckCircle size={13} /> Approve
+                      </button>
+                    </div>
+                    );
+                  })}
+                  {g.missing.map((e, i) => (
+                    <div key={`m${e.date}-${e.type}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderTop: (i || g.rows.length) ? '1px solid var(--line)' : 'none', fontSize: 12.5, flexWrap: 'wrap' }}>
+                      <span title={e.blocking ? 'Blocks sign-off until fixed' : 'Worth a look - does not block sign-off'}
+                        style={pill(e.blocking ? 'rgba(220,38,38,0.08)' : 'rgba(180,83,9,0.1)', e.blocking ? 'hsl(var(--color-red))' : '#b45309')}>
+                        {e.blocking ? 'Missing' : 'Check'}
+                      </span>
+                      <span style={{ fontWeight: 800, width: 92, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatDate(e.date)}</span>
+                      <span style={{ color: 'var(--ink)', flex: 1, minWidth: 200 }}>{e.label}</span>
+                      <button className="secondary-btn" onClick={() => openTimecard(g.email, e.date, '')}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <Pencil size={12} /> Fix on Timecard
+                      </button>
+                    </div>
+                  ))}
                 </div>
               );
             })}
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
+              Missing punches cover {rangeText}. A shift with no clock-out (or a clock-out with no clock-in) can't be paid until it's fixed.
+              Someone still on the clock is not listed - their shift has not ended yet.
+            </div>
           </div>
         );
       })()}
-
-      {/* Missing punches (SwipeClock "Show Missing Only") - the range's unmatched /
-          missing-out punches that block sign-off until an approver fixes them. */}
-      {view === 'exceptions' && (
-        <div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
-            A shift with no clock-out (or a clock-out with no clock-in) can't be paid until it's fixed - these block approve and finalize. Open the person's timecard and add the real time to clear it.
-          </div>
-          {exceptions === null ? (
-            <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}>
-              <Spinner size="section" />
-            </div>
-          ) : exceptions.length === 0 ? (
-            <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <CheckCircle size={22} style={{ color: 'hsl(var(--color-green))' }} />
-              Every shift in this range is matched - nothing is blocking sign-off.
-            </div>
-          ) : (
-            exceptions.map(r => {
-              const nm = (rows || []).find(x => x.email === r.email)?.name || r.email;
-              return (
-                <div key={r.email} style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, marginBottom: 8, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                    <Avatar email={r.email} name={nm} size={26} />
-                    <span style={{ fontSize: 13, fontWeight: 800 }}>{nm}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
-                    {r.blocking > 0 && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'rgba(220,38,38,0.08)', padding: '3px 9px', borderRadius: 999 }}>
-                        <AlertTriangle size={11} /> {r.blocking} blocking
-                      </span>
-                    )}
-                    <button className="primary-btn" onClick={() => { setPayrollEmail(r.email); setView('payroll'); }}
-                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Pencil size={12} /> Fix on timecard
-                    </button>
-                  </div>
-                  <div>
-                    {r.exceptions.map((e, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12.5 }}>
-                        <span title={e.blocking ? 'Blocks sign-off' : 'Warning'} style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: e.blocking ? 'hsl(var(--color-red))' : '#b45309' }} />
-                        <span style={{ fontWeight: 700, width: 92, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{formatDate(e.date)}</span>
-                        <span style={{ color: 'var(--ink)' }}>{e.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
 
       {/* Time-off register - requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
@@ -1137,73 +1029,6 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           {timeoff.length > 150 && <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>Showing 150 of {timeoff.length} - filter to narrow down.</div>}
         </div>
         </>
-      )}
-
-      {/* Screenshots - disclosed-monitoring, manager-scoped team gallery.
-          Pick a day → team members with captures → their frame grid (signed URLs). */}
-      {view === 'screenshots' && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            {shotWho && (
-              <button className="secondary-btn" onClick={() => setShotWho(null)}
-                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px' }}>
-                <ChevronLeft size={13} /> Back
-              </button>
-            )}
-            <span className="wkc-chip"><Camera size={14} /></span>
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>Screenshots{shotWho ? ` - ${shotWho.name}` : ''}</span>
-            <div style={{ flex: 1 }} />
-            <input className="form-input" type="date" value={shotDate} onChange={e => setShotDate(e.target.value)}
-              style={{ fontSize: 12, width: 150 }} />
-          </div>
-
-          {!shotWho && (
-            shotPeople === null
-              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
-              : shotPeople.length === 0
-                ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
-                    No captures on this day. Frames are saved while a team member is clocked in with screen capture on.
-                  </div>
-                : <div style={{ display: 'grid', gap: 8 }}>
-                    {shotPeople.map(p => (
-                      <button key={p.email} onClick={() => setShotWho(p)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
-                          border: '1px solid var(--wk-line2)', background: 'var(--card)', fontFamily: 'var(--wk-font)' }}>
-                        <Camera size={15} style={{ color: 'var(--wk-brand)' }} />
-                        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{p.name}</span>
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.count} frame{p.count === 1 ? '' : 's'}</span>
-                      </button>
-                    ))}
-                  </div>
-          )}
-
-          {shotWho && (
-            shotFrames === null
-              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
-              : shotFrames.length === 0
-                ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No frames for this person on this day.</div>
-                : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                    {shotFrames.map((s, i) => (
-                      <button key={s.id} onClick={() => setShotView(i)} title="Click to view - use arrow keys to browse"
-                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', background: 'var(--mist)', cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
-                        <img src={s.url} alt={`Capture ${localTime(s.at)}`} loading="lazy"
-                          style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
-                          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)' }}>{localTime(s.at)}</span>
-                          <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.activeView}</span>
-                          {s.idleSec >= 300 && (
-                            <span title={`No input for ${Math.round(s.idleSec / 60)} min at capture`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 800, color: '#b45309' }}>
-                              <MoonStar size={10} /> idle {Math.round(s.idleSec / 60)}m
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-          )}
-          <ImageLightbox shots={shotFrames} index={shotView} setIndex={setShotView} />
-        </div>
       )}
 
       {/* Person time portal - everything time-related for one employee.
@@ -1301,7 +1126,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   </div>
                 ))}
                 <p style={{ margin: '14px 0 0', fontSize: 10.5, color: 'var(--muted)' }}>
-                  To correct a punch, use the pencil on the Timecards list. Screenshots (if captured) are under your profile → Admin → Screenshots.
+                  To correct a punch, use the pencil on the Timecards list. Screenshots (if captured) are in Workforce Analytics.
                 </p>
               </div>
             </div>

@@ -1425,12 +1425,43 @@ def _exceptions_409(exc: list, can_override: bool = True):
         "exceptions": exc})
 
 
+def _people_meta(db: Session, emails) -> dict:
+    """{email: {name, department}} for the People Action Log's filters (Neil,
+    10/06: "filters by department, so HR can handle everything in Ops")."""
+    ems = {(e or "").lower() for e in emails if e}
+    if not ems:
+        return {}
+    out = {}
+    for e in db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(ems)).all():
+        nm = (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip()
+        out[(e.work_email or "").lower()] = {"name": nm, "department": (e.department or "").strip()}
+    return out
+
+
+def _clocked_in_now(db: Session, email: str):
+    """The local date of the shift this person is working RIGHT NOW (last punch
+    is a clock-in or a break, inside the 16-hour pairing guard), else None.
+    That shift has no clock-out yet because it has not ended - it is not a
+    missing punch (Neil, 10/06: "she's working today, this should not pop up")."""
+    last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc(), TimePunch.created_at.desc()).first())
+    if not last or last.kind == "out" or _stale_open_shift(last):
+        return None
+    # The open shift's date is its clock-in's, which can be the day before an
+    # overnight break punch.
+    opened = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                                         TimePunch.kind == "in", TimePunch.at <= last.at)
+              .order_by(TimePunch.at.desc()).first())
+    return (opened or last).local_date
+
+
 @router.get("/exceptions")
 def list_exceptions(start: str, end: str, user: dict = Depends(require_team_write),
                     db: Session = Depends(get_db)):
     """SwipeClock 'Show Missing Only': every unresolved punch exception across the
     manager's team for a period, so they get fixed before payroll runs. Team-scoped
-    (a manager sees their reports; an admin sees everyone with punches in range)."""
+    (a manager sees their reports; an admin sees everyone with punches in range).
+    A shift still in progress is not reported as missing its clock-out."""
     scope = _visible_emails(db, user)
     _hi = (date.fromisoformat(end) + timedelta(days=2)).isoformat()
     q = (db.query(TimePunch.employee_email)
@@ -1441,9 +1472,17 @@ def list_exceptions(start: str, end: str, user: dict = Depends(require_team_writ
     out = []
     for (em,) in q.all():
         exc = _period_exceptions(db, em, start, end)
+        live = _clocked_in_now(db, em) if exc else None
+        if live:
+            exc = [e for e in exc if not (e["date"] == live and e["type"] == "missing_out")]
         if exc:
             out.append({"email": em, "exceptions": exc,
                         "blocking": sum(1 for e in exc if e["blocking"])})
+    meta = _people_meta(db, [r["email"] for r in out])
+    for r in out:
+        m = meta.get((r["email"] or "").lower(), {})
+        r["name"] = m.get("name") or r["email"]
+        r["department"] = m.get("department", "")
     out.sort(key=lambda r: (-r["blocking"], r["email"]))
     return out
 
@@ -2748,7 +2787,11 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_te
         if not visible:
             return []
         q = q.filter(PunchRequest.employee_email.in_(visible))
-    return [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+    rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+    meta = _people_meta(db, [r["employeeEmail"] for r in rows])
+    for r in rows:
+        r["department"] = meta.get((r["employeeEmail"] or "").lower(), {}).get("department", "")
+    return rows
 
 
 class PunchRequestDecision(BaseModel):
