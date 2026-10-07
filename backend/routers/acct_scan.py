@@ -24,11 +24,13 @@ scans fall back to the bounded reads, and the "not there" answer is
 remembered for ten minutes so a scan does not ask on every batch.
 """
 import asyncio
+import re
 import time
 from typing import Any, Awaitable, Callable, Optional
 
-from fastapi import HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from auth import require_module_grant
 from routers import accounting
 
 READ_CEILING = 45.0     # seconds one read (an entity, a batch) may take
@@ -120,37 +122,51 @@ def _mark_unavailable() -> None:
     _AGG_DOWN["until"] = time.monotonic() + _AGG_RETRY
 
 
-async def party_months(locations: list[str], from_: str, to: str, party: str, *, sections: list[str],
-                       accounts: Optional[list[str]] = None, title_match: str = "", title_exclude: str = "") -> Optional[list[dict]]:
+KINDS = ("customer", "vendor", "employee")
+SECTIONS = ("revenue", "other_income", "cogs", "expense", "other_expense", "asset", "liability", "equity")
+
+
+async def _party_names(kind: str) -> dict[str, str]:
+    """code -> name of the customers / vendors / employees (the rows carry codes only)."""
+    try:
+        data = await accounting._acct_get("/api/internal/reports/dimensions", {"kind": kind})
+    except Exception:  # noqa: BLE001 - names are a nicety; the code stands in
+        return {}
+    return {str(v.get("code")): str(v.get("name") or "") for v in data.get("values") or [] if v.get("code")}
+
+
+async def party_months(locations: list[str], from_: str, to: str, kind: str, *, sections: list[str],
+                       accounts: Optional[list[str]] = None, words: Optional[list[str]] = None, book: Optional[str] = None) -> Optional[list[dict]]:
     """Amount by entity x account x party x month, from ONE grouped read.
 
-    Request (accounting app, internal key):
+    The accounting app's op (defined Oct 7 in the accounting repo):
         GET /api/internal/reports/party-months
-          from=YYYY-MM-DD  to=YYYY-MM-DD        the window (inclusive)
-          party=customer | vendor               which dimension is the payer / payee
-          locations=12027-1,15000,...           entity codes (posting entities, max 200)
-          sections=revenue,other_income         P&L sections to read (or cogs,expense,other_expense)
-          accounts=41101,41102                  optional: only these GL codes
-          titleMatch=<regex>                    optional, case-insensitive, on the account title
-          titleExclude=<regex>                  optional, case-insensitive, on the account title
-          book=accrual                          optional (accrual default)
-    Response 200:
-        {"ok": true, "op": "party-months", "from": "...", "to": "...", "party": "customer",
-         "rows": [{"entity": "12027-1", "account_no": "41101", "title": "Rental Income",
-                   "section": "revenue", "party": "C00300", "party_name": "Rajesh J. Kadakia MD, Inc.",
-                   "month": "2026-02", "debit": 0.0, "credit": 2275.0, "lines": 1}],
-         "truncated": false}
-      One row per (entity, account, party, month) with any posting; lines with
-      no party are left out. `truncated` true when the app capped the rows.
-    Errors: {"ok": false, "error": "..."} with 4xx/5xx.
+          kind=customer | vendor | employee     (default customer)
+          from=YYYY-MM-DD  to=YYYY-MM-DD        (at most three years)
+          location=<code> | locations=<a,b,..>  the entities
+          accounts=41101,41102                  GL codes
+          words=rent,rental,lease               account title words
+          sections=revenue,other_income         narrows (or alone selects) the accounts
+          parties=C00300,...                    optional
+          book=accrual | cash
+        The account set is: in `accounts` OR title matches `words`; `sections`
+        narrows it (or alone selects it).
+        200 {"ok": true, "kind", "from", "to", "book", "locations",
+             "rows": [{"location": "12027-1", "gl_code": "41101", "title": "Rental Income",
+                       "section": "revenue", "party": "C00300", "month": "2026-02",
+                       "debit": 0, "credit": 2275.0, "lines": 1}]}
+        Party names come from /reports/dimensions (kind). About 1.2 s for
+        twelve months of every entity.
 
-    Returns the rows, or None when the op is not there (404 / 405 / 501, or
-    an answer without a `rows` list) - the caller then scans. Other failures
-    raise, so the caller can report the batch."""
+    Returns the rows in the scans' shape ({entity, account_no, title, section,
+    party, party_name, month, debit, credit, lines}), or None when the op is
+    not there (404 / 405 / 501, or an answer without a `rows` list) - the
+    caller then scans. Other failures raise, so the caller reports the batch."""
     if not aggregate_available():
         return None
-    params = {"from": from_, "to": to, "party": party, "locations": ",".join(locations), "sections": ",".join(sections),
-              "accounts": ",".join(accounts) if accounts else None, "titleMatch": title_match or None, "titleExclude": title_exclude or None}
+    location, many = (locations[0], None) if len(locations) == 1 else (None, ",".join(locations))
+    params = {"kind": kind, "from": from_, "to": to, "location": location, "locations": many, "sections": ",".join(sections) or None,
+              "accounts": ",".join(accounts) if accounts else None, "words": ",".join(words) if words else None, "book": book}
     try:
         data = await accounting._acct_get(AGGREGATE_PATH, params)
     except accounting.UpstreamError as e:
@@ -162,6 +178,37 @@ async def party_months(locations: list[str], from_: str, to: str, party: str, *,
     if not isinstance(rows, list):
         _mark_unavailable()
         return None
-    if data.get("truncated"):
-        return None          # too many rows for one answer: this batch is scanned instead
-    return rows
+    names = await _party_names(kind) if rows else {}
+    return [{"entity": str(r.get("location") or ""), "account_no": str(r.get("gl_code") or ""), "title": r.get("title") or "",
+             "section": r.get("section") or "", "party": str(r.get("party") or ""), "party_name": names.get(str(r.get("party") or ""), ""),
+             "month": str(r.get("month") or "")[:7], "debit": r.get("debit") or 0, "credit": r.get("credit") or 0, "lines": r.get("lines") or 0}
+            for r in rows]
+
+
+# ── The Nexus proxy (Oct 7) ──────────────────────────────────────────────────
+# GET /accounting/reports/party-months: the same op for any Nexus screen, with
+# the caller's entity scope (a limited person reads only their entities, 403
+# outside them). Every read is async HTTP in a thread (accounting._acct_get).
+router = APIRouter(prefix="/accounting/reports", tags=["Accounting"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.get("/party-months")
+async def party_months_route(from_: str = Query(..., alias="from"), to: str = Query(...), kind: str = "customer",
+                             location: Optional[str] = None, locations: Optional[str] = None, accounts: Optional[str] = None,
+                             words: Optional[str] = None, sections: Optional[str] = None, parties: Optional[str] = None,
+                             book: Optional[str] = None, scope: dict = Depends(accounting.entity_scope)):
+    """Amount by entity x account x customer / vendor / employee x month."""
+    if kind not in KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {', '.join(KINDS)}")
+    if not (_DATE.match(from_ or "") and _DATE.match(to or "")) or to < from_:
+        raise HTTPException(status_code=400, detail="from and to are dates (YYYY-MM-DD), from first.")
+    secs = accounting._csv(sections)
+    if any(s not in SECTIONS for s in secs):
+        raise HTTPException(status_code=400, detail=f"sections are {', '.join(SECTIONS)}")
+    if not (accounting._csv(accounts) or accounting._csv(words) or secs):
+        raise HTTPException(status_code=400, detail="Name the accounts, title words or sections to read.")
+    location, locations = await accounting._limit(scope, location, locations)
+    return await accounting._acct_get(AGGREGATE_PATH, {
+        "kind": kind, "from": from_, "to": to, "location": location, "locations": locations, "accounts": accounts or None,
+        "words": words or None, "sections": sections or None, "parties": parties or None, "book": accounting._book(book)})

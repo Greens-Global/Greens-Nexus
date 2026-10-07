@@ -129,21 +129,20 @@ def _rows_by_customer(location, extra=None):
     return out
 
 
-def _aggregate_rows(locations, extra, accounts=None):
-    """The aggregate op: amount by entity x account x customer x month."""
+def _aggregate_rows(locations, extra, accounts=None, words=None):
+    """The aggregate op: amount by entity x account x customer x month (the
+    accounting app's contract: account in `accounts` OR title has one of `words`)."""
     picked = set((accounts or "").split(",")) - {""}
+    wanted = [w for w in (words or "").split(",") if w]
     out = []
     for loc in locations:
         for cust, months in _postings(loc, extra).items():
             for m, cell in months.items():
                 for acct, v in cell.items():
                     section, title = TITLES[acct]
-                    if picked and acct not in picked:
+                    if not (acct in picked or any(w in title.lower() for w in wanted)):
                         continue
-                    if not picked and not any(w in title.lower() for w in ("rent", "leas", "tenant")):
-                        continue
-                    out.append({"entity": loc, "account_no": acct, "title": title, "section": section, "party": cust, "party_name": LABELS.get(cust, ""),
-                                "month": m, "debit": 0, "credit": v, "lines": 1})
+                    out.append({"location": loc, "gl_code": acct, "title": title, "section": section, "party": cust, "month": m, "debit": 0, "credit": v, "lines": 1})
     return out
 
 
@@ -251,8 +250,8 @@ class EndpointTests(unittest.TestCase):
             if path.endswith("/reports/party-months"):
                 if not self.aggregate:
                     raise accounting.UpstreamError(404, "Accounting service returned 404")
-                locs = clean["locations"].split(",")
-                return {"ok": True, "op": "party-months", "rows": _aggregate_rows(locs, self.extra, clean.get("accounts"))}
+                locs = [clean["location"]] if clean.get("location") else clean["locations"].split(",")
+                return {"ok": True, "kind": clean["kind"], "rows": _aggregate_rows(locs, self.extra, clean.get("accounts"), clean.get("words"))}
             if path.endswith("/reports/buckets"):
                 loc = clean.get("location")
                 locs_asked = {loc} if loc else set(clean.get("locations", "").split(","))
@@ -589,7 +588,20 @@ class EndpointTests(unittest.TestCase):
         # No line scan at all.
         self.assertEqual((self._entity_calls(), self._bucket_calls("customer"), self._by_customer_calls()), ([], [], []))
         agg = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")]
-        self.assertEqual((len(agg), agg[0]["party"], agg[0]["sections"], agg[0]["titleMatch"]), (1, "customer", "revenue,other_income", "rent|leas|tenant"))
+        self.assertEqual((len(agg), agg[0]["kind"], agg[0]["sections"], agg[0]["words"]), (1, "customer", "revenue,other_income", "rent,rental,lease,leasing,tenant"))
+        self.assertEqual(sorted(agg[0]["locations"].split(",")), sorted(LEAVES))
+        self.assertEqual(next(p for p in d["proposals"] if p["customerId"] == "C00300")["tenantName"], "Rajesh J. Kadakia MD, Inc.")   # names from /reports/dimensions
+
+    def test_the_party_months_proxy_keeps_the_entity_scope(self):
+        self.aggregate = True
+        _as(LIMITED)
+        r = self.client.get("/accounting/reports/party-months?from=2026-01-01&to=2026-09-30&words=rent")
+        self.assertEqual(r.status_code, 200, r.text)
+        call = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")][-1]
+        self.assertEqual((call.get("location"), call["kind"], call["words"]), ("56000", "customer", "rent"))
+        self.assertEqual(self.client.get("/accounting/reports/party-months?from=2026-01-01&to=2026-09-30&words=rent&location=15000").status_code, 403)
+        self.assertEqual(self.client.get("/accounting/reports/party-months?from=2026-01-01&to=2026-09-30").status_code, 400)
+        self.assertEqual(self.client.get("/accounting/reports/party-months?from=2026-01-01&to=2026-09-30&words=rent&kind=planet").status_code, 400)
 
     def test_without_the_aggregate_op_the_scan_runs_and_it_is_not_asked_again(self):
         _as(EDITOR)

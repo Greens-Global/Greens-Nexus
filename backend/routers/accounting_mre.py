@@ -415,8 +415,7 @@ def _scan_key(scope: dict, min_count: int, picked: Optional[set]) -> tuple:
     return (scope["user"]["email"], "mre", from_, to, min_count, tuple(sorted(picked)) if picked else ())
 
 
-NOT_MRE_TITLES = "interest|loan|mortgage|principal|notes? payable|debt service|depreciation|amorti"   # the accounting app's titleExclude
-_AGG_CHUNK = 50
+_AGG_CHUNK = 200   # the op answers twelve months of every entity in about 1.2 s
 
 
 def parts_from_aggregate(rows: list[dict], entities: list[dict], min_count: int) -> list[dict]:
@@ -455,7 +454,8 @@ async def _aggregate(scope: dict, entities: list[dict], min_count: int, deadline
         codes = [e["code"] for e in chunk]
         await _limit(scope, None, ",".join(codes))
         async with _sem():
-            return await acct_scan.party_months(codes, from_, to, "vendor", sections=list(_COSTS), title_exclude=NOT_MRE_TITLES)
+            # Every expense section; debt service and depreciation are left out here (expense_accounts).
+            return await acct_scan.party_months(codes, from_, to, "vendor", sections=list(_COSTS))
     got = await acct_scan.bounded([(lambda c=c: read(c)) for c in chunks], deadline)
     parts, rest = [], []
     for chunk, (ok, rows) in zip(chunks, got):

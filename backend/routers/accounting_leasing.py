@@ -262,8 +262,8 @@ def parts_from_aggregate(rows: list[dict], entities: list[dict], accounts: Optio
     return out
 
 
-_AGG_CHUNK = 50
-RENT_TITLE_MATCH = "rent|leas|tenant"     # broad on purpose; Nexus re-checks every title with RENT_WORDS
+_AGG_CHUNK = 200   # the op answers twelve months of every entity in about 1.2 s
+RENT_TITLE_WORDS = ["rent", "rental", "lease", "leasing", "tenant"]   # Nexus re-checks every title with RENT_WORDS
 
 
 async def _aggregate(scope: dict, entities: list[dict], from_: str, to: str, accounts: Optional[list[str]], deadline: acct_scan.Deadline) -> tuple[list[dict], list[dict]]:
@@ -277,7 +277,7 @@ async def _aggregate(scope: dict, entities: list[dict], from_: str, to: str, acc
         await _limit(scope, None, ",".join(codes))
         async with _sem():
             return await acct_scan.party_months(codes, from_, to, "customer", sections=list(_INCOME), accounts=accounts,
-                                                title_match="" if accounts else RENT_TITLE_MATCH)
+                                                words=None if accounts else RENT_TITLE_WORDS)
     got = await acct_scan.bounded([(lambda c=c: read(c)) for c in chunks], deadline)
     parts, rest = [], []
     for chunk, (ok, rows) in zip(chunks, got):

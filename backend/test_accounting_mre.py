@@ -194,14 +194,14 @@ class EndpointTests(unittest.TestCase):
                 if not self.aggregate:
                     return {"ok": True}          # an older accounting app: no rows, so not there
                 rows = []
-                for ent in clean["locations"].split(","):
+                for ent in ([clean["location"]] if clean.get("location") else clean["locations"].split(",")):
                     for vendor, months in self.postings.get(ent, {}).items():
                         for m, cell in months.items():
                             for acct, v in cell.items():
                                 if _in(m, clean["from"], clean["to"]) and TITLES[acct][0] in clean["sections"].split(","):
-                                    rows.append({"entity": ent, "account_no": acct, "title": TITLES[acct][1], "section": TITLES[acct][0], "party": vendor,
-                                                 "party_name": LABELS.get(vendor, ""), "month": m, "debit": v, "credit": 0, "lines": 1})
-                return {"ok": True, "op": "party-months", "rows": rows}
+                                    rows.append({"location": ent, "gl_code": acct, "title": TITLES[acct][1], "section": TITLES[acct][0], "party": vendor,
+                                                 "month": m, "debit": v, "credit": 0, "lines": 1})
+                return {"ok": True, "kind": clean["kind"], "rows": rows}
             loc = clean.get("location")
             if loc in self.fail_codes:
                 raise HTTPException(status_code=424, detail="That covers too many ledger lines to finish in time.")
@@ -441,8 +441,7 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual((got[("15000", "V-SDGE")]["expectedAmount"], got[("15000", "V-STATE")]["frequency"]), (410.0, "quarterly"))
         self.assertEqual(self._pnl_calls(), [])       # no line reads at all
         agg = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")]
-        self.assertEqual((len(agg), agg[0]["party"], agg[0]["sections"]), (1, "vendor", "cogs,expense,other_expense"))
-        self.assertIn("interest", agg[0]["titleExclude"])
+        self.assertEqual((len(agg), agg[0]["kind"], agg[0]["sections"]), (1, "vendor", "cogs,expense,other_expense"))
 
 
 if __name__ == "__main__":
