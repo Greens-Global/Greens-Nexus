@@ -175,7 +175,8 @@ _USER_BOOK = re.compile(r"^[a-z0-9_-]{1,24}$")
 
 def _book(book: str | None) -> str | None:
     b = (book or "accrual").strip().lower()
-    if b not in _BOOKS and not _USER_BOOK.fullmatch(b):
+    # "both" is the side-by-side view - two reads, never a book of its own.
+    if b == "both" or (b not in _BOOKS and not _USER_BOOK.fullmatch(b)):
         raise HTTPException(status_code=400, detail="book must be accrual, cash or a book the accounting app lists")
     # The accounting app defaults to accrual; leaving it out keeps the cache key
     # the dashboard widgets already use.
