@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import { formatDate } from '../../lib/datetime';
 import { conditionOf } from './pfsCondition';
 import { pfsExtraSheets } from './pfsAffiliatedExport';
+import { addressLine, normalizePfsDetails } from './pfsAddress';
 
 // A personal financial statement as an Excel workbook (Neil, 10/01: "we
 // should have the ability to do this in excel also"). One sheet per section
@@ -156,11 +157,11 @@ export function pfsSheets({ statement, preparedBy = '' }) {
   out.push(summary);
 
   // ── Borrower ──────────────────────────────────────────────────────────────
-  const d = profile.details || {};
+  const d = normalizePfsDetails(profile.details);
   const borrower = sheet('Borrower');
   borrower.title('Borrower Information', sub);
   borrower.facts([
-    ['Name', name], ['Statement Type', KIND[profile.kind] || 'Individual'], ['Address', [d.address, d.city_state_zip].filter(Boolean).join(', ')],
+    ['Name', name], ['Statement Type', KIND[profile.kind] || 'Individual'], ['Address', addressLine(d)],
     ['Phone', d.phone], ['Email', d.email], ['Date of Birth', d.date_of_birth ? formatDate(d.date_of_birth) : ''], ['Marital Status', d.marital_status],
     ['Employer', d.employer], ['Title', d.title], ['Social Security Number', d.ssn_last4 ? `XXX-XX-${d.ssn_last4}` : ''],
   ]);
@@ -169,7 +170,7 @@ export function pfsSheets({ statement, preparedBy = '' }) {
     borrower.blank();
     borrower.heading('Co-Borrower');
     borrower.facts([
-      ['Name', co.name], ['Address', [co.address, co.city_state_zip].filter(Boolean).join(', ')], ['Phone', co.phone], ['Email', co.email],
+      ['Name', co.name], ['Address', addressLine(co)], ['Phone', co.phone], ['Email', co.email],
       ['Date of Birth', co.date_of_birth ? formatDate(co.date_of_birth) : ''], ['Marital Status', co.marital_status], ['Employer', co.employer], ['Title', co.title],
       ['Social Security Number', co.ssn_last4 ? `XXX-XX-${co.ssn_last4}` : ''],
     ]);

@@ -3,6 +3,7 @@ import { formatDate } from '../../lib/datetime';
 import { BAND, BRAND, INK, MARGIN, MUTED, RULE, clean, fit } from './reportPdf';
 import { conditionOf, refSuffix } from './pfsCondition';
 import { pfsExtraPdf } from './pfsAffiliatedExport';
+import { addressLine, normalizePfsDetails } from './pfsAddress';
 
 // A personal financial statement as a PDF (Neil, Sep 25: "an enterprise grade,
 // a professional PFS that comes out in a beautiful PDF"). The order is the one
@@ -139,10 +140,10 @@ export async function buildPfsPdf({ statement, photo = '', coPhoto = null, prepa
   // Oct 7 (item 38): the borrower's photo and the co-borrower's, side by
   // side at the top right, each captioned with the person's name; one photo
   // alone when there is one.
-  const coDetails = profile.details?.coBorrower || {};
+  const coDetails = normalizePfsDetails(profile.details).coBorrower || {};
   const photos = [
     { img: await embedPhoto(doc, photo), name: profile.name || '' },
-    { img: await embedPhoto(doc, coPhoto ?? coDetails.photo ?? ''), name: coDetails.name || profile.details?.spouse || '' },
+    { img: await embedPhoto(doc, coPhoto ?? coDetails.photo ?? ''), name: coDetails.name || '' },
   ].filter((p) => p.img);
   const PHOTO = 64;
   const SLOT = 84;
@@ -208,9 +209,9 @@ export async function buildPfsPdf({ statement, photo = '', coPhoto = null, prepa
 
   // ── Borrower ──────────────────────────────────────────────────────────────
   newPage('Borrower Information');
-  const d = profile.details || {};
+  const d = normalizePfsDetails(profile.details);
   const facts = [
-    ['Name', name], ['Statement Type', KIND[profile.kind] || 'Individual'], ['Address', [d.address, d.city_state_zip].filter(Boolean).join(', ')],
+    ['Name', name], ['Statement Type', KIND[profile.kind] || 'Individual'], ['Address', addressLine(d)],
     ['Phone', d.phone], ['Email', d.email], ['Date of Birth', d.date_of_birth ? formatDate(d.date_of_birth) : ''], ['Marital Status', d.marital_status],
     ['Employer', d.employer], ['Title', d.title], ['Social Security Number', d.ssn_last4 ? `XXX-XX-${d.ssn_last4}` : ''],
   ].filter(([, v]) => v);
@@ -225,7 +226,7 @@ export async function buildPfsPdf({ statement, photo = '', coPhoto = null, prepa
   if (co.name) {
     heading('Co-Borrower');
     [
-      ['Name', co.name], ['Address', [co.address, co.city_state_zip].filter(Boolean).join(', ')], ['Phone', co.phone], ['Email', co.email],
+      ['Name', co.name], ['Address', addressLine(co)], ['Phone', co.phone], ['Email', co.email],
       ['Date of Birth', co.date_of_birth ? formatDate(co.date_of_birth) : ''], ['Marital Status', co.marital_status], ['Employer', co.employer], ['Title', co.title],
       ['Social Security Number', co.ssn_last4 ? `XXX-XX-${co.ssn_last4}` : ''],
     ].filter(([, v]) => v).forEach(([k, v]) => {
@@ -366,7 +367,7 @@ export async function buildPfsPdf({ statement, photo = '', coPhoto = null, prepa
   wrap(font, 9, 'I certify that the information in this statement is true, correct and complete as of the date shown, and I authorize the lender to verify it.', W - MARGIN * 2)
     .forEach((t) => { page.drawText(t, { x: MARGIN, y, size: 9, font, color: INK }); y -= ROW - 2; });
   y -= 44;
-  const signers = (d.members || []).length && profile.kind !== 'individual' ? d.members.map((m) => m.name) : d.spouse ? [profile.name, d.spouse] : [name];
+  const signers = (d.members || []).length && profile.kind !== 'individual' ? d.members.map((m) => m.name) : co.name ? [profile.name, co.name] : [name];
   signers.slice(0, 4).forEach((who) => {
     room(60);
     page.drawLine({ start: { x: MARGIN, y }, end: { x: MARGIN + 260, y }, thickness: 0.6, color: INK });

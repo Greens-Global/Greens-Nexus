@@ -11,6 +11,7 @@ import { downloadBlob, iso, priorMonthEnd } from './reportModel';
 import SendReportDialog from './SendReportDialog';
 import { conditionOf, refSuffix } from './pfsCondition';
 import PfsAffiliated, { PfsExecutiveProfiles } from './PfsAffiliated';
+import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
@@ -58,6 +59,11 @@ import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, u
 // the Statement with real estate at equity; the account number printed once;
 // "Not found - Set It" where no bank was found; a whole row drags; Add From
 // the Ledger fills the screen with a Select All; the PDF can carry a password.
+//
+// Oct 7, later (Charmi + Neil, circled on the Borrower(s) tab): City, State
+// and ZIP are three fields on both blocks (an old combined value is split on
+// read - pfsAddress.js), and the separate "Spouse or Co-Borrower" field is gone:
+// the Co-Borrower block's Name is the one source of truth.
 
 const SECTIONS = [
   { key: 'statement', label: 'Statement' },
@@ -73,13 +79,13 @@ const SECTION_LABEL = { asset: 'Assets', liability: 'Liabilities', real_estate: 
 // real estate at equity, under one heading with a subtotal.
 const INVEST_KEYS = ['investment', 'business'];
 const CO_BORROWER = [
-  ['name', 'Name'], ['address', 'Street Address'], ['city_state_zip', 'City, State, ZIP'], ['phone', 'Phone'], ['email', 'Email'],
+  ['name', 'Name'], ['address', 'Street Address'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP'], ['phone', 'Phone'], ['email', 'Email'],
   ['date_of_birth', 'Date of Birth', 'date'], ['marital_status', 'Marital Status'], ['employer', 'Employer'], ['title', 'Title'],
   ['ssn_last4', 'Social Security Number - Last 4 Digits'],
 ];
 const KINDS = { individual: 'Individual', joint: 'Joint', trust: 'Trust' };
 const DETAILS = [
-  ['address', 'Street Address'], ['city_state_zip', 'City, State, ZIP'], ['phone', 'Phone'], ['email', 'Email'],
+  ['address', 'Street Address'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP'], ['phone', 'Phone'], ['email', 'Email'],
   ['date_of_birth', 'Date of Birth', 'date'], ['marital_status', 'Marital Status'], ['employer', 'Employer'], ['title', 'Title'],
   ['ssn_last4', 'Social Security Number - Last 4 Digits'],
 ];
@@ -704,12 +710,16 @@ function PhotoField({ title, value, onChange, canEdit, alt, own = false }) {
 function Borrower({ profile, canEdit, onSave }) {
   const [name, setName] = useState(profile.name);
   const [kind, setKind] = useState(profile.kind);
-  const [details, setDetails] = useState(profile.details || {});
+  // The details as the Oct 7 form reads them (pfsAddress.js): an old combined
+  // City, State, ZIP is split and an old spouse name is the co-borrower's; it
+  // is saved that way on the next save, and only a real edit makes it dirty.
+  const baseDetails = useMemo(() => normalizePfsDetails(profile.details), [profile.details]);
+  const [details, setDetails] = useState(baseDetails);
   const [photo, setPhoto] = useState(profile.photo || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-  const dirty = JSON.stringify([name, kind, details, photo]) !== JSON.stringify([profile.name, profile.kind, profile.details || {}, profile.photo || '']);
+  const dirty = JSON.stringify([name, kind, details, photo]) !== JSON.stringify([profile.name, profile.kind, baseDetails, profile.photo || '']);
   // The form follows the profile it shows - but never over what is being
   // typed. A statement refresh behind this form (the date, a line, a second
   // tab) used to hand back a new profile object and reset every field
@@ -721,7 +731,7 @@ function Borrower({ profile, canEdit, onSave }) {
   useEffect(() => {
     if (shownId.current === profile.id && dirtyRef.current) return;
     shownId.current = profile.id;
-    setName(profile.name); setKind(profile.kind); setDetails(profile.details || {}); setPhoto(profile.photo || ''); setError('');
+    setName(profile.name); setKind(profile.kind); setDetails(normalizePfsDetails(profile.details)); setPhoto(profile.photo || ''); setError('');
   }, [profile]);
   const members = details.members || [];
   const set = (k, v) => setDetails((d) => ({ ...d, [k]: v }));
@@ -741,7 +751,33 @@ function Borrower({ profile, canEdit, onSave }) {
       .catch((e) => setError(e?.message || 'Could not save.'))
       .finally(() => setBusy(false));
   };
-  const coName = details.coBorrower?.name || details.spouse || 'the co-borrower';
+  const coName = details.coBorrower?.name || 'the co-borrower';
+  const zipBad = Boolean(zipError(details.zip) || zipError(details.coBorrower?.zip));
+  // One field of either block: State is a list of the US states, ZIP is
+  // checked as it is typed, the last four of the SSN are digits only.
+  const field = (k, text, type, value, onValue, prefix) => {
+    const id = `${prefix}${k}`;
+    const zipMsg = k === 'zip' ? zipError(value) : '';
+    return (
+      <div key={k}>
+        <label style={label} htmlFor={id}>{text}</label>
+        {k === 'state' ? (
+          <select id={id} value={value || ''} disabled={!canEdit} onChange={(e) => onValue(e.target.value)} style={{ ...control, width: '100%' }}>
+            <option value="">Select...</option>
+            {value && !US_STATES.includes(value) && <option value={value}>{value}</option>}
+            {US_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+        ) : (
+          <input id={id} type={type || 'text'} value={value || ''} disabled={!canEdit} maxLength={k === 'ssn_last4' ? 4 : k === 'zip' ? 10 : 200}
+            inputMode={k === 'ssn_last4' || k === 'zip' ? 'numeric' : undefined} aria-invalid={zipMsg ? true : undefined} aria-describedby={zipMsg ? `${id}-error` : undefined}
+            onChange={(e) => onValue(k === 'ssn_last4' ? e.target.value.replace(/\D/g, '').slice(0, 4) : k === 'zip' ? e.target.value.replace(/[^\d-]/g, '') : e.target.value)}
+            style={{ ...control, width: '100%', ...(zipMsg ? { borderColor: 'var(--bad-fg, #dc2626)' } : null) }} />
+        )}
+        {zipMsg && <div id={`${id}-error`} style={{ ...hint, color: 'var(--bad-fg, #dc2626)' }}>{zipMsg}</div>}
+        {k === 'ssn_last4' && <div style={hint}>{prefix === 'pfs-co-' ? 'Last four digits only; a longer number is refused.' : 'Only the last four digits are kept. It prints as XXX-XX-1234.'}</div>}
+      </div>
+    );
+  };
   return (
     <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }} onPaste={onPaste}>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) minmax(140px, 1fr)', gap: 10 }}>
@@ -756,37 +792,17 @@ function Borrower({ profile, canEdit, onSave }) {
           </select>
         </div>
       </div>
-      <div>
-        <label style={label} htmlFor="pfs-spouse">Spouse or Co-Borrower</label>
-        <input id="pfs-spouse" type="text" value={details.spouse || ''} disabled={!canEdit} maxLength={160} placeholder="Printed with the name, as in Neil R. Kadakia and Archana Kadakia"
-          onChange={(e) => set('spouse', e.target.value)} style={{ ...control, width: '100%', maxWidth: 520 }} />
-        <div style={hint}>Leave blank for a statement in one name. The spouse signs the statement too.</div>
-      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-        {DETAILS.map(([k, text, type]) => (
-          <div key={k}>
-            <label style={label} htmlFor={`pfs-${k}`}>{text}</label>
-            <input id={`pfs-${k}`} type={type || 'text'} value={details[k] || ''} disabled={!canEdit} maxLength={k === 'ssn_last4' ? 4 : 200} inputMode={k === 'ssn_last4' ? 'numeric' : undefined}
-              onChange={(e) => set(k, k === 'ssn_last4' ? e.target.value.replace(/\D/g, '').slice(0, 4) : e.target.value)} style={{ ...control, width: '100%' }} />
-            {k === 'ssn_last4' && <div style={hint}>Only the last four digits are kept. It prints as XXX-XX-1234.</div>}
-          </div>
-        ))}
+        {DETAILS.map(([k, text, type]) => field(k, text, type, details[k], (v) => set(k, v), 'pfs-'))}
       </div>
       <PhotoField title="Photo on the Cover" value={photo} onChange={setPhoto} canEdit={canEdit} alt={`${name} as shown on the cover`} />
       <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, display: 'grid', gap: 10 }}>
         <div>
           <div style={{ ...label, marginBottom: 2 }}>Co-Borrower</div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>The spouse or co-borrower on the statement, printed under the borrower. Leave the name blank when there is none.</div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>The spouse or co-borrower on the statement, printed with the borrower's name and signing too. Leave the name blank for a statement in one name.</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-          {CO_BORROWER.map(([k, text, type]) => (
-            <div key={k}>
-              <label style={label} htmlFor={`pfs-co-${k}`}>{text}</label>
-              <input id={`pfs-co-${k}`} type={type || 'text'} value={details.coBorrower?.[k] || ''} disabled={!canEdit} maxLength={k === 'ssn_last4' ? 4 : 200} inputMode={k === 'ssn_last4' ? 'numeric' : undefined}
-                onChange={(e) => setCo(k, k === 'ssn_last4' ? e.target.value.replace(/\D/g, '').slice(0, 4) : e.target.value)} style={{ ...control, width: '100%' }} />
-              {k === 'ssn_last4' && <div style={hint}>Last four digits only; a longer number is refused.</div>}
-            </div>
-          ))}
+          {CO_BORROWER.map(([k, text, type]) => field(k, text, type, details.coBorrower?.[k], (v) => setCo(k, v), 'pfs-co-'))}
         </div>
         <PhotoField title="Co-Borrower Photo on the Cover" own value={details.coBorrower?.photo || ''} onChange={(v) => setCo('photo', v)} canEdit={canEdit} alt={`${coName} as shown on the cover`} />
       </div>
@@ -809,7 +825,7 @@ function Borrower({ profile, canEdit, onSave }) {
       {saved && !dirty && !error && <div style={{ fontSize: '0.78rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved. The statement reads these details now.</div>}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy || !name.trim()} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>
+          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy || !name.trim() || zipBad} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>
           {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
         </div>
       )}
@@ -1588,7 +1604,7 @@ function NewGuarantor({ onClose, onCreate }) {
     setError('');
     const details = {};
     if (email) details.email = email;
-    if (kind === 'joint' && second.trim()) details.spouse = second.trim();
+    if (kind === 'joint' && second.trim()) details.coBorrower = { name: second.trim() };
     onCreate({ name: name.trim(), kind, details }).catch((err) => { setError(err?.message || 'Could not create the profile.'); setBusy(false); });
   };
   const picker = (id, who, text) => (
