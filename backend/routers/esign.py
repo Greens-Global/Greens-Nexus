@@ -1642,7 +1642,9 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                     parties: List[PartyIn], ip: str, user_agent: str,
                     documents: Optional[list] = None, routing: str = "sequential",
                     egnyte_folder: str = "", excluded_ack: bool = False,
-                    document_class: str = "", governing_law: str = "") -> dict:
+                    document_class: str = "", governing_law: str = "",
+                    link_kind: str = "", link_id: str = "",
+                    sender_signs_first: bool = False) -> dict:
     # Server-side, at the one point BOTH send paths reach: a guardrail that
     # lives only in the wizard is not a guardrail - the API is reachable
     # without it, and this is the check that keeps a will or an eviction
@@ -1675,7 +1677,8 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                         expires_on=expires_on or "", created_by=user["email"],
                         created_at=now, excluded_ack_at=now, excluded_ack_by=user["email"],
                         document_class=document_class or "",
-                        governing_law=(governing_law or _DEFAULT_GOVERNING_LAW).upper()[:2])
+                        governing_law=(governing_law or _DEFAULT_GOVERNING_LAW).upper()[:2],
+                        link_kind=link_kind or "", link_id=link_id or "")
     db.add(req)
     rows = []
     for p in ordered:
@@ -1705,49 +1708,95 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
     actors = [r for r in rows if _role_of(r) in _ACTING_ROLES]
     to_notify = actors if routing == "parallel" else actors[:1]
     for r in to_notify:
+        # The sender signing their own envelope right after sending it (an HR
+        # packet: the company signs, then the person) needs no invite email -
+        # the send screen takes them straight to the signing view.
+        if sender_signs_first and r.kind == "internal" and r.email == (user["email"] or "").lower():
+            _log(db, req.id, "sent", f"{r.name} signs at send (sender)", party_id=r.id)
+            continue
         _notify_party(db, r, req, sender_name)
     db.commit()
     return _ser_request(req, parties=_parties(db, req.id))
 
 
-@router.post("/requests")
-def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr_write),
-                 db: Session = Depends(get_db)):
+def template_roles_needed(tpl: HrSignTemplate, snapshot: list) -> set:
+    """Every role a template needs a party for: the body's [[field:role]]
+    tokens AND every field placed on its attached PDFs."""
+    needed = {f["role"] for f in _fields_in_body(snapshot)}
+    for a in (tpl.attachments or []):
+        if a.get("path"):
+            needed |= {f.get("role", "") for f in (a.get("fields") or [])}
+    needed.discard("")
+    return needed
+
+
+def resolve_template(db: Session, tpl: HrSignTemplate, *, employee_id: str = "",
+                     candidate_id: str = "", entity_id: str = "",
+                     overrides: Optional[dict] = None) -> tuple:
+    """(resolved body, unresolved merge-token names) - what a send would freeze.
+    Shared by the send endpoint and HR life events' preview, so a preview can
+    never pass a packet the send then refuses."""
+    merge = _merge_data(db, employee_id or "", candidate_id or "",
+                        entity_id or tpl.entity_id or "", overrides or {})
+    return _resolve_body(tpl.body or [], merge)
+
+
+def envelope_from_template(db: Session, user: dict, tpl: HrSignTemplate, *, parties: List[PartyIn],
+                           title: str = "", employee_id: str = "", candidate_id: str = "",
+                           entity_id: str = "", merge: Optional[dict] = None, message: str = "",
+                           expires_on: str = "", routing: str = "sequential", ip: str = "",
+                           user_agent: str = "", excluded_ack: bool = False,
+                           document_class: str = "", governing_law: str = "",
+                           link_kind: str = "", link_id: str = "",
+                           sender_signs_first: bool = False) -> dict:
     """Template-sourced envelope: resolve merges, freeze the snapshot, create the
-    ordered parties, notify the first."""
-    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == body.template_id).first()
-    if not tpl:
-        raise HTTPException(404, "Template not found")
-    merge = _merge_data(db, body.employee_id or "", body.candidate_id or "",
-                        body.entity_id or tpl.entity_id or "", body.merge or {})
-    snapshot, unresolved = _resolve_body(tpl.body or [], merge)
+    ordered parties, notify the first. The one path for POST /requests and for
+    the HR packets (hr_life_events.py)."""
+    snapshot, unresolved = resolve_template(db, tpl, employee_id=employee_id,
+                                            candidate_id=candidate_id, entity_id=entity_id,
+                                            overrides=merge)
     if unresolved:
         raise HTTPException(400, f"Unresolved merge fields: {', '.join('{{' + u + '}}' for u in unresolved)}. "
                                  f"Fill them in the send form or pick a person with that data.")
-    # Roles must cover the body's tokens AND every field placed on attached PDFs;
-    # the whole packet travels as one envelope, frozen at send time.
+    # The whole packet travels as one envelope, frozen at send time.
     attachments = [{"name": a.get("name", "document.pdf"), "path": a.get("path", ""),
                     "fields": a.get("fields") or []}
                    for a in (tpl.attachments or []) if a.get("path")]
-    needed_roles = {f["role"] for f in _fields_in_body(snapshot)}
-    for a in attachments:
-        needed_roles |= {f.get("role", "") for f in a["fields"]}
-    needed_roles.discard("")
-    _validate_parties(body.parties, needed_roles)
-    routing = _validate_routing(body.routing)
-    ip, ua = _client_meta(request)
-    return _create_request(db, user, title=(body.title or tpl.name).strip(), source="template",
-                           template_id=tpl.id, employee_id=body.employee_id or "",
-                           candidate_id=body.candidate_id or "",
-                           entity_id=body.entity_id or tpl.entity_id or "",
+    _validate_parties(parties, template_roles_needed(tpl, snapshot))
+    routing = _validate_routing(routing)
+    return _create_request(db, user, title=(title or tpl.name).strip(), source="template",
+                           template_id=tpl.id, employee_id=employee_id or "",
+                           candidate_id=candidate_id or "",
+                           entity_id=entity_id or tpl.entity_id or "",
                            body_snapshot=snapshot, pdf_storage_path="", fields=[],
-                           message=body.message or "", expires_on=body.expires_on or "",
-                           parties=body.parties, ip=ip, user_agent=ua,
+                           message=message or "", expires_on=expires_on or "",
+                           parties=parties, ip=ip, user_agent=user_agent,
                            documents=attachments, routing=routing,
                            egnyte_folder=tpl.egnyte_folder or "",
-                           excluded_ack=bool(body.excluded_ack),
-                           document_class=body.document_class or "",
-                           governing_law=body.governing_law or "")
+                           excluded_ack=bool(excluded_ack),
+                           document_class=document_class or "",
+                           governing_law=governing_law or "",
+                           link_kind=link_kind, link_id=link_id,
+                           sender_signs_first=sender_signs_first)
+
+
+@router.post("/requests")
+def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr_write),
+                 db: Session = Depends(get_db)):
+    """Template-sourced envelope - see envelope_from_template."""
+    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == body.template_id).first()
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    ip, ua = _client_meta(request)
+    return envelope_from_template(db, user, tpl, parties=body.parties, title=body.title or "",
+                                  employee_id=body.employee_id or "",
+                                  candidate_id=body.candidate_id or "",
+                                  entity_id=body.entity_id or "", merge=body.merge or {},
+                                  message=body.message or "", expires_on=body.expires_on or "",
+                                  routing=body.routing, ip=ip, user_agent=ua,
+                                  excluded_ack=bool(body.excluded_ack),
+                                  document_class=body.document_class or "",
+                                  governing_law=body.governing_law or "")
 
 
 @router.post("/requests/pdf")
@@ -2693,14 +2742,20 @@ def _apply_act(db: Session, req: HrSignRequest, party: HrSignParty, body: ActIn,
 
 def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
     """Tell the record an envelope belongs to (HrSignRequest.link_kind) that
-    something happened to it. Timesheets only so far - see timesheet_review.py.
+    something happened to it: timesheets (timesheet_review.py) and HR life
+    events - hiring packet, promotion, separation (hr_life_events.py).
     Never raises: a problem over there must not cost anyone their signature."""
-    if (getattr(req, "link_kind", "") or "") != "timesheet":
-        return
-    import timesheet_review as tsr
-    fn = {"progress": tsr.on_progress, "declined": tsr.on_declined,
-          "voided": tsr.on_voided, "completed": tsr.on_completed}[event]
-    tsr.safe(fn, db, req, *args)
+    kind = getattr(req, "link_kind", "") or ""
+    if kind == "timesheet":
+        import timesheet_review as tsr
+        fn = {"progress": tsr.on_progress, "declined": tsr.on_declined,
+              "voided": tsr.on_voided, "completed": tsr.on_completed}[event]
+        tsr.safe(fn, db, req, *args)
+    elif kind == "life_event":
+        import hr_life_events as hle
+        fn = {"progress": hle.on_progress, "declined": hle.on_declined,
+              "voided": hle.on_voided, "completed": hle.on_completed}[event]
+        hle.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
@@ -4594,6 +4649,12 @@ def _signed_folder(db: Session, req: HrSignRequest) -> str:
     emailed; losing the copy would be the worse outcome."""
     if (req.egnyte_folder or "").strip():
         return req.egnyte_folder.strip()
+    if (getattr(req, "link_kind", "") or "") == "life_event":
+        # Filed into the subject PERSON's folder by hr_life_events' filing pass
+        # (the hire's folder does not exist until the packet is signed). The
+        # requester fallback below would drop a new hire's offer letter into
+        # the HR sender's own work folder.
+        return ""
     try:
         import egnyte_wiring
         emp = (db.query(NexusEmployee)

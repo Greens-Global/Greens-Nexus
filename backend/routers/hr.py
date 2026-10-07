@@ -322,6 +322,8 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             changes[key] = (before, value)
         setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    if "work_email" in changes and not changes["work_email"][0]:
+        adopt_pending_pay(db, row, user["email"])
     db.commit()
     db.refresh(row)
     # Field-level audit (Sep 22, 2026). The request-level audit row only says
@@ -598,6 +600,39 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
     return _ser_candidate(row)
 
 
+def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
+                                   details: Optional[dict] = None) -> NexusEmployee:
+    """The ONE place a hired candidate becomes an employee master record
+    (status onboarding) and their onboarding checklist starts. Mark Hired in
+    the pipeline and a signed hiring packet (hr_life_events.py) both come
+    here, so the two paths can never build a different employee.
+
+    `details` (from the hiring packet's offer) wins over what the candidate
+    card says: job_title, department, start_date, manager_email,
+    employment_type. The caller sets the candidate's stage and commits."""
+    d = details or {}
+    now = datetime.now(timezone.utc).isoformat()
+    emp = NexusEmployee(
+        id=str(uuid.uuid4()), employee_code=_next_code(db),
+        first_name=cand.first_name, last_name=cand.last_name,
+        personal_email=cand.email, phone=cand.phone,
+        job_title=d.get("job_title") or cand.role_title,
+        department=d.get("department") or cand.department,
+        company=(cand.company or "").strip(),
+        start_date=d.get("start_date") or cand.expected_start,
+        manager_email=(d.get("manager_email") or "").strip().lower(),
+        employment_type=d.get("employment_type") or "full_time",
+        status="onboarding",
+        created_by=actor, created_at=now, updated_at=now,
+    )
+    db.add(emp)
+    cand.employee_id = emp.id
+    # Their onboarding checklist starts with the hire (hr_checklists.py).
+    import hr_checklists
+    hr_checklists.start_on_hire(db, emp, actor)
+    return emp
+
+
 @router.patch("/candidates/{cid}")
 def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
@@ -619,21 +654,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         row.stage = body.stage
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
-            emp = NexusEmployee(
-                id=str(uuid.uuid4()), employee_code=_next_code(db),
-                first_name=row.first_name, last_name=row.last_name,
-                personal_email=row.email, phone=row.phone,
-                job_title=row.role_title, department=row.department,
-                company=(row.company or "").strip(),
-                start_date=row.expected_start, status="onboarding",
-                created_by=user["email"], created_at=now, updated_at=now,
-            )
-            db.add(emp)
-            row.employee_id = emp.id
-            created_employee = emp
-            # Their onboarding checklist starts with the hire (hr_checklists.py).
-            import hr_checklists
-            hr_checklists.start_on_hire(db, emp, user["email"])
+            created_employee = create_employee_from_candidate(db, row, user["email"])
 
         # One notification per stage move, to the candidate's owner (unless
         # they made the move themselves) - mirrors the items.py convention
@@ -1385,6 +1406,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
             user_id = resp.json()["id"]
             emp.m365_id = user_id
             emp.work_email = upn
+            adopt_pending_pay(db, emp, user["email"])
             steps["m365_user"].status = "ok"
             steps["m365_user"].detail = f"Account {upn} created"
         else:
@@ -1741,6 +1763,7 @@ def _pull_from_m365(db: Session, actor_email: str) -> dict:
                 emp.m365_id = g["id"]; linked += 1; changed = True
             if not emp.work_email and addr:
                 emp.work_email = addr; changed = True
+                adopt_pending_pay(db, emp, actor_email)
             for local, remote in (("phone", "mobilePhone"), ("job_title", "jobTitle"),
                                   ("location", "officeLocation"), ("department", "department")):
                 if not getattr(emp, local) and (g.get(remote) or "").strip():
@@ -3562,6 +3585,26 @@ def ensure_rate_history(db: Session, email: str, by: str = "") -> None:
                               overtime_rule=rate.overtime_rule or "ca", created_by=by,
                               created_at=datetime.now(timezone.utc).isoformat()))
     db.flush()
+
+
+def adopt_pending_pay(db: Session, emp: NexusEmployee, by: str) -> None:
+    """A hire's offer pay waits on the employee record (compensation) because
+    the timecard rate is keyed by WORK email, which a new hire does not have
+    until their Microsoft 365 account exists. Called the moment a work email
+    first lands on the record: if the record carries pay and there is no
+    timecard rate yet, create it, dated from the compensation's effective date
+    (the start date for a hire). A person who already has a rate is left alone
+    - Pay & Benefits stays the only thing that changes an existing rate."""
+    if not emp or not emp.work_email:
+        return
+    comp = emp.compensation or {}
+    if not str(comp.get("base") or "").strip() or not comp.get("payBasis"):
+        return
+    if db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first():
+        return
+    sync_rate_from_comp(db, emp)
+    db.flush()
+    append_rate_history(db, emp, str(comp.get("effectiveDate") or ""), by=by)
 
 
 def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by: str) -> None:

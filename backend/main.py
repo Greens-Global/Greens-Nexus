@@ -26,6 +26,7 @@ from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte conne
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
+from routers import hr_life_events as hr_life_events_router  # hiring packet / promotion / separation via Nexus Sign (Oct 2026)
 from routers import qa  # Testing module - dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
@@ -2011,6 +2012,11 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS postal_code VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS m365_sync JSON",
+        # HR life events (Neil, Oct 8): hiring packet / promotion / separation
+        # through Nexus Sign, filed to the person's Egnyte folder. New tables -
+        # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
+        "ALTER TABLE hr_packet_settings ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE hr_life_events ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2586,6 +2592,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] shift reminder loop skipped: {e}")
         try:
+            from hr_life_events import life_events_loop
+            _tasks.append(_a.create_task(life_events_loop()))
+        except Exception as e:
+            print(f"[startup] life events filing loop skipped: {e}")
+        try:
             from accounting_sso import accounting_sso_sync_loop
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
@@ -3049,6 +3060,7 @@ app.include_router(support.router)         # Support > System & Design + live Da
 app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
+app.include_router(hr_life_events_router.router)
 app.include_router(knowledge_base.router)
 app.include_router(help_router.router)
 app.include_router(esign.router)

@@ -5578,3 +5578,63 @@ class AccountingAmaAgreement(Base):
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
     updated_at          = Column(String, default="")
+
+
+class HrPacketSetting(Base):
+    """Which Nexus Sign template a company sends for an HR life event
+    (Neil/Pranshu call, Oct 8): the hiring packet, a promotion letter, a
+    separation package. One row per (company, event, worker type); entity_id ''
+    is the default every company falls back to, worker_type 'any' covers both
+    employees and contractors. The template carries the merged PDFs and the
+    signer roles; `subject_role` is the role the person signs as - every other
+    role is signed by the HR sender, who signs at send so the person signs last.
+    New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
+    __tablename__ = "hr_packet_settings"
+    id               = Column(String, primary_key=True)           # uuid
+    entity_id        = Column(String, default="", index=True)     # HrEntity.id ('' = every company)
+    event            = Column(String, nullable=False)             # hire | promotion | separation
+    worker_type      = Column(String, default="any")              # any | employee | contractor
+    template_id      = Column(String, default="")                 # HrSignTemplate.id
+    subject_role     = Column(String, default="employee")         # template role the person signs as
+    email_message    = Column(Text, default="")                   # welcome / cover note shown in the signing email
+    egnyte_subfolder = Column(String, default="")                 # under the person folder ('' = event default)
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+    created_at       = Column(String, default="")
+
+
+class HrLifeEvent(Base):
+    """One HR life event run through Nexus Sign (hire, promotion, separation):
+    what HR entered, the envelope, what was applied when it was signed, and
+    where the signed packet was filed in Egnyte. hr_life_events.py drives it;
+    Nexus Sign moves it along through HrSignRequest.link_kind 'life_event'.
+    `pay` is salary data - only ever returned to hr_comp holders.
+    New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
+    __tablename__ = "hr_life_events"
+    id              = Column(String, primary_key=True)            # uuid
+    kind            = Column(String, nullable=False, index=True)  # hire | promotion | separation
+    status          = Column(String, default="awaiting_sender")   # awaiting_sender | sent | completed | declined | voided | expired
+    entity_id       = Column(String, default="", index=True)      # HrEntity.id
+    candidate_id    = Column(String, default="", index=True)      # hire: HrCandidate.id
+    employee_id     = Column(String, default="", index=True)      # NexusEmployee.id (set at hire completion for a hire)
+    subject_name    = Column(String, default="")
+    subject_email   = Column(String, default="")                  # where the packet went
+    setting_id      = Column(String, default="")                  # HrPacketSetting.id used
+    template_id     = Column(String, default="")
+    sign_request_id = Column(String, default="", index=True)      # HrSignRequest.id
+    inputs          = Column(JSON, default=dict)                  # non-pay details (title, start date, supervisor, ...)
+    pay             = Column(JSON, default=dict)                  # RESTRICTED: {base, payBasis, frequency, currency}
+    effective_date  = Column(String, default="")                  # YYYY-MM-DD (start date / promotion date / last day)
+    applied_at      = Column(String, default="")
+    apply_note      = Column(String, default="")
+    flags           = Column(JSON, default=list)                  # [{code, message}] for HR to review (e.g. signed timesheet periods)
+    filing_status   = Column(String, default="")                  # '' | pending | filed | failed
+    filing_path     = Column(String, default="")
+    filing_error    = Column(String, default="")
+    filing_attempts = Column(Integer, default=0)
+    filing_next_at  = Column(String, default="", index=True)      # ISO UTC; the filing loop picks rows due
+    decline_reason  = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+    completed_at    = Column(String, default="")
