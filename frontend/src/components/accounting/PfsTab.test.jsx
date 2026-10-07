@@ -397,7 +397,9 @@ describe('PfsTab', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: 'From the Ledger' }));
     expect(within(dialog).getByRole('button', { name: 'Save' }).disabled).toBe(true);   // nothing to read yet
     await pickEntity(dialog, 'Entity', '60100');
-    fireEvent.click(await within(dialog).findByRole('option', { name: /25000/ }));
+    // The entity's accounts load after the pick; give a busy CI runner more
+    // than the default second (failed once on PR #459).
+    fireEvent.click(await within(dialog).findByRole('option', { name: /25000/ }, { timeout: 5000 }));
     // The figure sits in its own <Amount /> span (tabular, reserved ) slot), so read the whole line.
     expect(within(dialog).getByText(/1 picked ·/).textContent).toBe('1 picked · 400,000.00');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
