@@ -1098,17 +1098,17 @@ export const api = {
   // Finance Dashboard (Overview / Cash / Performance / Close) - the same
   // aggregates and shared tables the accounting app's own dashboard uses,
   // proxied by backend/routers/accounting_dashboard.py.
-  getAccountingDashLedger: (scope, from, to, book) =>
-    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}`),
-  getAccountingDashCashEntities: (scope, asof, book) =>
-    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
-  getAccountingDashBudget: (from, to, book) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashLedger: (scope, from, to, book, fresh) =>
+    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashCashEntities: (scope, asof, book, fresh) =>
+    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashBudget: (from, to, book, fresh) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
   // Bank and card GL accounts per entity with their balance as of a date - the reconciliation list.
-  getAccountingDashReconAccounts: (scope, asof, book) =>
-    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
-  getAccountingDashNoi: (from, to, book) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}`),
-  getAccountingDashEntities: () => req("/accounting/dashboard/entities"),
-  getAccountingDashTables: (period) => req(`/accounting/dashboard/tables?period=${period}`),
+  getAccountingDashReconAccounts: (scope, asof, book, fresh) =>
+    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashNoi: (from, to, book, fresh) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashEntities: (fresh) => req(`/accounting/dashboard/entities${fresh ? "?fresh=1" : ""}`),
+  getAccountingDashTables: (period, fresh) => req(`/accounting/dashboard/tables?period=${period}${fresh ? "&fresh=1" : ""}`),
   accountingDashAction: (op, payload = {}) =>
     req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
 

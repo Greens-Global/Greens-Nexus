@@ -5,6 +5,7 @@ import { SCOPE_LABEL } from '../../../accounting/dashboard/model/scope';
 import { useDash } from './DashContext';
 import { card, input, pill } from './Bits';
 import { EntityPicker } from '../reportControls';
+import { formatDateTime, formatTime } from '../../../lib/datetime';
 
 // The dashboard's global filter row: scope (consolidation group or one
 // entity), month, and book. Pinned above every tab.
@@ -22,13 +23,16 @@ const SCOPE_GROUPS = [
 ];
 
 export function ScopeSelect() {
-  const { ix, scope, setScope } = useDash();
+  const { ix, scope, setScope, hasPartners } = useDash();
+  // No partner entity at all: "Partner Entities Only" would only ever show
+  // zeros, so it is not offered (Oct 7, Neil comment 7).
+  const extra = useMemo(() => (hasPartners ? SCOPE_EXTRA : SCOPE_EXTRA.filter((x) => x.code !== 'NC')), [hasPartners]);
   const roots = useMemo(
     () => ix.roots.map((e) => ({ ...e, parent_code: '', name: (e.name || e.code) + (e.currency === 'INR' ? ' (INR)' : '') })),
     [ix],
   );
   return (
-    <EntityPicker entities={roots} value={scope} onChange={setScope} extra={SCOPE_EXTRA} groups={SCOPE_GROUPS} ariaLabel="Scope" active={scope !== 'ALL'} />
+    <EntityPicker entities={roots} value={scope} onChange={setScope} extra={extra} groups={SCOPE_GROUPS} ariaLabel="Scope" active={scope !== 'ALL'} />
   );
 }
 
@@ -91,12 +95,35 @@ export function BookPills() {
   );
 }
 
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const whenShort = (v) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? '' : sameDay(d, new Date()) ? formatTime(d) : formatDateTime(d); };
+
+/** Refresh (Oct 7, Priyanka): fresh figures from the accounting app, the icon
+ *  spins while any dashboard figure loads, then a quiet "Updated 2:41 PM" -
+ *  and how fresh the ledger itself is when the accounting app says. */
+export function RefreshButton() {
+  const { refetchAll, fetching, updatedAt, ledgerSyncedAt } = useDash();
+  const synced = ledgerSyncedAt ? whenShort(ledgerSyncedAt) : '';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {updatedAt || synced ? (
+        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+          {updatedAt ? `Updated ${formatTime(updatedAt)}` : ''}{updatedAt && synced ? ' · ' : ''}{synced ? `Ledger synced from Intacct ${synced}` : ''}
+        </span>
+      ) : null}
+      <button type="button" className="icon-btn" title="Refresh figures" aria-label="Refresh figures" aria-busy={fetching} disabled={fetching} onClick={() => { refetchAll(); }} style={{ padding: 6, cursor: fetching ? 'default' : 'pointer' }}>
+        <RefreshCw size={14} data-spinning={fetching ? 'true' : undefined} style={fetching ? { animation: 'spin 0.9s linear infinite' } : undefined} />
+      </button>
+    </span>
+  );
+}
+
 /** The pinned filter row. `right` holds tab-specific controls (view picker, scenario).
  *  Oct 6 (Neil: "standardize this and the filters as well"): the same slim
  *  card row, directly under the tabs and left aligned, that Reports, Budget,
  *  Vendors & Customers and Allocations draw. */
 export function Toolbar({ right, hidePeriod }) {
-  const { refetchAll, ix, scope } = useDash();
+  const { ix, scope } = useDash();
   const partners = ['ALL', 'CTL', 'NC'].includes(scope) ? '' : ix.byCode.get(scope)?.partners;
   return (
     <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
@@ -106,7 +133,7 @@ export function Toolbar({ right, hidePeriod }) {
       {partners ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Partner entity · {partners}</span> : null}
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
         {right}
-        <button type="button" className="icon-btn" title="Refresh figures" aria-label="Refresh figures" onClick={refetchAll} style={{ padding: 6 }}><RefreshCw size={14} /></button>
+        <RefreshButton />
       </div>
     </div>
   );

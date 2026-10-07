@@ -24,6 +24,23 @@ const DEFAULT_WIDGETS = {
   controller: W([['kpiCash', 'sm'], ['kpiRecon', 'sm'], ['kpiNI', 'sm'], ['recon', 'lg'], ['close', 'md'], ['ic', 'sm'], ['deadlines', 'sm'], ['flux', 'md'], ['entityCash', 'md'], ['activity', 'md']]),
   bookkeeper: W([['kpiCash', 'sm'], ['kpiRecon', 'sm'], ['kpiNI', 'sm'], ['recon', 'lg'], ['uncat', 'md'], ['close', 'md']]),
 };
+// Oct 7 (Priyanka: no Bookkeeper in the picker): the four role views always
+// appear. One missing from the shared table (deleted, or never seeded) is
+// listed anyway with its default layout and written back the first time it
+// is opened. Role views reset; only custom views delete.
+const ROLE_META = {
+  principal: { name: 'Principal', role: 'Principal' },
+  cfo: { name: 'CFO', role: 'CFO' },
+  controller: { name: 'Controller', role: 'Controller' },
+  bookkeeper: { name: 'Bookkeeper', role: 'Bookkeeper' },
+};
+/** The shared views with every role view present, role views first in their fixed order. */
+function withRoleViews(saved) {
+  const byId = new Map(saved.map((v) => [v.id, v]));
+  const roles = DEFAULT_IDS.map((id, i) => byId.get(id) ?? { id, ...ROLE_META[id], widgets: DEFAULT_WIDGETS[id], sort: i + 1, missing: true });
+  return [...roles, ...saved.filter((v) => !DEFAULT_IDS.includes(v.id))];
+}
+const viewLabel = (v) => (v.role && v.role !== 'Custom' && v.role !== v.name ? `${v.name} (${v.role})` : v.name);
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'view';
 
 function useColumns() {
@@ -42,7 +59,8 @@ function useColumns() {
 
 export default function OverviewTab({ canEdit }) {
   const { view, setView, act, loading } = useDash();
-  const { views, isLoading } = useViews();
+  const { views: savedViews, isLoading } = useViews();
+  const views = useMemo(() => withRoleViews(savedViews), [savedViews]);
   const nav = useDashNav();
   const attention = useAttention();
   const span = useColumns();
@@ -65,6 +83,14 @@ export default function OverviewTab({ canEdit }) {
   const current = useMemo(() => views.find((v) => v.id === view) ?? views[0] ?? null, [views, view]);
   const [widgets, setWidgets] = useState([]);
   useEffect(() => { if (current) setWidgets(current.widgets); }, [current]);
+  // A role view missing from the shared table is put back, once, when opened.
+  const rebuilt = useRef(new Set());
+  useEffect(() => {
+    if (isLoading || !current?.missing || rebuilt.current.has(current.id)) return;
+    rebuilt.current.add(current.id);
+    const { id, name, role, widgets: w, sort } = current;
+    act('view-save', { view: { id, name, role, widgets: w, sort } }).catch(() => { rebuilt.current.delete(id); });
+  }, [current, isLoading, act]);
 
   const persist = async (next) => {
     if (!current) return;
@@ -98,12 +124,12 @@ export default function OverviewTab({ canEdit }) {
   };
   const removeView = async () => {
     if (!current) return;
-    if (views.length < 2) { setNote('Keep at least one view.'); return; }
+    if (DEFAULT_IDS.includes(current.id)) { setNote('Role views cannot be deleted. Use Reset to bring back the default widgets.'); return; }
     setNote('');
     if (!await dialog.confirm(`Delete the ${current.name} view for everyone?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) return;
     await act('view-delete', { id: current.id });
     setEditing(false);
-    setView(views.find((v) => v.id !== current.id).id);
+    setView(DEFAULT_IDS[0]);
   };
   const submitForm = async (e) => {
     e.preventDefault();
@@ -132,8 +158,8 @@ export default function OverviewTab({ canEdit }) {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <LayoutGrid size={14} style={{ color: 'var(--text-muted)' }} />
             <select value={current?.id ?? ''} disabled={editing} aria-label="Overview view" style={{ ...input, fontWeight: 600 }} onChange={(e) => { const v = e.target.value; if (v === '__new') setForm({ mode: 'new', name: '', role: 'Custom', copy: '' }); else { setView(v); setEditing(false); } }}>
-              <optgroup label="Role views">{roleViews.map((v) => <option key={v.id} value={v.id}>{v.name} ({v.role})</option>)}</optgroup>
-              {customViews.length ? <optgroup label="Custom views">{customViews.map((v) => <option key={v.id} value={v.id}>{v.name}{v.role && v.role !== 'Custom' ? ` (${v.role})` : ''}</option>)}</optgroup> : null}
+              <optgroup label="Role views">{roleViews.map((v) => <option key={v.id} value={v.id}>{viewLabel(v)}</option>)}</optgroup>
+              {customViews.length ? <optgroup label="Custom views">{customViews.map((v) => <option key={v.id} value={v.id}>{viewLabel(v)}</option>)}</optgroup> : null}
               {canEdit ? <option value="__new">+ New view…</option> : null}
             </select>
           </span>
@@ -158,7 +184,7 @@ export default function OverviewTab({ canEdit }) {
           <button type="button" className="secondary-btn" style={small} onClick={() => setAddOpen((v) => !v)}><Plus size={12} style={{ verticalAlign: -2 }} /> Add Widget</button>
           <button type="button" className="secondary-btn" style={small} onClick={() => setForm({ mode: 'rename', name: current.name, role: current.role, copy: '' })}>Rename</button>
           <button type="button" className="secondary-btn" style={small} onClick={resetView}>Reset</button>
-          <button type="button" className="secondary-btn" style={{ ...small, color: 'var(--bad-fg, #dc2626)' }} onClick={removeView}>Delete View</button>
+          {!DEFAULT_IDS.includes(current.id) ? <button type="button" className="secondary-btn" style={{ ...small, color: 'var(--bad-fg, #dc2626)' }} onClick={removeView}>Delete View</button> : null}
           <button type="button" className="primary-btn" style={small} onClick={() => { setEditing(false); setAddOpen(false); setNote(''); }}>Done</button>
         </div>
       ) : null}

@@ -330,7 +330,7 @@ class EndpointTests(unittest.TestCase):
                 return _search(clean)
             return {"ok": True, "echo": clean}
 
-        async def fake_dash(op, params):
+        async def fake_dash(op, params, fresh_by=None):
             self.calls.append(("dash", {"op": op, **params}))
             return {"ok": True, "loans": [dict(l) for l in self.loans]}
 

@@ -26,7 +26,7 @@ export function InvestWidget() {
         {stat('Total market value', m(mv))}
         {stat('Month', <Delta v={prior ? (mv - prior) / prior : null} style={{ fontSize: '1rem' }} />)}
         {stat('Unrealized gain', m(mv - cost, { paren: true }), toneColor(mv - cost >= 0))}
-        {stat('Controllable cash + investments', m(cashSplit.ctl + mv, { compact: true }))}
+        {stat(cashSplit.ncOnly ? 'Non-controllable cash + investments' : 'Controllable cash + investments', m(cashSplit.onHand + mv, { compact: true }))}
       </div>
       <Meter segments={groups.map((g) => ({ share: g.share, color: g.color, title: `${g.g}: ${m(g.mv)}` }))} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
@@ -144,7 +144,7 @@ export function CashForecastWidget() {
   const { m, cashSplit, loading } = useDash();
   const f = useForecastMonthly();
   if (loading || !f) return <LoadingBox />;
-  if (!cashSplit.ctlEntities.length) return <EmptyBox title="No controllable cash in this scope" body="Choose All Entities, Controllable Entities Only, or one of your companies." />;
+  if (!cashSplit.onHandEntities.length) return <EmptyBox title="No cash accounts in this scope" body="Choose All Entities, Controllable Entities Only, or one of your companies." />;
   if (!f.hasBudget) {
     return <EmptyBox title={`No budget posted for the next ${FORECAST_MONTHS} months`} body={`The forecast takes each month's receipts and costs from the posted budget in Nexus Accounting (Financials, Budgets), debt service from the loan schedule and distributions from partner capital. Post a budget for ${mShort(f.months[0])} onward and it fills in.`} />;
   }
@@ -162,7 +162,7 @@ export function CashForecastWidget() {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        {stat('Opening cash', m(f.opening, { compact: true }), undefined, 'controllable, at the month end')}
+        {stat('Opening cash', m(f.opening, { compact: true }), undefined, `${cashSplit.ncOnly ? 'non-controllable' : 'controllable'}, at the month end`)}
         {stat(`${mShort(f.months[last])} ending`, m(f.end[last], { compact: true }))}
         {stat('Low point', m(low, { compact: true }), low < f.minCash ? BAD : undefined, mShort(f.months[lowIdx]))}
         {stat('Minimum cash target', m(f.minCash, { compact: true }), undefined, 'one month of payroll and debt')}
@@ -183,7 +183,7 @@ export function CashForecastWidget() {
         </table>
       </div>
       <Footnote>
-        Receipts and costs come from the posted budget for each month; debt service from the loan schedule; distributions from partner capital. Non-controllable cash in partner entities is excluded.
+        Receipts and costs come from the posted budget for each month; debt service from the loan schedule; distributions from partner capital. {cashSplit.ncOnly ? 'Opening cash is the partner entities\' own (non-controllable) cash.' : 'Non-controllable cash in partner entities is excluded.'}
         {missing.length ? ` * ${missing.map(mShort).join(', ')}: no budget lines posted, only debt service and distributions counted.` : ''}
       </Footnote>
     </div>

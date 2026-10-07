@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../api';
 import { buildLedger, incomeStatementWindow } from '../../../accounting/dashboard/model/ledger';
 import { lastClosedKey, mEnd, monthLong, mShort, mStart, monthsBetween, shiftKey } from '../../../accounting/dashboard/model/months';
@@ -53,7 +53,7 @@ export function DashProvider({ children }) {
   const qc = useQueryClient();
   const saved = useMemo(() => readLS(), []);
   const lastClosed = lastClosedKey();
-  const [scope, setScopeState] = useState(saved.scope || 'ALL');
+  const [scopeRaw, setScopeState] = useState(saved.scope || 'ALL');
   // The selected run of months: `to` is the anchor month every monthly figure
   // (close, cash plan) uses; `from` equals `to` for a single month.
   const [range, setRangeState] = useState(() => {
@@ -87,11 +87,22 @@ export function DashProvider({ children }) {
   const aheadTo = mEnd(shiftKey(period, -FORECAST_MONTHS));
   const periodOptions = useMemo(() => monthsBetween(shiftKey(lastClosed, 23), lastClosed).reverse(), [lastClosed]);
 
-  const entitiesQ = useQuery({ queryKey: [KEY, 'entities'], queryFn: () => api.getAccountingDashEntities().then(rowsOf), staleTime: 5 * 60_000 });
+  // Oct 7 (Priyanka: "Refresh does nothing"): while a Refresh runs, every
+  // dashboard read asks the backend for fresh figures (fresh=1) instead of
+  // its short cache. Normal loads keep the cache.
+  const freshRef = useRef(false);
+  const fr = () => freshRef.current;
+  const entitiesQ = useQuery({ queryKey: [KEY, 'entities'], queryFn: () => api.getAccountingDashEntities(fr()).then(rowsOf), staleTime: 5 * 60_000 });
   const entities = entitiesQ.data ?? [];
   const ix = useMemo(() => indexEntities(entities), [entities]);
   const hasPartners = entities.some((e) => e.is_partner);
+  // Oct 7 (Neil, comment 7): no entity is flagged as a partner one (none of
+  // the live ledger's are yet), so "Partner Entities Only" could only show
+  // zeros - the option is hidden and a remembered choice reads as All Entities.
+  const scope = scopeRaw === 'NC' && entitiesQ.isSuccess && entities.length > 0 && !hasPartners ? 'ALL' : scopeRaw;
   const wantNc = hasPartners && scope === 'ALL';
+  /** Every entity in the scope is a partner (non-controllable) one: the NC group or one partner entity. */
+  const ncOnly = scope === 'NC' || (!['ALL', 'CTL'].includes(scope) && ix.isPartner(scope));
 
   const normalizeMonthly = (d) => ({
     ...d,
@@ -99,17 +110,17 @@ export function DashProvider({ children }) {
     rows: (d.rows ?? []).map((r) => ({ a: r.a, m: r.m, d: n(r.d), c: n(r.c) })),
     open: (d.open ?? []).map((r) => ({ a: r.a, b: n(r.b) })),
   });
-  const monthlyQ = useQuery({ queryKey: [KEY, 'monthly', scope, from, to, book], queryFn: () => api.getAccountingDashLedger(scope, from, to, book).then(normalizeMonthly), staleTime: 60_000 });
-  const monthlyNcQ = useQuery({ queryKey: [KEY, 'monthly', 'NC', from, to, book], queryFn: () => api.getAccountingDashLedger('NC', from, to, book).then(normalizeMonthly), staleTime: 60_000, enabled: wantNc });
+  const monthlyQ = useQuery({ queryKey: [KEY, 'monthly', scope, from, to, book], queryFn: () => api.getAccountingDashLedger(scope, from, to, book, fr()).then(normalizeMonthly), staleTime: 60_000 });
+  const monthlyNcQ = useQuery({ queryKey: [KEY, 'monthly', 'NC', from, to, book], queryFn: () => api.getAccountingDashLedger('NC', from, to, book, fr()).then(normalizeMonthly), staleTime: 60_000, enabled: wantNc });
   const budgetRows = (d) => rowsOf(d).map((r) => ({ account_id: r.account_id, month: r.month, amount: n(r.amount) }));
-  const budgetQ = useQuery({ queryKey: [KEY, 'budget', from, to, book], queryFn: () => api.getAccountingDashBudget(from, to, book).then(budgetRows), staleTime: 5 * 60_000 });
-  const budgetAheadQ = useQuery({ queryKey: [KEY, 'budget', aheadFrom, aheadTo, book], queryFn: () => api.getAccountingDashBudget(aheadFrom, aheadTo, book).then(budgetRows), staleTime: 5 * 60_000 });
-  const cashEntitiesQ = useQuery({ queryKey: [KEY, 'cash-entities', scope, to, book], queryFn: () => api.getAccountingDashCashEntities(scope, to, book).then((d) => rowsOf(d).map((r) => ({ ...r, balance: n(r.balance), is_partner: !!r.is_partner }))), staleTime: 60_000 });
+  const budgetQ = useQuery({ queryKey: [KEY, 'budget', from, to, book], queryFn: () => api.getAccountingDashBudget(from, to, book, fr()).then(budgetRows), staleTime: 5 * 60_000 });
+  const budgetAheadQ = useQuery({ queryKey: [KEY, 'budget', aheadFrom, aheadTo, book], queryFn: () => api.getAccountingDashBudget(aheadFrom, aheadTo, book, fr()).then(budgetRows), staleTime: 5 * 60_000 });
+  const cashEntitiesQ = useQuery({ queryKey: [KEY, 'cash-entities', scope, to, book], queryFn: () => api.getAccountingDashCashEntities(scope, to, book, fr()).then((d) => rowsOf(d).map((r) => ({ ...r, balance: n(r.balance), is_partner: !!r.is_partner }))), staleTime: 60_000 });
   // Bank and card GL accounts per entity with their period-end balance: the reconciliation list (Charmi, Sep 23).
-  const reconAccountsQ = useQuery({ queryKey: [KEY, 'recon-accounts', scope, to, book], queryFn: () => api.getAccountingDashReconAccounts(scope, to, book).then((d) => rowsOf(d).map((r) => ({ ...r, kind: r.kind === 'card' ? 'card' : 'bank', is_partner: !!r.is_partner, balance: n(r.balance), entity: r.entity ?? '', entity_name: r.entity_name ?? '' }))), staleTime: 60_000 });
-  const noiMonthQ = useQuery({ queryKey: [KEY, 'noi', mStart(period), to, book], queryFn: () => api.getAccountingDashNoi(mStart(period), to, book).then(rowsOf), staleTime: 60_000 });
-  const noiT12Q = useQuery({ queryKey: [KEY, 'noi', mStart(shiftKey(period, 11)), to, book], queryFn: () => api.getAccountingDashNoi(mStart(shiftKey(period, 11)), to, book).then(rowsOf), staleTime: 5 * 60_000 });
-  const tablesQ = useQuery({ queryKey: [KEY, 'tables', period], queryFn: () => api.getAccountingDashTables(period), staleTime: 10_000, refetchInterval: 60_000 });
+  const reconAccountsQ = useQuery({ queryKey: [KEY, 'recon-accounts', scope, to, book], queryFn: () => api.getAccountingDashReconAccounts(scope, to, book, fr()).then((d) => rowsOf(d).map((r) => ({ ...r, kind: r.kind === 'card' ? 'card' : 'bank', is_partner: !!r.is_partner, balance: n(r.balance), entity: r.entity ?? '', entity_name: r.entity_name ?? '' }))), staleTime: 60_000 });
+  const noiMonthQ = useQuery({ queryKey: [KEY, 'noi', mStart(period), to, book], queryFn: () => api.getAccountingDashNoi(mStart(period), to, book, fr()).then(rowsOf), staleTime: 60_000 });
+  const noiT12Q = useQuery({ queryKey: [KEY, 'noi', mStart(shiftKey(period, 11)), to, book], queryFn: () => api.getAccountingDashNoi(mStart(shiftKey(period, 11)), to, book, fr()).then(rowsOf), staleTime: 5 * 60_000 });
+  const tablesQ = useQuery({ queryKey: [KEY, 'tables', period], queryFn: () => api.getAccountingDashTables(period, fr()), staleTime: 10_000, refetchInterval: 60_000 });
 
   // First run for the company: seed the close plan, calendar, cap rates and role views once.
   const seeded = useRef(false);
@@ -131,8 +142,13 @@ export function DashProvider({ children }) {
     const ncEntities = cashEntities.filter((e) => e.is_partner);
     const ctl = ctlEntities.reduce((t, e) => t + e.balance, 0);
     const nc = ncEntities.reduce((t, e) => t + e.balance, 0);
-    return { ctl, nc, total: ctl + nc, ctlEntities, ncEntities };
-  }, [cashEntities]);
+    // Cash on hand for the scope: the controllable cash, except when every
+    // entity in the scope is a partner one - then that is all there is
+    // (Oct 7, Neil comment 7: NC showed $0 / "0 entities").
+    const onHand = ncOnly ? nc : ctl;
+    const onHandEntities = ncOnly ? ncEntities : ctlEntities;
+    return { ctl, nc, total: ctl + nc, ctlEntities, ncEntities, ncOnly, onHand, onHandEntities };
+  }, [cashEntities, ncOnly]);
 
   const inScopeRow = useCallback((code) => {
     if (scope === 'ALL') return true;
@@ -155,7 +171,19 @@ export function DashProvider({ children }) {
 
   const tables = tablesQ.data ?? null;
   const invalidate = useCallback((subject) => qc.invalidateQueries({ queryKey: subject ? [KEY, subject] : [KEY] }), [qc]);
-  const refetchAll = useCallback(() => qc.invalidateQueries({ queryKey: [KEY] }), [qc]);
+  // Refresh: every dashboard query again with fresh=1, then "Updated 2:41 PM".
+  const [updatedAt, setUpdatedAt] = useState(null);
+  const refetchAll = useCallback(async () => {
+    freshRef.current = true;
+    try { await qc.invalidateQueries({ queryKey: [KEY] }); } finally { freshRef.current = false; }
+    setUpdatedAt(new Date());
+  }, [qc]);
+  const fetching = useIsFetching({ queryKey: [KEY] }) > 0;
+  // When the accounting app last pulled the ledger from Intacct, if it says.
+  // Refresh cannot read newer figures than that.
+  const t0 = tablesQ.data;
+  // The accounting app reports it as `sync.last_success_at` on the tables read.
+  const ledgerSyncedAt = t0?.sync?.last_success_at ?? t0?.lastSyncAt ?? null;
   /** One write to the accounting app; the shared tables refetch after it. */
   const act = useCallback(async (op, payload = {}) => {
     const r = await api.accountingDashAction(op, payload);
@@ -165,7 +193,7 @@ export function DashProvider({ children }) {
   }, [qc]);
 
   const value = {
-    scope, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
+    scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
     ix, entities, currency, m,
     monthly: monthlyQ.data, ledger, ledgerNc, lines, budgetAhead: budgetAheadQ.data ?? [], cashEntities, cashSplit, noiRows, noiT12ByType,
     reconAccounts: reconAccountsQ.data ?? [], reconAccountsLoading: reconAccountsQ.isLoading,
@@ -173,7 +201,7 @@ export function DashProvider({ children }) {
     loading: monthlyQ.isLoading || entitiesQ.isLoading,
     error: monthlyQ.error || entitiesQ.error || tablesQ.error || null,
     refetch: () => { monthlyQ.refetch(); tablesQ.refetch(); },
-    refetchAll, invalidate, act,
+    refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
