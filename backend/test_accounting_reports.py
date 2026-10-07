@@ -109,6 +109,16 @@ class ReportsProxyTests(unittest.TestCase):
         for k in ("departments", "vendor", "customer", "employee", "project", "item"):
             self.assertNotIn(k, params)
 
+    def test_search_passes_the_amount_operators(self):
+        r = self.client.get("/accounting/search", params={"account": "12000", "debit_op": "gt", "debit_v": "100", "credit_op": "between", "credit_v": "5", "credit_v2": "50"})
+        self.assertEqual(r.status_code, 200, r.text)
+        _path, params = self.calls[-1]
+        self.assertEqual((params["debit_op"], params["debit_v"]), ("gt", 100.0))
+        self.assertNotIn("debit_v2", params)
+        self.assertEqual((params["credit_op"], params["credit_v"], params["credit_v2"]), ("between", 5.0, 50.0))
+        self.assertEqual(self.client.get("/accounting/search", params={"account": "12000", "debit_op": "like", "debit_v": "1"}).status_code, 400)
+        self.assertEqual(self.client.get("/accounting/search", params={"account": "12000", "debit_op": "between", "debit_v": "1"}).status_code, 400)
+
     def test_user_books_travel_and_bad_books_are_refused(self):
         r = self.client.get("/accounting/reports/trial-balance", params={"from": "2026-01-01", "to": "2026-09-30", "book": "FMV"})
         self.assertEqual(r.status_code, 200, r.text)
