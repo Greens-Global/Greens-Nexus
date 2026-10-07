@@ -2039,6 +2039,12 @@ export const api = {
     });
     return req(`/accounting/reports/${encodeURIComponent(kind)}?${qs.toString()}`);
   },
+  // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
+  // routers/accounting_ama.py): Billed YTD read from the ledger.
+  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
+  updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

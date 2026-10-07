@@ -25,7 +25,8 @@ import DataTab from '../components/accounting/dashboard/DataTab';
 import BudgetTab from '../components/accounting/BudgetTab';
 import PartnersTab from '../components/accounting/PartnersTab';
 import AllocationsTab from '../components/accounting/AllocationsTab';
-import { Calculator, Split, Users } from 'lucide-react';
+import AmaTab from '../components/accounting/AmaTab';
+import { Calculator, Handshake, Split, Users } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -70,6 +71,8 @@ const TABS = [
     { key: 'mri', label: 'MRI', Icon: KeyRound },
     // Oct 6: Monthly Recurring Expenses, beside MRI.
     { key: 'mre', label: 'MRE', Icon: Receipt },
+    // Oct 7 (Priyanka): Asset Management Agreements, billed read from the ledger.
+    { key: 'ama', label: 'AMA', Icon: Handshake },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
   // month - balances, principal and interest paid, NOI, DSCR against the
@@ -88,7 +91,7 @@ const TABS = [
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports'];
+const LIMITED_TABS = ['reports', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama'];
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri' };
 const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
@@ -181,6 +184,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
     mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
     imports: 'Every setup that reads the ledger - loans, leases and recurring expenses',
+    ama: 'Asset management agreements - the fee per managed entity, billed against expected',
   }[sub];
   // Every tab has the same one-line header (10/02): the statement still
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
@@ -238,6 +242,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
           {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
+          {sub === 'ama' && <AmaTab canEdit={canEdit} />}
         </div>
       ) : (
         <DashProvider>
@@ -259,6 +264,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
+              {sub === 'ama' && <AmaTab canEdit={canEdit} />}
             </div>
           </DashNav.Provider>
         </DashProvider>

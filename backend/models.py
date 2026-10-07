@@ -5526,3 +5526,31 @@ class AccountingLoanStressEntity(Base):
     addback_note = Column(String, default="")
     updated_by   = Column(String, default="")
     updated_at   = Column(String, default="")
+
+
+class AccountingAmaAgreement(Base):
+    """One Asset Management Agreement (AMA, Priyanka, Oct 7: "We still need to
+    build AMA"): the fee one entity (the manager, optional) earns for managing
+    another (the managed ledger entity) - a percent of the managed entity's
+    revenue or a flat amount per billing period, billed monthly, quarterly or
+    annually. What was BILLED is never keyed: it is the net credits on
+    `fee_gl_account` read from the ledger (routers/accounting_ama.py). New
+    table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_agreements"
+    id                  = Column(String, primary_key=True)            # uuid
+    entity_code         = Column(String, nullable=False, index=True)  # the managed ledger entity
+    manager_entity_code = Column(String, default="")                  # the entity that earns / bills the fee
+    status              = Column(String, default="Active")            # Active | Pending Review | Ended
+    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat
+    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue
+    flat_amount         = Column(Float, nullable=True)                # per billing period, for flat
+    billing_frequency   = Column(String, default="Monthly")           # Monthly | Quarterly | Annually
+    start_date          = Column(String, default="")                  # YYYY-MM-DD
+    end_date            = Column(String, default="")                  # '' = open-ended
+    fee_gl_account      = Column(String, default="")                  # GL code the fee posts to (Billed YTD)
+    agreement_url       = Column(String, default="")                  # Egnyte / SharePoint link
+    notes               = Column(String, default="")
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")
