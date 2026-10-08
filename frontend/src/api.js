@@ -1212,6 +1212,7 @@ export const api = {
   savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
   savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
+  hiringPacketOptions: (cid, params = {}) => req(`/hr/candidates/${cid}/hiring-packet/options?${new URLSearchParams(params)}`),
   previewHiringPacket: (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendHiringPacket:    (cid, data) => req(`/hr/candidates/${cid}/hiring-packet`, { method: 'POST', body: JSON.stringify(data) }),
   packetEmailPreview:  ({ event, entityId = '', templateId = '', note = '', role = 'subject', stage = 'invite' }) =>

@@ -30,6 +30,7 @@ vi.mock('../api', () => ({
                { key: 'promotion', label: 'Promotion Letter', defaultSubfolder: 'Promotion Documents' }],
     }),
     getEntities: () => Promise.resolve([{ id: 'e1', name: 'Greens Test Co' }]),
+    hiringPacketOptions: () => Promise.resolve({ pickedId: 's1', picked: { id: 's1', templateName: 'Offer Packet', why: 'for every role' }, options: [{ id: 's1', templateName: 'Offer Packet', why: 'for every role', companyName: '' }] }),
     getSignTemplates: () => Promise.resolve([{ id: 't1', name: 'Offer Packet', entityId: '', status: 'active', roles: [{ key: 'company', label: 'Company' }, { key: 'employee', label: 'Employee' }], attachments: [{ path: 'p', name: 'Packet.pdf', pages: 3, fields: [{ id: 'm', type: 'merge', merge: 'salary' }] }], body: [] }]),
     previewHiringPacket: (...a) => previewPacket(...a),
     sendHiringPacket: (...a) => sendPacket(...a),

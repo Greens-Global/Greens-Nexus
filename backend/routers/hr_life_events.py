@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 import hr_life_events as hle
 from auth import hr_scope
 from database import get_db
-from models import HrCandidate, HrLifeEvent, HrPacketSetting, HrSignTemplate, NexusEmployee
+from models import HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignTemplate, NexusEmployee
 from routers.hr import _has_comp, require_hr_read, require_hr_write
 
 router = APIRouter(prefix="/hr", tags=["hr-life-events"])
@@ -256,6 +256,37 @@ def _pay_allowed(body: HirePacketIn, user: dict, db: Session) -> Optional[dict]:
                                      "type the pay as text in the offer instead.")
         return body.pay
     return None
+
+
+@router.get("/candidates/{cid}/hiring-packet/options")
+def hiring_packet_options(cid: str, employment_type: str = "full_time", role_id: str = "",
+                          user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Which packet Nexus will send this candidate - matched on the company
+    and the job role - and the others HR may pick instead. Shown on the
+    candidate card before Send and as the Packet dropdown in the send form."""
+    try:
+        cand = hle._load_candidate(db, cid, hr_scope(user, db))
+    except hle.PacketError as e:
+        raise HTTPException(e.status, str(e))
+    rid = (role_id or "").strip() or (cand.role_id or "")
+    picked = hle.resolve_setting(db, cand.company or "", "hire", hle.worker_type_of(employment_type), rid)
+    from models import NexusGroup
+    role = db.query(NexusGroup).filter(NexusGroup.id == rid).first() if rid else None
+    names = {e.id: e.name for e in db.query(HrEntity).all()}
+
+    def why(s):
+        if rid and rid in (s.role_ids or []):
+            return f"for {role.name if role else 'this role'}"
+        return "for every role" + ("" if s.entity_id else " of every company")
+
+    def ser(s):
+        out = hle.ser_setting(db, s)
+        out["companyName"] = names.get(s.entity_id, "") if s.entity_id else ""
+        out["why"] = why(s)
+        return out
+    return {"pickedId": picked.id if picked else "",
+            "picked": ser(picked) if picked else None,
+            "options": [ser(s) for s in hle.packet_choices(db, cand.company or "", "hire")]}
 
 
 @router.post("/candidates/{cid}/hiring-packet/preview")

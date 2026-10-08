@@ -61,6 +61,11 @@ export default function CandidateDetailModal({
   const [history, setHistory] = useState(null);
   const [rounds, setRounds] = useState(null);
   const [packetEvents, setPacketEvents] = useState(null);
+  const [packetPick, setPacketPick] = useState(null);   // which packet Send will use (Offer stage)
+  useEffect(() => {
+    if (c.stage !== 'offer') { setPacketPick(null); return; }
+    api.hiringPacketOptions(c.id).then(setPacketPick).catch(() => setPacketPick({ picked: null, options: [] }));
+  }, [c.id, c.stage, c.roleId, refreshKey]);
   const [note, setNote] = useState('');
   const [notes, setNotes] = useState(c.notes || '');
   const [notesBusy, setNotesBusy] = useState(false);
@@ -230,6 +235,14 @@ export default function CandidateDetailModal({
           {['offer', 'hired'].includes(c.stage) && (
             <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign
               onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
+          )}
+          {c.stage === 'offer' && !packetOut && packetPick && (
+            <div style={{ marginTop: 10, fontSize: 12.5, display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, background: 'var(--mist)' }}>
+              <FileSignature size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />
+              <span>{packetPick.picked
+                ? <><b>Hiring packet:</b> {packetPick.picked.templateName} <span style={{ color: 'var(--muted)' }}>- {packetPick.picked.why}{packetPick.options.length > 1 ? '; you can pick another when you send' : ''}</span></>
+                : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one under Packets before sending.</span>}</span>
+            </div>
           )}
           {c.stage === 'offer' && c.email && onSendForSignature && (
             <div style={{ marginTop: 8 }}>

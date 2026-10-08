@@ -300,9 +300,19 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     // The offer stands until this day; the link dies after it. A week is the
     // usual window - still HR's call.
     offer_expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-    manager_email: '', employment_type: 'full_time', salary_text: '',
+    manager_email: '', employment_type: 'full_time', salary_text: '', packet_id: '',
   });
   const [opts, setOpts] = useState({ roles: [], departments: [] });
+  // The packet Nexus picks for the company and role, and the others HR may
+  // send instead. Re-picked when the role or employment type changes until
+  // HR chooses one by hand.
+  const [packets, setPackets] = useState(null);
+  const [packetTouched, setPacketTouched] = useState(false);
+  useEffect(() => {
+    api.hiringPacketOptions(c.id, { employment_type: f.employment_type, role_id: f.role_id === OTHER_ROLE ? '' : f.role_id })
+      .then(p => { setPackets(p); if (!packetTouched) setF(prev => ({ ...prev, packet_id: p.pickedId || '' })); })
+      .catch(() => setPackets({ pickedId: '', picked: null, options: [] }));
+  }, [c.id, f.role_id, f.employment_type]);
   const [mail, setMail] = useState(null);           // the email preview being shown
   const [pay, setPay] = useState({ base: '', payBasis: 'salary', frequency: 'annual', currency: 'USD' });
   const [extra, setExtra] = useState({});          // fields the template needs that Nexus can't fill
@@ -391,6 +401,19 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             <select className="form-input" style={{ width: '100%' }} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
               {EMPLOYMENT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select></div>
+          <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Packet</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.packet_id} disabled={!packets}
+              onChange={e => { setPacketTouched(true); set('packet_id', e.target.value); }}>
+              {!packets && <option value="">Finding the packet...</option>}
+              {packets && packets.options.length === 0 && <option value="">No hiring packet set up for this company - add one under Packets</option>}
+              {(packets?.options || []).map(o => (
+                <option key={o.id} value={o.id}>{o.templateName} - {o.why}{o.companyName ? ` (${o.companyName})` : ''}{o.id === packets.pickedId ? ' - matched' : ''}</option>
+              ))}
+            </select>
+            <div style={hint}>{packets?.picked
+              ? <>Nexus matched <b>{packets.picked.templateName}</b> {packets.picked.why} - change it here if this hire needs a different one.</>
+              : packets ? 'No packet matches this company and role yet.' : ''}</div>
+          </div>
           {isOther && (
             <div style={{ gridColumn: '1 / -1' }}>
               <Problem>"{f.new_role_name.trim() || 'The new role'}" is not one of this company's roles yet. Sending adds it to the company's roles with NO access - you and the administrators get a reminder to set its access in Settings &gt; Access.</Problem>

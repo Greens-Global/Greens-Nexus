@@ -325,6 +325,17 @@ class HiringPacketTests(LifeEventCase):
             "attachments": [], "body": BODY, "email_message": "Welcome to IT!"})
         self.assertEqual((r.json()["id"], r.json()["templateId"], r.json()["templateName"]), (it["id"], it["templateId"], "Hiring Packet - IT v2"))
         self.assertEqual(self.db.query(models.HrSignTemplate).filter_by(name="Hiring Packet - IT v2").count(), 1)
+        # The card and the send form show the match, and HR may pick another.
+        r = self.client.get("/hr/candidates/cand-1/hiring-packet/options?role_id=jr-it")
+        self.assertEqual(r.status_code, 200, r.text)
+        ids = [o["id"] for o in r.json()["options"]]
+        self.assertEqual((r.json()["pickedId"], r.json()["picked"]["why"], ids[:2], len(ids)),
+                         (it["id"], "for IT Associate", [it["id"], "set-hire"], 3))   # + the shared Project Manager packet
+        self.assertEqual(self.client.get("/hr/candidates/cand-1/hiring-packet/options").json()["pickedId"], "set-hire")
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(role_id="jr-it", job_title="", packet_id="set-hire"), None, None)
+        self.assertEqual(plan["setting"].id, "set-hire")
+        with self.assertRaises(hle.PacketError):
+            hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(packet_id="demo-packet-from-elsewhere"), None, None)
         ev = self._send(role_id="jr-it", job_title="")
         self.assertEqual(ev.setting_id, it["id"])
         self._sign(self._party(ev.sign_request_id, HR))

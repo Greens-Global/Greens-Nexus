@@ -229,6 +229,21 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
     return None
 
 
+def packet_choices(db: Session, entity_id: str, event: str) -> list:
+    """Every packet a company could send for an event: its own and the ones
+    for every company, with a template. HR may pick any of them in place
+    of the one Nexus resolves (Pranshu, Oct 8)."""
+    rows = (db.query(HrPacketSetting)
+            .filter(HrPacketSetting.event == event, HrPacketSetting.template_id != "",
+                    HrPacketSetting.entity_id.in_([entity_id or "", ""])).all())
+    return sorted(rows, key=lambda r: (r.entity_id == "", not (r.role_ids or []),
+                                       (r.worker_type or "any") == "any"))
+
+
+def packet_choice(db: Session, entity_id: str, event: str, setting_id: str) -> Optional[HrPacketSetting]:
+    return next((r for r in packet_choices(db, entity_id, event) if r.id == setting_id), None)
+
+
 def role_id_for_employee(db: Session, emp: NexusEmployee) -> str:
     """The job role an employee holds, by title - People records carry the
     title, not the role id."""
@@ -382,6 +397,9 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
         "manager_email": (inputs.get("manager_email") or "").strip().lower(),
         "employment_type": (inputs.get("employment_type") or "full_time").strip(),
         "salary_text": (inputs.get("salary_text") or "").strip(),
+        # The packet HR chose, when they changed it from the one Nexus picked
+        # for the company and role ('' = Nexus's pick).
+        "packet_id": (inputs.get("packet_id") or "").strip(),
         "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
                   if re.fullmatch(r"[a-z0-9_]+", str(k)) and str(v).strip()},
     }
@@ -547,9 +565,14 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
                               f"as {former.status} with this email - this is not a new hire. Edit their record instead.", 409)
         details["rehire_employee_id"] = former.id
     wt = worker_type_of(details["employment_type"])
-    setting = resolve_setting(db, cand.company, "hire", wt, details["role_id"])
     entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
     company = entity.name if entity else "this company"
+    if details["packet_id"]:
+        setting = packet_choice(db, cand.company, "hire", details["packet_id"])
+        if setting is None:
+            raise PacketError("That packet is not one this company can send - pick another.", 409)
+    else:
+        setting = resolve_setting(db, cand.company, "hire", wt, details["role_id"])
     if not setting:
         raise PacketError(f"No hiring packet is set up for {company} yet - add one under "
                           f"People > Hiring > Packets.", 409)
