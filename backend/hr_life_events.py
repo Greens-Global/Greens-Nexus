@@ -202,19 +202,25 @@ def compensation_from_pay(pay: dict, effective: str) -> dict:
 
 def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
                     role_id: str = "") -> Optional[HrPacketSetting]:
-    """The packet a company sends for an event, most specific first: this
-    company's packet for the person's job role, then its packet for every
-    role (this worker type, then any), then the same for the default every
-    company falls back to. A row without a template does not count."""
+    """The packet a company sends for an event. A packet made for the
+    person's job role wins outright - the company's, else the one for every
+    company - because a role packet is the more deliberate choice (Pranshu,
+    Oct 8: "when I interviewed for Project Manager, the packet should take
+    automatically"). Only then the every-role packets: the company's (this
+    worker type, then any), then every company's. A row without a template
+    does not count."""
     role_id = (role_id or "").strip()
+    levels = []
     for ent in ((entity_id or ""), ""):
-        rows = (db.query(HrPacketSetting)
-                .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
-                        HrPacketSetting.template_id != "").all())
-        if role_id:
+        levels.append((db.query(HrPacketSetting)
+                       .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
+                               HrPacketSetting.template_id != "").all()))
+    if role_id:
+        for rows in levels:
             for r in rows:
                 if role_id in (r.role_ids or []):
                     return r
+    for rows in levels:
         general = [r for r in rows if not (r.role_ids or [])]
         for wt in (worker_type, "any"):
             for r in general:

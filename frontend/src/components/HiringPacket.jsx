@@ -40,7 +40,7 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 720, height: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 1100px)', height: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Email Preview - Subject</div>
@@ -81,7 +81,7 @@ export function usDay(iso) {
 const Overlay = ({ children, onClose, wide }) => (
   <div onClick={e => e.target === e.currentTarget && onClose()}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 'clamp(680px, 70vw, 1080px)' : 'clamp(520px, 60vw, 860px)', maxHeight: 'min(92dvh, 820px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 'clamp(560px, 60vw, 1100px)' : 'clamp(560px, 60vw, 1100px)', maxHeight: 'min(92dvh, 820px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -139,7 +139,7 @@ const IconBtn = ({ title, onClick, disabled, danger, children }) => (
   </button>
 );
 
-function PacketRow({ row, onEdit, onRemoved, toastErr }) {
+function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
   const [busy, setBusy] = useState(false);
   const [mail, setMail] = useState(null);
   const docs = [...(row.documents || []), ...(row.hasLetter ? ['Typed letter'] : [])];
@@ -153,6 +153,7 @@ function PacketRow({ row, onEdit, onRemoved, toastErr }) {
   return (
     <>
       <tr>
+        {companyName !== undefined && <td style={{ ...TD, whiteSpace: 'nowrap' }}>{companyName || <span style={{ color: 'var(--muted)' }}>Every company</span>}</td>}
         <td style={TD}>
           <div style={{ fontWeight: 700 }}>{row.templateName || 'Unnamed packet'}</div>
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
@@ -188,12 +189,18 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
   const ev = events.find(e => e.key === tab) || events[0];
-  const rows = ev ? (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === ev.key)
-    .sort((a, b) => (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || '')) : [];
+  const entityName = (id) => (id ? (entities.find(e => e.id === id)?.name || 'Unknown company') : '');
+  // "All companies" (no company picked) lists every packet with its company;
+  // a company picked lists its own.
+  const all = !companyId;
+  const mine = (s) => all || (s.entityId || '') === companyId;
+  const rows = ev ? (data?.settings || []).filter(s => mine(s) && s.event === ev.key)
+    .sort((a, b) => (entityName(a.entityId) || '').localeCompare(entityName(b.entityId) || '')
+      || (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || '')) : [];
   const inherited = ev && companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
-  const hasGeneral = rows.some(r => !(r.roleIds || []).length);
+  const hasGeneral = rows.some(r => !(r.roleIds || []).length && (all ? !r.entityId : true));
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
-  const countFor = (key) => (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === key).length;
+  const countFor = (key) => (data?.settings || []).filter(s => mine(s) && s.event === key).length;
 
   return (
     <Overlay onClose={onClose} wide>
@@ -203,7 +210,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
         </div>
         <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
-          <option value="">Default (Every Company)</option>
+          <option value="">All Companies</option>
           {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
         <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -236,8 +243,8 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, maxWidth: 520, margin: '4px auto 0', lineHeight: 1.5 }}>
                   {inherited.length
                     ? `${company} uses the default: ${inherited.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet to give it its own.`
-                    : companyId ? `${company} cannot send one until a packet is added here or as the default.`
-                      : 'Add a packet: upload the PDF, place the signature boxes and an Offer Field for the salary, and save.'}
+                    : companyId ? `${company} cannot send one until a packet is added here or for every company.`
+                      : 'Add a packet: upload the PDF, place the signature boxes and an Offer Field for the salary, and save. A packet added here, with no company picked, is for every company.'}
                 </div>
                 <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })} style={{ fontSize: 12.5, marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Plus size={13} /> Add Packet
@@ -248,12 +255,13 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={TH}>Packet</th><th style={TH}>For Role</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
+                    {all && <th style={TH}>Company</th>}<th style={TH}>Packet</th><th style={TH}>For Role</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map(r => (
                     <PacketRow key={r.id} row={r} toastErr={toastErr} onEdit={() => setEditing({ event: ev, row: r })}
+                      companyName={all ? entityName(r.entityId) : undefined}
                       onRemoved={() => { load(); toastOk('Packet removed.'); }} />
                   ))}
                 </tbody>
@@ -261,8 +269,8 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
             )}
             {ev && rows.length > 0 && (
               <div style={hint}>
-                A role with its own packet gets that one; every other role gets the Every role packet{companyId ? ', or the default when this company has none' : ''}.
-                {!hasGeneral && ` Only some roles are covered here - add a packet for Every role to cover the rest.`}
+                A role with its own packet gets that one - the company's, else the one for every company; every other role gets the Every role packet{companyId ? ', the company\'s or the one for every company' : ''}.
+                {!hasGeneral && ` Roles without a packet of their own have nothing to fall back on here - add a packet for Every role to cover the rest.`}
               </div>
             )}
           </>
@@ -270,7 +278,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
       </div>
       {editing && (
         <PacketEditor packet={editing.row} event={editing.event.key} eventLabel={editing.event.label}
-          companyId={companyId} companyName={company} defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
+          companyId={editing.row ? (editing.row.entityId || '') : companyId}
+          companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : company}
+          defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />
       )}
@@ -507,7 +517,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
 // ── The packet on a candidate ────────────────────────────────────────────────
 // One life event (hiring packet, promotion letter, separation package): who
 // has signed, Sign Now for HR's own turn, Void, and where it was filed.
-export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
+export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false }) {
   const [busy, setBusy] = useState('');
   const [label, tone] = ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue'] : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
   const what = ev.title || 'Packet';
@@ -576,7 +586,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-        {ev.senderPartyId && onSignNow && (
+        {ev.senderPartyId && onSignNow && !hideSign && (
           <button className="primary-btn" onClick={() => onSignNow(ev.senderPartyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileSignature size={12} /> Sign Now
           </button>
@@ -601,7 +611,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
   );
 }
 
-export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChanged, onEvents, toastOk, toastErr }) {
+export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChanged, onEvents, toastOk, toastErr, hideSign = false }) {
   const [events, setEvents] = useState(null);
   const load = () => api.getLifeEvents({ candidateId })
     .then(rows => { setEvents(rows); onEvents?.(rows); })
@@ -610,7 +620,7 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
   const ev = useMemo(() => (events || []).find(e => e.kind === 'hire') || null, [events]);
   if (events === null) return <div style={{ padding: '8px 0' }}><Spinner size={16} /></div>;
   if (!ev) return null;
-  return <LifeEventCard ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr}
+  return <LifeEventCard ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} hideSign={hideSign}
     onChanged={() => { load(); onChanged?.(); }} />;
 }
 

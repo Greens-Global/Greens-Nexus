@@ -14,13 +14,14 @@
 // The Interview Room only exists once screening is done. Scheduling is one
 // path (HiringSchedule.jsx) - it sends the Teams invite and moves the stage.
 import { useEffect, useRef, useState } from 'react';
-import { X, Mail, Phone, CalendarDays, FileText, History, XCircle, ChevronRight, Video, Users, ClipboardList,
+import { X, Mail, Phone, CalendarDays, FileText, FileSignature, History, XCircle, ChevronRight, Video, Users, ClipboardList,
          RotateCcw, Trophy, Undo2 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 import { HiringPacketStatus, packetIsActive, usDay } from './HiringPacket';
+import { useEntities } from '../lib/queries';
 import { RecordingLine } from './Interviews';
 
 export const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
@@ -76,6 +77,13 @@ export default function CandidateDetailModal({
   const hadInterview = live.some(r => ['completed', 'scored'].includes(r.status));
   const roomAllowed = ['interview', 'offer'].includes(c.stage) && live.length > 0;
   const packetOut = packetIsActive(packetEvents);
+  // HR's own turn on the hiring packet: the footer's Sign & Offer (Pranshu, Oct 8).
+  const awaitingMe = (packetEvents || []).find(e => e.kind === 'hire' && e.status === 'awaiting_sender' && e.senderPartyId) || null;
+  // Once an interview is on the books the record is settled - no more editing
+  // of who they are or which company; the email goes with the packet.
+  const canEdit = ['applied', 'screening'].includes(c.stage);
+  const { data: entities } = useEntities();
+  const companyName = (entities || []).find(e => e.id === c.company)?.name || '';
   const notesDirty = (notes || '') !== (c.notes || '');
 
   async function saveNotes() {
@@ -125,7 +133,8 @@ export default function CandidateDetailModal({
 
   const footer = {
     applied: [reject, primary('Move To Screening', () => onStage(c, 'screening', note), <ChevronRight size={14} />)],
-    screening: [reject, primary('Schedule Interview', () => onSchedule(c), <Video size={14} />, !c.email)],
+    screening: [reject, primary('Schedule Interview', () => c.email ? onSchedule(c)
+      : toastErr?.('Add the candidate\'s email first (Edit, top right) - the Teams invite goes there.'), <Video size={14} />)],
     interview: [reject,
       secondary('Another Round', () => onSchedule(c), <CalendarDays size={13} />),
       roomAllowed && secondary('Interview Room', () => onOpenRoom(c), <ClipboardList size={13} />),
@@ -133,6 +142,7 @@ export default function CandidateDetailModal({
     offer: [reject,
       secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
       secondary('Mark Hired By Hand', markHiredByHand, null),
+      awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
       !packetOut && primary('Send Hiring Packet', () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
     rejected: [primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
     hired: [c.employeeId && onOpenPerson && primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />)],
@@ -141,14 +151,16 @@ export default function CandidateDetailModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 820px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 1100px)', maxHeight: 'min(92dvh, 820px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 16 }}>{candName(c)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>{[c.roleTitle, c.department, c.source].filter(Boolean).join(' · ')}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>
+              {companyName && <b style={{ color: 'var(--ink)' }}>{companyName}</b>}{companyName && (c.roleTitle || c.department || c.source) ? ' · ' : ''}{[c.roleTitle, c.department, c.source].filter(Boolean).join(' · ')}
+            </div>
           </div>
           <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: `hsla(${sm.hue},0.12)`, color: `hsl(${sm.hue})`, flexShrink: 0 }}>{sm.label}</span>
-          {onEdit && c.stage !== 'hired' && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 12, padding: '4px 11px', flexShrink: 0 }}>Edit</button>}
+          {onEdit && canEdit && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 12, padding: '4px 11px', flexShrink: 0 }}>Edit</button>}
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
@@ -160,7 +172,7 @@ export default function CandidateDetailModal({
 
           <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 5, marginTop: 12 }}>
             {c.email ? <span><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.email}</span>
-              : <span style={{ color: 'hsl(var(--color-orange))' }}><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />No email yet - add it with Edit (invites and the hiring packet go there)</span>}
+              : <span style={{ color: 'hsl(var(--color-orange))' }}><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />No email yet{canEdit ? ' - add it with Edit (invites and the hiring packet go there)' : ''}</span>}
             {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
             {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {usDay(c.expectedStart)}</span>}
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -216,7 +228,7 @@ export default function CandidateDetailModal({
           )}
 
           {['offer', 'hired'].includes(c.stage) && (
-            <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents}
+            <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign
               onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
           )}
           {c.stage === 'offer' && c.email && onSendForSignature && (

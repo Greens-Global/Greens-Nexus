@@ -16,7 +16,7 @@ import { Spinner } from './AsyncState';
 const Overlay = ({ children, onClose, wide }) => (
   <div onClick={e => e.target === e.currentTarget && onClose()}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 'clamp(680px, 68vw, 1100px)' : 'clamp(520px, 60vw, 900px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 1100px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
