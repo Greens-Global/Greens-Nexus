@@ -291,7 +291,11 @@ export const DOCS = [
         'The monitoring policy itself (what is captured and who is exempt) is set in People settings and Settings.',
       ],
     },
-    tips: ['Monitoring is disclosed. Every employee acknowledges it before their first punch.'],
+    tips: [
+      'Monitoring is disclosed. Every employee acknowledges it before their first punch.',
+      'Monitoring Alerts never lists someone whose role is exempt from monitoring, and a desktop agent that has gone quiet is not an alert while the in-browser share is still capturing that person.',
+      'The Locations map shows everyone who has punched with a location - including external staff and people still onboarding in People - until they are offboarded.',
+    ],
   },
   {
     id: 'shifts', name: 'Shifts', group: 'My Desk', icon: 'CalendarClock', view: 'shifts',
@@ -719,7 +723,10 @@ export const DOCS = [
         'Signed documents are filed to Egnyte automatically.',
       ],
     },
-    tips: ['Signers outside the company do not need a Nexus account. The emailed link is enough.'],
+    tips: [
+      'Signers outside the company do not need a Nexus account. The emailed link is enough.',
+      'When you sign while signed in to Nexus, the verification code can be delivered inside Nexus (your bell, and a pop-up on the signing screen) - pick Nexus Notification, or Email it instead if you prefer.',
+    ],
   },
 
   // ───────────────────────────── Modules ─────────────────────────────
@@ -1139,7 +1146,11 @@ export const DOCS = [
         'Punch locations are judged punch by punch from where the punch was made: the timecard shows the company location the person punched at, or Out of Location when they were inside none of them. Adding and mapping a new site later also corrects earlier punches made there.',
       ],
     },
-    tips: ['People pickers across Nexus use this directory, so keep names and emails correct here.'],
+    tips: [
+      'People pickers across Nexus use this directory, so keep names and emails correct here.',
+      'Approving a punch fix while that timesheet is out for signature recalls it: signing is cancelled, the fix applies, and the timesheet comes back to the manager to agree again. Nobody has to decline it in Nexus Sign first.',
+      'The out-of-fence punch email's Review the Punch in Nexus button opens that person's timecard on the period of the punch.',
+    ],
   },
   {
     id: 'marketing', name: 'Marketing', group: 'Modules', icon: 'Megaphone', view: 'marketing',

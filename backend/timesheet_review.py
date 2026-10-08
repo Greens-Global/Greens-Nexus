@@ -638,6 +638,33 @@ def on_declined(db: Session, req, party, reason: str) -> None:
     _notify(db, other, "Timesheet returned for changes", msg, r)
 
 
+def recall_for_change(db: Session, r: TimesheetReview, actor: str, note: str) -> None:
+    """An approver is applying a change the employee asked for (a punch fix)
+    while the agreed version is out for signature. Nobody should have to go
+    into Nexus Sign and decline a timesheet to approve a lunch (Neil, 10/08:
+    the approver only saw "out for signature... decline it there"). The
+    envelope is voided and the review comes back to the manager for another
+    round, with the reason in the history, so the fix applies and a fresh
+    agreed version goes out to be signed."""
+    if r.status != "signing":
+        return
+    if r.sign_request_id:
+        from models import HrSignRequest
+        from routers.esign import _log
+        req = db.query(HrSignRequest).filter(HrSignRequest.id == r.sign_request_id).first()
+        if req and req.status == "pending":
+            req.status = "voided"
+            _log(db, req.id, "voided", f"by {actor}: {note}")
+    r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
+    _round(db, r, by=actor, action="recalled", note=note)
+    msg = (f"{display_name(db, actor)} approved a change to {display_name(db, r.employee_email)}'s "
+           f"timesheet for {_label(r)} while it was out for signature ({note}). Signing was cancelled "
+           "and the timesheet is back with the manager to agree again.")
+    _notify(db, r.manager_email, "Timesheet signing recalled", msg, r)
+    if r.employee_email != r.manager_email:
+        _notify(db, r.employee_email, "Timesheet signing recalled", msg, r)
+
+
 def on_voided(db: Session, req, actor: str) -> None:
     r = _for(db, req)
     if not r or r.status != "signing":

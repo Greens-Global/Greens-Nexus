@@ -2400,7 +2400,7 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
     return sorted(out, key=lambda x: (not x["myTurn"], x["createdAt"]))
 
 
-def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict:
+def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty, *, signed_in: bool = False) -> dict:
     """What a signer needs to render + sign. Never exposes other parties' emails."""
     all_parties = _parties(db, req.id)
     others = [_ser_party(p, include_email=False) for p in all_parties]
@@ -2465,7 +2465,7 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
     gate = _gate_state(db, req, party)
     payload["gate"] = gate
     payload["consentAt"] = party.consent_at or ""
-    payload["otpChannels"] = sign_otp.channels_for(party) if gate == _GATE_OTP else []
+    payload["otpChannels"] = sign_otp.channels_for(party, signed_in=signed_in) if gate == _GATE_OTP else []
     payload["sender"] = _sender_identity(db, req)
     if gate:
         payload["parties"] = others
@@ -2839,7 +2839,7 @@ def my_render(party_id: str, request: Request, user: dict = Depends(get_current_
         _log(db, req.id, "viewed", f"{party.name} opened the document",
              party_id=party.id, ip=ip, user_agent=ua)
         db.commit()
-    return _render_payload(db, req, party)
+    return _render_payload(db, req, party, signed_in=True)
 
 
 @router.post("/mine/{party_id}/sign")
@@ -3070,7 +3070,7 @@ class ConsentIn(BaseModel):
 
 
 def _apply_consent(db: Session, req: HrSignRequest, party: HrSignParty,
-                   body: ConsentIn, ip: str, ua: str) -> dict:
+                   body: ConsentIn, ip: str, ua: str, *, signed_in: bool = False) -> dict:
     if not body.agreed:
         raise HTTPException(400, "You must agree to use electronic records and signatures "
                                  "to continue, or decline the document.")
@@ -3101,7 +3101,7 @@ def _apply_consent(db: Session, req: HrSignRequest, party: HrSignParty,
              party_id=party.id, ip=ip, user_agent=ua)
         db.commit()
     return {"ok": True, "gate": _gate_state(db, req, party),
-            "otpChannels": sign_otp.channels_for(party)}
+            "otpChannels": sign_otp.channels_for(party, signed_in=signed_in)}
 
 
 class OtpRequestIn(BaseModel):
@@ -3126,10 +3126,10 @@ def _require_consented(db: Session, req: HrSignRequest, party: HrSignParty) -> N
 
 
 def _apply_otp_request(db: Session, req: HrSignRequest, party: HrSignParty,
-                       channel: str, ip: str, ua: str) -> dict:
+                       channel: str, ip: str, ua: str, *, signed_in: bool = False) -> dict:
     _check_expiry(db, req)
     _require_consented(db, req, party)
-    out = sign_otp.request_code(db, req, party, channel)
+    out = sign_otp.request_code(db, req, party, channel, signed_in=signed_in)
     _log(db, req.id, "otp_sent",
          "verification code sent to " + party.name + " by " + out["channel"]
          + " (" + out["masked"] + ")",
@@ -3505,7 +3505,7 @@ def my_consent(party_id: str, body: ConsentIn, request: Request,
     the certificate has to be able to state both separately."""
     req, party = _my_party(db, party_id, user)
     ip, ua = _client_meta(request)
-    return _apply_consent(db, req, party, body, ip, ua)
+    return _apply_consent(db, req, party, body, ip, ua, signed_in=True)
 
 
 @router.post("/mine/{party_id}/otp/request")
@@ -3513,7 +3513,8 @@ def my_otp_request(party_id: str, body: OtpRequestIn, request: Request,
                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     req, party = _my_party(db, party_id, user)
     ip, ua = _client_meta(request)
-    return _apply_otp_request(db, req, party, body.channel or "email", ip, ua)
+    # Signed in under their own Entra session: the in-Nexus channel is offered.
+    return _apply_otp_request(db, req, party, body.channel or "nexus", ip, ua, signed_in=True)
 
 
 @router.post("/mine/{party_id}/otp/verify")

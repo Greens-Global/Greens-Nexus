@@ -719,7 +719,10 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
     if (got) { setSent(got); setCooldown(30); setCode(''); }
   };
 
-  const chLabel = (c) => (c === 'sms' ? 'Text message' : 'Email');
+  // 'nexus' is offered only to a signer who is signed in to Nexus: the code
+  // arrives in their bell and as a pop-up on this screen, so it cannot be
+  // lost the way an email can (Oct 8: a manager never got the emailed code).
+  const chLabel = (c) => (c === 'sms' ? 'Text message' : c === 'nexus' ? 'Nexus notification' : 'Email');
 
   return (
     <div style={{ maxWidth: 520, margin: '0 auto', padding: '18px 4px' }}>
@@ -767,7 +770,9 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
           ) : (
             <form onSubmit={e => { e.preventDefault(); if (code.trim().length === 6) onVerify(code.trim()); }}>
               <p style={{ fontSize: 13, margin: '0 0 14px', lineHeight: 1.6 }}>
-                We sent a 6-digit code to <b>{sent.masked}</b>. It expires in 10 minutes.
+                {sent.channel === 'nexus'
+                  ? <>Your 6-digit code is in your <b>Nexus notifications</b> - check the bell, or the pop-up at the top of this screen. It expires in 10 minutes.</>
+                  : <>We sent a 6-digit code to <b>{sent.masked}</b>. It expires in 10 minutes.</>}
               </p>
               <input autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6}
                 value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -784,6 +789,14 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
                   {busy ? <Spinner size={14} /> : <ShieldCheck size={14} />}
                   Verify &amp; Continue
                 </button>
+                {channels.length > 1 && sent.channel === 'nexus' && channels.some(c => c.channel === 'email') && (
+                  <button type="button" disabled={cooldown > 0 || busy} onClick={() => send('email')}
+                    style={{ background: 'none', border: 'none', padding: 0, fontSize: 12.5, fontWeight: 600,
+                      color: 'var(--muted, #6b7280)', cursor: cooldown > 0 ? 'default' : 'pointer',
+                      fontFamily: 'Inter,sans-serif', textDecoration: cooldown > 0 ? 'none' : 'underline' }}>
+                    Email it instead
+                  </button>
+                )}
                 <button type="button" disabled={cooldown > 0 || busy} onClick={() => send(sent.channel)}
                   style={{ background: 'none', border: 'none', padding: 0, fontSize: 12.5, fontWeight: 600,
                     color: 'var(--muted, #6b7280)', cursor: cooldown > 0 ? 'default' : 'pointer',
