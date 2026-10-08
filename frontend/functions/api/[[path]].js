@@ -35,9 +35,17 @@ export async function onRequest(context) {
   // included), and body. redirect:'manual' so the 302 from /auth/callback is
   // handed to the BROWSER (which follows it) - that's what lets the backend's
   // Set-Cookie land first-party on the browser.
+  //
+  // X-Forwarded-For is REPLACED with the visitor address Cloudflare handed this
+  // function (cf-connecting-ip - the browser cannot set it). The browser can
+  // send its own X-Forwarded-For, and the API keys its rate limits and audit
+  // IPs on this header (backend/client_ip.py), so it must not survive the hop.
+  const headers = new Headers(request.headers);
+  const visitor = request.headers.get('cf-connecting-ip');
+  if (visitor) headers.set('X-Forwarded-For', visitor);
   const proxied = new Request(target, {
     method: request.method,
-    headers: request.headers,
+    headers,
     body: (request.method === 'GET' || request.method === 'HEAD') ? undefined : request.body,
     redirect: 'manual',
   });

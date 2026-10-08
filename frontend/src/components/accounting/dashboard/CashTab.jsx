@@ -55,9 +55,9 @@ export default function CashTab() {
       } />
       {loading || !plan ? <LoadingBox height={84} /> : (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-          <Tile label="Cash on hand" value={m(cashSplit.ctl, { compact: true })} sub={cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : 'controllable'} />
+          <Tile label="Cash on hand" value={m(cashSplit.onHand, { compact: true })} sub={cashSplit.ncOnly ? `non-controllable · ${cashSplit.onHandEntities.length} partner ${cashSplit.onHandEntities.length === 1 ? 'entity' : 'entities'}` : cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : 'controllable'} />
           <Tile label="Investments" value={m(mv, { compact: true })} sub="stocks and bonds" />
-          <Tile label="Net debt" value={m(debt - cashSplit.ctl - mv, { compact: true })} sub="debt less cash and investments" />
+          <Tile label="Net debt" value={m(debt - cashSplit.onHand - mv, { compact: true })} sub="debt less cash and investments" />
           <Tile label="Runway" value={fixed ? `${run.toFixed(1)} mo` : '-'} sub="vs fixed obligations" />
           <Tile label="Total cash in 6 months" value={six ? m(six.end, { compact: true }) : '-'} sub={six && last ? `${S.name} · ${six.end >= last.end ? '+' : ''}${m(six.end - last.end, { compact: true })} vs today` : undefined} subColor={six && last ? toneColor(six.end >= last.end) : undefined} />
         </div>

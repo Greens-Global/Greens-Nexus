@@ -15,6 +15,12 @@ and "Completed" sections cover only the last day, so they stay daily-only. A
 task already listed as overdue is not repeated. Nothing in any section = no
 email.
 
+Oct 5 (Neil, call of 10/01: "it needs to be all actions, not just the
+tasks"): Needs Your Attention comes first and also carries shift requests and
+timesheet fixes; the opening line counts what is waiting across modules; the
+team table opens with a one-line total; Upcoming Time Off lists who on the
+team - and the person's own manager - is off in the next two weeks.
+
 Default schedule (Neil): every Monday, 2 hours before the person's shift -
 the same shift lookup the Daily Briefing uses (the Shift preset's own
 timezone, a published ScheduledShift first). Someone with no shift that
@@ -60,7 +66,12 @@ DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 SECTION = "overdue"            # the person's own overdue tasks
 TEAM_SECTION = "team_overdue"  # manager: one line per direct report behind
 PENDING_SECTION = "pending"    # everything else still waiting on them (daily "Action Required")
-ORDER = [SECTION, PENDING_SECTION, TEAM_SECTION]
+DUE_SECTION = "due_week"       # their open tasks due in the coming week (Oct 2)
+TIME_OFF_SECTION = "time_off_ahead"   # who is off in the next two weeks (Oct 5)
+# Actions first, then tasks (Neil, 10/01: "it needs to be all actions ... not
+# just the tasks").
+ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, TIME_OFF_SECTION]
+TIME_OFF_DAYS = 14
 
 SCAN_EVERY_SEC = 15 * 60
 _REPORT_TITLE_CAP = 3
@@ -233,11 +244,13 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
         if projects.get(t.project_id or ""):
             detail += f" - {projects[t.project_id]}"
         rows.append({
-            "title": t.title, "ref": t.code or "", "detail": detail,
+            # No task ID (Oct 1): the title is what a person recognizes, and
+            # without a "ref" the table drops its ID column.
+            "title": t.title, "detail": detail,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
-            # Extend Due Date (Neil) plus the usual Comment / React / Change
-            # Status / Mark Complete - see daily_briefing._row_actions_html.
+            # Extend Due Date (Neil) plus the usual Comment / React / Toggle
+            # Completion / Open - see daily_briefing._row_actions_html.
             "task_open": True, "task_extend": True,
         })
     for rep, items in sorted(by_report.items(), key=lambda kv: (-len(kv[1]), kv[0])):
@@ -250,6 +263,7 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
             "title": f"{name} has {_plural(len(items), 'overdue task')}",
             "detail": "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else ""),
             "url": f"{app_url()}/tasks/mine?task={items[0][1].id}", "module": "team",
+            "overdue_count": len(items),
         })
     return rows, team
 
@@ -268,32 +282,77 @@ def build_sections(db: Session, email: str, today: date) -> dict:
                   .filter(func.lower(models.NexusEmployee.manager_email) == email.lower()).all()
                   if e.work_email}
     own, team = overdue_rows(db, email, today, my_reports)
-    pending = pending_rows(db, email, my_reports, {r["task_id"] for r in own})
-    return {k: v for k, v in ((SECTION, own), (PENDING_SECTION, pending), (TEAM_SECTION, team)) if v}
+    # Due This Week (Oct 2): today through six days on - where a recurring
+    # task's next date shows, now that a series keeps one open occurrence.
+    due = daily.due_task_rows(db, email, today.isoformat(), (today + timedelta(days=6)).isoformat())
+    pending = pending_rows(db, email, my_reports, {r["task_id"] for r in own + due})
+    # Upcoming Time Off (Neil, 10/01): a manager sees which reports are off,
+    # and everyone sees when their own manager is - two weeks ahead, so
+    # "people are not guessing".
+    off = daily.upcoming_time_off_rows(db, email, my_reports, today.isoformat(),
+                                       (today + timedelta(days=TIME_OFF_DAYS - 1)).isoformat())
+    return {k: v for k, v in ((PENDING_SECTION, pending), (SECTION, own), (DUE_SECTION, due),
+                              (TEAM_SECTION, team), (TIME_OFF_SECTION, off)) if v}
+
+
+def _intro(sections: dict) -> str:
+    """What the week holds, across every module - not a sentence about tasks
+    (Neil, 10/01: "the paragraph at the top should not be limited to the
+    task")."""
+    parts = []
+    pending = sections.get(PENDING_SECTION) or []
+    if pending:
+        modules = ", ".join(label for _, label, _ in daily._group_by_module(pending))
+        parts.append(f"{_plural(len(pending), 'item')} needing your action ({modules})")
+    if sections.get(SECTION):
+        parts.append(_plural(len(sections[SECTION]), "overdue task"))
+    if sections.get(DUE_SECTION):
+        parts.append(f"{_plural(len(sections[DUE_SECTION]), 'task')} due this week")
+    if sections.get(TEAM_SECTION):
+        n = len(sections[TEAM_SECTION])
+        parts.append(f"{n} team member{'' if n == 1 else 's'} behind on their tasks")
+    if sections.get(TIME_OFF_SECTION):
+        parts.append("who is off in the next two weeks")
+    if not parts:
+        return "Here is your week in Nexus."
+    listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    return f"Here is everything waiting on you in Nexus this week: {listed}."
+
+
+def _team_note(sections: dict) -> str:
+    """One line over Your Team's Overdue Work (Neil, 10/01: "666 people under
+    you and each of them has 10 to 15 tasks that are overdue"): the whole
+    picture in numbers, then the people furthest behind first. The table
+    itself is capped like every other one."""
+    team = sections.get(TEAM_SECTION) or []
+    if not team:
+        return ""
+    total = sum(r.get("overdue_count") or 0 for r in team)
+    who = f"{len(team)} team member{'' if len(team) == 1 else 's'}"
+    return (f"{who} {'has' if len(team) == 1 else 'have'} {_plural(total, 'overdue task')} between them"
+            + (", furthest behind first." if len(team) > 1 else "."))
 
 
 def render(first_name: str, today: date, sections: dict, greeting: str, logo_url: str, cfg: dict) -> tuple:
     week_of = f"Week of {datetime.strptime(week_start(today), '%Y-%m-%d').strftime('%m/%d/%Y')}"
     footer = (f"You receive the Weekly Digest every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
-              "starts. It lists every task assigned to you that is past its due date, and everything else "
-              "still waiting on you.")
+              "starts. It lists everything waiting on you across Nexus - approvals and requests to decide, "
+              "your time card, tickets, items, documents to sign and tasks - and who on your team is off.")
     return daily.render_email(first_name, today.isoformat(), sections, greeting=greeting, logo_url=logo_url,
-                              title="Weekly Digest", date_label=week_of,
-                              intro=("These are the tasks you have overdue, along with their due dates, "
-                                     "and everything else still waiting on you."),
+                              title="Weekly Digest", date_label=week_of, intro=_intro(sections),
                               footer=footer, order=ORDER, expanded=True,
-                              cta_label="Open My Tasks", cta_path="/tasks/mine",
-                              cta_hint="Extend, comment on or complete each task in one click.")
+                              cta_label="Open My Briefing", cta_path="/briefing",
+                              notes={TEAM_SECTION: _team_note(sections)})
 
 
 # ── Send + scan ─────────────────────────────────────────────────────────
 
 def _without_actions(sections: dict) -> dict:
-    """The same rows minus Extend / Comment / React / Change Status / Mark
-    Complete - those links act AS the employee, so a copy read by someone else
-    (a test recipient) must not carry them. Open in Nexus stays. The Daily
+    """The same rows minus Extend / Comment / React / Toggle Completion -
+    those links act AS the employee, so a copy read by someone else
+    (a test recipient) must not carry them. Open stays. The Daily
     Briefing applies the same rule to its Outlook card in test mode."""
-    drop = ("task_id", "task_open", "task_extend", "action_email", "action_kind", "action_id")
+    drop = ("task_id", "task_open", "task_done", "task_extend", "action_email", "action_kind", "action_id")
 
     def strip(r):
         out = {f: v for f, v in r.items() if f not in drop}

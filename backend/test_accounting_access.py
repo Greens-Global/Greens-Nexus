@@ -77,11 +77,18 @@ class AccountingAccessTests(unittest.TestCase):
         self.calls = []
         self.entry_lines = [{"location": "15000"}, {"location": "15000-1"}]
 
+        self.journals = [{"symbol": "APJ", "title": "Accounts Payable", "kind": "ap"}, {"symbol": "GJ", "title": "General Journal", "kind": "general"},
+                         {"symbol": "STAT", "title": "Units", "kind": "statistical"}, {"symbol": "UDJ1", "title": "Allocations", "kind": "nonsense"}]
+
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
             self.calls.append((path, clean))
             if path.endswith("/reports/locations"):
                 return {"ok": True, "entities": ENTITIES}
+            if path.endswith("/journals"):
+                if self.journals is None:
+                    raise accounting.UpstreamError(404, "Accounting service returned 404")
+                return {"ok": True, "journals": self.journals}
             if path.endswith("/reports/cash-position"):
                 bal = {"15000": 100.25, "56000": 50.5}.get(clean.get("location"), 1000.0)
                 return {"ok": True, "location": clean.get("location"), "total": bal,
@@ -93,6 +100,8 @@ class AccountingAccessTests(unittest.TestCase):
                     {"login": "open", "id": "open", "name": "Open Person", "email": OPEN, "status": "active", "type": "", "restricted": True, "entities": ["12000", "56000"], "departments": ["9100"]},
                     {"login": "limited", "id": "limited", "name": "Limited Person", "email": LIMITED, "status": "active", "type": "", "restricted": False, "entities": [], "departments": []},
                     {"login": "ghost", "id": "ghost", "name": "Nobody Here", "email": "ghost@elsewhere.com", "status": "inactive", "type": "", "restricted": True, "entities": ["15000"], "departments": []},
+                    # Restricted in Intacct, but the rows could not be read (10/02): shown as unknown, never applied.
+                    {"login": "blind", "id": "blind", "name": "One Person", "email": ONE, "status": "active", "type": "", "restricted": True, "entitiesKnown": False, "entities": [], "departments": []},
                 ]}
             return {"ok": True, "echo": clean}
 
@@ -100,7 +109,7 @@ class AccountingAccessTests(unittest.TestCase):
         accounting._acct_get = fake_get
         self._dash = accounting_dashboard._get
 
-        async def fake_dash(op, params):
+        async def fake_dash(op, params, fresh_by=None):
             return {"ok": True, "op": op}
         accounting_dashboard._get = fake_dash
         self._base, self._key = accounting._ACCT_BASE, accounting._ACCT_KEY
@@ -221,6 +230,38 @@ class AccountingAccessTests(unittest.TestCase):
         self.client.get("/accounting/reports/buckets?to=2026-09-28&by=department")
         self.assertEqual(self._sent("/reports/buckets")[-1], {"to": "2026-09-28", "by": "department", "location": "15000"})
 
+    def test_journals_travel_on_the_five_report_reads(self):
+        """Neil, 10/02: the Journals filter (AP, AR, user defined, statistical)
+        passes through as `journals` on pnl, balance-sheet, trial-balance,
+        buckets and search (CONTRACT2 J2); empty = every journal, as before."""
+        _as(OPEN)
+        self.client.get("/accounting/reports/pnl?from=2026-09-01&to=2026-09-25&journals=apj,ARJ,apj")
+        self.assertEqual(self._sent("/reports/pnl")[-1]["journals"], "APJ,ARJ")
+        self.client.get("/accounting/reports/balance-sheet?asof=2026-09-25&journals=GJ")
+        self.assertEqual(self._sent("/reports/balance-sheet")[-1]["journals"], "GJ")
+        self.client.get("/accounting/reports/trial-balance?from=2026-09-01&to=2026-09-25&journals=GJ,PRJ")
+        self.assertEqual(self._sent("/reports/trial-balance")[-1]["journals"], "GJ,PRJ")
+        self.client.get("/accounting/reports/buckets?to=2026-09-28&by=month&journals=STAT")
+        self.assertEqual(self._sent("/reports/buckets")[-1]["journals"], "STAT")
+        self.client.get("/accounting/search?q=amazon&journals=APJ")
+        self.assertEqual(self._sent("/search")[-1]["journals"], "APJ")
+        self.client.get("/accounting/reports/pnl?from=2026-09-01&to=2026-09-25&journals=")
+        self.assertNotIn("journals", self._sent("/reports/pnl")[-1])
+        self.assertEqual(self.client.get("/accounting/reports/pnl?from=2026-09-01&to=2026-09-25&journals=A%20B").status_code, 400)
+
+    def test_journal_list_and_not_available_yet(self):
+        """GET /accounting/journals (CONTRACT2 J1): symbols with their kind, an
+        unknown kind read as user defined; the accounting app's 404 answers
+        {available: false} so the filter can say "Not available yet"."""
+        _as(LIMITED)
+        r = self.client.get("/accounting/journals")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["available"])
+        self.assertEqual([(j["symbol"], j["kind"]) for j in r.json()["journals"]], [("GJ", "general"), ("APJ", "ap"), ("UDJ1", "user"), ("STAT", "statistical")])
+        self.journals = None
+        accounting._ACCT_CACHE.clear()
+        self.assertEqual(self.client.get("/accounting/journals").json(), {"available": False, "journals": []})
+
     # ── search, entry ───────────────────────────────────────────────────────
     def test_search_limit_and_column_filters(self):
         _as(LIMITED)
@@ -306,6 +347,7 @@ class AccountingAccessTests(unittest.TestCase):
         try:
             db.add(models.NexusEmployee(id="emp-acct-test-open", first_name="Open", last_name="Person", work_email=OPEN))
             db.add(models.NexusEmployee(id="emp-acct-test-limited", first_name="Limited", last_name="Person", work_email=LIMITED))
+            db.add(models.NexusEmployee(id="emp-acct-test-one", first_name="One", last_name="Person", work_email=ONE))
             db.commit()
         finally:
             db.close()
@@ -319,9 +361,11 @@ class AccountingAccessTests(unittest.TestCase):
             self.assertEqual((rows["open"]["matched"], rows["open"]["entities"], rows["open"]["current"], rows["open"]["differs"]), (True, ["12000", "56000"], [], True))
             self.assertEqual((rows["limited"]["matched"], rows["limited"]["entities"], rows["limited"]["current"], rows["limited"]["differs"]), (True, [], ["15000", "56000"], True))
             self.assertFalse(rows["ghost"]["matched"])
+            self.assertEqual((rows["blind"]["matched"], rows["blind"]["unknown"], rows["blind"]["differs"]), (True, True, False))
+            self.assertFalse(rows["open"]["unknown"])
             self.assertIn("USERTYPE", r.json()["notes"][0])
             # Apply to two: one gets Intacct's list, the unrestricted one has the limit lifted; the ghost is skipped.
-            a = self.client.post("/accounting/access/intacct/apply", json={"emails": [OPEN, LIMITED, "ghost@elsewhere.com"]})
+            a = self.client.post("/accounting/access/intacct/apply", json={"emails": [OPEN, LIMITED, ONE, "ghost@elsewhere.com"]})
             self.assertEqual(a.status_code, 200, a.text)
             self.assertEqual(sorted((x["email"], x["entities"]) for x in a.json()["applied"]), sorted([(OPEN, ["12000", "56000"]), (LIMITED, [])]))
             people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
@@ -331,7 +375,7 @@ class AccountingAccessTests(unittest.TestCase):
         finally:
             db = database.SessionLocal()
             try:
-                db.query(models.NexusEmployee).filter(models.NexusEmployee.id.in_(["emp-acct-test-open", "emp-acct-test-limited"])).delete(synchronize_session=False)
+                db.query(models.NexusEmployee).filter(models.NexusEmployee.id.in_(["emp-acct-test-open", "emp-acct-test-limited", "emp-acct-test-one"])).delete(synchronize_session=False)
                 db.commit()
             finally:
                 db.close()

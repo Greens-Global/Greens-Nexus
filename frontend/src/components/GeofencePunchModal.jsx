@@ -6,6 +6,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { formatTimeTz, useDisplayTz } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
+import { formatDistance, formatAccuracy } from '../lib/distance';
 
 // Geofence Punch view (Charmi, Sep 25 - SwipeClock's "Geofence Punch For
 // <name>" screen): one person's In and Out punches for a period on a map,
@@ -36,7 +37,7 @@ function Pin({ status, size = 14 }) {
 }
 
 const KIND = { in: 'In', out: 'Out' };
-const distText = (m) => ((m || 0) >= 1000 ? `${((m || 0) / 1000).toFixed(1)} km` : `${m || 0} m`);
+const distText = (m) => formatDistance(m || 0);   // miles / feet (lib/distance.js)
 const geoCache = new Map();
 async function reverseGeocode(lat, lng) {
   const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
@@ -178,8 +179,8 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" style={btn(!onlyOut)} onClick={() => setOnlyOut(false)}>All Punches</button>
             <button type="button" style={btn(onlyOut)} onClick={() => setOnlyOut(true)}>Out of Fence{outCount ? ` (${outCount})` : ''}</button>
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Work site" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
-              <option value="">All work sites</option>
+            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Location" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
+              <option value="">All locations</option>
               {sites.map((s) => <option key={s.id} value={s.id}>{s.name}{s.assigned ? ' (assigned)' : ''}</option>)}
             </select>
             <button type="button" onClick={() => window.print()} aria-label="Print" title="Print" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><Printer size={16} /></button>
@@ -197,7 +198,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                 {focusNoGps && <span style={{ color: '#b91c1c', fontWeight: 600 }}> No GPS was captured for this punch, so there is no pin to show.</span>}
               </span>
               {focused && <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={showAll}>Show All Punches</button>}
-              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onEditSite}>Change Work Site</button>}
+              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onEditSite}>Change Location</button>}
             </div>
           )}
           {data && (
@@ -222,8 +223,8 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                       const out = p.geoStatus === 'out_of_fence';
                       const rowBg = out ? 'rgba(220,38,38,0.08)' : p.geoStatus === 'in_fence' ? 'rgba(21,128,61,0.08)' : undefined;
                       const isFocus = focused && selected.has(p.id);
-                      const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Work site')
-                        : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${distText(p.distanceM)} from ${p.workSiteName || 'the nearest site'}` : 'Looking up address...'))
+                      const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Location')
+                        : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${distText(p.distanceM)} from ${p.workSiteName || 'the nearest location'}` : 'Looking up address...'))
                         : p.geoStatus === 'remote' ? 'Remote' : p.geoStatus === 'no_location' ? 'No GPS captured' : (p.workSiteName ? `Near ${p.workSiteName}` : 'GPS only');
                       return (
                         <tr key={p.id} data-focus={isFocus || undefined} style={{ background: rowBg, boxShadow: isFocus ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : undefined, fontWeight: isFocus ? 600 : undefined }}>
@@ -235,7 +236,7 @@ export default function GeofencePunchModal({ email, name, start, end, onClose, f
                           <td style={{ ...td, maxWidth: 320 }}>{where}{out && addresses[p.id] ? <div style={{ fontSize: 11, color: 'var(--muted)' }}>{distText(p.distanceM)} from {p.workSiteName || 'the nearest site'}</div> : null}</td>
                           <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{p.lat ? Number(p.lat).toFixed(5) : '-'}</td>
                           <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{p.lng ? Number(p.lng).toFixed(5) : '-'}</td>
-                          <td style={{ ...td, color: '#2563eb', fontWeight: 700 }}>{p.lat ? `${p.accuracyM}m` : '-'}</td>
+                          <td style={{ ...td, color: '#2563eb', fontWeight: 700 }}>{p.lat ? formatAccuracy(p.accuracyM) : '-'}</td>
                         </tr>
                       );
                     })}

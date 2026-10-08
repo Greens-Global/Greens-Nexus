@@ -39,6 +39,7 @@ E_NONE = "billtest.none@greensglobal.com"     # hourly, NO punches
 E_EXEMPT = "billtest.exempt@greensglobal.com" # salaried-exempt (must be hidden)
 E_FIXED = "billtest.fixed@greensglobal.com"   # salaried, NOT exempt - must appear on the team list (Charmi, Aug 28)
 GROUP = "grp-billtest"
+GROUP_TT = "grp-billtest-tt"   # a role flagged Exempt from time tracking (Settings > Access)
 SITE_A = "site-a-billtest"
 SITE_B = "site-b-billtest"
 
@@ -64,12 +65,15 @@ class BillingTests(unittest.TestCase):
             # admin gets an hr grant so require_team_read admits them (whole company)
             db.add(models.NexusGroup(id=GROUP, name="Bill Test", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=GROUP, email=ADMIN))
-            # exempt person: fixed pay + time_tracking_exempt (off the timesheet)
-            db.add(models.PayrollRate(employee_email=E_EXEMPT,
-                                      pay_type="fixed", time_tracking_exempt=1))
-            # salaried but NOT exempt: must appear on the team list even with no punches
+            # exempt person: fixed pay + a role flagged Exempt from time tracking
+            # (off the timesheet). The exemption lives on the role since Oct 2.
+            db.add(models.PayrollRate(employee_email=E_EXEMPT, pay_type="fixed"))
+            db.add(models.NexusGroup(id=GROUP_TT, name="Bill Test Principal", is_job_role=1, time_tracking_exempt=1))
+            db.add(models.NexusGroupMember(group_id=GROUP_TT, email=E_EXEMPT))
+            # salaried but NOT exempt: must appear on the team list even with no
+            # punches. The legacy pay-record flag is set and must be IGNORED.
             db.add(models.PayrollRate(employee_email=E_FIXED,
-                                      pay_type="fixed", time_tracking_exempt=0))
+                                      pay_type="fixed", time_tracking_exempt=1))
             # two geofenced work sites (properties)
             db.add(models.HrWorkSite(id=SITE_A, name="Rental A", latitude="33.6846", longitude="-117.8265", radius_m=150))
             db.add(models.HrWorkSite(id=SITE_B, name="Rental B", latitude="34.0522", longitude="-118.2437", radius_m=150))
@@ -105,8 +109,8 @@ class BillingTests(unittest.TestCase):
         try:
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email.like("billtest.%")).delete(synchronize_session=False))
-            db.query(models.NexusGroup).filter(models.NexusGroup.id == GROUP).delete(synchronize_session=False)
-            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == GROUP).delete(synchronize_session=False)
+            db.query(models.NexusGroup).filter(models.NexusGroup.id.in_((GROUP, GROUP_TT))).delete(synchronize_session=False)
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_((GROUP, GROUP_TT))).delete(synchronize_session=False)
             db.query(models.PayrollRate).filter(models.PayrollRate.employee_email.in_((E_EXEMPT, E_FIXED))).delete(synchronize_session=False)
             db.query(models.HrWorkSite).filter(models.HrWorkSite.id.in_((SITE_A, SITE_B))).delete(synchronize_session=False)
             db.query(models.TimePunch).filter(models.TimePunch.employee_email.like("billtest.%")).delete(synchronize_session=False)

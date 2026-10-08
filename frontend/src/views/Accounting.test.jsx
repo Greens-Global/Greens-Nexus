@@ -8,7 +8,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 // now relies on this, Oct 1), and the header search handing its words to
 // Reports.
 
-const apiMock = vi.hoisted(() => ({ getMyAccountingAccess: vi.fn(), markAccountingOpened: vi.fn(() => Promise.resolve()) }));
+const apiMock = vi.hoisted(() => ({ getMyAccountingAccess: vi.fn(), markAccountingOpened: vi.fn(() => Promise.resolve()), getAccountingPrefs: vi.fn(async () => ({ prefs: {} })), saveAccountingPrefs: vi.fn(async () => ({})) }));
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com', canAccessModule: (m) => m === 'accounting' }) }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => () => 'Neil Kadakia' }));
@@ -37,7 +37,10 @@ describe('Accounting view', () => {
     const onSubChange = vi.fn();
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
     expect(await screen.findByText('overview-tab')).toBeTruthy();
-    expect(tabNames()).toEqual(['Overview', 'Cash', 'Performance', 'Close', 'Reports', 'Packages', 'MRI', 'Data', 'Access']);
+    // The strip is grouped now (Oct 7): the Dashboard group leads, showing
+    // its active tab, and the Reporting group is there for everyone.
+    expect(tabNames()[0]).toBe('DashboardOverview');
+    expect(tabNames()).toContain('Reporting');
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('overview'));
   });
 
@@ -46,7 +49,9 @@ describe('Accounting view', () => {
     const onSubChange = vi.fn();
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
     expect(await screen.findByTestId('reports')).toBeTruthy();
-    expect(tabNames()).toEqual(['Reports', 'Packages', 'MRI']);
+    // No Dashboard group for an entity-limited reader: Reporting leads, on Reports.
+    expect(tabNames()[0]).toBe('ReportingReports');
+    expect(tabNames().some((t) => /^Dashboard/.test(t))).toBe(false);
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('reports'));
     // Links made before the rename still land.
     render(<Accounting activeSub="leasing" onSubChange={() => {}} />);

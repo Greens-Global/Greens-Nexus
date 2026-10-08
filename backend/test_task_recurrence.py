@@ -138,6 +138,109 @@ class PeriodicSpawnTests(unittest.TestCase):
         self.assertIsNone(spawned)   # count=1 was the last occurrence
 
 
+class OneOpenOccurrenceTests(unittest.TestCase):
+    """Oct 2: a series has ONE open occurrence. When the next date arrives
+    before the current one is done, the current one closes as Missed - closed
+    (no more overdue emails, out of the open lists) but never counted as done
+    work - and the new one is created. Existing stacks of open copies collapse
+    the same way. Missed is the system's status only."""
+
+    WEEKLY_MON = {"freq": "weekly", "interval": 1, "daysOfWeek": [1]}
+    TODAY = "2026-09-28"   # a Monday
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.db.query(models.Task).delete()
+        self.db.query(models.TaskActivity).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def _task(self, due, *, completed=False, assignee="gm04@greensstorage.com"):
+        tid = gen_id()
+        self.db.add(models.Task(id=tid, code=f"TASK-{due}", title="Payroll Import", due_on=due, completed=completed,
+                                status="completed" if completed else "recurring",
+                                completed_at=(due + "T17:00:00") if completed else "",
+                                assignee_email=assignee, assignee_emails=[assignee],
+                                recurrence=dict(self.WEEKLY_MON), created_at=now_iso()))
+        self.db.commit()
+        return tid
+
+    def _run(self, today=None):
+        from routers.tasks import spawn_scheduled_occurrences
+        return spawn_scheduled_occurrences(self.db, today or self.TODAY)
+
+    def _get(self, tid):
+        self.db.expire_all()
+        return self.db.get(models.Task, tid)
+
+    def _open(self):
+        self.db.expire_all()
+        return self.db.query(models.Task).filter(models.Task.completed == False).all()  # noqa: E712
+
+    def test_an_unfinished_occurrence_closes_as_missed_when_the_next_one_comes(self):
+        old = self._task("2026-09-21")
+        [new] = self._run()
+        t = self._get(old)
+        self.assertEqual((t.completed, t.status, t.completed_at), (True, "missed", ""))
+        self.assertEqual([x.due_on for x in self._open()], ["2026-09-28"])
+        note = (self.db.query(models.TaskActivity).filter(models.TaskActivity.entity_id == old,
+                                                          models.TaskActivity.type == "closed_missed").one())
+        self.assertEqual(note.actor_email, "system")
+        self.assertEqual(note.detail, f"Closed as Missed - the next occurrence {new.code} is due 09/28/2026")
+
+    def test_a_completed_occurrence_is_left_alone(self):
+        done = self._task("2026-09-21", completed=True)
+        self._run()
+        t = self._get(done)
+        self.assertEqual((t.status, t.completed_at), ("completed", "2026-09-21T17:00:00"))
+
+    def test_an_existing_stack_of_open_copies_collapses_to_one(self):
+        ids = [self._task(d) for d in ("2026-09-07", "2026-09-14", "2026-09-21")]
+        self._run()
+        self.assertEqual([x.due_on for x in self._open()], ["2026-09-28"])
+        self.assertEqual({self._get(i).status for i in ids}, {"missed"})
+
+    def test_running_again_creates_nothing_and_closes_nothing_more(self):
+        self._task("2026-09-21")
+        self._run()
+        self.assertEqual(self._run(), [])
+        self.assertEqual(len(self._open()), 1)
+
+    def test_a_reopened_missed_copy_stays_open(self):
+        from routers.tasks import _apply_completion
+        old = self._task("2026-09-21")
+        self._run()
+        t = self._get(old)
+        _apply_completion(t, False, True)                       # someone reopens it to finish late
+        self.assertEqual(t.status, "not_started")
+        self.db.commit()
+        self._run("2026-10-05")                                 # next week's roll
+        self.assertFalse(self._get(old).completed)              # not closed again
+        self.assertEqual(sorted(x.due_on for x in self._open()), ["2026-09-21", "2026-10-05"])
+
+    def test_missed_is_never_a_status_anyone_can_set(self):
+        from routers.tasks import _valid_statuses
+        self.assertNotIn("missed", _valid_statuses(self.db))
+
+    def test_a_missed_copy_never_counts_as_completed_work(self):
+        import daily_briefing
+        old = self._task("2026-09-21")
+        self._run()
+        rows = daily_briefing._manager_task_completion_rows(
+            self.db, "mgr@greensstorage.com", "2026-09-01T00:00:00",
+            {"gm04@greensstorage.com": models.NexusEmployee(first_name="Gm", last_name="Four",
+                                                             work_email="gm04@greensstorage.com")})
+        self.assertEqual(rows, [])
+        self.assertEqual(self._get(old).completed_at, "")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

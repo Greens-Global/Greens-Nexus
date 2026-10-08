@@ -101,6 +101,9 @@ export function RoleProvider({ children }) {
   // (unrestricted). Server-enforced in auth.hr_scope; HR.jsx uses this to hide
   // company-wide actions (Sync M365, Company setup) and show the scope chip.
   const [hrScope, setHrScope] = useState(null);
+  // Manager tier (Oct 6): People shows only their own team - the list, five
+  // read-only profile tabs and Time - and never pay. Set by the server.
+  const [hrTeam, setHrTeam] = useState(false);
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -154,6 +157,7 @@ export function RoleProvider({ children }) {
             setMyRole(data.role ?? 'employee');
             setIsExternal(!!data.is_external);
             setHrScope(Array.isArray(data.hr_scope) ? data.hr_scope : null);
+            setHrTeam(!!data.hr_team);
             setLoading(false);
           }
         })
@@ -346,7 +350,7 @@ export function RoleProvider({ children }) {
 
   return (
     <RoleCtx.Provider value={{
-      myRole, myEmail, realEmail, loading, isExternal, hrScope,
+      myRole, myEmail, realEmail, loading, isExternal, hrScope, hrTeam,
       allRoles, getRole, refreshAllRoles,
       can, assignRole, ROLES,
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,

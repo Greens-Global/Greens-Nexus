@@ -36,14 +36,14 @@ beforeEach(() => { for (const k of Object.keys(calls)) delete calls[k]; globalTh
 
 describe('manager inbox', () => {
   it('shows a confidential request with its type, no note, and who decides it', async () => {
-    globalThis.__apiAnswers = { timeOffList: [REDACTED, PLAIN] };
+    // The inbox takes its data from the module (Shifts.jsx, useManagerInbox) since Oct 2026.
     const Inbox = (await import('./ShiftRequestsInbox')).default;
-    render(<Inbox onClose={() => {}} />);
+    render(<Inbox inbox={{ pending: [], recent: [], waitingOnPeer: [] }} timeoff={[REDACTED, PLAIN]} loading={false} error={null} onRetry={() => {}} />);
     expect(await screen.findByText('Valinda Test decides this request.')).toBeTruthy();
     expect(screen.getAllByText('Confidential').length).toBe(1);
-    expect(screen.getByText('Time off · sick')).toBeTruthy();
+    expect(screen.getByText(/Time Off · Sick/)).toBeTruthy();
     // The plain request keeps its type, note and buttons.
-    expect(screen.getByText('Time off · vacation')).toBeTruthy();
+    expect(screen.getByText(/Time Off · Vacation/)).toBeTruthy();
     expect(screen.getByText('Beach week')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Approve' }).length).toBe(1);
   });
@@ -62,14 +62,23 @@ describe('request form', () => {
     const dates = document.querySelectorAll('input[type="date"]');
     fireEvent.change(dates[0], { target: { value: '2026-11-16' } });
     fireEvent.change(dates[1], { target: { value: '2026-11-16' } });
-    // Every request says why (Sep 29): without a reason nothing is sent.
-    fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
-    await waitFor(() => expect(screen.getByText('Add the reason for this time off.')).toBeTruthy());
-    expect(calls.timeOffCreate).toBeUndefined();
-    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: '  Surgery follow-up ' } });
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: '  Surgery follow-up ' } });
     fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
     await waitFor(() => expect(calls.timeOffCreate?.length).toBe(1));
-    expect(calls.timeOffCreate[0][0]).toMatchObject({ confidential: true, start_date: '2026-11-16', note: 'Surgery follow-up' });
+    expect(calls.timeOffCreate[0][0]).toMatchObject({ type: 'personal', confidential: true, start_date: '2026-11-16', note: 'Surgery follow-up' });
+  }, SLOW);
+
+  it('sends without a note - the Reason says why, the Note is optional (Neil, Oct 1)', async () => {
+    const TimeClock = (await import('../views/TimeClock')).default;
+    render(<TimeClock initialTab="timeoff" activeSub="timeoff" onSubChange={() => {}} />);
+    await screen.findByRole('checkbox', { name: /Keep this confidential/ });
+    expect(screen.queryByText(/optional/i)).toBeNull();
+    const dates = document.querySelectorAll('input[type="date"]');
+    fireEvent.change(dates[0], { target: { value: '2026-11-16' } });
+    fireEvent.change(dates[1], { target: { value: '2026-11-17' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
+    await waitFor(() => expect(calls.timeOffCreate?.length).toBe(1));
+    expect(calls.timeOffCreate[0][0]).toMatchObject({ type: 'personal', end_date: '2026-11-17', note: '' });
   }, SLOW);
 });
 
@@ -89,11 +98,34 @@ describe('request form totals and types (Neil, Sep 30)', () => {
     expect(screen.getByText('hours')).toBeTruthy();
   }, SLOW);
 
-  it('picks the type of time off from a list with icons', async () => {
+  it('picks the Reason from exactly five, in order, with icons (Neil, Oct 1)', async () => {
+    // A company's saved custom reasons no longer reach the request form.
+    globalThis.__apiAnswers = { timeOffTypes: { builtIn: ['vacation'], custom: ['Holiday', 'Off'], requestsOn: true } };
     const TimeClock = (await import('../views/TimeClock')).default;
     render(<TimeClock initialTab="timeoff" activeSub="timeoff" onSubChange={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Type of time off: Vacation' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reason: Personal' }));
+    expect(screen.getAllByRole('option').map((o) => o.textContent))
+      .toEqual(['Personal', 'Sick', 'Vacation', 'Unpaid', 'Medical Appointment']);
     fireEvent.click(screen.getByRole('option', { name: /Sick/ }));
-    expect(screen.getByRole('button', { name: 'Type of time off: Sick' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reason: Sick' })).toBeTruthy();
+  }, SLOW);
+
+  it('has no year-at-a-glance panel on the Time Off tab', async () => {
+    const TimeClock = (await import('../views/TimeClock')).default;
+    render(<TimeClock initialTab="timeoff" activeSub="timeoff" onSubChange={() => {}} />);
+    await screen.findByText('My Requests');
+    expect(screen.queryByText(/at a Glance/)).toBeNull();
+  }, SLOW);
+
+  it("gives a company's own types their own icons, not one shared calendar (Oct 1)", async () => {
+    const { reasonLook } = await import('../lib/timeOffReasons');
+    const names = ['Approved Time Off', 'Off', 'Holiday', 'Parental Leave', 'Jury Duty', 'Bereavement Leave'];
+    const icons = names.map((n) => reasonLook(n, n).Icon);
+    expect(new Set(icons).size).toBe(names.length);
+    // "Approved Time Off" is approved, not "off"; "Coffee Break" is not "off".
+    expect(reasonLook('Approved Time Off').Icon).not.toBe(reasonLook('Off').Icon);
+    expect(reasonLook('Coffee Break').Icon).not.toBe(reasonLook('Off').Icon);
+    // Two unknown types still differ by color.
+    expect(reasonLook('Sabbatical').color).not.toBe(reasonLook('Garden Leave').color);
   }, SLOW);
 });

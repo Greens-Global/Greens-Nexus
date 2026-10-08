@@ -43,7 +43,7 @@ def my_briefing(user: dict = Depends(get_current_user), db: Session = Depends(ge
 class ActIn(BaseModel):
     kind: str                  # decision | task
     id: str
-    action: str                # decision: approve|reject; task: comment|react|status|complete
+    action: str                # decision: approve|reject; task: comment|react|status|complete|toggle
     decision_kind: str = ""    # task_approval | timeoff_approval | ticket_approval
     text: str = ""             # comment, reaction, status value, or rejection reason
 
@@ -64,7 +64,7 @@ def act_on_my_briefing(body: ActIn, request: Request, bt: BackgroundTasks,
         return {"ok": True, "message": f"{subject} {status}."}
     if body.kind == "task":
         from routers.mail_actions import _perform
-        if body.action not in ("comment", "react", "status", "complete"):
+        if body.action not in ("comment", "react", "status", "complete", "toggle"):
             raise HTTPException(400, "Unknown action")
         return {"ok": True, "message": _perform(request, db, user=user, task_id=body.id, action=body.action,
                                                 text=body.text, bt=bt) + "."}

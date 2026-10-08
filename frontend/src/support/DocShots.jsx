@@ -10,7 +10,7 @@
 // it draws changes.
 import {
   Bell, Search, LayoutDashboard, Contact, CheckSquare, BookOpen, Package,
-  HelpCircle, LogIn, Coffee, ShoppingCart, PenTool, Users, Ticket, Bug,
+  HelpCircle, LogIn, Coffee, ShoppingCart, PenTool, Users, Ticket,
   Shield, Plus, Star, Sparkles,
 } from 'lucide-react';
 
@@ -158,9 +158,9 @@ const SHOTS = {
     ),
   },
   clock: {
-    legend: ['Clock tab', 'Punch In (becomes Punch Out once you are in)', 'Start Break / End Break', 'Where the punch was recorded'],
+    legend: ['Time Clock, at the top of Overview', 'Punch In (becomes Punch Out once you are in)', 'Start Break / End Break', 'Where the punch was recorded'],
     render: () => (
-      <Frame title="Workday" tabs={['Overview', 'Clock', 'Time Sheet', 'Shifts', 'Time Off']} active="Clock" activeRail={1} tabMark={1}>
+      <Frame title="Workday" tabs={['Overview', 'Time Sheet', 'Time Off']} active="Overview" activeRail={1} tabMark={1}>
         <Row style={{ alignItems: 'stretch' }}>
           <Card style={{ flex: 1.2 }}>
             <Col gap={9} style={{ alignItems: 'center', padding: '4px 0' }}>
@@ -331,11 +331,11 @@ const SHOTS = {
     ),
   },
   support: {
-    legend: ['Submit a Ticket - help from any team', 'My Open Tickets - click a row to follow up', 'Documentation tab - this guide'],
+    legend: ['Submit a Ticket - help from any team', 'Open Tickets - click a row to follow up', 'Documentation tab - this guide'],
     render: () => (
       <Frame title="Support" tabs={['Help Center', 'Documentation']} active="Help Center" activeRail={5} tabMark={3} markedTab="Documentation">
         <Row style={{ alignItems: 'stretch' }} gap={10}>
-          {[[Ticket, 'Submit a Ticket'], [Bug, 'Report a Bug'], [Users, 'Contact Directory'], [Shield, 'Privacy Policy']].map(([I, t], i) => {
+          {[[Ticket, 'Submit a Ticket'], [Users, 'Contact Directory'], [Shield, 'Privacy Policy'], [BookOpen, 'Documentation']].map(([I, t], i) => {
             const card = (
               <Card style={{ padding: 8, width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, background: 'var(--mist)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}><I size={12} style={{ color: 'var(--ink)' }} /></span>
@@ -350,7 +350,7 @@ const SHOTS = {
         </Row>
         <Mark n={2} block style={{ marginTop: 14 }}>
           <Card style={{ padding: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>My Open Tickets</div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Open Tickets</div>
             <Row><span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink)' }}>#000231</span><span style={{ flex: 1, fontSize: 10, color: 'var(--ink)' }}>Laptop will not charge</span><span style={pill('blue')}>New</span></Row>
           </Card>
         </Mark>

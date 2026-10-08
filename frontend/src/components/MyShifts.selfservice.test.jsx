@@ -1,41 +1,47 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Shifts > My Shifts self-service (Sep 29; was My Workday > Shifts): Swap / Offer on my own upcoming
-// placed shifts, the teammate's Accept / Decline, and requesting open shifts.
+// Shifts > My Shifts (Oct 2026; decluttered 10/02): one line that says the
+// week, my shared shifts as one-line blocks, time off BESIDE a shift (a
+// partial day with its hours), the group grid laid out like Teams Shifts
+// (a day list on a phone), a Request link under a shift that opens the one
+// request dialog, open shifts requestable only from today on, the zone chip
+// only in another zone, availability that never saves over a failed load,
+// and an error with Retry.
 
 const timeMySchedule = vi.fn();
 const shiftRequestsMine = vi.fn();
 const shiftRequestCreate = vi.fn();
-const shiftRequestRespond = vi.fn();
 const availabilityMine = vi.fn();
 const availabilitySave = vi.fn();
-vi.mock('./ShiftSchedule', () => ({ default: () => <div>Schedule grid</div> }));
 vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
     shiftRequestsMine: (...a) => shiftRequestsMine(...a),
     shiftRequestCreate: (...a) => shiftRequestCreate(...a),
-    shiftRequestRespond: (...a) => shiftRequestRespond(...a),
-    shiftRequestCancel: vi.fn(),
+    shiftRequestRespond: vi.fn(), shiftRequestCancel: vi.fn(),
     availabilityMine: (...a) => availabilityMine(...a),
     availabilitySave: (...a) => availabilitySave(...a),
+    getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'me@x.com', name: 'Me Here' }, { email: 'bob@x.com', name: 'Bob Brown' }]),
+    getRolesDirectory: vi.fn().mockResolvedValue([]),
   },
 }));
 
 const MyShifts = (await import('./MyShifts')).default;
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-// Today - always in the week on screen, and never in the past.
 const DAY = iso(new Date());
+const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return iso(d); };
+// A day in this week before today (the week's Monday if today is not Monday), else null.
+const monday = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); })();
+const PAST = monday < DAY ? monday : null;
 
 const sched = {
-  shift: null, timeoff: [], holidays: [],
-  scheduled: [{ id: 'mine1', email: 'me@x.com', date: DAY, start: '09:00', end: '17:00', label: 'Front desk', published: true }],
+  shift: null, timeoff: [], holidays: [], timeZone: 'America/Los_Angeles',
+  scheduled: [{ id: 'mine1', email: 'me@x.com', date: DAY, start: '09:00', end: '17:00', label: 'Front Desk', published: true }],
   teams: [{ id: 'g', name: 'Store', members: [
     { email: 'me@x.com', name: 'Me Here', isMe: true, scheduled: [], timeoff: [] },
-    { email: 'bob@x.com', name: 'Bob Brown', isMe: false, timeoff: [],
-      scheduled: [{ id: 'bob1', email: 'bob@x.com', date: DAY, start: '12:00', end: '20:00', label: '' }] },
+    { email: 'bob@x.com', name: 'Bob Brown', isMe: false, timeoff: [], scheduled: [{ id: 'bob1', email: 'bob@x.com', date: DAY, start: '12:00', end: '20:00', label: '' }] },
   ] }],
 };
 const reqs = (over = {}) => ({
@@ -48,12 +54,175 @@ beforeEach(() => {
   timeMySchedule.mockReset().mockResolvedValue(sched);
   shiftRequestsMine.mockReset().mockResolvedValue(reqs());
   shiftRequestCreate.mockReset().mockResolvedValue({});
-  shiftRequestRespond.mockReset().mockResolvedValue({});
   availabilityMine.mockReset().mockResolvedValue({ days: [] });
-  availabilitySave.mockReset().mockImplementation(async (b) => ({ days: b.days.filter(d => d.kind !== 'any') }));
+  availabilitySave.mockReset().mockImplementation(async (b) => ({ days: b.days.filter((d) => d.kind !== 'any') }));
 });
 
-describe('MyShifts availability and group scheduling', () => {
+describe('MyShifts week and group grid', () => {
+  it('lays the group out like Teams Shifts: photos, hours, colored blocks, month in the day header', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, dayNotes: [{ date: DAY, note: 'Inventory day' }],
+      teams: [{ id: 'g', name: 'Store', members: [
+        { ...sched.teams[0].members[0], photoUrl: 'https://x.test/me.jpg',
+          scheduled: [{ id: 'mine1', email: 'me@x.com', date: DAY, start: '09:00', end: '17:00', breakMin: 30, code: 'GST', label: 'Front Desk', color: '#2563eb',
+            activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] }] },
+        sched.teams[0].members[1],
+      ] }] });
+    render(<MyShifts />);
+    const me = (await screen.findByText('Me Here')).closest('[data-member]');
+    expect(me.querySelector('img').getAttribute('src')).toBe('https://x.test/me.jpg');
+    const bob = screen.getByText('Bob Brown').closest('[data-member]');
+    expect(bob.querySelector('img')).toBeNull();
+    expect(bob.textContent).toContain('BB');
+    expect(me.textContent).toContain('7.5 Hrs');
+    expect(bob.textContent).toContain('8 Hrs');
+    const block = me.querySelector('[data-shift="mine1"]');
+    expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
+    expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
+    expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
+    expect(block.style.borderLeft).toContain('3px solid');
+    const grid = screen.getByRole('table', { name: 'Store schedule' });
+    expect(grid.textContent).toContain('Week · 15.5 Hrs');
+    expect(grid.textContent).not.toContain('Times in');
+    expect(screen.getAllByText(/^Times in /)).toHaveLength(1);           // said once, under the grid
+    expect(grid.textContent).toContain('Day Notes');
+    expect(grid.textContent).toContain('Inventory day');
+    expect(grid.textContent).not.toContain('Open Shifts');              // only when there are open shifts
+    expect(grid.querySelector('[data-team]')).toBeNull();                 // one team: no group header row (the heading names it)
+    // The same one-grid engine as the manager's Schedule: me marked with a bar and "You", no row tint.
+    expect(grid.querySelectorAll('[data-week-grid]')).toHaveLength(1);
+    const mePerson = me.querySelector('[data-person]');
+    expect(mePerson.textContent).toContain('You');
+    expect(mePerson.style.boxShadow).toContain('inset 3px 0 0');
+    me.querySelectorAll('[data-cell]').forEach((c) => expect(c.style.gridRow).toBe(mePerson.style.gridRow));
+    const header = within(grid).getAllByRole('columnheader')[0];
+    expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once
+  });
+
+  it('says the week in one line, and nothing repeats the date range', async () => {
+    render(<MyShifts />);
+    const line = await screen.findByRole('status', { name: 'Week summary' });
+    expect(line.textContent).toMatch(/^This week: 1 shift · 8 Hrs · no time off · (on shift now until 5:00p|next shift today 9:00a - 5:00p|next shift none)$/);
+    expect(document.querySelectorAll('[data-range-title]')).toHaveLength(1);   // the decorated date, once
+    expect(document.querySelector('.date-block').getAttribute('title')).toMatch(new RegExp(`^${monday.slice(5, 7)}/${monday.slice(8, 10)}/${monday.slice(0, 4)} - `));
+    expect(screen.queryByText('NEXT SHIFT')).toBeNull();
+  });
+
+  it('on a phone, lays the group out as a day list with a day strip', async () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+      matches: /max-width/.test(q), media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+    }));
+    try {
+      render(<MyShifts />);
+      const grid = await screen.findByRole('table', { name: 'Store schedule' });
+      expect(within(grid).queryByRole('columnheader')).toBeNull();
+      const strip = screen.getByRole('tablist', { name: 'Day' });
+      expect(within(strip).getAllByRole('tab')).toHaveLength(7);
+      expect(within(strip).getByRole('tab', { selected: true }).getAttribute('aria-label')).toContain(`${DAY.slice(5, 7)}/${DAY.slice(8, 10)}/${DAY.slice(0, 4)}`);
+      expect(grid.querySelector('[data-member="bob@x.com"] [data-shift="bob1"]')).toBeTruthy();
+    } finally { mm.mockRestore(); }
+  });
+
+  it('keeps a shift beside a partial day of time off, with its hours (QA 19 / 20)', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched,
+      timeoff: [{ id: 'to1', startDate: DAY, endDate: DAY, startTime: '14:00', endTime: '16:00', allDay: false, type: 'personal', status: 'approved', note: 'Dentist' }],
+      teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0],
+        { ...sched.teams[0].members[1], timeoff: [{ id: 'to2', startDate: DAY, endDate: DAY, startTime: '14:00', endTime: '16:00', allDay: false, type: 'personal', status: 'approved' }] }] }] });
+    render(<MyShifts />);
+    const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
+    expect(bob.querySelector('[data-shift="bob1"]')).toBeTruthy();          // the shift is still there
+    expect(bob.querySelector('[data-timeoff="to2"]').textContent).toBe('2:00p - 4:00p Personal');
+    expect(bob.textContent).toContain('8 Hrs');                              // and still counts
+    // My own day card shows both too, and my hours are not dropped.
+    expect(document.querySelector('[data-timeoff="to1"]').textContent).toContain('Personal');
+    expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);
+  });
+
+  it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, shift: { id: 'p', name: 'Day Shift', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' },
+      teams: [{ ...sched.teams[0], members: [{ ...sched.teams[0].members[0], shift: { id: 'p', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' } }, sched.teams[0].members[1]] }] });
+    render(<MyShifts />);
+    await screen.findAllByText('Usual Hours');
+    expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
+    expect(screen.queryByText('Off')).toBeNull();
+    expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
+    // In the group grid, usual hours are one line under the name - the cells stay empty.
+    const me = screen.getByText('Me Here').closest('[data-member]');
+    expect(me.querySelector('[data-person]').textContent).toContain('Usual 8:30a - 5:30p');
+    me.querySelectorAll('[data-cell]').forEach((c) => expect(c.textContent).toBe(''));
+  });
+
+  it('draws a teammate\'s days off as one spanning pill in the group grid', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, teams: [{ ...sched.teams[0], members: [sched.teams[0].members[0],
+      { ...sched.teams[0].members[1], scheduled: [], timeoff: [{ id: 'vac', startDate: monday, endDate: plus(30), type: 'vacation', status: 'pending' }] }] }] });
+    render(<MyShifts />);
+    const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
+    const pills = bob.querySelectorAll('[data-timeoff="vac"]');
+    expect(pills).toHaveLength(1);
+    expect(pills[0].style.gridColumn).toBe('2 / span 7');
+    expect(pills[0].style.border).toContain('dashed');                  // requested
+    expect(within(pills[0]).getByLabelText('Continues next week')).toBeTruthy();
+  });
+
+  it('marks a shift kept in another zone', async () => {
+    timeMySchedule.mockResolvedValue({ ...sched, scheduled: [{ ...sched.scheduled[0], timeZone: 'Asia/Kolkata' }] });
+    render(<MyShifts />);
+    const block = await waitFor(() => { const el = document.querySelector('[data-shift="mine1"]'); expect(el).toBeTruthy(); return el; });
+    expect(block.getAttribute('title')).toContain('Times in');
+    expect(block.textContent).toMatch(/IST|GMT\+5:30/);
+  });
+
+  it('shows an error with Retry when the week cannot load', async () => {
+    timeMySchedule.mockRejectedValueOnce(new Error('API error 500')).mockResolvedValue(sched);
+    render(<MyShifts />);
+    expect(await screen.findByText('Your shifts could not be loaded right now.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Front Desk')).toBeTruthy();
+  });
+});
+
+describe('MyShifts requests', () => {
+  it('opens the request dialog from a shift with it filled in, and sends a swap', async () => {
+    render(<MyShifts />);
+    fireEvent.click(await screen.findByRole('button', { name: /Request a swap or offer/ }));
+    const dialog = screen.getByRole('dialog', { name: 'New Request' });
+    expect(within(dialog).getByLabelText('Your shift').value).toBe('mine1');
+    fireEvent.change(within(dialog).getByLabelText('Teammate'), { target: { value: 'bob@x.com' } });
+    fireEvent.change(within(dialog).getByLabelText('Their shift'), { target: { value: 'bob1' } });
+    fireEvent.click(screen.getByText('Send Swap Request'));
+    await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'swap', shift_id: 'mine1', target_email: 'bob@x.com', target_shift_id: 'bob1', note: '' }));
+    expect(await screen.findByText('Swap request sent to Bob Brown.')).toBeTruthy();
+  });
+
+  it('hides Request while a request is pending, and when swaps and offers are off', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ mine: [{ id: 'r', kind: 'offer', status: 'pending_peer', shift: { id: 'mine1', date: DAY, start: '09:00', end: '17:00' }, target: { email: 'bob@x.com', name: 'Bob Brown' } }] }));
+    const { unmount } = render(<MyShifts />);
+    expect(await screen.findByText('Request Pending')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
+    unmount();
+    shiftRequestsMine.mockResolvedValue(reqs({ settings: { openShifts: true, swaps: false, offers: false } }));
+    render(<MyShifts />);
+    await screen.findByText('Me Here');
+    expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
+  });
+
+  it('requests an open shift from the Open Shifts row, but not on a past day', async () => {
+    const open = [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }];
+    if (PAST) open.push({ id: 'open0', date: PAST, start: '06:00', end: '14:00', label: 'Gone', openSlots: 1 });
+    shiftRequestsMine.mockResolvedValue(reqs({ openShifts: open }));
+    render(<MyShifts />);
+    await screen.findByText('Me Here');
+    const block = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
+    expect(block.closest('[data-member]').getAttribute('data-member')).toBe('open');
+    expect(block.textContent).toContain('Early');
+    expect(block.textContent).toContain('×2');
+    expect(screen.getAllByRole('button', { name: /Request the open shift/ })).toHaveLength(1);   // none on the past day
+    fireEvent.click(screen.getByRole('button', { name: `Request the open shift on ${DAY}` }));
+    await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));
+    expect(await screen.findByText('Request sent. A manager will approve it.')).toBeTruthy();
+  });
+});
+
+describe('MyShifts availability', () => {
   it('sets my availability for the week', async () => {
     render(<MyShifts />);
     fireEvent.click(await screen.findByText('Edit Availability'));
@@ -68,185 +237,14 @@ describe('MyShifts availability and group scheduling', () => {
     expect(await screen.findByText('9:00 AM - 12:00 PM')).toBeTruthy();
   });
 
-  it('never offers editing - managing lives in the Shifts module now', async () => {
-    // Even for someone who schedules a group (Sep 29: Manage is the module's,
-    // managers and above only; My Shifts is read-only for everyone).
-    timeMySchedule.mockResolvedValue({ ...sched, schedulerOf: [{ id: 'g', name: 'Store' }] });
+  it('never lets Save write over availability it could not load (QA 22)', async () => {
+    availabilityMine.mockRejectedValueOnce(new Error('API error 500')).mockResolvedValue({ days: [{ weekday: 0, kind: 'unavailable' }] });
     render(<MyShifts />);
-    await screen.findByText('Front desk');
-    expect(screen.queryByText('Manage Schedule')).toBeNull();
-    expect(screen.queryByText('Schedule grid')).toBeNull();
-  });
-
-  it('pins me first in Team Shifts and marks my row', async () => {
-    render(<MyShifts />);
-    const mine = await screen.findByText('Me Here');
-    const row = mine.closest('[data-member]');
-    expect(row.getAttribute('aria-current')).toBe('true');
-    expect(row.textContent).toContain('YOU');
-    const rows = [...document.querySelectorAll('[data-member]')].filter(r => r.getAttribute('data-member') !== 'open');
-    expect(rows[0]).toBe(row);                                   // first, above Bob
-    expect(rows[1].textContent).toContain('Bob Brown');
-    expect(rows[1].getAttribute('aria-current')).toBeNull();
-  });
-
-  it('shows a company holiday, and never crashes on the older {date: {name}} shape', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, holidays: [{ date: DAY, name: 'Founders Day', type: 'mandatory' }] });
-    const { unmount } = render(<MyShifts />);
-    expect((await screen.findAllByText(/Founders Day/)).length).toBeGreaterThan(0);
-    unmount();
-    timeMySchedule.mockResolvedValue({ ...sched, holidays: { [DAY]: { name: 'Founders Day', type: 'mandatory' } } });
-    render(<MyShifts />);
-    expect((await screen.findAllByText(/Founders Day/)).length).toBeGreaterThan(0);
-  });
-
-  it('lays the team out like Teams Shifts: photos, hours, colored blocks', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, dayNotes: [{ date: DAY, note: 'Inventory day' }],
-      teams: [{ id: 'g', name: 'Store', members: [
-        { ...sched.teams[0].members[0], photoUrl: 'https://x.test/me.jpg',
-          scheduled: [{ id: 'mine1', email: 'me@x.com', date: DAY, start: '09:00', end: '17:00', breakMin: 30, code: 'GST', label: 'Front desk', color: '#2563eb' }] },
-        sched.teams[0].members[1],
-      ] }] });
-    render(<MyShifts />);
-    const me = (await screen.findByText('Me Here')).closest('[data-member]');
-    expect(me.querySelector('img').getAttribute('src')).toBe('https://x.test/me.jpg');     // a photo
-    const bob = screen.getByText('Bob Brown').closest('[data-member]');
-    expect(bob.querySelector('img')).toBeNull();                                           // initials when there is none
-    expect(bob.textContent).toContain('BB');
-    expect(me.textContent).toContain('7.5 Hrs');                                           // my paid hours this week
-    expect(bob.textContent).toContain('8 Hrs');
-    const block = me.querySelector('[data-shift="mine1"]');
-    expect(block.textContent).toContain('GST');
-    expect(block.textContent).toContain('9 AM - 5 PM');
-    expect(block.style.borderLeft).toContain('4px solid');
-    const grid = screen.getByRole('table', { name: 'Store schedule' });
-    expect(grid.textContent).toContain('Week: 15.5 Hrs');
-    expect(grid.textContent).toContain('Day Notes');
-    expect(grid.textContent).toContain('Inventory day');
-    expect(grid.textContent).toContain('Open Shifts');
-  });
-
-  it('sums my week at a glance in paid hours', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched,
-      scheduled: [{ ...sched.scheduled[0], breakMin: 30 }] });  // 9-5 with a 30 min break
-    render(<MyShifts />);
-    expect(await screen.findByText('7.5 hrs')).toBeTruthy();
-    expect(screen.getByText(/1 shift · paid time/)).toBeTruthy();
-  });
-});
-
-describe('MyShifts shows only what is published (Sep 29 audit)', () => {
-  const preset = { id: 'p', name: 'Day Shift', code: 'DAY', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7', breakMin: 0, color: '#2563eb' };
-
-  it('shows the default preset as usual hours, never as a shift', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, shift: preset });
-    render(<MyShifts />);
-    await screen.findByText('Front desk');
-    // Six days have nothing published: usual hours, not shifts.
-    expect(screen.getAllByText('Usual hours')).toHaveLength(6);
-    expect(screen.getAllByText('8:30 AM - 5:30 PM')).toHaveLength(6);
-    // The week is the one published shift - the usual hours add nothing.
-    expect(screen.getByText('8 hrs')).toBeTruthy();
-    expect(screen.getByText(/1 shift · paid time/)).toBeTruthy();
-    expect(screen.getByText(/Usual hours are your regular schedule/)).toBeTruthy();
-  });
-
-  it('says nothing is published when there are only usual hours', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, shift: preset, scheduled: [] });
-    render(<MyShifts />);
-    expect(await screen.findByText('None this week')).toBeTruthy();
-    expect(screen.getByText('0 hrs')).toBeTruthy();
-    expect(screen.getAllByText('Usual hours')).toHaveLength(7);
-    expect(screen.queryByText('Swap')).toBeNull();   // nothing to swap: usual hours are not a shift
-  });
-
-  it('shows a teammate the reason and details the settings share', async () => {
-    const team = (bob) => ({ ...sched, teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0], { ...sched.teams[0].members[1], ...bob }] }] });
-    timeMySchedule.mockResolvedValue(team({ scheduled: [], timeoff: [{ startDate: DAY, endDate: DAY, type: 'vacation', note: 'Back Monday' }] }));
-    const { unmount } = render(<MyShifts />);
-    const reason = await screen.findByText('Vacation');
-    expect(reason.closest('[title]').getAttribute('title')).toBe('Back Monday');
-    unmount();
-    // Withheld by the settings (or confidential): plain "Time off".
-    timeMySchedule.mockResolvedValue(team({ scheduled: [], timeoff: [{ startDate: DAY, endDate: DAY }] }));
-    render(<MyShifts />);
-    const row = (await screen.findByText('Bob Brown')).closest('[data-member]');
-    expect(row.textContent).toContain('Time off');
-    expect(row.textContent).not.toContain('Vacation');
-  });
-
-  it('shows the note on a teammate shift when it is shared', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0],
-      { ...sched.teams[0].members[1], scheduled: [{ ...sched.teams[0].members[1].scheduled[0], note: 'Bring keys', breakMin: 30 }] }] }] });
-    render(<MyShifts />);
-    const row = (await screen.findByText('Bob Brown')).closest('[data-member]');
-    expect(row.textContent).toContain('Bring keys +1');
-  });
-});
-
-describe('MyShifts self-service', () => {
-  it('offers my upcoming shift to a teammate', async () => {
-    render(<MyShifts />);
-    fireEvent.click(await screen.findByText('Offer'));
-    const dialog = screen.getByRole('dialog', { name: 'Offer Shift' });
-    fireEvent.change(dialog.querySelector('select'), { target: { value: 'bob@x.com' } });
-    fireEvent.click(screen.getByText('Send Offer'));
-    await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith(
-      { kind: 'offer', shift_id: 'mine1', target_email: 'bob@x.com', target_shift_id: '', note: '' }));
-    expect(await screen.findByText('Shift offered to Bob Brown.')).toBeTruthy();
-  });
-
-  it('swaps for one of a teammate’s shifts', async () => {
-    render(<MyShifts />);
-    fireEvent.click(await screen.findByText('Swap'));
-    const dialog = screen.getByRole('dialog', { name: 'Swap Shift' });
-    fireEvent.change(dialog.querySelector('select'), { target: { value: 'bob@x.com' } });
-    fireEvent.change(dialog.querySelectorAll('select')[1], { target: { value: 'bob1' } });
-    fireEvent.click(screen.getByText('Send Swap Request'));
-    await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'swap', shift_id: 'mine1', target_email: 'bob@x.com', target_shift_id: 'bob1' })));
-  });
-
-  it('hides Swap and Offer while a request is pending, and when turned off', async () => {
-    shiftRequestsMine.mockResolvedValue(reqs({ mine: [{ id: 'r', kind: 'offer', status: 'pending_peer',
-      shift: { id: 'mine1', date: DAY, start: '09:00', end: '17:00' }, target: { email: 'bob@x.com', name: 'Bob Brown' } }] }));
-    const { unmount } = render(<MyShifts />);
-    expect(await screen.findByText('Request pending')).toBeTruthy();
-    expect(screen.getByText(/^You offered .* to Bob Brown$/)).toBeTruthy();
-    unmount();
-    shiftRequestsMine.mockResolvedValue(reqs({ settings: { openShifts: true, swaps: false, offers: false } }));
-    render(<MyShifts />);
-    await screen.findByText('Front desk');
-    expect(screen.queryByText('Swap')).toBeNull();
-    expect(screen.queryByText('Offer')).toBeNull();
-  });
-
-  it('accepts a request a teammate sent me', async () => {
-    shiftRequestsMine.mockResolvedValue(reqs({ incoming: [{ id: 'in1', kind: 'offer', status: 'pending_peer',
-      summary: 'Bob Brown offered 10/05/2026 12:00 PM - 8:00 PM to Me Here', shift: { id: 'bob1', date: DAY, start: '12:00', end: '20:00' } }] }));
-    render(<MyShifts />);
-    fireEvent.click(await screen.findByText('Accept'));
-    await waitFor(() => expect(shiftRequestRespond).toHaveBeenCalledWith('in1', { accept: true }));
-    expect(await screen.findByText('Accepted. A manager will approve it next.')).toBeTruthy();
-  });
-
-  it('requests an open shift from the Open Shifts row', async () => {
-    shiftRequestsMine.mockResolvedValue(reqs({ openShifts: [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }] }));
-    render(<MyShifts />);
-    await screen.findByText('Me Here');
-    const open = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
-    expect(open.closest('[data-member]').getAttribute('data-member')).toBe('open');
-    expect(open.textContent).toContain('Early');
-    expect(open.textContent).toContain('2 spots');
-    fireEvent.click(screen.getByText('Request'));
-    await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));
-    expect(await screen.findByText('Request sent. A manager will approve it.')).toBeTruthy();
-  });
-
-  it('still lists open shifts for someone with no team', async () => {
-    timeMySchedule.mockResolvedValue({ ...sched, teams: [] });
-    shiftRequestsMine.mockResolvedValue(reqs({ teammates: [], openShifts: [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }] }));
-    render(<MyShifts />);
-    expect(await screen.findByText('Early · 2 spots open')).toBeTruthy();
+    expect(await screen.findByText('Your availability could not be loaded right now.')).toBeTruthy();
+    expect(screen.queryByText('Edit Availability')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Unavailable')).toBeTruthy();
+    expect(screen.getByText('Edit Availability')).toBeTruthy();
+    expect(availabilitySave).not.toHaveBeenCalled();
   });
 });

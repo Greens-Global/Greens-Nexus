@@ -16,13 +16,15 @@ afterEach(() => { vi.clearAllMocks(); vi.useRealTimers(); });
 
 describe('WorkSiteLinkPanel', () => {
   it('reads a pasted link at once and hands back the exact point', async () => {
-    api.resolveWorkSiteLink.mockResolvedValue({ lat: 38.3733338, lng: -122.916713, precision: 'place', label: '469 Bohemian Hwy' });
+    api.resolveWorkSiteLink.mockResolvedValue({ lat: 38.3733338, lng: -122.916713, precision: 'place', label: '469 Bohemian Hwy',
+      address: '469 Bohemian Hwy, Sebastopol, CA 95472', placeName: '' });
     const onResolved = vi.fn();
     render(<WorkSiteLinkPanel link="" point={null} savedPoint={null} onResolved={onResolved} />);
     fireEvent.paste(screen.getByLabelText('Google Maps link or coordinates'), { clipboardData: { getData: () => LINK } });
     await waitFor(() => expect(onResolved).toHaveBeenCalled());
     expect(api.resolveWorkSiteLink).toHaveBeenCalledWith(LINK);
-    expect(onResolved.mock.calls[0][0]).toEqual({ link: LINK, point: { lat: 38.3733338, lng: -122.916713, precision: 'place', label: '469 Bohemian Hwy' } });
+    expect(onResolved.mock.calls[0][0]).toEqual({ link: LINK, point: { lat: 38.3733338, lng: -122.916713, precision: 'place', label: '469 Bohemian Hwy',
+      address: '469 Bohemian Hwy, Sebastopol, CA 95472', placeName: '' } });
   });
 
   it('shows why a link could not be used', async () => {
@@ -45,7 +47,7 @@ describe('WorkSiteLinkPanel', () => {
   it('calls out a big move from where the site is saved', () => {
     render(<WorkSiteLinkPanel link={LINK} point={{ lat: 38.3733, lng: -122.9167, precision: 'place', label: '' }}
       savedPoint={[33.5186, -117.155]} onResolved={vi.fn()} />);
-    expect(screen.getByTestId('link-result')).toHaveTextContent(/moves the site \d[\d.]* km from where it is saved now/);
+    expect(screen.getByTestId('link-result')).toHaveTextContent(/moves the location \d[\d.,]* (mi|ft) from where it is saved now/);
     expect(screen.getByTestId('link-result')).toHaveTextContent('Make sure it is the right building');
   });
 });

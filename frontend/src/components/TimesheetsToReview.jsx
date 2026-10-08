@@ -70,8 +70,12 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                 {r.note && <div style={{ fontSize: 12, marginTop: 2 }}>"{r.note}"</div>}
                 {r.agreeBlocker && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.agreeBlocker}</div>}
               </div>
-              <button type="button" className="secondary-btn" onClick={() => onOpen(r)}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Review <ChevronRight size={13} /></button>
+              {/* Review opens the full timecard in People > Time - offered only
+                  where the caller can open it (no onOpen = no button, Oct 1). */}
+              {onOpen && (
+                <button type="button" className="secondary-btn" onClick={() => onOpen(r)}
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Review <ChevronRight size={13} /></button>
+              )}
               <button type="button" className="secondary-btn" disabled={busyId === r.id}
                 onClick={() => { setBackFor(backFor === r.id ? '' : r.id); setNote(''); }}
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Undo2 size={13} /> Send Back</button>

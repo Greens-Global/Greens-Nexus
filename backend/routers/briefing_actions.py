@@ -225,7 +225,7 @@ def _action_page_submit_sync(request: Request, token: str, note: str = "") -> HT
                                        action=info["action"], note=note)
         except HTTPException as e:
             return _page("Could Not Save", f"<p style='color:#b91c1c'>{escape(str(e.detail))}</p>")
-        resp = _page("Done", f"<p style='font-size:15px;font-weight:600;color:#15803d'>"
+        resp = _page("Done", f"<p style='font-size:15px;font-weight:600;color:#248f4b'>"
                      f"{escape(subject)} {escape(status)}.</p>"
                      "<p style='font-size:13px;color:#6b7280'>You can close this page.</p>")
         resp.background = bt

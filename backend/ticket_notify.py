@@ -398,6 +398,30 @@ def _duration(start_iso: str, end_iso: str) -> str:
 
 # ── Main entry point - called from routers/tickets.py via BackgroundTasks ──
 
+def requester_hears(event_type: str, actor_email: str, requester_email: str, kw: dict | None = None) -> bool:
+    """Whether the requester gets an email for this event (Neil, Oct 1 2026 -
+    the same policy as their Teams messages, after a requester was messaged
+    every time an agent touched her ticket):
+
+    - created:  yes, always - the "we received your ticket" receipt, even
+                when they raised it themselves.
+    - anything they caused themselves: no (replying, reopening, confirming,
+                or resolving their own ticket - the desk and the assignee
+                still hear about it).
+    - assigned, resolved: yes.
+    - updated, reopened: only when the save carried a public reply
+                (`latest_comment`) - a status move, priority or field edit
+                alone is not mailed.
+    Other events (approval_required, escalated) never list the requester."""
+    if event_type == "created":
+        return True
+    if (actor_email or "").strip().lower() == (requester_email or "").strip().lower():
+        return False
+    if event_type in ("updated", "reopened"):
+        return bool((kw or {}).get("latest_comment"))
+    return True
+
+
 def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw) -> None:
     """event_type ∈ created|assigned|updated|resolved|reopened|approval_required|escalated.
     kw: prev_status, update_kind, latest_comment, reopen_reason (all optional,
@@ -413,10 +437,12 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
         cfg = get_settings(db)
         if not cfg["enabledEvents"].get(event_type, True):
             return
-        if event_type == "updated" and t.status in ("resolved", "closed"):
-            return   # spec: update emails stop once the ticket is resolved
+        if event_type == "updated" and t.status in ("resolved", "closed") and not kw.get("latest_comment"):
+            return   # spec: update emails stop once the ticket is resolved - a reply still goes
 
         recipients = _recipients_for(db, t, event_type, cfg)
+        if not requester_hears(event_type, actor_email, t.requester_email or "", kw):
+            recipients = [(e, r) for e, r in recipients if r != "requester"]
         # only_roles: caller wants a subset (e.g. decide_approval re-queues
         # "created" for just the IT Admins after releasing the approval gate,
         # without re-emailing the requester their submission receipt).
@@ -479,6 +505,72 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
         db.close()
 
 
+def _walkthrough_recipients(db: Session, b, tickets: list, cfg: dict, actor: str) -> list:
+    """[(email, role)] for a Property Walkthrough's ONE email each. First role
+    wins, so someone who is both the requester and an agent hears once."""
+    out: dict = {}
+    actor = (actor or "").strip().lower()
+
+    def add(email: str, role: str):
+        email = (email or "").strip().lower()
+        if email and email != actor and email not in out and _is_sendable(db, email):
+            out[email] = role
+
+    add(b.requester_email, "requester")              # the receipt - "created" always sends one
+    for t in tickets:
+        add(t.assignee_email, "assignee")
+    add(b.asset_manager_email, "asset_manager")
+    if any(not t.assignee_email or (t.approval_status or "none") == "pending" for t in tickets):
+        for e in _agent_recipients(db, cfg, b.company_id):
+            add(e, "it_admin")
+    return list(out.items())
+
+
+def _walkthrough_mail(db: Session, b, tickets: list, role: str, recipient: str, cfg: dict) -> tuple:
+    mine = ([t for t in tickets if (t.assignee_email or "").lower() == recipient]
+            if role == "assignee" else tickets)
+    rows = [{"id": t.id, "code": t.code, "subject": t.subject, "category": t.application or "",
+             "priority": t.priority or "medium", "location": (t.type_fields or {}).get("svc_unit") or "",
+             "pending": (t.approval_status or "none") == "pending"} for t in mine]
+    return tmpl.walkthrough_email(property_name=b.property_name, property_id=b.property_asset_id,
+                                  actor_name=_name_of(db, b.created_by_email), rows=rows, audience=role,
+                                  base_url=app_url(), logo_url=cfg.get("logoUrl") or "")
+
+
+def notify_walkthrough(batch_id: str, actor_email: str) -> None:
+    """ONE email per person for a whole Property Walkthrough (never one per
+    line - CLAUDE.md). Background task, own session, never raises - same
+    contract as notify_ticket_event. Logged on the first ticket with event
+    "walkthrough" and version 1, so _send_one's idempotency key makes a
+    replayed submit a no-op."""
+    db = SessionLocal()
+    try:
+        b = db.get(models.TicketBatch, batch_id)
+        if b is None or not b.ticket_ids:
+            return
+        cfg = get_settings(db)
+        if not cfg["enabledEvents"].get("created", True):
+            return
+        tickets = (db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(b.ticket_ids))
+                   .order_by(models.TaskTicket.code).all())
+        if not tickets:
+            return
+        for recipient, role in _walkthrough_recipients(db, b, tickets, cfg, actor_email):
+            subject, html = _walkthrough_mail(db, b, tickets, role, recipient, cfg)
+            _send_one(db, t=tickets[0], event_type="walkthrough", event_version=1,
+                      recipient=recipient, role=role, subject=subject, html=html, cfg=cfg)
+    except Exception as e:
+        try:
+            log_activity(db, type="notify_error", actor_email="system", entity_kind="ticket",
+                         entity_id="", entity_code="", entity_title="",
+                         detail=f"Walkthrough notification error ({batch_id}): {e}")
+            db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
 # ── Background loops (main.py starts these the same way it starts
 #    reminders.reminders_loop - a bare asyncio loop; no task-queue library
 #    exists in this codebase to hook into instead) ───────────────────────────
@@ -515,7 +607,15 @@ def _retry_failed_once(db: Session) -> None:
         # if something changed in the intervening minutes.
         ctx = _ticket_context(db, t, row.recipient)
         try:
-            subject, html = _rebuild_email(row.event_type, ctx, row.recipient_role, cfg)
+            b = (db.get(models.TicketBatch, t.batch_id)
+                 if row.event_type == "walkthrough" and t.batch_id else None)
+            if b is not None:
+                # Rebuilt from the batch - not a generic "Ticket updated" about its first ticket.
+                tickets = (db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(b.ticket_ids or []))
+                           .order_by(models.TaskTicket.code).all()) or [t]
+                subject, html = _walkthrough_mail(db, b, tickets, row.recipient_role, row.recipient, cfg)
+            else:
+                subject, html = _rebuild_email(row.event_type, ctx, row.recipient_role, cfg)
             result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
                                            subject=row.subject or subject, html=html, reply_to=cfg.get("replyTo") or "")
             row.status = "sent"

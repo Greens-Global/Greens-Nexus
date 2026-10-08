@@ -35,6 +35,7 @@ import models
 from database import SessionLocal
 from services import egnyte as egnyte_svc
 from services import construction_storage as storage
+from routers.files import fetchable_url
 
 # Distinct from asana_sync's 728100177 - see note 1 above.
 _CONSTRUCTION_SWEEP_LOCK_KEY = 815224906
@@ -102,7 +103,7 @@ def _file_one(db, media) -> None:
     # The bytes live in Supabase. Pull them back rather than asking the phone to
     # upload twice - the worker has bandwidth, the jobsite does not.
     with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as c:
-        resp = c.get(media.url)
+        resp = c.get(fetchable_url(media.url))   # private bucket: signed URL
         resp.raise_for_status()
         raw = resp.content
     if not raw:
@@ -189,7 +190,7 @@ def _derive_thumbnail(db, media) -> None:
     if storage.is_inline(media.url):
         return
     with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as c:
-        resp = c.get(media.url)
+        resp = c.get(fetchable_url(media.url))   # private bucket: signed URL
         resp.raise_for_status()
         raw = resp.content
 
@@ -292,8 +293,11 @@ def _run_ai_job(db, job) -> None:
                 raw = base64.b64decode((m.url.split(",", 1) + [""])[1])
             except Exception as e:
                 raise ValueError(f"inline media is not decodable base64: {e}")
+        # The model fetches the URL itself, so it gets a signed one: the
+        # bucket is private and the canonical URL answers it with an error.
         out = construction_ai.caption_photo(
-            url=m.url, mime_type=m.mime_type or "", raw=raw,
+            url=m.url if raw is not None else fetchable_url(m.url or ""),
+            mime_type=m.mime_type or "", raw=raw,
             worker_note=m.description or "")
         m.ai_caption = (out.get("caption") or "")[:500]
         m.ai_tags = out.get("tags") or []

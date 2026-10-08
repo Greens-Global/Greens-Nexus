@@ -78,10 +78,13 @@ def get_my_role(
     # hr_scope: the caller's own company-scoped People access (Neil, Aug 25) -
     # a list of HrEntity ids, or null when unrestricted. The frontend hides
     # company-wide actions (M365 sync, Company setup) and shows a scope chip.
-    from auth import hr_scope
+    # hr_team (Oct 6): the manager tier sees their own team in People - People
+    # and Time only, five read-only profile tabs, no pay. hr_scope is then [].
+    from auth import hr_scope, is_team_scope
     scope = hr_scope(user, db)
     return {"email": user["email"], "role": role, "is_external": False,
-            "hr_scope": sorted(scope) if scope is not None else None}
+            "hr_scope": sorted(scope) if scope is not None else None,
+            "hr_team": is_team_scope(scope)}
 
 
 @router.get("")

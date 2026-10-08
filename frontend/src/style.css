@@ -1777,9 +1777,12 @@ mark.search-hit {
 
   /* Dialogs become BOTTOM SHEETS on phones â€” slide up from the bottom edge,
      full width, rounded top, scrollable. Every modal positions itself with
-     inline styles, so !important is required to win the cascade. */
-  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) { align-items: flex-end !important; padding: 0 !important; }
-  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div {
+     inline styles, so !important is required to win the cascade.
+     Skipped: .nx-sheet (tasks/components.jsx Modal and tasks/MobileTaskBar.jsx
+     BottomSheet put role="dialog" on a panel they already shape for phones)
+     and .guided-tour (a spotlight overlay, not a sheet). */
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu):not(.nx-sheet):not(.guided-tour) { align-items: flex-end !important; padding: 0 !important; }
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu):not(.nx-sheet):not(.guided-tour) > div {
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -1789,7 +1792,7 @@ mark.search-hit {
     animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
   }
   /* grab-bar affordance, like native sheets */
-  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div::before {
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu):not(.nx-sheet):not(.guided-tour) > div::before {
     content: '';
     display: block;
     width: 44px;
@@ -1866,8 +1869,25 @@ html { overflow-x: hidden; }
   .mobile-nav-item:active { background: var(--mist); transform: scale(0.94); }
   .mobile-nav-item.active { color: var(--ink); }
   .mobile-nav-item.active svg { color: hsl(var(--color-green)); }
-  /* content must never hide behind the bar */
-  .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* content must never hide behind the bar - reserved only when the bar is
+     actually there. MobileNav renders nothing on screens without bottom
+     actions (Tickets, Dashboard...), and the old unconditional padding left a
+     dead strip at the foot of those. The <nav> is an earlier sibling of
+     <main> in App.jsx's .app-container, so a sibling selector sees it.
+     A screen with a floating round + button (.fab - Purchase's request log)
+     keeps the room too, or its last rows end under the button. So does the
+     Time Clock capsule (.tc-capsule, components/TimeclockWidget.jsx: fixed
+     18px off the bottom-right corner while someone is clocked in), which
+     otherwise sits on the right end of the last row of Tickets, Support...
+     It renders outside .app-container (an earlier sibling in App.jsx), so
+     body:has() is what sees it. */
+  .mobile-nav ~ .main-content,
+  .main-content:has(.fab),
+  body:has(.tc-capsule) .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* A floating module bar with no nav under it (Tickets) sits at the screen
+     edge; with the capsule in the corner it lifts above it instead of
+     covering it (tasks/MobileTaskBar.jsx reads this). */
+  body:has(.tc-capsule) { --nx-float-lift: 56px; }
 }
 
 /* ── adidas-style mobile chrome ──────────────────────────────────────────────
@@ -2310,6 +2330,27 @@ html { overflow-x: hidden; }
   [style*="minmax(3"] { grid-template-columns: 1fr !important; }
 }
 
+/* ── Accounting figures (Charmi, 09/30: the numbers part of the typography
+   brief, for Accounting only) ───────────────────────────────────────────
+   Scoped to .acct-module, the Accounting view's root, so nothing outside
+   Accounting moves. Figures and words are Inter; digits are tabular so
+   100.00 sits over 79.98; a negative reads (27,680.64); and every amount
+   reserves an invisible closing-parenthesis slot (a pseudo-element - never
+   copied, never exported) so the parentheses stand outside the digit column
+   and the digits of positives, negatives, zero and the total line up.
+   Numeric column headers carry the same slot and sit right. Figures render
+   through <Amount /> (components/accounting/Amount.jsx), never per screen. */
+.acct-module { font-variant-numeric: tabular-nums; }
+.acct-module .num {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
+  white-space: nowrap;
+}
+.acct-module .num::after { content: ")"; visibility: hidden; }
+.acct-module .num.neg::after { content: none; }
+.acct-module td.acct-num, .acct-module th.acct-num { text-align: right; }
+.acct-module th.acct-num::after { content: ")"; visibility: hidden; }
+
 /* ── Accounting -> Reports: dense statement table (Neil, Sep 25) ─────────────
    Sized to its content like Intacct / the finance app, never cut: the wrapper
    scrolls sideways, the Account column is sticky, rows take --acct-row-py
@@ -2328,6 +2369,9 @@ html { overflow-x: hidden; }
 .acct-report td.acct-indent { padding-left: 30px; }
 .acct-report .acct-num { text-align: right; }
 .acct-report tbody tr:hover td { background: var(--bg-secondary); }
+/* An account number is the muted tone before the name on every accounting
+   screen - statements, lines, entries, packages, PFS, MRI (Charmi, 10/02). */
+.acct-code { color: var(--text-muted); margin-right: 8px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .acct-report .acct-code { color: var(--text-muted); margin-right: 8px; }
 .acct-report .acct-section td { background: var(--bg-secondary); font-weight: 700; cursor: pointer; }
 .acct-report .acct-section td.acct-label { padding-left: 6px; }
@@ -2340,6 +2384,16 @@ html { overflow-x: hidden; }
 .acct-report .acct-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; touch-action: none; }
 .acct-report .acct-resize:hover { background: var(--wk-brand, #2b45e1); opacity: .35; }
 .acct-report th.acct-head { overflow: visible; }
+/* The "contains" boxes under the headings, as on the lines grid (Charmi, 10/02). */
+.acct-report .acct-filter-row td { position: sticky; top: 29px; z-index: 2; padding: 3px 4px 4px; background: var(--bg-card); border-bottom: 1px solid var(--border-color); }
+.acct-report .acct-filter-row td.acct-head { left: 0; z-index: 4; }
+.acct-report .acct-filter-row input {
+  width: 100%; min-width: 70px; box-sizing: border-box; height: 24px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 6px;
+  font: inherit; font-size: 12px; font-weight: 400; background: var(--bg-card); color: var(--text-primary);
+}
+.acct-report .acct-filter-row input.acct-num { text-align: right; }
+.acct-report .acct-filter-row input::placeholder { color: var(--text-muted); opacity: .7; }
+.acct-report .acct-filter-row input:not(:placeholder-shown) { border-color: var(--wk-brand, #2b45e1); background: var(--wk-brand-tint, #e8ecfd); }
 
 /* ── Accounting -> ledger lines and the journal entry (Neil, Charmi, Sep 25) ──
    An Intacct-style list: fixed column widths the reader drags, a filter box
@@ -2965,8 +3019,13 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-card-grid { gap: 10px !important; }
 
   /* Page bodies across both modules (My Tasks, Projects, Portfolios, Teams,
-     Changelog, Tickets). */
-  .nx-gutter { padding: 8px 0 !important; }
+     Changelog, Tickets). Top and sides only: the bottom is the body's own
+     inline padding. My Tasks and Tickets set it to clear the floating bar
+     (MobileTaskBar) so the last rows can scroll out from under it, and the
+     old `padding: 8px 0 !important` flattened that to 8px and hid them.
+     The other bodies keep their inline bottom too (12-76px, a little more
+     room after the last card than the 8px they had). */
+  .nx-gutter { padding-top: 8px !important; padding-left: 0 !important; padding-right: 0 !important; }
 
   /* A full-width card has nothing to round against, so square the corners and
      drop the side borders - it reads as a native list rather than a card that
@@ -3079,6 +3138,11 @@ button, [role="button"], select { touch-action: manipulation; }
 /* Task description editor (tasks/RichDescription.jsx). Scoped to .nx-rich so it
    can't reach the Document Builder's own .doc-editor ProseMirror styles. */
 .nx-rich .ProseMirror { outline: none; font-size: 13.5px; line-height: 1.55; color: var(--ink, #111827); }
+/* Phones: 16px, or iOS zooms the page when the reply / description editor
+   takes focus. */
+@media (max-width: 640px) {
+  .nx-rich .ProseMirror { font-size: 16px; }
+}
 .nx-rich .ProseMirror > *:first-child { margin-top: 0; }
 .nx-rich .ProseMirror > *:last-child { margin-bottom: 0; }
 .nx-rich .ProseMirror p { margin: 0 0 8px; }
@@ -5044,3 +5108,228 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 }
 .deflect-head:hover { background: var(--mist); }
 .deflect-head:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+
+/* ── List-row hover (Neil, Oct 1 2026) ─────────────────────────────────────────
+   Hovering a row fills the WHOLE row with the brand tint so a line can be
+   followed across a wide monitor - the same highlight the Accounting ledger
+   and reports use (.acct-lines tbody tr:hover td). One class for every list:
+   the ticket list, Support's tickets, and the Task module's lists (Task List,
+   My Tasks, Projects, Portfolios, Teams, Templates). --wk-brand-tint is
+   theme-aware already (a translucent brand wash under [data-theme="dark"]).
+   `!important` because each row carries its own inline resting background
+   (zebra band / selected tint) that would otherwise win. A selected row keeps
+   reading as selected under the pointer - a deeper blue, not the plain tint.
+   Pointer devices only: a tap on a phone must not leave a row stuck lit. */
+.nx-row-hover { transition: background-color .08s ease; }
+@media (hover: hover) {
+  .nx-row-hover:hover { background: var(--wk-brand-tint, #e8ecfd) !important; }
+  .nx-row-hover[data-selected="true"]:hover { background: rgba(37, 99, 235, 0.18) !important; }
+  [data-theme="dark"] .nx-row-hover[data-selected="true"]:hover { background: rgba(96, 140, 255, 0.26) !important; }
+}
+.nx-row-hover:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+
+/* The ticket row's Mark Resolved check (the resolved gutter) - faint until the
+   row is hovered, green under the pointer, always reachable by keyboard. */
+.nx-row-resolve {
+  display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: none; border-radius: 50%; background: transparent; cursor: pointer;
+  color: var(--nx-faint); opacity: .45; transition: opacity .1s ease, color .1s ease, background-color .1s ease;
+}
+.nx-row-hover:hover .nx-row-resolve, .nx-row-resolve:focus-visible { opacity: 1; }
+.nx-row-resolve:hover, .nx-row-resolve:focus-visible { color: #16a34a; background: rgba(22, 163, 74, 0.14); }
+@media (hover: none) { .nx-row-resolve { opacity: 1; } }
+
+/* Latest Comment cell - a button inside a clickable row: its own hover so it
+   reads as "opens the conversation", not just "opens the ticket". */
+.nx-latest-comment:hover, .nx-latest-comment:focus-visible { background: var(--nx-hover) !important; }
+.nx-latest-comment:hover b { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Payroll timecard day rows (Charmi, Sep 30 - A8): zebra banding per date, a
+   brand-tinted hover, weekends keep their mist. The week-total band is its own
+   row (brand tint + brand text) and is not a .pr-day-row, so it stays distinct. */
+.pr-day-row.pr-band > td { background: color-mix(in srgb, var(--wk-hover) 60%, transparent); }
+.pr-day-row.pr-weekend > td { background: var(--mist); }
+@media (hover: hover) { .pr-day-row:hover > td { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); } }
+
+/* ── Accounting -> Reports, 10/02 (Charmi, Neil) ──────────────────────────
+   Flux Analysis: a line over the thresholds is tinted amber across the row
+   (the sticky Account cell too), and the Explanation cell is a button that
+   reads as text - muted while empty. Banding and the hover row (above)
+   apply to every report table, Trial Balance and General Ledger included. */
+.acct-report tbody tr.acct-flag td { background: color-mix(in srgb, #f59e0b 14%, var(--bg-card)); }
+.acct-report tbody tr.acct-flag:hover td { background: color-mix(in srgb, #f59e0b 24%, var(--bg-card)); }
+.acct-report .acct-note { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.acct-report .acct-note:hover { color: var(--wk-brand, #2b45e1); }
+.acct-report .acct-note-empty { color: var(--text-muted); font-style: italic; }
+
+/* ── Shifts motion (10/02) ─────────────────────────────────────────────────
+   One place for the schedule's motion: fast, purposeful, transform and
+   opacity only (never height/width/margin). The JS side (durations for
+   timers, the reduced-motion check) is components/shifts/motion.js.
+   prefers-reduced-motion turns every one of these off. */
+:root {
+  --m-fast: 120ms;     /* menus */
+  --m-base: 150ms;     /* team switch fade, row rise, number roll */
+  --m-pop: 160ms;      /* a new block pops in, a removed one shrinks out */
+  --m-slide: 180ms;    /* week change */
+  --m-panel: 200ms;    /* the editor panel */
+  --m-ease: cubic-bezier(.2, .8, .2, 1);
+  --m-stagger: 15ms;
+  --m-stagger-cap: 200ms;
+}
+@keyframes m-in-r   { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes m-in-l   { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes m-fade   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes m-rise   { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes m-pop    { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes m-leave  { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.94); } }
+@keyframes m-menu   { from { opacity: 0; transform: scale(.98) translateY(-2px); } to { opacity: 1; transform: none; } }
+@keyframes m-panel  { from { opacity: .4; transform: translateX(32px); } to { opacity: 1; transform: none; } }
+@keyframes m-glow   { 0% { opacity: 0; } 35% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes m-roll-up   { from { opacity: 0; transform: translateY(70%); } to { opacity: 1; transform: none; } }
+@keyframes m-roll-down { from { opacity: 0; transform: translateY(-70%); } to { opacity: 1; transform: none; } }
+@keyframes m-bar    { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.m-slide-next { animation: m-in-r var(--m-slide) var(--m-ease) both; }
+.m-slide-prev { animation: m-in-l var(--m-slide) var(--m-ease) both; }
+.m-fade { animation: m-fade var(--m-base) ease-out both; }
+/* Rows rise in one after another: --ri is set on each row wrapper (a
+   display: contents element passes the custom property down to its cells). */
+.m-stagger [data-ri] > * { animation: m-rise var(--m-base) var(--m-ease) both; animation-delay: min(calc(var(--ri, 0) * var(--m-stagger)), var(--m-stagger-cap)); }
+.m-pop { animation: m-pop var(--m-pop) var(--m-ease) both; }
+.m-leave { animation: m-leave var(--m-pop) ease-in forwards; pointer-events: none; }
+.m-menu { animation: m-menu var(--m-fast) var(--m-ease) both; transform-origin: top left; }
+.m-menu-r { animation: m-menu var(--m-fast) var(--m-ease) both; transform-origin: top right; }
+.m-panel { animation: m-panel var(--m-panel) var(--m-ease) both; }
+.m-bar { animation: m-bar var(--m-panel) var(--m-ease) both; }
+.m-dim { opacity: .78; transition: opacity var(--m-panel) ease-out; }
+.m-undim { opacity: 1; transition: opacity var(--m-panel) ease-out; }
+.m-today-glow [data-today]::after { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: color-mix(in srgb, var(--wk-brand) 12%, transparent); animation: m-glow 1.5s ease-out 1 both; }
+.m-roll { display: inline-flex; overflow: hidden; vertical-align: bottom; }
+.m-roll > span { display: inline-block; }
+.m-roll-up > span { animation: m-roll-up var(--m-base) var(--m-ease) both; }
+.m-roll-down > span { animation: m-roll-down var(--m-base) var(--m-ease) both; }
+.sched-chip { transition: transform var(--m-fast) var(--m-ease), box-shadow var(--m-fast) var(--m-ease); }
+.sched-chip[role="button"]:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(15, 23, 42, .12); }
+.sched-arrow { transition: background var(--m-fast) ease-out, transform var(--m-fast) var(--m-ease); }
+.sched-arrow:hover { background: var(--bg) !important; }
+.sched-arrow:active { transform: scale(.94); }
+.date-block, .team-picker-btn { transition: background var(--m-fast) ease-out, box-shadow var(--m-fast) ease-out; }
+.date-block:hover { background: var(--bg) !important; }
+.team-picker-btn:hover { background: var(--bg) !important; }
+.sched-today:hover { background: var(--wk-brand-tint) !important; }
+.mini-day:hover { background: var(--bg) !important; }
+/* A pointer at something: a missing person's empty day (coverage), the first
+   conflict (the header link). A ring that fades in and out, once. */
+@keyframes m-ring { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
+.m-pulse-cell::before { content: ''; position: absolute; inset: 2px; border-radius: 8px; pointer-events: none; z-index: 1;
+  box-shadow: inset 0 0 0 2px hsl(var(--color-orange)); background: hsla(var(--color-orange), .08); animation: m-ring 1.4s ease-out 1 both; }
+.m-pulse::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 0 0 2px hsl(var(--color-orange)); animation: m-ring 1.2s ease-out 2 both; }
+@media (prefers-reduced-motion: reduce) {
+  .m-pulse-cell::before, .m-pulse::after { animation: none !important; opacity: 1; }
+  .m-slide-next, .m-slide-prev, .m-fade, .m-stagger [data-ri] > *, .m-pop, .m-menu, .m-menu-r, .m-panel, .m-bar,
+  .m-roll-up > span, .m-roll-down > span, .m-today-glow [data-today]::after { animation: none !important; }
+  .m-leave { animation: none !important; opacity: 0; }
+  .m-dim, .m-undim, .sched-chip, .sched-arrow, .date-block, .team-picker-btn { transition: none !important; }
+  .sched-chip[role="button"]:hover, .sched-arrow:active { transform: none; }
+}
+
+/* Accounting header (10/02): one layout on every tab so the search never
+   moves. Oct 6 (Neil: "search bar should always be on the top right"):
+   title | actions | fixed-width search, flush right. */
+.acct-header.view-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(260px, 400px); align-items: center; gap: 12px; min-height: 44px; margin-bottom: 8px; }
+.acct-header-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.acct-header-title h2 { margin: 0; font-size: 1.15rem; line-height: 1.3; white-space: nowrap; }
+.acct-header-title p { margin: 0; font-size: 0.8rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.acct-header-search { min-width: 0; }
+.acct-header-actions { display: flex; justify-content: flex-end; min-width: 0; }
+@media (max-width: 900px) {
+  .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
+  .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+}
+/* Oct 6: a tab with a dropdown (ModuleTabs' TabGroupButton) names the item
+   open inside it - "Dashboard  Cash". */
+.tab-group-current { font-weight: 500; opacity: .7; }
+.tab-group-current::before { content: "\00B7"; margin-right: 6px; }
+/* Oct 6 (Charmi): Dashboard density - Compact / Condensed / Comfortable,
+   saved to the person's profile. Cards and widget rows tighten together;
+   inline row paddings in the widgets are overridden here on purpose. */
+.acct-dash { --dash-pad: 16px; --dash-head-pad: 12px 16px; --dash-gap: 14px; --dash-row-py: 8px; }
+.acct-dash.acct-dash--compact { --dash-pad: 12px; --dash-head-pad: 9px 12px; --dash-gap: 10px; --dash-row-py: 5px; }
+.acct-dash.acct-dash--condensed { --dash-pad: 8px; --dash-head-pad: 6px 10px; --dash-gap: 6px; --dash-row-py: 2px; }
+.acct-dash.acct-dash--compact .req-table td, .acct-dash.acct-dash--compact .req-table th,
+.acct-dash.acct-dash--condensed .req-table td, .acct-dash.acct-dash--condensed .req-table th {
+  padding-top: var(--dash-row-py) !important; padding-bottom: var(--dash-row-py) !important;
+}
+.acct-dash.acct-dash--condensed .req-table { font-size: 0.78rem; }
+
+/* "A new version of Nexus is available" (components/UpdateBanner.jsx).
+   Desktop: centered, as wide as its text. Phone: full width with 12px
+   gutters, above the browser's bottom bar, so it never wraps into a narrow
+   column (Oct 3). */
+.update-banner {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 9998; display: flex; align-items: center; gap: 12px;
+  width: max-content; max-width: calc(100vw - 32px);
+  background: var(--wk-card, #fff); color: var(--wk-ink, #323338);
+  border: 1px solid var(--wk-line, #d0d4e4); border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(29, 33, 57, .14);
+  padding: 10px 10px 10px 16px; font-family: var(--wk-font, inherit);
+}
+.update-banner-text { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
+.update-banner-reload {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  background: var(--wk-brand, #2b45e1); color: #fff; border: 0; border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+}
+.update-banner-close {
+  background: none; border: 0; color: var(--wk-dim, #676879); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+}
+.update-banner-close:hover { background: var(--wk-hover, #f5f6f8); }
+@media (max-width: 600px) {
+  .update-banner {
+    left: 12px; right: 12px; transform: none; width: auto; max-width: none;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 8px 10px 14px; gap: 10px;
+  }
+  .update-banner-text { flex: 1; min-width: 0; font-size: 14px; }
+}
+
+/* ── Accounting -> Reports, Oct 7 (Charmi: items 20 / 22 / 26 / 32 / 33) ──
+   General Ledger: no bold rows, banded lines, the GL code muted; account
+   groups as quiet headings; the Flag a chip (Review / Explained); amount
+   filters with an operator; a ledger line opens its entry. */
+.acct-report.acct-gl .acct-section td { font-weight: 500; }
+.acct-report.acct-gl .acct-section.acct-group td { font-weight: 600; background: color-mix(in srgb, var(--bg-secondary), var(--text-primary) 6%); }
+.acct-report.acct-gl .acct-subtotal td { font-weight: 500; }
+.acct-report.acct-gl .acct-code { color: var(--text-muted); font-weight: 400; }
+.acct-report.acct-gl tbody tr:nth-child(even):not(.acct-section):not(.acct-subtotal):not(.acct-grand) td { background: color-mix(in srgb, var(--bg-secondary), var(--bg-card) 55%); }
+.acct-report.acct-gl tbody tr.acct-line-link { cursor: pointer; }
+.acct-report.acct-gl tbody tr.acct-line-link:hover td { background: var(--wk-brand-tint, #e8ecfd); }
+.acct-report .acct-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
+.acct-report .acct-chip-warn { background: color-mix(in srgb, #f59e0b 22%, var(--bg-card)); color: var(--warn-fg, #b45309); }
+.acct-report .acct-chip-muted { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+.acct-report tbody tr.acct-flag.acct-flag-done td { background: color-mix(in srgb, #f59e0b 6%, var(--bg-card)); }
+.acct-report .acct-op-filter { display: flex; gap: 3px; align-items: center; }
+.acct-report .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+.acct-report .acct-op-filter input { min-width: 56px; }
+.acct-lines .acct-op-filter { display: flex; gap: 3px; align-items: center; }
+.acct-lines .acct-op-filter select {
+  height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;
+  background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
+}
+.acct-lines .acct-op-filter input { min-width: 48px; text-align: right; }
+
+/* Two lines, then an ellipsis - the Support ticket list's Title and Latest
+   Comment cells (Neil, 10/08: two-row cells so both can actually be read). */
+.nx-clamp-2 {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; min-width: 0;
+}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import GbpTab from '../gbp/GbpTab'
 import BusinessProfileHeader from './BusinessProfileHeader'
 import ProfileStatCards from './ProfileStatCards'
 import ProfileViewsChart from './ProfileViewsChart'
@@ -37,7 +38,7 @@ const POSTS_ONLY_TITLE = {
   instagram: 'Instagram Posts',
 }
 
-export default function BusinessProfilePage({ range, onRangeChange, property, onPropertyChange, onNavigate, alerts, insights, onClearAlert, action, onClearAction }) {
+function SampleBusinessProfilePage({ banner, range, onRangeChange, property, onPropertyChange, onNavigate, alerts, insights, onClearAlert, action, onClearAction }) {
   const [compareSelection, setCompareSelection] = useState(null)
   const [platform, setPlatform] = useState('google')
   const [autoOpenCreatePost, setAutoOpenCreatePost] = useState(false)
@@ -213,6 +214,7 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
         insights={insights}
         onClearAlert={onClearAlert}
       />
+      {banner}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
         <h2 style={{ fontSize: 14, fontWeight: 600, color: C.gray900 }}>
@@ -287,5 +289,18 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
         />
       )}
     </div>
+  )
+}
+
+// Real Google data once Google Business Profile is connected; the sample
+// page above until then (marketing/gbp/GbpTab.jsx).
+export default function BusinessProfilePage(props) {
+  const { onNavigate, alerts, insights, onClearAlert } = props
+  return (
+    <GbpTab
+      tab="listings"
+      tabBarProps={{ onNavigate, alerts, insights, onClearAlert }}
+      renderSample={(banner) => <SampleBusinessProfilePage {...props} banner={banner} />}
+    />
   )
 }

@@ -98,14 +98,20 @@ export function tenureLabel(startDate, now = new Date()) {
 // lands - so "Hours - this week" read 0h while someone was mid-shift. Any
 // open break is not counted; a shift open longer than 16 hours is a missed
 // clock-out (the server's pairing guard), not work, and adds nothing.
+//
+// The server sends punch times as UTC with no zone ('2026-10-02T12:51:59'),
+// which a bare new Date() reads as LOCAL time - off by the viewer's whole UTC
+// offset (Oct 2: 5h 31m for a shift one minute old in India). A time with no
+// zone is taken as UTC; one that carries its own zone is read as written.
+const punchMs = (at) => new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(at) ? at : `${at}Z`).getTime();
 export function openShiftMinutes(days, now = Date.now()) {
   const punches = Object.values(days || {})
     .flatMap(d => d?.punches || [])
     .filter(p => p && !p.voided && p.at)
-    .sort((x, y) => new Date(x.at) - new Date(y.at));
+    .sort((x, y) => punchMs(x.at) - punchMs(y.at));
   let inAt = null, breakAt = null, brk = 0;
   for (const p of punches) {
-    const t = new Date(p.at).getTime();
+    const t = punchMs(p.at);
     if (isNaN(t)) continue;
     if (p.kind === 'in') { inAt = t; breakAt = null; brk = 0; }
     else if (p.kind === 'out') { inAt = null; breakAt = null; brk = 0; }

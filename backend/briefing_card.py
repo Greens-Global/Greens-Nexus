@@ -6,7 +6,7 @@ click-to-toggle trick, so the HTML briefing's collapsible sections only work
 in Apple Mail and Gmail. An Outlook Actionable Message (Adaptive Card) is the
 one format Outlook runs interactively in every client (classic desktop, new
 Outlook, web, mobile): Action.ToggleVisibility gives real collapse, and
-Action.Http runs Approve / Comment / Mark Complete in the email itself.
+Action.Http runs Approve / Comment / Toggle Completion in the email itself.
 
 The card is the WHOLE briefing, not a card stacked on top of the HTML
 (hideOriginalBody: True). The Sep 23 attempt (PR #329, reverted in #331) put
@@ -36,9 +36,9 @@ _SECTION = {
 _ORDER = ["action_required", "needs_to_know", "completed"]
 _MODULE_LABEL = {
     "tasks": "Tasks", "tickets": "Tickets", "documents": "Documents", "time_off": "Time Off",
-    "timecard": "Time Card", "items": "Items", "team": "Team",
+    "timecard": "Time Card", "shifts": "Shifts", "items": "Items", "team": "Team",
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "items", "team"]
+_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team"]
 # First rows show; the next ones sit behind "Show N More" (still in the email);
 # past that it is a link to Nexus, so one busy module can't blow up the card.
 _ROWS_SHOWN = 3
@@ -101,19 +101,11 @@ def _task_actions(ctx: dict, row: dict) -> list:
                               kind="task", token=tok, action="react")],
         }},
     ]
-    if row.get("task_open"):
-        options = ctx["status_options"](row.get("project_id") or "")
-        if options:
-            status_id = ctx["next_id"]("status")
-            out.append({"type": "Action.ShowCard", "title": "Change Status", "card": {
-                "type": "AdaptiveCard",
-                "body": [{"type": "Input.ChoiceSet", "id": status_id, "style": "compact",
-                          "value": row.get("task_status") or options[0][0],
-                          "choices": [{"title": label, "value": key} for key, label in options]}],
-                "actions": [_post(ctx, "Update Status", f"{{{{{status_id}.value}}}}",
-                                  kind="task", token=tok, action="status")],
-            }})
-        out.append(_post(ctx, "Mark Complete", kind="task", token=tok, action="complete"))
+    # Toggle Completion, no Change Status (Neil, 10/01). The body is the state
+    # the reader saw, so a repeat click never flips the task back.
+    if row.get("task_open") or row.get("task_done"):
+        out.append(_post(ctx, "Toggle Completion", "open" if row.get("task_done") else "done",
+                         kind="task", token=tok, action="toggle"))
     return out
 
 
@@ -144,7 +136,7 @@ def _row(ctx: dict, row: dict, first: bool) -> dict:
     if row.get("task_id"):
         actions += _task_actions(ctx, row)
     if row.get("url"):
-        actions.append({"type": "Action.OpenUrl", "title": "Open in Nexus", "url": row["url"]})
+        actions.append({"type": "Action.OpenUrl", "title": "Open", "url": row["url"]})
     if actions:
         items.append({"type": "ActionSet", "spacing": "small", "actions": actions})
     return {"type": "Container", "separator": True, "spacing": "medium", "items": items}
@@ -213,7 +205,7 @@ def build_card(*, sections: dict, first_name: str, greeting: str, weekday_date: 
                briefing_date: str, since_iso: str, logo_url: str, app_url: str,
                view_urls: dict, status_options, outcome: str = "") -> dict:
     """The whole briefing as one Adaptive Card. `status_options(project_id)`
-    returns [(key, label), ...] for a task's Change Status list; `outcome` is
+    returns [(key, label), ...] for a task's statuses (no longer offered); `outcome` is
     the line shown at the top after a click."""
     counter = {"n": 0}
     status_cache: dict = {}

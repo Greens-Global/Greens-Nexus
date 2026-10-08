@@ -7,6 +7,9 @@ import { popupRedirectUri } from './authConfig';
 
 export const GRAPH = 'https://graph.microsoft.com/v1.0';
 export const CHAT_SCOPES = ['Chat.ReadBasic', 'ChatMessage.Send'];
+// Binding BOD/EOD to a Teams channel (Oct 6) - its own scope set, asked only
+// from the binding screen; the post itself is delivered by the server.
+export const CHANNEL_SCOPES = ['Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Send'];
 
 export function myGraphId() {
   return msalInstance.getAllAccounts()[0]?.localAccountId;
@@ -126,11 +129,46 @@ export async function listMyChats(tok) {
   return list;
 }
 
+// Interactive channel token - only from the binding screen's fallback when the
+// server could not list channels (usually: admin consent not granted yet).
+export async function channelTokenInteractive() {
+  const account = realAccount();
+  const req = { scopes: CHANNEL_SCOPES, redirectUri: popupRedirectUri };
+  if (account) req.account = account;
+  else {
+    const hint = msalInstance.getAllAccounts()[0]?.username;
+    if (hint) req.loginHint = hint;
+  }
+  return (await msalInstance.acquireTokenPopup(req)).accessToken;
+}
+
+// Returns [{ teamId, teamName, channelId, channelName, membershipType }] -
+// every channel of every team the signed-in user is in, General first.
+export async function listMyChannels(tok) {
+  const teams = await graphJSON(`${GRAPH}/me/joinedTeams?$select=id,displayName`, tok);
+  if (teams === null) throw new Error('Could not reach Microsoft Graph to load your teams.');
+  const out = [];
+  for (const t of (teams.value || []).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''))) {
+    const ch = await graphJSON(`${GRAPH}/teams/${t.id}/channels?$select=id,displayName,membershipType`, tok);
+    (ch?.value || [])
+      .sort((a, b) => (a.displayName !== 'General') - (b.displayName !== 'General') || (a.displayName || '').localeCompare(b.displayName || ''))
+      .forEach((c) => out.push({ teamId: t.id, teamName: t.displayName || 'Team', channelId: c.id, channelName: c.displayName || 'Channel', membershipType: c.membershipType || 'standard' }));
+  }
+  return out;
+}
+
+// The quiet "Sent by Nexus" line every Nexus post to Teams ends with - the
+// same one the server adds (teams_post.with_signature), so a message Nexus
+// posts as a person never reads as something they typed (Neil, 10/07).
+export const SIGNATURE_MARK = 'data-nexus-sig';
+const SIGNATURE_HTML = `<p ${SIGNATURE_MARK}="1"><span style="color:#8a8886;font-size:12px"><em>Sent by Nexus</em></span></p>`;
+export const withSignature = (html) => (String(html || '').includes(SIGNATURE_MARK) ? String(html || '') : `${html || ''}${SIGNATURE_HTML}`);
+
 export async function postChatMessage(tok, chatId, html) {
   const r = await fetch(`${GRAPH}/chats/${chatId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ body: { contentType: 'html', content: html } }),
+    body: JSON.stringify({ body: { contentType: 'html', content: withSignature(html) } }),
   });
   if (!r.ok) throw new Error(`Graph ${r.status}: ${(await r.text()).slice(0, 180)}`);
   return true;

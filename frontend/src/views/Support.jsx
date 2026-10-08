@@ -14,13 +14,13 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
-  Ticket, Users, ArrowUpRight, Shield, FileSignature, Bug, Search,
+  Ticket, Users, ArrowUpRight, Shield, FileSignature, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw,
+  Pencil, CheckCircle2, RotateCcw, ClipboardList,
 } from 'lucide-react';
 import { api } from '../api';
 import { ticketNoShort, normalizeCode, TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../tickets/ticketMeta';
-import { formatDateTime } from '../lib/datetime';
+import { formatDate, formatTime } from '../lib/datetime';
 import { NX, FONT } from '../tasks/theme';
 import { useRole } from '../contexts/RoleContext';
 import { Avatar, usePeople } from '../tasks/components';
@@ -30,6 +30,7 @@ import GuidedTour from '../components/GuidedTour';
 import ModuleTabs from '../components/ModuleTabs';
 import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncState';
 import { buildSupportTourSteps } from './supportTourSteps';
+import { LatestCommentPreview } from '../tickets/LatestComment';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab.
@@ -46,22 +47,9 @@ const SUPPORT_TABS = [
 // pattern as the Task and Ticket modules' own TASK_TOUR_ID/TICKET_TOUR_ID.
 const SUPPORT_TOUR_ID = 'support';
 
-// Report a Bug used to float as its own button, hovering bottom-right over
-// every Tasks/Tickets screen. Folded into Support (Pranshu, Sep 3) since it's
-// a help action like everything else on this page, not a persistent overlay.
-// Same trick as TicketComposer below: mount the Tasks module's own modal
-// (it needs TasksProvider for createTicket) instead of building a second form.
-const BugComposer = lazy(async () => {
-  const [{ TasksProvider }, { ReportBugModal }] = await Promise.all([
-    import('../tasks/TasksContext'),
-    import('../tasks/ReportBug'),
-  ]);
-  return {
-    default: ({ onClose }) => (
-      <TasksProvider><ReportBugModal onClose={onClose} /></TasksProvider>
-    ),
-  };
-});
+// Report a Bug used to be its own tile here (a Tasks-module modal). Neil, Oct 1
+// 2026: folded into Submit a Ticket - a bug is just the Bug Report type there,
+// so there is one form to learn and one set of routing rules behind it.
 
 // The Ticket module's OWN create form, mounted here instead of navigating to
 // that module. A second form would be a second set of fields to keep in step
@@ -91,14 +79,18 @@ const TicketComposer = lazy(async () => {
 // auto-scoped server-side to "my tickets" for anyone without the desk grant -
 // so mounting it directly here shows exactly what the Ticket module would,
 // without needing the module's own access grant.
+// Property Walkthrough (Neil, 10/05) - shown only to people who may run one
+// (the desk, the Asset Management team, admins; /ticket-properties says).
+// Needs no TasksProvider: it saves through api directly.
+const WalkthroughComposer = lazy(() => import('../tickets/PropertyWalkthrough'));
 const TicketDetail = lazy(async () => {
   const [{ TasksProvider }, { TicketDrawer }] = await Promise.all([
     import('../tasks/TasksContext'),
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ ticketId, onClose, startEditing }) => (
-      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} /></TasksProvider>
+    default: ({ ticketId, onClose, startEditing, initialTab }) => (
+      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} initialTab={initialTab} /></TasksProvider>
     ),
   };
 });
@@ -133,15 +125,36 @@ function StatusCell({ status }) {
 
 // Ten rows the Ticket module's own list would sort exactly this way for -
 // State by its workflow order, everything else by value.
+//
+// Neil, 10/08: the table fills the card's width (Title and Latest Comment are
+// the elastic columns - `template` - until someone drags them, when they
+// become a saved pixel width like any other), "#" instead of "Ticket No" so
+// the number stops eating room, and every row is two lines tall: the date
+// cells stack date over time, Title and the comment wrap onto a second line.
 const SUPPORT_TABLE_COLUMNS = [
-  { key: 'ticket', label: 'Ticket No', width: 110, sort: (t) => normalizeCode(t.code) },
-  { key: 'title', label: 'Title', width: 320, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'status', label: 'Status', width: 140, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'assignedTo', label: 'Assigned To', width: 160, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created Date', width: 150, sort: (t) => t.createdAt || '' },
+  { key: 'ticket', label: '#', width: 64, minWidth: 56, sort: (t) => normalizeCode(t.code) },
+  { key: 'title', label: 'Title', width: 320, minWidth: 160, template: 'minmax(200px,1.3fr)', sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'status', label: 'Status', width: 124, minWidth: 90, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'assignedTo', label: 'Assigned To', width: 150, minWidth: 90, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created', width: 112, minWidth: 96, sort: (t) => t.createdAt || '' },
   // Neil, Sep 30: "when was the last update" - any change or reply.
-  { key: 'updated', label: 'Last Updated', width: 150, sort: (t) => lastUpdated(t) },
+  { key: 'updated', label: 'Last Updated', width: 112, minWidth: 96, sort: (t) => lastUpdated(t) },
+  // The newest public reply (Neil, Oct 1) - click it to land on the
+  // conversation. The server never sends an internal note here. Runs to the
+  // card's right edge and wraps so it can actually be read (Neil, 10/08).
+  { key: 'latestComment', label: 'Latest Comment', width: 320, minWidth: 180, template: 'minmax(240px,2fr)', sort: (t) => t.latestComment?.createdAt || '' },
 ];
+
+// Date over time, the two-line cell Created and Last Updated use (Neil, 10/08).
+function DateTimeStack({ value, strong }) {
+  if (!value) return <span style={{ color: NX.faint }}>-</span>;
+  return (
+    <div style={{ lineHeight: 1.3 }}>
+      <div style={{ fontSize: 12.5, color: strong ? NX.ink : NX.dim, fontWeight: strong ? 700 : 500 }}>{formatDate(value)}</div>
+      <div style={{ fontSize: 11.5, color: NX.faint }}>{formatTime(value)}</div>
+    </div>
+  );
+}
 
 // The later of the ticket's own modified time and a reply by the team - so a
 // comment moves it even on a ticket saved before comments stamped modified_at.
@@ -152,7 +165,13 @@ function lastUpdated(t) {
 }
 // Changed by someone else since the requester last opened it.
 const isUnread = (t) => !!t.requesterUpdateAt && t.requesterUpdateAt > (t.requesterSeenAt || '');
+// The left gutter: the unread dot and the edit pencil sit in it, OUTSIDE the
+// table, so the table's left edge lines up with the "Open Tickets" tab above
+// it and the pencil sits just to the left of that edge (Neil, 10/08).
 const GUTTER_W = 46;
+// Two lines of content per row (Neil, 10/08).
+const ROW_MIN_H = 54;
+const cellBase = { display: 'flex', alignItems: 'center', minHeight: ROW_MIN_H, padding: '6px 10px', boxSizing: 'border-box', minWidth: 0 };
 const rowBtn = {
   display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', fontSize: 12, fontWeight: 600,
   border: `1px solid ${NX.border}`, borderRadius: 7, background: NX.surface, color: NX.ink, cursor: 'pointer',
@@ -164,12 +183,18 @@ export default function Support({ activeSub, onSubChange }) {
   const tab = activeSub === 'documentation' ? 'documentation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
-  const [reportingBug, setReportingBug] = useState(false);
+  const [walking, setWalking] = useState(false);
+  const [canWalk, setCanWalk] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.getTicketProperties().then((r) => { if (live) setCanWalk(!!r?.canWalkthrough); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
   // { id, edit } - `edit` opens the drawer straight into its editor (the pencil).
   const [viewing, setViewing] = useState(null);
   const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), []);
   const [listTab, setListTab] = useState('open');   // 'open' | 'closed'
-  const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen', ticket }
+  const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen' | 'self_resolve' | 'resolve', ticket }
   const [tickets, setTickets] = useState(null);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -258,10 +283,11 @@ export default function Support({ activeSub, onSubChange }) {
   useEffect(() => setPage(1), [search]);
 
   const OPTIONS = [
-    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or request help from any department.',
+    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
-    { icon: Bug, title: 'Report a Bug', desc: 'Flag something broken in Nexus, with screenshots if you have them.',
-      onOpen: () => setReportingBug(true), tour: 'support-report-bug' },
+    ...(canWalk ? [{ icon: ClipboardList, title: 'Property Walkthrough',
+      desc: 'Walking a property? Log every issue line by line - each one becomes its own ticket.',
+      onOpen: () => setWalking(true) }] : []),
     { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
       onOpen: () => go('people') },
     // Folded in from their own left-nav entries (Aug 31) to shrink the nav -
@@ -274,14 +300,26 @@ export default function Support({ activeSub, onSubChange }) {
       onOpen: () => setTab('documentation'), tour: 'support-documentation' },
   ];
 
-  // Closed tickets are not what "My Open Tickets" means, but a requester whose
+  // Closed tickets are not what "Open Tickets" means, but a requester whose
   // ticket was just resolved should still see that it was - so resolved stays
   // (with Confirm / Reopen beside it) until it is closed out. Closed ones have
   // their own tab.
   const open = (tickets || []).filter((t) => t.status !== 'closed');
   const closed = (tickets || []).filter((t) => t.status === 'closed');
   const listed = listTab === 'closed' ? closed : open;
-  const hasActions = listed.some((t) => t.status === 'resolved' || t.status === 'closed');
+  // A ticket raised FOR someone else (Oct 1: the form's Requester field) is
+  // listed for whoever filed it too, but confirming, rating, reopening and
+  // editing stay with the person it is for - the server enforces the same.
+  const mineToAct = (t) => (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  // Every ticket the person it is FOR can see has an action: Mark Resolved
+  // while it is still in flight (Neil, Oct 1), Confirm / Reopen once resolved.
+  // A closed ticket has none: Reopen is only while it is Resolved (Oct 1).
+  const hasActions = listed.some((t) => mineToAct(t) && t.status !== 'closed');
+  // Mark Resolved: the requester's own optional-comment version - unless they
+  // also work the ticket, who resolve it the desk's way (with a written
+  // resolution). A manager's own ticket is theirs as a requester.
+  const resolveMode = (t) => ((t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase()
+    ? 'resolve' : 'self_resolve');
   // Ticket number OR title - the two things someone actually remembers about
   // their own ticket. Matched against both the raw and normalized code so
   // "9", "000009" and "#000009" all find the same row.
@@ -341,12 +379,16 @@ export default function Support({ activeSub, onSubChange }) {
       </div>
 
       <div className="dash-card" data-tour="support-open-tickets">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        {/* Indented by the gutter so the tabs' left edge is the table's left
+            edge - the pencil and unread dot live to the left of both. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap', paddingLeft: tickets !== null && listed.length > 0 ? GUTTER_W : 0 }}>
           {/* Open and Closed (Neil, Sep 30: "now I don't have any history of
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}
           <div className="scroll-tabs" role="tablist" style={{ display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
-            {[['open', 'My Open Tickets', open.length], ['closed', 'My Closed Tickets', closed.length]].map(([k, lab, n]) => (
+            {/* "Open Tickets" / "Closed Tickets" - no "My" (Neil, Oct 1): the
+                page is already only yours. */}
+            {[['open', 'Open Tickets', open.length], ['closed', 'Closed Tickets', closed.length]].map(([k, lab, n]) => (
               <button key={k} type="button" role="tab" aria-selected={listTab === k} onClick={() => { setListTab(k); setPage(1); }}
                 style={{
                   border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 700, padding: '6px 12px', borderRadius: 7,
@@ -379,7 +421,7 @@ export default function Support({ activeSub, onSubChange }) {
               {listTab === 'open' ? 'Nothing open right now' : 'No closed tickets yet'}
             </div>
             <p style={{ fontSize: '0.85rem', margin: '0 0 14px' }}>
-              {listTab === 'open' ? 'Anything you submit shows up here with its status.' : 'Tickets you confirm as resolved move here, and you can reopen them.'}
+              {listTab === 'open' ? 'Anything you submit shows up here with its status.' : 'Tickets you confirm as resolved move here.'}
             </p>
             {listTab === 'open' && (
               <button className="primary-btn" onClick={() => setSubmitting(true)}>
@@ -401,9 +443,13 @@ export default function Support({ activeSub, onSubChange }) {
                 Reopen actions - so each is in the same place on every row and
                 never pushes a column around. */}
             <div style={{ overflowX: 'auto' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: `${GUTTER_W}px max-content ${hasActions ? 'max-content' : '0px'}`, alignItems: 'stretch', fontFamily: FONT, minWidth: 'fit-content' }}>
+              {/* The table takes every pixel between the two gutters (Neil,
+                  10/08: "full width responsive"); the column floors keep it
+                  readable and it scrolls sideways only once the card is
+                  narrower than they add up to. */}
+              <div style={{ display: 'grid', gridTemplateColumns: `${GUTTER_W}px minmax(0,1fr) ${hasActions ? 'max-content' : '0px'}`, alignItems: 'stretch', fontFamily: FONT }}>
                 <div />
-                <div ref={wrapRef} style={{ '--nx-grid': template, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: '10px 10px 0 0' }}>
+                <div ref={wrapRef} style={{ '--nx-grid': template, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', minWidth: 0, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: '10px 10px 0 0' }}>
                   {cols.map((col) => {
                     const active = sort.key === col.key;
                     const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
@@ -421,7 +467,8 @@ export default function Support({ activeSub, onSubChange }) {
                 {paged.map((t, idx) => {
                   const last = idx === paged.length - 1;
                   const unread = isUnread(t);
-                  const editable = t.status === 'open';
+                  const forOther = !mineToAct(t);
+                  const editable = t.status === 'open' && !forOther;
                   return (
                     <Fragment key={t.id}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, paddingRight: 6 }}>
@@ -440,7 +487,7 @@ export default function Support({ activeSub, onSubChange }) {
                       {/* The whole row opens the ticket's real detail drawer
                           (Ticket module). role="button" + cursor:pointer since
                           a grid row isn't natively interactive. */}
-                      <div role="button" tabIndex={0} onClick={() => setViewing({ id: t.id })}
+                      <div role="button" tabIndex={0} className="nx-row-hover" onClick={() => setViewing({ id: t.id })}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewing({ id: t.id }); } }}
                         style={{
                           display: 'grid', gridTemplateColumns: 'var(--nx-grid)', '--nx-grid': template,
@@ -449,29 +496,48 @@ export default function Support({ activeSub, onSubChange }) {
                           borderBottom: `1px solid ${last ? NX.border : NX.border2}`,
                           borderRadius: last ? '0 0 10px 10px' : 0,
                         }}>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontWeight: 700, fontSize: 13, color: NX.ink, borderRight: `1px solid ${NX.border2}` }}>
+                        <div style={{ ...cellBase, fontWeight: 700, fontSize: 13, color: NX.ink, borderRight: `1px solid ${NX.border2}` }}>
                           {ticketNoShort(t.code) || '-'}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 13, color: NX.ink, fontWeight: unread ? 700 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRight: `1px solid ${NX.border2}` }}>
-                          {t.subject}
+                        <div style={{ ...cellBase, fontSize: 13, color: NX.ink, fontWeight: unread ? 700 : 400, overflow: 'hidden', borderRight: `1px solid ${NX.border2}` }}>
+                          <div style={{ minWidth: 0 }}>
+                            {/* Up to two lines, then an ellipsis - a title that
+                                needs more than that is read in the drawer. */}
+                            <span className="nx-clamp-2" style={{ lineHeight: 1.35, overflowWrap: 'anywhere' }}>{t.subject}</span>
+                            {forOther && (
+                              <div title="You raised this on their behalf" style={{ fontSize: 11.5, fontWeight: 600, color: NX.dim, marginTop: 2 }}>
+                                For {nameOf(t.requesterId) || t.requesterId}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ minHeight: 40, borderRight: `1px solid ${NX.border2}` }}>
+                        <div style={{ minHeight: ROW_MIN_H, borderRight: `1px solid ${NX.border2}` }}>
                           <StatusCell status={t.status} />
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 40, padding: '0 10px', fontSize: 13, color: NX.dim, overflow: 'hidden', borderRight: `1px solid ${NX.border2}` }}>
+                        <div style={{ ...cellBase, gap: 6, fontSize: 13, color: NX.dim, overflow: 'hidden', borderRight: `1px solid ${NX.border2}` }}>
                           {t.assigneeId
-                            ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId) || t.assigneeId}</span></>
+                            ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /><span className="nx-clamp-2" style={{ lineHeight: 1.3, overflowWrap: 'anywhere' }}>{nameOf(t.assigneeId) || t.assigneeId}</span></>
                             : <span style={{ color: NX.faint }}>Unassigned</span>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: NX.dim, borderRight: `1px solid ${NX.border2}` }}>
-                          {formatDateTime(t.createdAt)}
+                        <div style={{ ...cellBase, borderRight: `1px solid ${NX.border2}` }}>
+                          <DateTimeStack value={t.createdAt} />
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', fontSize: 12, color: unread ? NX.ink : NX.dim, fontWeight: unread ? 700 : 400 }}>
-                          {formatDateTime(lastUpdated(t))}
+                        <div style={{ ...cellBase, borderRight: `1px solid ${NX.border2}` }}>
+                          <DateTimeStack value={lastUpdated(t)} strong={unread} />
+                        </div>
+                        <div style={{ ...cellBase, overflow: 'hidden' }}>
+                          <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} stacked
+                            onOpen={() => setViewing({ id: t.id, tab: 'conversation' })} />
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: hasActions ? 10 : 0 }}>
-                        {t.status === 'resolved' && (<>
+                        {!forOther && t.status !== 'resolved' && t.status !== 'closed' && (
+                          <button type="button" onClick={() => setAction({ mode: resolveMode(t), ticket: t })}
+                            style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
+                            <CheckCircle2 size={13} /> Mark Resolved
+                          </button>
+                        )}
+                        {!forOther && t.status === 'resolved' && (<>
                           <button type="button" onClick={() => setAction({ mode: 'confirm', ticket: t })}
                             style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
                             <CheckCircle2 size={13} /> Confirm
@@ -480,11 +546,6 @@ export default function Support({ activeSub, onSubChange }) {
                             <RotateCcw size={13} /> Reopen
                           </button>
                         </>)}
-                        {t.status === 'closed' && (
-                          <button type="button" onClick={() => setAction({ mode: 'reopen', ticket: t })} style={rowBtn}>
-                            <RotateCcw size={13} /> Reopen
-                          </button>
-                        )}
                       </div>
                     </Fragment>
                   );
@@ -521,9 +582,9 @@ export default function Support({ activeSub, onSubChange }) {
         </Suspense>
       )}
 
-      {reportingBug && (
+      {walking && (
         <Suspense fallback={<ModalLoading />}>
-          <BugComposer onClose={() => setReportingBug(false)} />
+          <WalkthroughComposer onClose={() => { setWalking(false); load(); }} />
         </Suspense>
       )}
 
@@ -532,7 +593,7 @@ export default function Support({ activeSub, onSubChange }) {
           {/* Reload on close too - the drawer can change the ticket (within
               the requester's own edit access) and marks it seen, and the
               table above should reflect both without a manual refresh. */}
-          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} onClose={() => { setViewing(null); load(); }} />
+          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} initialTab={viewing.tab || null} onClose={() => { setViewing(null); load(); }} />
         </Suspense>
       )}
 

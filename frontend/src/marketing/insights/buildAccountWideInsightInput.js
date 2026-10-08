@@ -31,11 +31,16 @@ export function buildAccountWideInsightInput(params) {
   const gaRows = gaFilterRange(dailyMetrics, range)
   const gaPrevRows = gaFilterRange(dailyMetrics, previousRange)
 
-  const gaSpend = gaSumTotals(gaRows).spend
-  const gaPrevSpend = gaSumTotals(gaPrevRows).spend
+  // Real Google Ads spend when Google Ads is connected (params.ads, GET
+  // /marketing/ads/summary): this month so far and all of last month.
+  const realAds = params.ads?.connected ? params.ads : null
+  const gaSpend = realAds ? realAds.monthSpend || 0 : gaSumTotals(gaRows).spend
+  const gaPrevSpend = realAds ? realAds.prevMonthSpend || 0 : gaSumTotals(gaPrevRows).spend
 
-  const costPerLead = totals.leads > 0 ? gaSpend / totals.leads : 0
-  const prevCostPerLead = prevTotals.leads > 0 ? gaPrevSpend / prevTotals.leads : 0
+  // Leads are still sample data, so cost per lead stays on the sample spend -
+  // real spend over sample leads would be a made-up number.
+  const costPerLead = totals.leads > 0 ? gaSumTotals(gaRows).spend / totals.leads : 0
+  const prevCostPerLead = prevTotals.leads > 0 ? gaSumTotals(gaPrevRows).spend / prevTotals.leads : 0
 
   const reviewsAsOfEnd = asOf(allReviews, range.end)
   const reviewsAsOfPrevEnd = asOf(allReviews, previousRange.end)
@@ -80,7 +85,25 @@ export function buildAccountWideInsightInput(params) {
 
   const platformRatings = computeSourceSummary(reviewsAsOfEnd, reviewsAsOfEnd).map((s) => ({ platform: s.platform, rating: s.avgRating, reviews: s.reviews }))
 
-  const campaigns = initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status }))
+  const campaigns = realAds
+    ? realAds.campaigns || []
+    : initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status }))
+
+  // Real Google review figures when Google Business Profile is connected
+  // (params.gbp, GET /marketing/gbp/summary) - the rules below then talk
+  // about the real rating, sentiment and backlog instead of the samples.
+  const real = params.gbp?.connected ? params.gbp : null
+  const reputation = real
+    ? {
+        reviewRating: real.rating,
+        sentimentPositivePct: real.positivePct,
+        recentPositiveReviewTexts: real.recentPositiveTexts,
+        recentNegativeReviewTexts: real.recentNegativeTexts,
+        gbp: { unansweredQuestions: 0, stalePhotoProperties: real.stalePhotoLocations || [] },
+        reviewBacklog: { agingCount: real.overdueUnreplied },
+        platformRatings: real.platformRatings,
+      }
+    : {}
 
   return {
     sessions: { current: totals.sessions, previous: prevTotals.sessions },
@@ -117,5 +140,6 @@ export function buildAccountWideInsightInput(params) {
     staleLeads,
     reviewBacklog,
     platformRatings,
+    ...reputation,
   }
 }

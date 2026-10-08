@@ -16,6 +16,8 @@ import GeofencePunchModal from './GeofencePunchModal';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
 import EmployeeCombobox from './EmployeeCombobox';
+import { downloadBlob } from './accounting/reportModel';
+import { formatDistance } from '../lib/distance';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -82,7 +84,7 @@ function TimecardOptions({ self, showRaw, setShowRaw, children }) {
   return (
     <div>
       <button ref={btn} type="button" data-tour="pr-rounding" onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open}
-        title="Timezone, unrounded times and pay rules"
+        title="Timezone and unrounded times"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
         <SlidersHorizontal size={14} /> Options
       </button>
@@ -146,9 +148,9 @@ function periodStartFor(date) {
 // on the company list (Sep 30): inside one -> that site's name; inside none ->
 // "Out of Location". The nearest site is only a hint in the tooltip -
 // showing it as the location read as "she was at Menifee" when she was not.
-const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+const distText = (m) => formatDistance(m);   // miles / feet (lib/distance.js)
 function outOfLocationHint(site, dist) {
-  return site ? `Not inside any company work site. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not inside any company work site.';
+  return site ? `Not inside any company location. Nearest: ${site}, ${distText(dist || 0)} away.` : 'Not inside any company location.';
 }
 // Clickable (Sep 30 - "still not able to click on locations"): the cell was
 // only ever a tooltip, so nothing happened on click. With `onOpen` every chip -
@@ -167,7 +169,7 @@ export function LocCell({ seg, onOpen }) {
   const outDiffers = !!seg.out && geoOut && (geoOut !== geo || (seg.workSiteOut || '') !== site);
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
-      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their work sites is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
+      title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their locations is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
       <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
@@ -182,7 +184,7 @@ export function LocCell({ seg, onOpen }) {
     chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Out of Location</span>{outTail}</>;
   } else if (geo === 'no_site') {
     style = { ...style, color: 'var(--muted)' };
-    title = 'Location was shared, but none of their work sites is on the map yet. Map it under Settings - Companies - Work Sites.';
+    title = 'Location was shared, but none of their locations is on the map yet. Map it under Settings - Companies - Locations.';
     chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">No Site Mapped</span>{outTail}</>;
   } else if (geo === 'low_accuracy') {
     // A rough location (no GPS - a desktop's IP/Wi-Fi fix, worse than ±500 m) is
@@ -190,7 +192,7 @@ export function LocCell({ seg, onOpen }) {
     // name here with a grey pin, which read as "she was at Menifee" when she was in
     // Temecula (Charmi, Sep 29). Say what it is; the nearest site is a hint only.
     style = { ...style, color: 'var(--muted)' };
-    title = `This punch came with only a rough location (no GPS on the device), too rough to tell which work site it was at.${site ? ` Nearest work site to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`;
+    title = `This punch came with only a rough location (no GPS on the device), too rough to tell which location it was at.${site ? ` Nearest location to that rough point: ${site}.` : ''} Punching from a phone gives a precise location.`;
     chip = <><MapPin size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Approx. Location</span>{outTail}</>;
   } else if (!site) {
     if (!outTail) return <span style={{ color: 'var(--muted)' }}>-</span>;
@@ -296,8 +298,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     const s = isoDate(pStart), e = isoDate(pStart.getTime() + 13 * DAY);
     return _timecardCache.get(_tcKey(selfMode, initialEmail, s, e)) || null;
   });
-  const [rateInput, setRateInput] = useState('');
-  const [ruleInput, setRuleInput] = useState('ca');   // ca | federal | none
+  // No pay or OT controls on the timecard (Charmi, Sep 30): the rate and the
+  // OT rule are READ here and written only on Pay & Benefits.
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
   // A missing/wrong BREAK punch. PunchEditModal only ever deals in clock-in and
   // clock-out, so until now a break that never ended (or ended late, the phone
@@ -364,7 +366,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       api.timeMyPayroll(start).then(d => {
         _timecardCache.set(key, d);
         if (reqKeyRef.current !== key) return;   // period moved on before this arrived
-        setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca');
+        setStepLocked(false); setData(d);
       }).catch(e => { if (reqKeyRef.current === key) { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); } });
       return;
     }
@@ -374,7 +376,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     api.timePayroll(email, start, end).then(d => {
       _timecardCache.set(key, d);
       if (reqKeyRef.current !== key) return;
-      setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca');
+      setStepLocked(false); setData(d);
     }).catch(e => {
       if (reqKeyRef.current !== key) return;
       // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
@@ -428,14 +430,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const perStart = data?.periodStart || start;
   const perEnd = data?.periodEnd || end;
 
-  async function saveRate() {
-    const up = await ensureStepUp();
-    if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
-    setBusy(true);
-    try { await api.timePayrollRate({ email, hourly_rate: parseFloat(rateInput) || 0, overtime_rule: ruleInput }); toastOk?.('Pay rate saved.'); load(); }
-    catch (e) { toastErr?.(e?.message || 'Could not save rate.'); }
-    setBusy(false);
-  }
+  const rule = data?.overtimeRule || 'ca';   // read-only here; set on Pay & Benefits
+  const RULE_LABEL = { ca: 'California', federal: 'Federal', none: 'None' };
+  // "Through 10/14 at X · From 10/15 at Y" when the rate changed inside the period.
+  const rateSplitText = (splits, key, fmt) => (splits || []).length > 1
+    ? splits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmt(s[key])}` : `From ${formatDate(s.from)} at ${fmt(s[key])}`).join(' · ')
+    : '';
   // Approve + finalize share the SwipeClock exception gate: a period with a
   // missing or unmatched punch is blocked (the paired total would be wrong), with
   // an explicit "sign off anyway" override - the sign-off is on record either way.
@@ -466,7 +466,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const shift = (n) => setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
   const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
   const cur = data?.currency || 'USD';         // $ or ₹
-  const fmtM = (n) => money(n, cur);
+  // The manager tier never sees pay (Pranshu, 10/06) - the server sends none
+  // and says so (payHidden): the pay columns, rates and totals disappear.
+  const showPay = !data?.payHidden;
+  const fmtM = (n) => (showPay ? money(n, cur) : '');
   // Fixed employees navigate by MONTH; the backend reads `start` as a month anchor.
   const shiftMonth = (n) => { const base = data?.periodStart ? new Date(data.periodStart + 'T00:00') : pStart; setPStart(new Date(base.getFullYear(), base.getMonth() + n, 15)); };
   // Format from the ISO strings, not the UTC instants - toLocaleDateString on a
@@ -478,6 +481,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     : label;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
+  const span = (self ? 16 : 17) - (showPay ? 0 : 2);   // full-width rows across the table
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -496,8 +500,46 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     setBusy(false);
   }
 
-  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
-  const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  // Exports (CSV, QuickBooks IIF, Intacct). Oct 2 (Neil: "Payroll Export
+  // Nexus to IIF is not working"): the buttons called the API and DROPPED the
+  // result - reqBlob hands back { blob, filename } and nobody saved it, so a
+  // click did nothing visible. Now: step up first, fetch, save the file,
+  // toast; a stale step-up (require_stepup 403 after the session lapsed) is
+  // renewed once and the fetch retried.
+  const [exporting, setExporting] = useState(false);
+  const [intacctOpen, setIntacctOpen] = useState(false);
+  const [intacct, setIntacct] = useState(() => {
+    try { return { journal: 'PYRJ', expense: '', clearing: '', location: '', ...(JSON.parse(localStorage.getItem('nexus.payroll.intacct') || '{}')) }; }
+    catch { return { journal: 'PYRJ', expense: '', clearing: '', location: '' }; }
+  });
+  const setIntacctField = (k, v) => setIntacct((cur) => {
+    const next = { ...cur, [k]: v };
+    try { localStorage.setItem('nexus.payroll.intacct', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
+    return next;
+  });
+  async function exportFile(fetcher, label) {
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
+    setExporting(true);
+    try {
+      let res;
+      try { res = await fetcher(); }
+      catch (e) {
+        if (!isStepUpRequired(e)) throw e;
+        const again = await ensureStepUp();
+        if (!again.ok) { if (!again.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
+        res = await fetcher();
+      }
+      downloadBlob(res.filename || `${label}.txt`, res.blob);
+      toastOk?.(`${label} downloaded${res.filename ? ` - ${res.filename}` : ''}.`);
+    } catch (e) { toastErr?.(e?.message || `Could not export the ${label}.`); }
+    finally { setExporting(false); }
+  }
+
+  // Numeric columns (Hours, Hrs/day, Non-OT, OT, OT 2x, Wage) are right-aligned
+  // with tabular numerals so figures line up column by column (Charmi, Sep 30).
+  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+  const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
 
   // Manager/HR day notes (Charmi, Sep 29) - only the team timecard carries them.
   const [notes, setNotes] = useState({});
@@ -517,21 +559,23 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // under their day (SwipeClock); weekly subtotal after each SUNDAY-anchored week
   const rows = [];
   let prevWeek = null;
+  let dayIdx = 0;   // zebra banding alternates per DATE, not per punch row
   dates.forEach(ds => {
     const d = byDate[ds];
     const wk = d?.weekStart || (() => { const x = new Date(ds + 'T00:00'); x.setDate(x.getDate() - x.getDay()); return isoDate(x); })();
     if (prevWeek && wk !== prevWeek) rows.push({ type: 'wk', week: prevWeek });
     prevWeek = wk;
+    const band = (dayIdx++ % 2) === 1;
     const segs = d?.segments || [];
     if (!segs.length) {
-      rows.push({ type: 'day', ds, seg: null });
+      rows.push({ type: 'day', ds, seg: null, band });
       // A company holiday this employee didn't work (see _company_holidays_for_employee):
       // hourly pay has no "missed day" deduction to exempt, so it's credited a paid
       // day instead of just paying $0 for the day.
       if (d?.isHoliday) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType });
     }
     else {
-      segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, first: i === 0, last: i === segs.length - 1 }));
+      segs.forEach((seg, i) => rows.push({ type: 'day', ds, seg, band, first: i === 0, last: i === segs.length - 1 }));
       // Break punch pairs under their day (Charmi, Aug 21: "are we getting
       // details of breaks in the time card? No" - SwipeClock shows each break
       // as its own out/in pair, so Nexus shows every Start/End Break window).
@@ -653,53 +697,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </button>
         )}
         <div style={{ flex: 1 }} />
-        {/* The header used to carry a row of switches - California / India,
-            unrounded times, rounding, auto-lunch, CA paid breaks - that nobody
-            touches day to day (Neil, Sep 25: "we talked about turning this all
-            off"). They sit behind one Options button now; nothing about how
-            pay is computed changed by moving them. */}
-        <TimecardOptions self={self} showRaw={showRaw} setShowRaw={setShowRaw}>
-          {isAdmin && data?.rounding && (
-            <OptionSwitch checked={!!data.rounding.enabled} label={`Round to ${data.rounding.nearestMin || 5} min`}
-              hint={`Round every punch to the nearest ${data.rounding.nearestMin || 5} minutes before computing hours - matches SwipeClock. Applies to everyone.`}
-              onChange={async (on) => {
-                try { await api.timeRoundingSet({ enabled: on, nearestMin: data.rounding.nearestMin || 5 }); toastOk?.(`Punch rounding ${on ? 'on' : 'off'}.`); load(); }
-                catch (err) { toastErr?.(err?.message || 'Could not update rounding.'); }
-              }} />
-          )}
-          {isAdmin && data?.autoLunch && (
-            <OptionSwitch checked={!!data.autoLunch.enabled} label="Auto-lunch"
-              hint={`Deduct ${data.autoLunch.deductMin}m lunch from any segment over ${Math.round(data.autoLunch.afterMin / 60)}h with no recorded break. Applies to everyone.`}
-              onChange={async (on) => {
-                try { await api.timeAutoLunchSet({ enabled: on, afterMin: data.autoLunch.afterMin, deductMin: data.autoLunch.deductMin }); toastOk?.(`Auto-lunch ${on ? 'enabled' : 'disabled'}.`); load(); }
-                catch (err) { toastErr?.(err?.message || 'Could not update auto-lunch.'); }
-              }} />
-          )}
-          {isAdmin && data?.breakPolicy && (
-            <OptionSwitch checked={!!data.breakPolicy.enabled} label="CA paid breaks"
-              hint={`Pay the first ${data.breakPolicy.paidBreakMin}m of each short break (up to ${data.breakPolicy.restMaxMin}m long). Meal-length breaks stay unpaid. California-rule employees only.`}
-              onChange={async (on) => {
-                try { await api.timeBreakPolicySet({ ...data.breakPolicy, enabled: on }); toastOk?.(`CA paid breaks ${on ? 'on' : 'off'}.`); load(); }
-                catch (err) { toastErr?.(err?.message || 'Could not update the break policy.'); }
-              }} />
-          )}
-        </TimecardOptions>
-        {!self && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
-          <select className="form-input" value={ruleInput} onChange={e => setRuleInput(e.target.value)}
-            title="California = daily >8h/>12h + 7th-day + weekly 40h. Federal = weekly 40h only (out-of-state US). None = no US overtime (non-US)."
-            style={{ width: 128, fontSize: 12.5 }}>
-            <option value="ca">California</option>
-            <option value="federal">Federal (US)</option>
-            <option value="none">None (non-US)</option>
-          </select>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Rate {CUR_SYM[cur] || '$'}/hr</span>
-          <input type="number" min="0" step="0.01" className="form-input" value={rateInput} placeholder="0.00"
-            onChange={e => setRateInput(e.target.value)} style={{ width: 90, fontSize: 13 }} />
-          <button className="secondary-btn" onClick={saveRate} disabled={busy} style={{ fontSize: 12 }}>Save</button>
-        </div>
-        )}
+        {/* Options holds only display choices now: the timezone and unrounded
+            times. The pay rules that used to sit here (rounding, auto-lunch,
+            CA paid breaks) are company settings under Settings > Global
+            Settings > Time Clock, and the OT rule + rate are set on the
+            person's Pay & Benefits tab - never on the timecard (Charmi, Sep 30). */}
+        <TimecardOptions self={self} showRaw={showRaw} setShowRaw={setShowRaw} />
       </div>
 
       {self && (
@@ -710,15 +713,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {!stepLocked && data && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-          <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr</span>
-          <span><strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {ruleInput === 'ca' ? 'California' : ruleInput === 'federal' ? 'Federal' : 'None'}</span>
+          <span title={self ? undefined : 'Set on the Pay & Benefits tab of this person\'s profile'}>
+            {showPay && <><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
+          </span>
+          {showPay && rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
+            <span title="The rate changed inside this period - each day is paid at the rate in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>
+              {rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`)}
+            </span>
+          )}
           {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}>
             <CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
           {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}>
             <CheckCircle size={12} /> Finalized · {nameFor(fin.by)} - period locked</span>}
         </div>
       )}
-      {!stepLocked && !data?.rateSet && (
+      {!stepLocked && showPay && !data?.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No pay rate set for this employee - wages show {fmtM(0)} until you set one.
         </div>
@@ -751,8 +760,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Loc</th>
                 {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={{ ...th, textAlign: 'left' }}>Notes</th>}
                 <th style={{ ...th, textAlign: 'left' }}>Department</th>
-                <th style={th}>Pay rate</th>
-                <th style={th}>Wage</th>
+                {showPay && <th style={th}>Pay rate</th>}
+                {showPay && <th style={th}>Wage</th>}
                 <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
               </tr>
@@ -760,13 +769,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'brk' ? (
                 <tr key={i}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
                       <Coffee size={11} /> Breaks
                       {!r.breaks.length && <span style={{ fontWeight: 500 }}>- none recorded</span>}
@@ -797,20 +806,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'auto' ? (
                 <tr key={i}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
                   </td>
                 </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                       <span>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
                         {r.name || 'Company holiday'}{r.worked
-                          ? <> - worked the half day, plus {fmtM(r.pay)} credited for the other half.</>
-                          : <> - not worked, paid {fmtM(r.pay)}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
+                          ? <> - worked the half day, plus {showPay ? fmtM(r.pay) : 'the other half'} credited{showPay ? ' for the other half' : ''}.</>
+                          : <> - not worked, {showPay ? <>paid {fmtM(r.pay)}</> : 'paid holiday'}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
                       </span>
                       {/* The pay figure under its own text was easy to miss (Pranshu,
                           Sep 22) - repeat it where the Wage column reads for every
@@ -821,16 +830,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
-                  <td colSpan={self ? 16 : 17} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
                     <Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}
                   </td>
                 </tr>
               ) : (
-                <tr key={i} className="pr-row">
+                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}`}>
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg
+                  <td style={{ ...td, textAlign: 'left' }}>{r.seg && !r.seg.in
+                    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
+                    ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                    : r.seg
                     ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                     : self && !fin
                       ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
@@ -876,8 +890,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     </td>
                   )}
                   <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>
+                  {showPay && <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>}
+                  {showPay && <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>}
                   <td style={{ ...td, textAlign: 'center' }}>
                     {r.first !== false && (
                       <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
@@ -921,8 +935,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
                   <td style={td}></td>
                   <td style={td}></td>
-                  <td style={td}></td>
-                  <td style={td}>{fmtM(T.totalPay)}</td>
+                  {showPay && <td style={td}></td>}
+                  {showPay && <td style={td}>{fmtM(T.totalPay)}</td>}
                   <td style={td}></td>
                   <td style={td}></td>
                 </tr>
@@ -940,14 +954,18 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               // SwipeClock shows both clock time and decimal - "58:30 (58.50)" -
               // so payroll can be keyed either way without converting by hand.
               const hd = (min) => `${hhmm(min)} (${dec(min)})`;
+              // With a rate change inside the period each day is priced at its
+              // own rate, so the lines name no single rate; the strip above shows the split.
+              const split = (data.rateSplits || []).length > 1;
+              const at = (mult) => (split || !showPay) ? '' : ` at ${fmtM(rate * mult)}/hr`;
               const rows = [
-                [`Total Regular hours at ${fmtM(rate)}/hr`, hd(T.regMin), fmtM(T.regPay)],
-                [`Total Overtime hours at ${fmtM(rate * 1.5)}/hr`, hd(T.otMin), fmtM(T.otPay)],
-                ...(T.dtMin ? [[`Total Double-time hours at ${fmtM(rate * 2)}/hr`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
+                [`Total Regular hours${at(1)}`, hd(T.regMin), fmtM(T.regPay)],
+                [`Total Overtime hours${at(1.5)}`, hd(T.otMin), fmtM(T.otPay)],
+                ...(T.dtMin ? [[`Total Double-time hours${at(2)}`, hd(T.dtMin), fmtM(T.dtPay)]] : []),
                 // Paid leave entered on the card as a Sick / Vacation category punch -
                 // its own line at the base rate, like SwipeClock (Charmi, Sep 21).
-                ...(T.sickMin ? [[`Total Sick hours at ${fmtM(rate)}/hr`, hd(T.sickMin), fmtM(T.sickPay)]] : []),
-                ...(T.vacationMin ? [[`Total Vacation hours at ${fmtM(rate)}/hr`, hd(T.vacationMin), fmtM(T.vacationPay)]] : []),
+                ...(T.sickMin ? [[`Total Sick hours${at(1)}`, hd(T.sickMin), fmtM(T.sickPay)]] : []),
+                ...(T.vacationMin ? [[`Total Vacation hours${at(1)}`, hd(T.vacationMin), fmtM(T.vacationPay)]] : []),
                 ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
                 ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
               ];
@@ -1001,12 +1019,29 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <span>Paid breaks</span><span style={{ fontWeight: 700, color: 'hsl(var(--color-green))' }}>+{T.paidBreakMin}m</span>
               </div>
             )}
-            {!self && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
-                onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportIif(perStart, perEnd); }}
+            {!self && showPay && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+              <button className="secondary-btn" disabled={exporting} title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
+                onClick={() => exportFile(() => api.timeExportIif(perStart, perEnd), 'QuickBooks IIF')}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
+              <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
+                onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>
+              {intacctOpen && (
+                <form onSubmit={(e) => { e.preventDefault(); setIntacctOpen(false); exportFile(() => api.timeExportIntacct(perStart, perEnd, intacct), 'Intacct GL import'); }}
+                  style={{ flexBasis: '100%', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-secondary)' }}>
+                  {[['journal', 'Journal', 'PYRJ'], ['expense', 'Wage Expense Account', '60100'], ['clearing', 'Payroll Clearing Account', '21500'], ['location', 'Entity (Location ID)', '12000']].map(([k, lbl, ph]) => (
+                    <label key={k} style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 3 }}>
+                      {lbl}
+                      <input type="text" value={intacct[k] || ''} placeholder={ph} aria-label={lbl} onChange={(e) => setIntacctField(k, e.target.value)}
+                        style={{ fontSize: 12, padding: '4px 6px', width: k === 'journal' ? 70 : 130 }} />
+                    </label>
+                  ))}
+                  <button type="submit" className="primary-btn" style={{ fontSize: 12 }}>Download</button>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>One entry for {formatDate(perStart)} to {formatDate(perEnd)}: a debit per employee per pay class, one credit per employee to the clearing account. Blank accounts are left for Intacct to ask.</span>
+                </form>
+              )}
               {/* Approving is now "Agree" in the review panel below; HR's
                   signature there finalizes. Unlock / Finalize stay as the HR
                   override for a period that never went through review. */}
@@ -1022,9 +1057,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       )}
       {T && (
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, fontStyle: 'italic' }}>
-          Overtime rule: {ruleInput === 'ca' ? 'California - over 8h/day (1.5×), over 12h/day (2×), the 7th consecutive day, and over 40h/week'
-            : ruleInput === 'federal' ? 'Federal - over 40 hours per week (1.5×)'
-            : 'None - no US overtime premium applied'}. Set per employee above. Corrections keep the original punch on record.
+          Overtime rule: {rule === 'ca' ? 'California - over 8h/day (1.5×), over 12h/day (2×), the 7th consecutive day, and over 40h/week'
+            : rule === 'federal' ? 'Federal - over 40 hours per week (1.5×)'
+            : 'None - no US overtime premium applied'}. Set on the person's Pay & Benefits tab, with the pay rate. Each day is paid at the rate in effect that day. Corrections keep the original punch on record.
         </p>
       )}
 
@@ -1097,6 +1132,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
 function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote }) {
+  const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
@@ -1107,10 +1143,16 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const byDate = Object.fromEntries((data.days || []).map(d => [d.date, d]));
   const fixedDays = data.fixedDays || [];
+  // Policy as the server computed it (A4-A6, Charmi Sep 30) - shown on the strip
+  // so the formula is on screen, never a guess.
+  const bands = data.bands || { fullMin: 420, halfMin: 240 };
+  const fixedSplit = (data.rateSplits || []).length > 1
+    ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
+    : '';
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
   const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
-  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'left', whiteSpace: 'nowrap' };
-  const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'left', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'left', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+  const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'left', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
   const STATUS = {
     working: { label: 'Working', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },
@@ -1140,8 +1182,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       if (note === null) return;
     }
     try {
-      await api.timeDecidePunchRequest(id, { status, note: note || '' });
-      toastOk?.(status === 'approved' ? 'Punch added to the timecard.' : 'Request rejected.');
+      const res = await api.timeDecidePunchRequest(id, { status, note: note || '' });
+      // Approving can also set aside a punch the fix replaces - say which (Oct 7).
+      const extra = /Replaced|Also added/.test(res?.decisionNote || '') ? ` ${res.decisionNote}` : '';
+      toastOk?.(status === 'approved' ? `Punch added to the timecard.${extra}` : 'Request rejected.');
       load();
     } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
   };
@@ -1170,21 +1214,31 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>Fixed salary</span>
         {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-        <span><strong style={{ color: 'var(--ink)' }}>Salary:</strong> {fmtM(data.monthlySalary)}/mo</span>
-        <span><strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} ({T.daysInMonth}d)</span>
-        <span><strong style={{ color: 'var(--ink)' }}>Weekend OT:</strong> {fmtM(data.weekendOtAmount)}/day</span>
+        {showPay && <span title="Set on the Pay & Benefits tab of this person's profile"><strong style={{ color: 'var(--ink)' }}>Salary:</strong> {fmtM(data.monthlySalary)}/mo</span>}
+        {showPay && fixedSplit && (
+          <span title="The salary changed inside this month - each day is paid at the salary in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>{fixedSplit}</span>
+        )}
+        {showPay && <span title="Monthly salary x 12, divided by the working days in this calendar year (days minus Saturdays and Sundays; company holidays stay in)">
+          <strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} (annual / {data.workingDaysInYear || T.workingDaysInYear || 261} working days)
+        </span>}
+        <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
+          <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
+        </span>
+        <span title="A weekday is a full day at this many hours worked (full-day hours minus an hour), a half day from 4 hours, absent below that">
+          <strong style={{ color: 'var(--ink)' }}>Bands:</strong> Full Day ≥ {hhmm(bands.fullMin)} · Half Day ≥ {hhmm(bands.halfMin)} · Absent below
+        </span>
         {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
         {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}><CheckCircle size={12} /> Finalized · period locked</span>}
       </div>
 
       {self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
-          <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A missed weekday deducts one day; each weekend day worked adds {fmtM(data.weekendOtAmount)}. Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
+          <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A weekday under {hhmm(bands.halfMin)} deducts a day, under {hhmm(bands.fullMin)} half a day; each weekend day worked adds {data.weekendMultiplier || 1.35} × your daily rate, pro-rated by hours{data.weekendFloor ? ` (at least ${fmtM(data.weekendFloor)})` : ''}. Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
         </div>
       )}
-      {!data.rateSet && (
+      {showPay && !data.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
-          <AlertTriangle size={13} /> No salary set - set it on this person's profile (People &rarr; Edit &rarr; Payroll wage). Pay shows {fmtM(0)} until then.
+          <AlertTriangle size={13} /> No salary set - set it on this person's Pay &amp; Benefits tab. Pay shows {fmtM(0)} until then.
         </div>
       )}
 
@@ -1194,14 +1248,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
-              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>Effect on pay</th>
+              <th style={{ ...th, textAlign: 'right' }}>Hours</th><th style={{ ...th, textAlign: 'right' }}>Break</th><th style={{ ...th, textAlign: 'right' }}>{showPay ? 'Effect on pay' : ''}</th>
               {!self && <th title="Notes on the day - seen by managers and HR, not the employee" style={th}>Notes</th>}
               {/* Far right, like the hourly card (Sep 29). */}
               <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
             </tr>
           </thead>
           <tbody>
-            {fixedDays.map(fd => {
+            {fixedDays.map((fd, fi) => {
               const d = byDate[fd.date];
               const segs = d?.segments || [];
               const st = STATUS[fd.status] || STATUS.upcoming;
@@ -1242,7 +1296,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // The location dot links to the Locations map (only for viewers who can
               // reach it: HR/managers on someone else's card, or an admin on their own).
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
-              const inCell = (seg) => <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
+              // A clock-out with no clock-in (Oct 1) reads "Missing" on the in
+              // side, like a missing clock-out - it blocks sign-off, and this is
+              // where it gets fixed (add the in, or void the out).
+              const inCell = (seg) => !seg.in
+                ? ((self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                    : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                : <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
               const outCell = (seg) => seg.out
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
@@ -1275,8 +1335,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const lastSeg = segs[segs.length - 1];
 
               // ── One summary row per day: first clock-in, last clock-out, hours, break ──
+              //    (zebra + hover come from .pr-day-row in style.css; weekends keep their mist)
               rows.push(
-                <tr key={fd.date} style={{ background: rowBg }}>
+                <tr key={fd.date} className={`pr-day-row${fd.isWeekend ? ' pr-weekend' : fi % 2 ? ' pr-band' : ''}`}>
                   <td style={{ ...td, fontWeight: 700 }}>{dow(fd.date)}</td>
                   <td style={td}>{statusPill}</td>
                   <td style={td}>
@@ -1306,7 +1367,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   </td>
                   <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
-                  <td style={{ ...td, textAlign: 'right' }}>{effect(fd)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
                   {!self && (
                     <td style={td}><NoteCell date={fd.date} note={dayNotes[fd.date]} onSave={saveNote} /></td>
                   )}
@@ -1455,14 +1516,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </table>
       </div>
 
-      {/* Monthly pay summary */}
+      {/* Monthly pay summary - payroll's, never the manager tier's */}
       <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 300, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ flex: 1, minWidth: 300, display: showPay ? undefined : 'none', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {(() => {
             const rows = [
-              ['Monthly salary', fmtM(T.monthlySalary)],
+              [fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary', fmtM(T.salaryForPeriod ?? T.monthlySalary)],
               [`Missed days (${T.missedFullDays} full${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''})`, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
-              [`Weekend overtime (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'})`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
+              [`Weekend pay (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
               ['Net pay this month', fmtM(T.totalPay)],
             ];
             const last = rows.length - 1;
@@ -1563,7 +1624,7 @@ function InlineTime({ seg, k, showRaw, locked, onSaved, toastErr, self, locateEm
   // Clicking the location dot opens the Geofence Punch view for this person and
   // period (SwipeClock-style map + punch table, Charmi Sep 25).
   const openMap = (e) => { e.stopPropagation(); if (!locateEmail) return; onLocate?.(); };
-  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No work site mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
+  const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No location mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && (locateEmail
@@ -1719,6 +1780,15 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
       toastErr?.('Set the clock-out time - it has to be after the clock-in.'); return;
     }
+    // ...and a clock-in added in front of an existing clock-out comes first (Oct 1).
+    if (needIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
+      toastErr?.('Set the clock-in time - it has to be before the clock-out.'); return;
+    }
+    // Whichever side changed, the clock-out never ends up before the clock-in
+    // (Oct 1) - the server refuses it too (_guard_punch_order).
+    if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
+      toastErr?.('The clock-out has to be after the clock-in.'); return;
+    }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
@@ -1741,18 +1811,27 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     setBusy(true);
     try {
       // Edit existing in-punch, or add one
-      if (seg?.inId) {
-        if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
-        // Reassign location (work site) on the in-punch if it changed.
-        if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
-        // Job-costing category on the in-punch.
-        if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
-      } else {
-        await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
-      }
+      const saveIn = async () => {
+        if (seg?.inId) {
+          if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
+          // Reassign location (work site) on the in-punch if it changed.
+          if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
+          // Job-costing category on the in-punch.
+          if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
+        } else {
+          await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
+        }
+      };
       // Edit existing out-punch, or add one
-      if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
-      else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      const saveOut = async () => {
+        if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
+        else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+      };
+      // Moving a whole shift later (9-5 -> 6-10 PM): saving the new in first
+      // would sit it after the old out for a moment, which the server refuses
+      // as a clock-out before a clock-in. Then the out goes first.
+      const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
+      if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
       toastOk?.('Timecard updated - original times stay on record.'); onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);
@@ -1794,7 +1873,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
             </label>
           )}
           {!self && seg?.inId && (
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Location (work site)
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Location
               <select className="form-input" value={siteId} onChange={e => setSiteId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
                 <option value="">- No location -</option>
                 {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}

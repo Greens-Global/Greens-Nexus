@@ -192,6 +192,39 @@ def mark_due_after_merge(reason: str = "merge") -> str:
         db.close()
 
 
+# ── What the admins see (GET /task-changelog/auto-status) ──────────────────
+
+def status(db) -> dict:
+    """The persisted schedule in plain fields, for What's New. Before this the
+    only trace of a failing sweep was a log line nobody reads."""
+    from routers.task_config import _AI_MODEL, tracked_branch
+    s = _read_state(db)
+    return {
+        "enabled": _enabled(),
+        "branch": tracked_branch(),
+        "model": _AI_MODEL,
+        "nextRunAt": s.get("next_run_at", ""),
+        "lastRunAt": s.get("last_run_at", ""),
+        "lastCreated": s.get("last_created", 0),
+        "lastReason": s.get("last_reason", ""),
+        "lastError": s.get("last_error", ""),
+        "lastErrorAt": s.get("last_error_at", ""),
+        "pendingReason": s.get("pending_reason", ""),
+    }
+
+
+def record_manual(db, result: dict) -> None:
+    """Generate from git runs the same generation by hand: record its outcome
+    where the status line reads it, so a click shows the same health as the
+    scheduled sweep. The schedule (next_run_at) is left alone."""
+    now = _now().isoformat()
+    if result.get("error"):
+        _write_state(db, {"last_error": str(result["error"])[:300], "last_error_at": now})
+    else:
+        _write_state(db, {"last_run_at": now, "last_created": result.get("created", 0),
+                          "last_reason": "manual", "last_error": ""})
+
+
 # ── One sweep (sync - always called via asyncio.to_thread) ─────────────────
 
 def _sweep() -> dict | None:

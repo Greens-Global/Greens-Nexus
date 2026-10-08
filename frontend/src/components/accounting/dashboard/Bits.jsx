@@ -57,10 +57,12 @@ export function Eyebrow({ children, style }) {
 }
 
 /** The framed card every widget and page panel renders inside. */
+// Oct 6: its paddings follow the person's Dashboard density (--dash-* on the
+// .acct-dash wrapper Accounting.jsx draws; the fallbacks are Comfortable).
 export function Panel({ title, sub, right, children, style, bodyStyle, flash, onOpenReport, reportLabel = 'Open report' }) {
   return (
     <div style={{ ...card, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', outline: flash ? `2px solid ${BRAND}` : 'none', ...style }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: 'var(--dash-head-pad, 12px 16px)', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ minWidth: 0 }}>
           <h3 style={{ margin: 0, fontSize: '0.86rem', fontWeight: 700, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h3>
           {sub ? <div style={{ marginTop: 2, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{sub}</div> : null}
@@ -74,7 +76,7 @@ export function Panel({ title, sub, right, children, style, bodyStyle, flash, on
           ) : null}
         </div>
       </div>
-      <div style={{ flex: 1, padding: 16, ...bodyStyle }}>{children}</div>
+      <div style={{ flex: 1, padding: 'var(--dash-pad, 16px)', ...bodyStyle }}>{children}</div>
     </div>
   );
 }
@@ -107,7 +109,7 @@ export function Meter({ segments, height = 8, style }) {
 /** Big-number tile for the tab headers (Cash, Performance, Close). */
 export function Tile({ label, value, sub, subColor, style }) {
   return (
-    <div style={{ ...card, padding: '12px 14px', ...style }}>
+    <div style={{ ...card, padding: 'var(--dash-head-pad, 12px 14px)', ...style }}>
       <Eyebrow>{label}</Eyebrow>
       <div style={{ marginTop: 4, fontSize: '1.25rem', fontWeight: 700, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       {sub ? <div style={{ marginTop: 4, fontSize: '0.74rem', color: subColor ?? 'var(--text-muted)' }}>{sub}</div> : null}

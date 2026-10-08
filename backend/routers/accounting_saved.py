@@ -41,7 +41,10 @@ router = APIRouter(
     dependencies=[Depends(require_module_grant("accounting", "viewer"))],
 )
 
-_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position", "general-ledger")
+# Every key of REPORTS in frontend/src/components/accounting/reportModel.js
+# (test_accounting_reports.py holds the two lists together): Flux Analysis
+# (10/02) and the Statement of Cash Flows (item 26c, 10/07) included.
+_REPORTS = ("pnl", "balance-sheet", "trial-balance", "cash-position", "general-ledger", "flux", "cash-flow")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
 _PREFS_MAX = 6000      # characters of JSON - one person's column layout
 _PACKAGE_MAX = 40      # statements in one package
@@ -489,10 +492,16 @@ def _intacct_preview(db: Session, data: dict) -> list[dict]:
             name = (person.display_name or "").strip() or f"{person.first_name or ''} {person.last_name or ''}".strip()
         current = limits.get(email, []) if email else []
         wanted = sorted({str(c).strip() for c in (u.get("entities") or []) if str(c).strip()})
+        # Intacct marks the user restricted but the connection's login could
+        # not read which entities (10/02: it lacks the User Restrictions
+        # permission, so every restricted person came through as "all
+        # entities"). Shown, never applied - an empty list would mean everything.
+        unknown = bool(u.get("restricted")) and not u.get("entitiesKnown", True) and not wanted
         out.append({
             "login": u.get("login") or u.get("id") or "", "intacctName": u.get("name") or "", "email": email, "status": u.get("status") or "",
             "type": u.get("type") or "", "name": name, "matched": bool(person), "hasGrant": email in holders,
-            "entities": wanted, "departments": u.get("departments") or [], "current": current, "differs": bool(person) and wanted != current,
+            "entities": wanted, "departments": u.get("departments") or [], "current": current,
+            "differs": bool(person) and not unknown and wanted != current, "unknown": unknown,
         })
     out.sort(key=lambda r: (not r["matched"], not r["differs"], r["name"] or r["intacctName"] or r["login"]))
     return out
@@ -528,7 +537,7 @@ async def apply_entity_access_from_intacct(body: IntacctApplyBody, user: dict = 
         done = []
         now = _now()
         for r in rows:
-            if r["email"] not in wanted or not r["matched"]:
+            if r["email"] not in wanted or not r["matched"] or r.get("unknown"):
                 continue
             if r["email"] == me and user["level"] < _LEVELS["administrator"]:
                 continue
