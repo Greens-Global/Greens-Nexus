@@ -6,6 +6,10 @@
 // event, when it is already on screen).
 //
 //   requestReportDrill({ account: '11452', accountName: 'GC Chase Chkg', from: '', to: '2026-08-31', entity: '32000' })
+//
+// Oct 7: `party` ({ kind: 'vendor', code, name }) and `dims` (the report
+// filter lists - departments, vendor, customer, employee, project, item,
+// journals) narrow the lines too, and show as chips over them.
 
 let pending = null;
 

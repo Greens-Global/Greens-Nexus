@@ -12,10 +12,10 @@
 import '../asset/asset-styles.scoped.css';
 import AssetApp from '../asset/App.jsx';
 
-export default function AssetModule() {
+export default function AssetModule({ activeSub = null, onSubChange = null }) {
   return (
     <div className="nexus-asset-root">
-      <AssetApp />
+      <AssetApp activeSub={activeSub} onSubChange={onSubChange} />
     </div>
   );
 }

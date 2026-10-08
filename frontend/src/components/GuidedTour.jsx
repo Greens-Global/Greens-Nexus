@@ -1,6 +1,14 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { X, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { rootZoom } from '../lib/utils';
+import { useIsMobile } from '../lib/useIsMobile';
+
+// A phone, or any screen too short for the card - a phone held landscape is
+// ~390px tall and wider than the 640px phone breakpoint. Only here does the
+// popover clamp itself into the VISUAL viewport and scroll its own text, so
+// Next/Done can always be reached; larger screens keep the original placement.
+const COMPACT_QUERY = '(max-width: 640px), (max-height: 560px)';
+const EDGE = 12;
 
 // ── GuidedTour - spotlight walkthrough ("Simulate" mode) ─────────────────────
 // Highlights one element at a time (found via [data-tour="<target>"]), explains
@@ -13,17 +21,32 @@ import { rootZoom } from '../lib/utils';
 //   before  - run before locating the element (switch tab, select a row, …)
 
 export default function GuidedTour({ steps, onClose }) {
-  const [i, setI] = useState(0);
+  const [rawI, setI] = useState(0);
   const [rect, setRect] = useState(null);
+  // A caller may hand over a SHORTER step list mid-tour (Tickets rebuilds its
+  // steps when a rotate flips the phone layout: 7 steps -> 3). Clamp so a
+  // stale index can never read past the end and crash on step.title.
+  const i = Math.max(0, Math.min(rawI, steps.length - 1));
   const step = steps[i];
   const findTries = useRef(0);
+  // The pending retry / frame, so closing the tour (or moving to another
+  // step) cancels it - a retry that fired after unmount touched `document`
+  // once the page was gone (failed CI on PR #462 after a test tore down).
+  const retryTimer = useRef(null);
+  const compact = useIsMobile(COMPACT_QUERY);
+  const cardRef = useRef(null);
+  const [cardH, setCardH] = useState(0);
+  // Re-render on visual-viewport changes (pinch zoom, on-screen keyboard,
+  // the browser's toolbar sliding away) - compact placement is measured
+  // against it, not against the layout viewport.
+  const [vvTick, setVvTick] = useState(0);
 
   const locate = useCallback(() => {
     if (!step?.target) { setRect(null); return; }
     const el = document.querySelector(`[data-tour="${step.target}"]`);
     if (!el) {
       // The element may still be rendering after before() switched tabs - retry briefly.
-      if (findTries.current < 20) { findTries.current += 1; setTimeout(locate, 60); }
+      if (findTries.current < 20) { findTries.current += 1; clearTimeout(retryTimer.current); retryTimer.current = setTimeout(locate, 60); }
       else setRect(null);
       return;
     }
@@ -39,8 +62,9 @@ export default function GuidedTour({ steps, onClose }) {
   useLayoutEffect(() => {
     findTries.current = 0;
     let cancelled = false;
-    Promise.resolve(step?.before?.()).then(() => { if (!cancelled) requestAnimationFrame(locate); });
-    return () => { cancelled = true; };
+    let frame = 0;
+    Promise.resolve(step?.before?.()).then(() => { if (!cancelled) frame = requestAnimationFrame(locate); });
+    return () => { cancelled = true; cancelAnimationFrame(frame); clearTimeout(retryTimer.current); };
   }, [i, step, locate]);
 
   useEffect(() => {
@@ -60,12 +84,58 @@ export default function GuidedTour({ steps, onClose }) {
     };
   }, [i, steps.length, onClose, locate]);
 
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (!compact || !vv) return undefined;
+    const bump = () => { setVvTick((n) => n + 1); locate(); };
+    vv.addEventListener('resize', bump);
+    vv.addEventListener('scroll', bump);
+    return () => { vv.removeEventListener('resize', bump); vv.removeEventListener('scroll', bump); };
+  }, [compact, locate]);
+
+  // The card's real height, for the compact clamp below (its text varies by
+  // step). Only stored when it changes, so this settles after one pass.
+  useLayoutEffect(() => {
+    if (!compact || !cardRef.current) return;
+    const h = cardRef.current.offsetHeight;
+    if (h) setCardH((prev) => (prev === h ? prev : h));
+  }, [compact, i, rect, vvTick]);
+
   const last = i === steps.length - 1;
   const pad = 6;
 
   // popover position: below the spotlight when there's room, else above, else centered
   let pop;
-  if (rect) {
+  let maxH;
+  if (compact) {
+    // Everything in the inner (zoom-normalized) space, against the VISUAL
+    // viewport: position:fixed is laid out from the layout viewport, so the
+    // visual one's offset is added back in.
+    const z = rootZoom();
+    const vv = window.visualViewport;
+    const vTop = (vv ? vv.offsetTop : 0) / z;
+    const vLeft = (vv ? vv.offsetLeft : 0) / z;
+    const vh = (vv ? vv.height : window.innerHeight) / z;
+    const vw = (vv ? vv.width : window.innerWidth) / z;
+    maxH = Math.max(120, vh - EDGE * 2);
+    const h = Math.min(cardH || 210, maxH);
+    const lo = vTop + EDGE;
+    const hi = vTop + vh - EDGE - h;   // lowest top that still shows the whole card
+    let top;
+    if (rect) {
+      const below = rect.top + rect.height + EDGE;
+      const above = rect.top - EDGE - h;
+      // Neither fits (a tall target such as a whole list): the top edge, as
+      // the original placement did - the bottom is where the floating bars sit.
+      top = below <= hi ? below : above >= lo ? above : lo;
+    } else {
+      top = vTop + (vh - h) / 2;
+    }
+    top = Math.max(lo, Math.min(top, hi));
+    const w = Math.min(332, vw - EDGE * 2);
+    const left = rect ? Math.min(Math.max(vLeft + EDGE, rect.left), vLeft + vw - EDGE - w) : vLeft + (vw - w) / 2;
+    pop = { position: 'fixed', top, left: Math.max(vLeft + EDGE, left), width: w };
+  } else if (rect) {
     // rect is already in the inner space, so the viewport bounds must be too.
     const z = rootZoom();
     const vw = window.innerWidth / z, vh = window.innerHeight / z;
@@ -81,7 +151,11 @@ export default function GuidedTour({ steps, onClose }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1400 }} role="dialog" aria-label="Guided walkthrough">
+    // .guided-tour - lets phone-wide [role=dialog] sheet styling (style.css)
+    // exclude this overlay, which is a spotlight, not a sheet.
+    // Compact screens also lift it over the phone's floating bars
+    // (MobileTaskBar is zIndex 2500) so they are dimmed and blocked too.
+    <div className="guided-tour" style={{ position: 'fixed', inset: 0, zIndex: compact ? 2600 : 1400 }} role="dialog" aria-label="Guided walkthrough">
       {/* click shield - the whole point of Simulate: nothing underneath is clickable */}
       <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', inset: 0 }} />
       {rect ? (
@@ -95,22 +169,27 @@ export default function GuidedTour({ steps, onClose }) {
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,18,25,0.62)' }} />
       )}
 
-      <div style={{ ...pop, width: 332, maxWidth: 'calc(100vw - 24px)', background: 'var(--card)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 16, fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div ref={cardRef} data-testid="guided-tour-card" style={{ width: 332, maxWidth: 'calc(100vw - 24px)', ...pop, background: 'var(--card)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 16, fontFamily: 'Inter,sans-serif',
+        ...(compact ? { maxHeight: maxH, display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : null) }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
           <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>
             Walkthrough · step {i + 1} of {steps.length}
           </span>
           <span style={{ flex: 1 }} />
           <button onClick={onClose} aria-label="Close walkthrough" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2 }}><X size={16} /></button>
         </div>
-        <div style={{ fontSize: 14.5, fontWeight: 800, marginBottom: 6 }}>{step.title}</div>
-        <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>{step.body}</div>
-        <div style={{ display: 'flex', gap: 4, margin: '14px 0 12px' }}>
+        {/* The only part that scrolls when the card is capped (compact):
+            the step count above and Back/Next/Done below stay put. */}
+        <div data-testid="guided-tour-body" style={compact ? { minHeight: 0, flex: '0 1 auto', overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : undefined}>
+          <div style={{ fontSize: 14.5, fontWeight: 800, marginBottom: 6 }}>{step.title}</div>
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>{step.body}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 4, margin: '14px 0 12px', flexShrink: 0 }}>
           {steps.map((_, d) => (
             <span key={d} style={{ height: 4, flex: 1, borderRadius: 4, background: d <= i ? 'var(--ink)' : 'var(--line)' }} />
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} style={{ fontSize: 12.5 }}>Skip</button>
           <span style={{ flex: 1 }} />
           {i > 0 && (

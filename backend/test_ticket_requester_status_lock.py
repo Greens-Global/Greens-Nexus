@@ -73,10 +73,12 @@ class RequesterStatusLockTests(unittest.TestCase):
         return T.update_ticket("t1", T.TicketUpdate(**fields), BackgroundTasks(), user=user, db=self.db)
 
     # ── blocked for the requester ─────────────────────────────────────────
-    def test_requester_cannot_jump_open_straight_to_resolved(self):
+    def test_requester_cannot_jump_open_straight_to_closed(self):
+        """Resolving their own ticket is allowed (Oct 1 2026 - see
+        test_ticket_requester_resolve.py); skipping straight to Closed is not."""
         self._ticket("open")
         with self.assertRaises(HTTPException) as ctx:
-            self._update(REQUESTER, status="resolved", resolution="fixed")
+            self._update(REQUESTER, status="closed", resolution_note="done")
         self.assertEqual(ctx.exception.status_code, 403)
 
     def test_requester_cannot_jump_open_straight_to_in_progress(self):
@@ -168,9 +170,16 @@ class RequesterStatusLockTests(unittest.TestCase):
         out = self._update(REQUESTER, status="reopened", reopen_reason="still broken")
         self.assertEqual(out["status"], "reopened")
 
-    def test_requester_can_reopen_a_closed_ticket(self):
+    def test_requester_cannot_reopen_a_closed_ticket(self):
+        # Oct 1: Reopen is while it is Resolved; closed is closed for good.
         self._ticket("closed")
-        out = self._update(REQUESTER, status="reopened", reopen_reason="came back")
+        with self.assertRaises(HTTPException) as ctx:
+            self._update(REQUESTER, status="reopened", reopen_reason="came back")
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_the_desk_can_still_reopen_a_closed_ticket(self):
+        self._ticket("closed")
+        out = self._update(MANAGER, status="reopened", reopen_reason="came back")
         self.assertEqual(out["status"], "reopened")
 
     def test_requester_cannot_close_a_closed_ticket_straight_to_resolved(self):

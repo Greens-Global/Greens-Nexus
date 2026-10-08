@@ -84,8 +84,8 @@ describe('CreateTicketModal suggested articles', () => {
     expect(screen.queryByTestId('ticket-deflection')).toBeNull();
     // What it is about - no department here, so a short typed answer.
     fireEvent.change(screen.getByPlaceholderText(/Front gate keypad/), { target: { value: 'Time off' } });
-    // The default Incident type's one required question.
-    fireEvent.click(screen.getByText('One User'));
+    // The default Incident type's one required question (Who is affected?)
+    // comes pre-answered as One User since Oct 1 - nothing to click.
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create Ticket' })); });
     expect(createTicket).toHaveBeenCalledTimes(1);
     expect(createTicket.mock.calls[0][0].subject).toBe('Need PTO next week');

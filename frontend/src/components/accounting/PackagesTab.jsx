@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, FileDown, Loader2, MessageSquareText, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
+import Amount, { AmountInput } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { useRole } from '../../contexts/RoleContext';
 import { useNameResolver } from '../../lib/useNameResolver';
@@ -288,7 +289,6 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
   }, [onClose]);
   const accounts = (result?.rows || []).filter((r) => r.kind === 'account' && r.code);
   const at = result ? result.columns.findIndex((c) => c.type === 'amount') : 0;
-  const money = (n) => { const v = Number(n) || 0; const s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return v < 0 ? `(${s})` : s; };
   const shown = accounts.filter((a) => {
     const s = q.trim().toLowerCase();
     const has = rows[a.code] && (Number(rows[a.code].amount) || (rows[a.code].note || '').trim());
@@ -320,7 +320,7 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input type="checkbox" checked={onlyAdjusted} onChange={(e) => setOnlyAdjusted(e.target.checked)} /> Only lines with an adjustment
             </label>
-            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong>{money(total)}</strong></span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong><Amount value={total} /></strong></span>
           </div>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
           {!result && !error && <Blocks count={4} />}
@@ -335,9 +335,9 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
                     return (
                       <tr key={a.code}>
                         <td><span className="acct-code">{a.code}</span>{a.title}</td>
-                        <td className="acct-num">{money(a.values[at])}</td>
-                        <td className="acct-num"><input type="number" step="0.01" value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} onChange={(e) => set(a.code, { amount: e.target.value })} style={{ ...ctl, width: 130, textAlign: 'right' }} /></td>
-                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}>{money((a.values[at] || 0) + adj)}</td>
+                        <td className="acct-num"><Amount value={a.values[at]} /></td>
+                        <td className="acct-num"><AmountInput value={v.amount} disabled={!canEdit} aria-label={`Adjustment for ${a.code}`} placeholder="" onChange={(n) => set(a.code, { amount: n == null ? '' : n })} style={{ ...ctl, width: 130 }} /></td>
+                        <td className="acct-num" style={{ fontWeight: adj ? 700 : 400 }}><Amount value={(a.values[at] || 0) + adj} /></td>
                         <td style={{ whiteSpace: 'normal', minWidth: 260 }}><input type="text" value={v.note} maxLength={300} disabled={!canEdit} aria-label={`Note for ${a.code}`} placeholder="Why, for the lender" onChange={(e) => set(a.code, { note: e.target.value })} style={{ ...ctl, width: '100%' }} /></td>
                       </tr>
                     );

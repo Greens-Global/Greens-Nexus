@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, Download, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import EntryDetail from './EntryDetail';
+import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { PopoverPanel, usePopover } from './reportControls';
-import { downloadCsv } from './reportModel';
+import { linesBaseName } from './linesExport';
+import { DIM_KINDS, NUM_OPS, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -35,6 +37,11 @@ import { downloadCsv } from './reportModel';
 // "Vendor / Customer" is gone); the description no longer takes every spare
 // pixel - the spare width is shared out over the text columns; the vendor /
 // customer / account / journal chips are dropdowns.
+//
+// Oct 2 (Charmi): the grid scrolls WITH the page - no box of its own with a
+// scrollbar - so a tall window shows that many more lines; only full screen
+// keeps the inner scroller. A total on a report drills here with no account
+// (every line of the period); the report's Journals filter follows the lines.
 
 const PAGE = 100;
 const EXPORT_CAP = 10000;
@@ -105,31 +112,65 @@ function FacetSelect({ label, items, total, onPick, text }) {
 }
 const facetSelect = { height: 28, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.76rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260 };
 
-// The report's filters narrow the search as far as line search can: the
-// entities, and one vendor / customer / employee. Anything else (departments,
-// Project-Job, item, several parties) is named in the header as not applied,
-// so the total here is never mistaken for the filtered report figure.
-const PARTY_KINDS = ['vendor', 'customer', 'employee'];
-const DIM_NAMES = { departments: 'department', vendor: 'vendor', customer: 'customer', employee: 'employee', project: 'Project-Job', item: 'item' };
+// The report's filters follow the lines (Oct 7, Charmi): the entities, and
+// every dimension picked on the report - departments, vendors, customers,
+// employees, Project-Jobs, items and journals - go to the search as the same
+// comma-separated lists the report reads take (glLineParams). One vendor,
+// customer or employee also narrows as the search's own party, the narrowing
+// the ledger has always applied. Each one shows as a chip and can be lifted
+// here without changing the report.
 function applyDims(dims, entities) {
   const place = entities.length === 1 ? { location: entities[0] } : entities.length ? { locations: entities.join(',') } : {};
-  if (!dims) return { place, party: null, unapplied: [] };
-  const unapplied = [];
-  let party = null;
-  const partyKinds = PARTY_KINDS.filter((k) => dims[k]?.length);
-  if (partyKinds.length === 1 && dims[partyKinds[0]].length === 1) party = { kind: partyKinds[0], code: dims[partyKinds[0]][0], name: dims[partyKinds[0]][0] };
-  else partyKinds.forEach((k) => unapplied.push(`${dims[k].length} ${DIM_NAMES[k]}${dims[k].length > 1 ? 's' : ''}`));
-  ['departments', 'project', 'item'].forEach((k) => { if (dims[k]?.length) unapplied.push(`${DIM_NAMES[k]} (${dims[k].length})`); });
-  return { place, party, unapplied };
+  if (!dims) return { place, party: null, picked: [] };
+  const { party_kind: kind, party: code, ...lists } = glLineParams(dims);
+  Object.assign(place, lists);
+  const picked = DIM_KINDS.filter((k) => dims[k.key]?.length).map((k) => ({ key: k.key, kind: k.kind, label: k.plural.charAt(0).toUpperCase() + k.plural.slice(1), one: k.one || k.label, codes: dims[k.key] }));
+  return { place, party: kind ? { kind, code, name: code } : null, picked };
 }
+const dimChipText = (d, names) => {
+  const shown = d.codes.slice(0, 3).map((c) => { const n = names?.[d.kind]?.[c]; return n ? `${n} (${c})` : c; });
+  const more = d.codes.length > 3 ? ` +${d.codes.length - 3} more` : '';
+  return `${d.codes.length === 1 ? d.one : d.label}: ${shown.join(', ')}${more}`;
+};
+// A comparison on Debit or Credit (Oct 7, item 26d - the Reports tables'
+// operators): "=" keeps the server's match over the whole result; >, <, >=,
+// <= and Between are checked here, on the lines loaded.
+const opSet = (f) => !!f && (String(f.a ?? '').trim() || String(f.b ?? '').trim());
+// What a filter box sends to the server: the text, or an amount box's "=" value.
+const filterText = (c, v) => (c.num ? (v && (v.op || '=') === '=' ? String(v.a || '') : '') : String(v || ''));
+// An operator box as the ledger's query params (10/07): debit_op=gt&debit_v=100.
+// "=" travels as typed text in `cols`; an open-ended Between is >= or <=.
+const OP_PARAM = { '>': 'gt', '<': 'lt', '>=': 'gte', '<=': 'lte' };
+function opQuery(key, f) {
+  const a = parseFigure(f.a);
+  const b = parseFigure(f.b);
+  const op = f.op || '=';
+  if (op === 'between') {
+    if (!Number.isNaN(a) && !Number.isNaN(b)) return { [`${key}_op`]: 'between', [`${key}_v`]: a, [`${key}_v2`]: b };
+    if (!Number.isNaN(a)) return { [`${key}_op`]: 'gte', [`${key}_v`]: a };
+    if (!Number.isNaN(b)) return { [`${key}_op`]: 'lte', [`${key}_v`]: b };
+    return {};
+  }
+  return OP_PARAM[op] && !Number.isNaN(a) ? { [`${key}_op`]: OP_PARAM[op], [`${key}_v`]: a } : {};
+}
+const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '...'} and ${f.b || '...'}` : `${label} ${f.op} ${f.a}`);
 
 // `initialEntry` ({ id, no }) opens that journal entry on top of the lines
 // as soon as the grid mounts - the dashboard's Find a Transaction tile hands
 // it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
 // it, so closing the modal does not reopen it on the next render.
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, dims = null, initialEntry = null, onEntryClosed }) {
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
   const entitiesKey = entities.join(',');
-  const applied = useMemo(() => applyDims(dims, entities), [dims, entitiesKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The report's filters, plus any a drill from another tab brought with it
+  // (requestReportDrill's `dims`), less the ones lifted here with a chip's x.
+  const [dropped, setDropped] = useState([]);
+  const dimsKey = JSON.stringify([dims, drill?.dims || null, dropped]);
+  const effectiveDims = useMemo(() => {
+    const all = { ...(dims || {}), ...(drill?.dims || {}) };
+    dropped.forEach((k) => { delete all[k]; });
+    return Object.keys(all).some((k) => all[k]?.length) ? all : null;
+  }, [dimsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const applied = useMemo(() => applyDims(effectiveDims, entities), [effectiveDims, entitiesKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Narrowing picked from the chips. A drill-down arrives with its account set.
   const [party, setParty] = useState(null);       // { kind, code, name }
   const [account, setAccount] = useState(null);   // { code, name }
@@ -140,7 +181,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [exporting, setExporting] = useState(false);
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
   useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
@@ -173,23 +213,38 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length;
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
+  // An amount column's box is { op, a, b } (the Reports tables' operators);
+  // its "=" goes to the server like any typed text, and the other operators
+  // go as debit_op / credit_op so the ledger's totals and paging follow them
+  // (10/07). A ledger that does not know them yet is caught below: the lines
+  // it hands back are checked here instead.
   const [typed, setTyped] = useState({});
   const [cols, setCols] = useState('');
+  const [opQs, setOpQs] = useState('');
   useEffect(() => {
     const kept = {};
-    LINE_COLUMNS.forEach((c) => { const v = (typed[c.key] || '').trim(); if (c.filter && v) kept[c.key] = v; });
+    const ops = {};
+    LINE_COLUMNS.forEach((c) => {
+      const v = filterText(c, typed[c.key]).trim();
+      if (c.filter && v) kept[c.key] = v;
+      if (c.filter && c.num && opSet(typed[c.key])) Object.assign(ops, opQuery(c.key, typed[c.key]));
+    });
     const next = Object.keys(kept).length ? JSON.stringify(kept) : '';
-    const t = setTimeout(() => setCols(next), 350);
+    const nextOps = Object.keys(ops).length ? JSON.stringify(ops) : '';
+    const t = setTimeout(() => { setCols(next); setOpQs(nextOps); }, 350);
     return () => clearTimeout(t);
   }, [typed]);
-  const filtering = Object.values(typed).some((v) => (v || '').trim());
+  const filtering = LINE_COLUMNS.some((c) => (c.num ? opSet(typed[c.key]) : String(typed[c.key] || '').trim()));
+  const opFiltersAll = LINE_COLUMNS.filter((c) => c.num && opSet(typed[c.key]) && (typed[c.key].op || '=') !== '=').map((c) => ({ c, f: typed[c.key] }));
 
   // A new drill-down replaces whatever was picked before it.
   useEffect(() => {
     if (!drill) return;
-    setAccount({ code: drill.account, name: drill.accountName });
+    // A total drills with no account: every line of the period (Charmi, 10/02).
+    setAccount(drill.account ? { code: drill.account, name: drill.accountName } : null);
     // A vendor, customer or employee column drills into that party; a
     // department column into that department (the Department filter box).
+    setDropped([]);
     setParty(drill.party || applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period');
     setTyped(drill.department ? { department: drill.department } : {});
   }, [drill]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -208,9 +263,10 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     journal: journal || undefined,
     book: book === 'all' ? undefined : book,
     cols: cols || undefined,
-  }), [term, applied.place, usePeriod, drill, party, account, journal, book, cols]);
+    ...(opQs ? JSON.parse(opQs) : {}),
+  }), [term, applied.place, usePeriod, drill, party, account, journal, book, cols, opQs]);
 
-  const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal;
+  const hasCriteria = (term || '').trim().length >= 2 || !!party || !!account || !!journal || !!usePeriod;
 
   useEffect(() => { setPage(0); }, [params]);
 
@@ -227,31 +283,18 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   // The toolbar's search box shows the spinner while this is working.
   useEffect(() => { onBusy?.(loading); return () => onBusy?.(false); }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The ledger echoes every operator it applied (`cols.debit_cmp`); only the
+  // rest are checked here, on the lines loaded.
+  const opFilters = opFiltersAll.filter(({ c }) => !data?.cols?.[`${c.key}_cmp`]);
+  const passesOps = (r) => opFilters.every(({ c, f }) => numberFilterHit(Number(r[c.key]) || 0, f));
   const total = data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));
-  const rows = data?.rows || [];
+  // The ledger narrows the lines by the report's filters (10/07); one that
+  // does not yet hands back lines of other payees - those are left out here.
+  const loaded = data?.rows || [];
+  const dimsMissed = !!effectiveDims && loaded.some((l) => !lineMatchesDims(l, effectiveDims));
+  const rows = loaded.filter((l) => (!dimsMissed || lineMatchesDims(l, effectiveDims)) && passesOps(l));
   const facets = data?.facets || {};
-
-  const exportCsv = async () => {
-    if (!total || exporting) return;
-    setExporting(true);
-    try {
-      // The screen shows one page; the file is the whole result (walked 1,000 at a time).
-      const all = [];
-      for (let offset = 0; offset < Math.min(total, EXPORT_CAP); offset += 1000) {
-        const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
-        all.push(...(d?.rows || []));
-      }
-      // The columns on screen, in their order; amounts as numbers.
-      const out = [columns.map((c) => c.label)];
-      all.forEach((r) => out.push(columns.map((c) => (c.num ? (r[c.key] || '') : c.text(r)))));
-      downloadCsv(`Ledger-Lines_${(term || account?.code || party?.name || 'results').replace(/[^A-Za-z0-9]+/g, '-').slice(0, 40)}.csv`, out);
-    } catch (e) {
-      setError(e?.message || 'Could not export the results.');
-    } finally {
-      setExporting(false);
-    }
-  };
 
   // Drag a column's right edge to resize it; double-click puts it back.
   const startResize = (c, e) => {
@@ -269,9 +312,39 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
   const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
-  const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : null].filter(Boolean).join(' - ') || 'Ledger lines';
+  const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
   const labelSpan = columns.filter((c) => !c.num).length;
+
+  // Oct 2 (Charmi): one Export, the report's own at the top. The lines hand it
+  // a builder for the WHOLE result (walked 1,000 at a time, up to EXPORT_CAP),
+  // in the columns on screen and their order, amounts as numbers.
+  const exportKey = JSON.stringify([params, columns.map((c) => c.key), total, heading, periodText, entityName, book, opFilters.map(({ c, f }) => [c.key, f])]);
+  useEffect(() => {
+    if (!onExport) return undefined;
+    if (!total) { onExport(null); return undefined; }
+    const build = async () => {
+      const all = [];
+      for (let offset = 0; offset < Math.min(total, EXPORT_CAP); offset += 1000) {
+        const d = await api.searchAccountingLedger({ ...params, offset, limit: 1000 });
+        all.push(...(d?.rows || []).filter((l) => (!effectiveDims || lineMatchesDims(l, effectiveDims)) && passesOps(l)));
+      }
+      const firstNum = columns.findIndex((c) => c.num);
+      const sums = Object.fromEntries(columns.filter((c) => c.num).map((c) => [c.key, all.reduce((n, r) => n + (Number(r[c.key]) || 0), 0)]));
+      return {
+        title: `Ledger Lines - ${heading}`,
+        period: periodText.replace(/\//g, '-'),
+        subtitle: [entityName, periodText, book === 'all' ? 'all books' : `${book} book`, `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
+        columns: columns.map((c) => ({ label: c.label, num: !!c.num, width: colWidth(c) })),
+        rows: all.map((r) => columns.map((c) => (c.num ? (Number(r[c.key]) || 0) : c.text(r)))),
+        totals: firstNum > 0 ? columns.map((c, i) => (c.num ? Math.round(sums[c.key] * 100) / 100 : i === 0 ? `Totals - ${all.length.toLocaleString('en-US')} lines` : '')) : null,
+        capped: total > EXPORT_CAP,
+      };
+    };
+    onExport({ build, lines: total, name: linesBaseName({ title: `Ledger Lines - ${heading}`, period: periodText.replace(/\//g, '-') }), title: `Ledger Lines - ${heading}` });
+    return undefined;
+  }, [exportKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onExport?.(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={card}>
@@ -298,28 +371,25 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             <option value="cash">Cash Book</option>
           </select>
           <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />
-          <button type="button" className="primary-btn" onClick={exportCsv} disabled={!total || exporting} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-            <Download size={14} /> {exporting ? 'Exporting...' : 'Export CSV'}
-          </button>
         </div>
       </div>
 
-      {(party || account || journal || filtering) && (
+      {(party || account || journal || filtering || applied.picked.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Narrowed to</span>
-          {party && <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${party.name}`} onClear={() => setParty(null)} />}
+          {applied.picked.map((d) => (
+            <ActiveChip key={d.key} label={dimChipText(d, dimNames)} onClear={() => setDropped((x) => [...x, d.key])} />
+          ))}
+          {party && !(applied.party && party.kind === applied.party.kind && party.code === applied.party.code) && (
+            <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${party.name}`} onClear={() => setParty(null)} />
+          )}
           {account && <ActiveChip label={`Account: ${account.code} ${account.name || ''}`.trim()} onClear={() => { setAccount(null); if (drill) onClearDrill(); }} />}
           {journal && <ActiveChip label={`Journal: ${journal}`} onClear={() => setJournal('')} />}
-          {LINE_COLUMNS.filter((c) => (typed[c.key] || '').trim()).map((c) => (
-            <ActiveChip key={c.key} label={`${c.label} contains ${typed[c.key].trim()}`} onClear={() => setTyped((t) => ({ ...t, [c.key]: '' }))} />
+          {LINE_COLUMNS.filter((c) => (c.num ? opSet(typed[c.key]) : String(typed[c.key] || '').trim())).map((c) => (
+            <ActiveChip key={c.key} label={c.num ? opText(c.label, { op: '=', ...typed[c.key] }) : `${c.label} contains ${typed[c.key].trim()}`}
+              onClear={() => setTyped((t) => ({ ...t, [c.key]: c.num ? undefined : '' }))} />
           ))}
           {filtering && <button type="button" onClick={() => setTyped({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>Clear column filters</button>}
-        </div>
-      )}
-
-      {applied.unapplied.length > 0 && (
-        <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-          Report filters not applied to line search: {applied.unapplied.join(', ')}. These lines are the account's full activity for the entity and period.
         </div>
       )}
 
@@ -346,9 +416,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               {!journal && <FacetSelect label="Journals" total={total} items={facets.journals} onPick={(f) => setJournal(f.code)} />}
             </span>
             <span><strong>{total.toLocaleString('en-US')}</strong> lines</span>
-            <span>Debits <strong>{signed(data.debit)}</strong></span>
-            <span>Credits <strong>{signed(data.credit)}</strong></span>
-            <span>Net <strong style={{ color: data.debit - data.credit < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}>{signed(data.debit - data.credit)}</strong></span>
+            <span>Debits <strong><Amount value={data.debit} /></strong></span>
+            <span>Credits <strong><Amount value={data.credit} /></strong></span>
+            <span>Net <strong style={{ color: data.debit - data.credit < 0 ? 'var(--bad-fg, #dc2626)' : undefined }}><Amount value={data.debit - data.credit} /></strong></span>
             {total > PAGE && (
               <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
                 Lines {(page * PAGE + 1).toLocaleString('en-US')}-{Math.min(total, (page + 1) * PAGE).toLocaleString('en-US')}
@@ -359,7 +429,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             )}
           </div>
 
-          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1 }}>
+          {/* No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02). */}
+          <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
             <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
               <thead>
@@ -375,9 +446,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                 <tr className="acct-filter-row">
                   {columns.map((c) => (
                     <th key={c.key}>
-                      {c.filter ? (
+                      {c.filter && c.num ? (
+                        <OpFilter label={c.label} value={typed[c.key]} onChange={(v) => setTyped((t) => ({ ...t, [c.key]: v }))} />
+                      ) : c.filter ? (
                         <input type="text" value={typed[c.key] || ''} onChange={(e) => setTyped((t) => ({ ...t, [c.key]: e.target.value }))}
-                          aria-label={`Filter ${c.label}`} placeholder={c.key === 'date' ? 'MM/DD/YYYY' : c.num ? '0.00' : 'contains'} className={c.num ? 'acct-num' : undefined} />
+                          aria-label={`Filter ${c.label}`} placeholder={c.key === 'date' ? 'MM/DD/YYYY' : 'contains'} />
                       ) : null}
                     </th>
                   ))}
@@ -398,24 +471,31 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                       if (c.key === 'account') {
                         return <td key={c.key} title={text}><span className="acct-code">{r.gl_code}</span>{r.account_name}</td>;
                       }
-                      return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{text}</td>;
+                      return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{c.num ? <Amount value={r[c.key]} zero="blank" /> : text}</td>;
                     })}
                   </tr>
                 ))}
                 {!rows.length && (
                   <tr><td colSpan={columns.length} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
-                    Nothing in the ledger matches{filtering ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering ? 'Clear a column filter' : 'Remove a word or a filter'} to widen the search.
+                    {loaded.length ? 'None of the lines loaded here pass' : 'Nothing in the ledger matches'}{filtering ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering ? 'Clear a column filter' : 'Remove a word or a filter'} to widen the search.
                   </td></tr>
                 )}
                 {rows.length > 0 && page + 1 >= pages && (
                   <tr className="acct-grand">
                     {labelSpan > 0 && <td colSpan={labelSpan}>Totals - {total.toLocaleString('en-US')} lines</td>}
-                    {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num">{signed(data[c.key])}</td>)}
+                    {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num"><Amount value={data[c.key]} /></td>)}
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          {(opFilters.length > 0 || dimsMissed) && (
+            <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {opFilters.length > 0 && `${opFilters.map(({ c, f }) => opText(c.label, f)).join(', ')} ${total > PAGE ? `is checked on the ${loaded.length.toLocaleString('en-US')} lines loaded on this page, not the whole search` : 'is checked on the lines loaded here'}: ${rows.length.toLocaleString('en-US')} of ${loaded.length.toLocaleString('en-US')} pass. `}
+              {dimsMissed && 'The ledger did not narrow these lines by every report filter, so lines that do not match are left out here. '}
+              The line count and totals above are for the whole search{opFilters.length > 0 ? '; the export applies the same filter to every line' : ''}.
+            </div>
+          )}
           {total > EXPORT_CAP && (
             <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               The export holds the first {EXPORT_CAP.toLocaleString('en-US')} lines. Narrow the search for a complete file.
@@ -425,6 +505,23 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
     </div>
+  );
+}
+
+// The operator box under an amount column - the same control as the Reports
+// tables' (ReportsTab, item 26d): =, >, <, >=, <=, Between and a value.
+function OpFilter({ label, value, onChange }) {
+  const v = value && typeof value === 'object' ? value : { op: '=', a: '', b: '' };
+  return (
+    <span className="acct-op-filter">
+      <select value={v.op || '='} onChange={(e) => onChange({ ...v, op: e.target.value })} aria-label={`Operator for ${label}`} title="Compare with">
+        {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+      <input type="text" inputMode="decimal" value={v.a || ''} onChange={(e) => onChange({ ...v, a: e.target.value })} aria-label={`Filter ${label}`} placeholder="0.00" className="acct-num" />
+      {v.op === 'between' && (
+        <input type="text" inputMode="decimal" value={v.b || ''} onChange={(e) => onChange({ ...v, b: e.target.value })} aria-label={`Filter ${label} up to`} placeholder="and" className="acct-num" />
+      )}
+    </span>
   );
 }
 

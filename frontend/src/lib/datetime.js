@@ -105,3 +105,87 @@ export function toDateInputValue(v) {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
+
+// ── Shifts (Oct 2026) - the one set of formatters the Shifts module uses ──
+// A shift keeps its times as 'HH:MM' wall-clock strings in its own zone, so
+// they are formatted as text, never through a Date (which would move them
+// into the viewer's zone).
+
+// 'HH:MM' -> "8:30 AM"; '' / unreadable -> fallback.
+export function formatHHMM(hhmm, fallback = '') {
+  const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return fallback;
+  const h = Number(m[1]), min = Number(m[2]);
+  if (h > 23 || min > 59) return fallback;
+  return `${h % 12 || 12}:${String(min).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+// Weekday name  ->  formatWeekday('2026-09-29') = "Tuesday", ('2026-09-29', 'short') = "Tue"
+export function formatWeekday(v, style = 'long', fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  const weekday = style === 'short' ? 'short' : style === 'narrow' ? 'narrow' : 'long';
+  return new Intl.DateTimeFormat('en-US', { weekday }).format(d);
+}
+
+// Month and year  ->  "September 2026"
+export function formatMonthYear(v, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d);
+}
+
+// Month and day - the cue a day header needs across a month boundary  ->  "Sep 29"
+export function formatMonthDay(v, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
+}
+
+// A compact, readable range for a heading (Shifts toolbar, 10/02): month
+// names, the month said once when both ends share it, the year left to a
+// caption beside it.
+//   ('2026-09-28', '2026-10-04') -> "Sep 28 - Oct 4"
+//   ('2026-10-05', '2026-10-11') -> "Oct 5 - 11"
+//   ('2026-10-02', '2026-10-02') -> "Oct 2"
+//   ('2026-12-28', '2027-01-03') -> "Dec 28, 2026 - Jan 3, 2027" (two years: both said)
+export function formatRangeShort(start, end, fallback = '') {
+  const a = toDate(start);
+  const b = toDate(end) || a;
+  if (!a) return fallback;
+  const mon = (d) => new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d);
+  if (a.getFullYear() !== b.getFullYear()) {
+    return `${mon(a)} ${a.getDate()}, ${a.getFullYear()} - ${mon(b)} ${b.getDate()}, ${b.getFullYear()}`;
+  }
+  if (a.getMonth() === b.getMonth()) {
+    return a.getDate() === b.getDate() ? `${mon(a)} ${a.getDate()}` : `${mon(a)} ${a.getDate()} - ${b.getDate()}`;
+  }
+  return `${mon(a)} ${a.getDate()} - ${mon(b)} ${b.getDate()}`;
+}
+
+// ISO-8601 week of the year (weeks start Monday; week 1 holds the first
+// Thursday)  ->  weekOfYear('2026-09-28') = 40
+export function weekOfYear(v) {
+  const d = toDate(v);
+  if (!d) return 0;
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));      // the Thursday of this week
+  const jan4 = new Date(t.getFullYear(), 0, 4);
+  return 1 + Math.round(((t - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+}
+
+// A punch on the EMPLOYEE'S own clock, not the viewer's (Oct 2 - a California
+// manager auditing an India night shift saw Pacific times). `iso` is the
+// stored naive-UTC punch time; `tzOffsetMin` is the punching device's
+// getTimezoneOffset() (UTC - local, as TimePunch.tz_offset_min stores it).
+// -> { time: '2:30 AM', date: '2026-10-02', zone: 'GMT+5:30' }, or null.
+export function wallClock(iso, tzOffsetMin) {
+  const t = Date.parse(`${String(iso || '').slice(0, 19)}Z`);
+  if (isNaN(t)) return null;
+  const off = Number(tzOffsetMin) || 0;
+  const d = new Date(t - off * 60000);   // the wall clock, read as UTC
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' }).format(d);
+  const east = -off, abs = Math.abs(east);
+  const zone = `GMT${east >= 0 ? '+' : '-'}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''}`;
+  return { time, date: d.toISOString().slice(0, 10), zone };
+}

@@ -374,6 +374,10 @@ def run_daily_scan() -> int:
         _pstart, _pend = _pay_period(_today.isoformat())
         _sign_due = _today == (datetime.strptime(_pend, "%Y-%m-%d").date() - timedelta(days=1))
         _signed = set()
+        # Exempt from time tracking = no clock and no timesheet, so never a
+        # "Sign your timecard" nudge (Visesh, 10/02). Set on the role.
+        from routers.timeclock import time_tracking_exempt_emails
+        _exempt = time_tracking_exempt_emails(db)
         if _sign_due:
             _signed = {a.employee_email for a in db.query(TimeApproval).filter(
                 TimeApproval.kind == "employee_sign", TimeApproval.period_start == _pstart,
@@ -383,7 +387,7 @@ def run_daily_scan() -> int:
             name = f"{e.first_name} {e.last_name}".strip()
 
             # 0. Timecard sign reminder (one day before the current period ends)
-            if _sign_due and e.work_email and e.work_email.lower() not in _signed:
+            if _sign_due and e.work_email and e.work_email.lower() not in _signed and e.work_email.lower() not in _exempt:
                 sent += _notify(
                     db, "timecard_sign", e.work_email,
                     "Sign your timecard",
@@ -654,6 +658,19 @@ async def reminders_loop():
             await asyncio.to_thread(equipment_reminders.run_daily)
         except Exception as e:
             print(f"[reminders] equipment loop error: {e}")
+        # Onboarding / offboarding checklists: sync + one reminder per owner.
+        try:
+            import hr_checklists
+            await asyncio.to_thread(hr_checklists.run_daily)
+        except Exception as e:
+            print(f"[reminders] checklist loop error: {e}")
+        # Recurring property maintenance: 15-day reminders, and a ticket for
+        # any service that came due with none opened (maintenance_services.py).
+        try:
+            import maintenance_services
+            await asyncio.to_thread(maintenance_services.run_daily)
+        except Exception as e:
+            print(f"[reminders] maintenance services loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:
@@ -683,6 +700,14 @@ def run_m365_pushback() -> dict:
     if not _entra_writes_enabled():
         print("[m365-pushback] skipped - Entra writes are off on this environment")
         return {"pushed": 0, "failed": 0, "skipped": True}
+    # Merge first (Oct 7): this push sends every profile with Nexus winning,
+    # so a change someone made in Microsoft 365 since the last 15-minute pass
+    # must come into Nexus before it, not be pushed over.
+    try:
+        import m365_profile_sync
+        m365_profile_sync.sync_all()
+    except Exception as e:   # noqa: BLE001 - the push still runs
+        print(f"[m365-pushback] contact merge skipped: {type(e).__name__}: {e}")
     db = SessionLocal()
     pushed = failed = 0
     try:

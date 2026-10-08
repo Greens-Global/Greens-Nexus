@@ -28,11 +28,16 @@ export default function SetBudgetModal({
   facilities,
   googleBudgetByProperty,
   onChangeGoogleBudget,
+  // Saves every facility at once on the server (Marketing.jsx); without it
+  // the budgets only change on this screen.
+  onSaveAll,
   onClose,
 }) {
   const [period, setPeriod] = useState('monthly')
   const [google, setGoogle] = useState(googleBudgetByProperty)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   function handleChange(facility, raw) {
     if (raw.trim() === '') {
@@ -52,8 +57,22 @@ export default function SetBudgetModal({
 
   const googleSubtotal = facilities.reduce((a, f) => a + (google[f] ?? 0), 0) * MULTIPLIER[period]
 
-  function handleSave() {
-    if (error) return
+  async function handleSave() {
+    if (error || saving) return
+    if (onSaveAll) {
+      setSaving(true)
+      setSaveError('')
+      try {
+        await onSaveAll(Object.fromEntries(facilities.map((f) => [f, google[f] ?? 0])))
+      } catch (e) {
+        setSaveError(e?.message || 'The budgets could not be saved - please try again.')
+        setSaving(false)
+        return
+      }
+      setSaving(false)
+      onClose()
+      return
+    }
     for (const f of facilities) {
       onChangeGoogleBudget(f, google[f] ?? 0)
     }
@@ -116,7 +135,7 @@ export default function SetBudgetModal({
           </div>
         </div>
 
-        {error && <div style={{ fontSize: 12.5, color: C.red500 }}>{error}</div>}
+        {(error || saveError) && <div role="alert" style={{ fontSize: 12.5, color: C.red500 }}>{error || saveError}</div>}
 
         <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
           <div style={{ color: C.gray400 }}>Google Ads Total</div>
@@ -143,7 +162,7 @@ export default function SetBudgetModal({
             onMouseEnter={(e) => (e.currentTarget.style.background = C.emerald700)}
             onMouseLeave={(e) => (e.currentTarget.style.background = C.emerald600)}
           >
-            Save Changes
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>

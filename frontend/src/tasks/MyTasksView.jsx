@@ -3,10 +3,10 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, CornerDownRight, Check, Minus } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
-import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle } from './theme';
+import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, EmptyState, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
@@ -187,7 +187,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
             color dot that used to sit between it and the title is gone
             (Sagar, Sept 1 2026): a bare swatch named nothing on its own, and
             Status is already a column you can add. */}
-        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} title={t.completed ? 'Completed' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
+        <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} title={isMissed(t) ? MISSED_TITLE : t.completed ? 'Completed' : 'Mark Complete'} style={{ ...btn('ghost'), padding: 0, flexShrink: 0, color: isMissed(t) ? NX.faint : t.completed ? NX.green : NX.faint }}>{isMissed(t) ? <XCircle size={17} /> : t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
         {/* Same badges the Task List shows. Without them the same task looked
             emptier here than there, which is the kind of difference that reads
@@ -233,8 +233,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     // text, but the Due Date/Collaborators columns are mostly blank, so
     // there's nothing else to read the row boundary from and the divider
     // needs to actually show up. NX.border is the same 1px line, darker.
-    <div onClick={() => onOpen(t.id)} className="stack-table-row" data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}
-      onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = rowBg; }}>
+    // Hover: .nx-row-hover (style.css) - the whole-row highlight every list shares.
+    <div onClick={() => onOpen(t.id)} className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>

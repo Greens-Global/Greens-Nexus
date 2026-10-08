@@ -138,12 +138,12 @@ class PersonalTeamTests(unittest.TestCase):
 
     def test_removing_a_member_withdraws_their_individual_grant(self):
         t = self._make()
-        update_team(t["id"], TeamBody(member_emails=[MAKER["email"]]), db=self.db)
+        update_team(t["id"], TeamBody(member_emails=[MAKER["email"]]), user=MAKER, db=self.db)
         self.assertEqual(self._roster(), {MAKER["email"]})
 
     def test_removing_the_project_withdraws_the_grants_it_carried(self):
         t = self._make()
-        update_team(t["id"], TeamBody(project_ids=[]), db=self.db)
+        update_team(t["id"], TeamBody(project_ids=[]), user=MAKER, db=self.db)
         self.assertEqual(self._roster(), set())
 
     def test_binning_a_personal_team_takes_its_grants_with_it(self):
@@ -165,7 +165,7 @@ class PersonalTeamTests(unittest.TestCase):
         # The bug that would hide behind leftover grants.
         t = self._make()
         decide_team_approval(t["id"], TeamApprovalBody(decision="approved"), user=BOSS, db=self.db)
-        update_team(t["id"], TeamBody(member_emails=[MAKER["email"]]), db=self.db)
+        update_team(t["id"], TeamBody(member_emails=[MAKER["email"]]), user=BOSS, db=self.db)
         self.assertIsNone(project_role_for(self.db, MATE["email"], self.proj))
 
     def test_rejection_leaves_it_personal_and_its_grants_standing(self):
@@ -195,8 +195,71 @@ class PersonalTeamTests(unittest.TestCase):
 
     def test_a_patch_cannot_approve_a_team(self):
         t = self._make()
-        update_team(t["id"], TeamBody(approval_status="approved"), db=self.db)
+        update_team(t["id"], TeamBody(approval_status="approved"), user=MAKER, db=self.db)
         self.assertEqual(self._team(t["id"]).approval_status, "personal")
+
+    # -- who may PATCH a team (Sep 30 review) --------------------------------
+    def _own_project(self, owner):
+        p = models.TaskProject(id=gen_id(), name="Lobby refit", access_level="restricted",
+                               owner_email=owner["email"], member_emails=[],
+                               created_at=now_iso(), modified_at=now_iso())
+        self.db.add(p)
+        self.db.commit()
+        return p
+
+    def _approved(self):
+        return self._make(user=BOSS, personal=False, members=[MATE["email"]], projects=[])
+
+    def _forbidden(self, team_id, body, user):
+        with self.assertRaises(HTTPException) as e:
+            update_team(team_id, body, user=user, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
+
+    def test_somebody_elses_personal_team_cannot_be_edited(self):
+        t = self._make()
+        self._forbidden(t["id"], TeamBody(member_emails=[OUTSIDER["email"]]), OUTSIDER)
+        self.assertNotIn(OUTSIDER["email"], self._team(t["id"]).member_emails)
+
+    def test_an_employee_cannot_add_themselves_to_an_approved_team(self):
+        t = self._approved()
+        self._forbidden(t["id"], TeamBody(member_emails=[MATE["email"], OUTSIDER["email"]]), OUTSIDER)
+        # Not even its creator, once a manager has approved it.
+        self._forbidden(t["id"], TeamBody(name="Mine now"), MAKER)
+
+    def test_an_employee_cannot_raise_an_approved_teams_role(self):
+        t = self._approved()
+        self._forbidden(t["id"], TeamBody(access_role="owner"), OUTSIDER)
+        self.assertEqual(self._team(t["id"]).access_role or "editor", "editor")
+
+    def test_an_approved_team_cannot_be_pointed_at_a_project_you_do_not_own(self):
+        t = self._approved()
+        self._forbidden(t["id"], TeamBody(project_ids=[self.proj.id]), OUTSIDER)
+        self.assertEqual(self._team(t["id"]).project_ids, [])
+
+    def test_a_project_owner_can_share_their_project_with_a_team(self):
+        # The project Share panel: attach (resending the current role) and detach.
+        t = self._approved()
+        mine = self._own_project(OUTSIDER)
+        update_team(t["id"], TeamBody(project_ids=[mine.id], access_role="editor"),
+                    user=OUTSIDER, db=self.db)
+        self.assertEqual(self._team(t["id"]).project_ids, [mine.id])
+        update_team(t["id"], TeamBody(project_ids=[]), user=OUTSIDER, db=self.db)
+        self.assertEqual(self._team(t["id"]).project_ids, [])
+
+    def test_a_project_owner_cannot_detach_somebody_elses_project(self):
+        t = self._make(user=BOSS, personal=False, members=[MATE["email"]], projects=[self.proj.id])
+        self._forbidden(t["id"], TeamBody(project_ids=[]), OUTSIDER)
+        self.assertEqual(self._team(t["id"]).project_ids, [self.proj.id])
+
+    def test_a_creator_cannot_add_a_project_they_do_not_own(self):
+        t = self._make(projects=[])
+        self._forbidden(t["id"], TeamBody(project_ids=[self.proj.id]), MAKER)
+        self.assertEqual(self._roster(), set())
+
+    def test_a_manager_can_edit_any_team(self):
+        t = self._make()
+        update_team(t["id"], TeamBody(name="Renamed", project_ids=[]), user=BOSS, db=self.db)
+        self.assertEqual(self._team(t["id"]).name, "Renamed")
 
     # -- teams that already existed ----------------------------------------
     def test_a_team_predating_this_reads_as_approved(self):

@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
+import Amount, { formatAmount } from './Amount';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
@@ -19,11 +20,6 @@ import { useAccountingPrefs } from './prefs';
 // The "Open in Nexus Accounting" button that used to sit here came off on
 // 09/30 (Charmi, call of 09/29: remove it everywhere).
 
-const money = (n) => {
-  const v = Number(n) || 0;
-  if (Math.abs(v) < 0.005) return '';
-  return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
 const BOOK_LABEL = { both: 'Both books', actual_only: 'Accrual only', tax_only: 'Cash only' };
 const named = (name, id) => name || id || '';
 
@@ -53,7 +49,14 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     setData(null);
     setError('');
     api.getAccountingEntry(entryId)
-      .then((d) => { if (alive) setData(d); })
+      // An answer without totals (an older app, or a partial read) adds its
+      // own lines up rather than crashing the panel.
+      .then((d) => {
+        if (!alive) return;
+        const ls = d?.lines || [];
+        const totals = d?.totals || { debit: ls.reduce((t, l) => t + (Number(l.debit) || 0), 0), credit: ls.reduce((t, l) => t + (Number(l.credit) || 0), 0) };
+        setData({ ...(d || {}), lines: ls, totals });
+      })
       .catch((e) => { if (alive) setError(e?.message || 'Could not load the entry.'); });
     return () => { alive = false; };
   }, [entryId]);
@@ -83,8 +86,8 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   const cell = (l, g, key) => {
     switch (key) {
       case 'account': return <><span className="acct-code">{l.gl_code}</span>{l.account_name}</>;
-      case 'debit': return money(l.debit);
-      case 'credit': return money(l.credit);
+      case 'debit': return <Amount value={l.debit} zero="blank" />;
+      case 'credit': return <Amount value={l.credit} zero="blank" />;
       case 'department': return named(l.department_name, l.department);
       case 'location': return named(l.location_name, l.location);
       case 'memo': return l.description || g?.memo || '';
@@ -140,15 +143,15 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                     })}
                     <tr className="acct-grand">
                       <td>Total</td>
-                      <td className="acct-num">{money(data.totals.debit)}</td>
-                      <td className="acct-num">{money(data.totals.credit)}</td>
+                      <td className="acct-num"><Amount value={data.totals.debit} /></td>
+                      <td className="acct-num"><Amount value={data.totals.credit} /></td>
                       <td colSpan={COLUMNS.length - 3} />
                     </tr>
                   </tbody>
                 </table>
               </div>
               {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
-                <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {money(data.totals.debit - data.totals.credit)}.</div>
+                <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
               )}
               {books.length > 1 && (
                 <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>

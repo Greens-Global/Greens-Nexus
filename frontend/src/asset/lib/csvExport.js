@@ -61,7 +61,10 @@ const EXPORT_COLLECTIONS = [
  * utilities, vendors, service, odometer, docs), plus permits and timeline. Every row carries a
  * Section column so the whole asset can be reconstructed/audited from one file.
  */
-export function exportAssetCsv(asset, store) {
+// `extra.ticketMaintenance` (Property Tickets, Oct 2026): closed tickets as
+// maintenance-log rows (lib/propertyTickets.js ticketMaintenanceRows), or null
+// when they could not be loaded. Omitted = the old behavior.
+export function exportAssetCsv(asset, store, extra = null) {
   const rows = [['Section', 'Group', 'Field', 'Value']];
 
   // Overview: the free-text snapshot groups (Project Details, Financial & Investment, etc).
@@ -93,6 +96,19 @@ export function exportAssetCsv(asset, store) {
       }
     });
   });
+
+  if (extra && 'ticketMaintenance' in extra) {
+    if (!extra.ticketMaintenance) {
+      rows.push(['Maintenance (Tickets)', '', 'Not included', 'Tickets could not be loaded - export again to include them']);
+    } else {
+      const fields = (RECORD_TYPES.maintenance?.fields || []).filter((f) => f.k && f.k !== 'docFile');
+      extra.ticketMaintenance.forEach((r, i) => {
+        const rowLabel = 'Record ' + (i + 1);
+        rows.push(['Maintenance (Tickets)', rowLabel, 'Ticket', r.docFileName || '']);
+        fields.forEach((f) => rows.push(['Maintenance (Tickets)', rowLabel, f.label || f.k, r[f.k] == null ? '' : String(r[f.k])]));
+      });
+    }
+  }
 
   // Permits and timeline live directly on the asset record (not in the shared store), so they're
   // dumped as raw key/value pairs rather than through a RECORD_TYPES field schema.

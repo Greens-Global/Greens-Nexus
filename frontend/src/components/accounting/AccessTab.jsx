@@ -27,11 +27,23 @@ import { control, entityOptions } from './reportControls';
 // Sep 30 (Visesh): "Bring From Intacct" reads who may see which entities in
 // Intacct itself, matches the Intacct users to Nexus people by email, shows
 // the two side by side, and sets the ticked people's Nexus limits to match.
+//
+// Oct 7 (Charmi, item 41: "Access need to include access for PFS"): owners
+// see a PFS column - None / Viewer / Editor per person - that writes the
+// PFS module grant (routers/pfs_access.py); an owner reads "Owner" and cannot
+// be changed; a grant from another group is shown as a note. People with PFS
+// access but no Accounting access are listed under the table, and anyone on
+// Nexus People can be added there. Every change is audited server side.
 
 const LEVELS = { viewer: 'Viewer', editor: 'Editor', full: 'Full', owner: 'Owner' };
+const PFS_LEVELS = [['none', 'None'], ['viewer', 'Viewer'], ['editor', 'Editor']];
 
 export default function AccessTab() {
-  const { myEmail } = useRole();
+  const { myEmail, myRole } = useRole();
+  const owner = myRole === 'owner';
+  const [pfs, setPfs] = useState(null);            // owners: everyone's PFS access, by email
+  const [pfsError, setPfsError] = useState('');
+  const [pfsExtra, setPfsExtra] = useState([]);    // people added to the PFS-only list on this visit
   const nameOf = useNameResolver();
   const [people, setPeople] = useState(null);
   const [entities, setEntities] = useState([]);
@@ -47,6 +59,26 @@ export default function AccessTab() {
     load();
     api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
   }, [load]);
+  useEffect(() => {
+    if (!owner) return undefined;
+    let alive = true;
+    api.getPfsAccessPeople()
+      .then((d) => { if (alive) setPfs(new Map((d?.people || []).map((p) => [p.email, p]))); })
+      .catch(() => { if (alive) setPfs(null); });
+    return () => { alive = false; };
+  }, [owner]);
+  const setPfsLevel = (email, level) => {
+    setPfsError('');
+    return api.setPfsAccessLevel(email, level)
+      .then((row) => setPfs((m) => { const n = new Map(m); n.set(email, { ...(m.get(email) || {}), ...row }); return n; }))
+      .catch((e) => setPfsError(e?.message || 'Could not change the PFS access.'));
+  };
+  // PFS access for people outside the Accounting list.
+  const listed = useMemo(() => new Set((people || []).map((p) => p.email)), [people]);
+  const pfsOnly = useMemo(() => (pfs ? [...pfs.values()].filter((p) => !listed.has(p.email) && (p.level !== 'none' || pfsExtra.includes(p.email))) : [])
+    .map((p) => ({ ...p, name: p.name || nameOf(p.email) || p.email })).sort((a, b) => a.name.localeCompare(b.name, 'en-US')), [pfs, listed, pfsExtra, nameOf]);
+  const pfsCandidates = useMemo(() => (pfs ? [...pfs.values()].filter((p) => !listed.has(p.email) && p.level === 'none' && !pfsExtra.includes(p.email)) : [])
+    .map((p) => ({ ...p, name: p.name || nameOf(p.email) || p.email })).sort((a, b) => a.name.localeCompare(b.name, 'en-US')), [pfs, listed, pfsExtra, nameOf]);
 
   const names = useMemo(() => new Map(entities.map((e) => [e.code, e.name || e.code])), [entities]);
   const shown = useMemo(() => {
@@ -83,7 +115,7 @@ export default function AccessTab() {
         <div className="acct-lines-wrap">
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
             <thead>
-              <tr><th scope="col">Person</th><th scope="col">Accounting Level</th><th scope="col">Entities</th><th scope="col">Last Opened</th><th scope="col" aria-label="Change" /></tr>
+              <tr><th scope="col">Person</th><th scope="col">Accounting Level</th><th scope="col">Entities</th>{pfs && <th scope="col">PFS</th>}<th scope="col">Last Opened</th><th scope="col" aria-label="Change" /></tr>
             </thead>
             <tbody>
               {shown.map((p) => (
@@ -101,6 +133,7 @@ export default function AccessTab() {
                       </span>
                     )}
                   </td>
+                  {pfs && <td><PfsLevel row={pfs.get(p.email)} email={p.email} name={p.name} onSet={setPfsLevel} /></td>}
                   <td style={{ color: p.lastOpened ? undefined : 'var(--text-muted)' }} title={p.opens ? `${p.opens.toLocaleString('en-US')} ${p.opens === 1 ? 'visit' : 'visits'}` : undefined}>
                     {p.lastOpened ? `${formatDateTime(p.lastOpened)}${p.opens > 1 ? ` · ${p.opens.toLocaleString('en-US')} visits` : ''}` : 'Not yet'}
                   </td>
@@ -112,13 +145,40 @@ export default function AccessTab() {
                 </tr>
               ))}
               {!shown.length && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 10px', whiteSpace: 'normal' }}>
+                <tr><td colSpan={pfs ? 6 : 5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px 10px', whiteSpace: 'normal' }}>
                   {(people || []).length ? 'Nobody matches that search.' : 'Nobody holds the Accounting grant yet. Grant it in Settings, then set entity limits here.'}
                 </td></tr>
               )}
             </tbody>
           </table>
         </div>
+        {pfsError && <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginTop: 10 }}>{pfsError}</div>}
+        {pfs && (
+          <section aria-label="PFS Access Without Accounting" style={{ marginTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+              <div style={{ flex: '1 1 300px', minWidth: 0 }}>
+                <h4 style={{ fontSize: '0.88rem', margin: 0 }}>PFS Access Without Accounting</h4>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>Personal financial statements open only for owners and the people given PFS access. A borrower does not see their own file without it.</div>
+              </div>
+              <select value="" aria-label="Give PFS Access to a Person" onChange={(e) => { const v = e.target.value; if (v) setPfsExtra((x) => [...x, v]); }} style={{ ...control, maxWidth: 280 }}>
+                <option value="">Give PFS Access to a Person...</option>
+                {pfsCandidates.map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+              </select>
+            </div>
+            {pfsOnly.length > 0 ? (
+              <div className="acct-lines-wrap">
+                <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
+                  <thead><tr><th scope="col">Person</th><th scope="col">PFS</th></tr></thead>
+                  <tbody>
+                    {pfsOnly.map((p) => (
+                      <tr key={p.email}><td style={{ fontWeight: 600 }}>{p.name}</td><td><PfsLevel row={p} email={p.email} name={p.name} onSet={setPfsLevel} /></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Nobody outside the list above has PFS access.</div>}
+          </section>
+        )}
         <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
           <ShieldCheck size={13} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>A limit covers an entity and everything under it. A limited person works in Reports, Packages and MRI only: the dashboard tabs and the accounting app show consolidated figures, so they close. Every change is written to the audit log. Last Opened is when the person last opened any Accounting tab.</span>
@@ -127,6 +187,30 @@ export default function AccessTab() {
       {editing && <EntityLimit person={editing} entities={entities} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       {importing && <IntacctImport names={names} onClose={() => setImporting(false)} onApplied={() => { setImporting(false); load(); }} />}
     </AsyncSection>
+  );
+}
+
+// One person's PFS access (owners only): None / Viewer / Editor; "Owner"
+// for an owner (always sees PFS, never changed here); a grant from another
+// group is shown as a note - it stays until that group changes.
+function PfsLevel({ row, email, name, onSet }) {
+  const [busy, setBusy] = useState(false);
+  const r = row || { email, level: 'none', managedLevel: 'none', otherGroups: [], canChange: true };
+  if (r.isOwner || r.level === 'owner') return <span style={{ fontWeight: 600 }}>Owner</span>;
+  const other = (r.otherGroups || []).filter((g) => g.level && g.level !== 'none');
+  return (
+    <div style={{ display: 'grid', gap: 2 }}>
+      <select value={r.managedLevel || 'none'} disabled={busy || r.canChange === false} aria-label={`PFS access for ${name}`}
+        onChange={(e) => { setBusy(true); Promise.resolve(onSet(email, e.target.value)).finally(() => setBusy(false)); }}
+        style={{ ...control, height: 26, fontSize: '0.76rem', width: 110 }}>
+        {PFS_LEVELS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+      </select>
+      {other.length > 0 && (
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          Also {other.map((g) => `${LEVELS[g.level] || g.level} through ${g.name}`).join(', ')}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -141,7 +225,7 @@ function IntacctImport({ names, onClose, onApplied }) {
   useEffect(() => {
     let alive = true;
     api.getAccountingAccessFromIntacct()
-      .then((d) => { if (!alive) return; setData(d); setPicked(new Set((d?.people || []).filter((p) => p.matched && p.differs).map((p) => p.email))); })
+      .then((d) => { if (!alive) return; setData(d); setPicked(new Set((d?.people || []).filter((p) => p.matched && p.differs && !p.unknown).map((p) => p.email))); })
       .catch((e) => { if (alive) { setData({ people: [], notes: [] }); setError(e?.message || 'Could not read Intacct.'); } });
     return () => { alive = false; };
   }, []);
@@ -151,7 +235,9 @@ function IntacctImport({ names, onClose, onApplied }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   const people = data?.people || [];
-  const matched = people.filter((p) => p.matched);
+  // A restricted Intacct user whose entity list could not be read is shown,
+  // never ticked: applying would turn "restricted" into "every entity".
+  const matched = people.filter((p) => p.matched && !p.unknown);
   const toggle = (email) => setPicked((s) => { const n = new Set(s); if (n.has(email)) n.delete(email); else n.add(email); return n; });
   const list = (codes) => (codes.length ? codes.map((c) => names.get(c) ? `${names.get(c)} (${c})` : c).join(', ') : 'All entities');
   const apply = () => {
@@ -197,10 +283,15 @@ function IntacctImport({ names, onClose, onApplied }) {
                   <tbody>
                     {people.map((p) => (
                       <tr key={`${p.login}-${p.email}`} style={{ opacity: p.matched ? 1 : 0.6 }}>
-                        <td>{p.matched ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
+                        <td>{p.matched && !p.unknown ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
                         <td title={p.email || undefined}>{p.intacctName || p.login}{p.login && p.intacctName ? <span className="acct-code" style={{ marginLeft: 8 }}>{p.login}</span> : null}{p.status && !/active/i.test(p.status) ? <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.status}</span> : null}</td>
                         <td>{p.matched ? <>{p.name}{!p.hasGrant && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · no Accounting access yet</span>}</> : <span style={{ color: 'var(--text-muted)' }}>{p.email ? 'Not in Nexus People' : 'No email in Intacct'}</span>}</td>
-                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>{list(p.entities)}{p.departments?.length ? <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}</td>
+                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>
+                          {p.unknown
+                            ? <span style={{ color: 'var(--bad-fg, #dc2626)', fontWeight: 600 }} title="Intacct says this user is restricted, but the connection's login may not read which entities. Grant it the User Restrictions permission in Intacct and open this again.">Restricted - entities not readable</span>
+                            : list(p.entities)}
+                          {p.departments?.length ? <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}
+                        </td>
                         <td style={{ whiteSpace: 'normal', maxWidth: 360, color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: '0.72rem', color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
                       </tr>
                     ))}

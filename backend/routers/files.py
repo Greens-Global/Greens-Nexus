@@ -51,6 +51,7 @@ PROTECTED_BUCKETS = frozenset({
     "qa-evidence",
     "task-files",       # task and ticket attachments, inbound email attachments, inline images
     "ir-documents",     # investor relations documents and signed commitments
+    "construction-media",  # jobsite daily-log photos, video and voice notes (+ thumbnails)
 })
 # Still public on purpose: `avatars` and company logos (shown to everyone,
 # embedded in email), `agent-dist` (installer downloads), and
@@ -110,6 +111,18 @@ def _sign(bucket: str, path: str) -> str:
         if len(_cache) > 20000:
             _cache.clear()
     return signed
+
+
+def fetchable_url(u: str) -> str:
+    """A URL the SERVER (or an API it hands the URL to) can GET without a Nexus
+    login: a short-lived signed URL for an object in a protected bucket, else
+    `u` unchanged. Background jobs that used to fetch the canonical
+    /object/public/ URL go through this, since a private bucket answers that
+    URL with an error. Raises like _sign when storage refuses."""
+    parsed = parse_public_url(u)
+    if not parsed or not _SERVICE_KEY:
+        return u
+    return _sign(*parsed)
 
 
 @router.get("/view")

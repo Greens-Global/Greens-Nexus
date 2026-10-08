@@ -95,18 +95,87 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual(cells[2]["note"], "AC repair taken off the rent")
         row = out["rows"][0]
         self.assertEqual((row["monthsBehind"], row["owed"], row["lateFees"], row["balanceToDate"]), (2, 3200.0, 200.0, 3200.0))
-        self.assertEqual(out["summary"], {"leases": 1, "behind": 1, "owed": 3200.0, "expectedToDate": 11755.0, "receivedToDate": 8555.0})
+        self.assertEqual(out["summary"], {"leases": 1, "behind": 1, "owed": 3200.0, "balance": 3200.0, "expectedToDate": 11755.0, "receivedToDate": 8555.0})
         self.assertEqual(out["totals"][1], {"month": "2026-02", "expected": 3000.0, "received": 2800.0})
 
     def test_a_payment_after_the_lease_ended_still_shows(self):
         out = leasing.rent_roll([lease(leaseEnd="2026-02-28")], {}, {("C1", "2026-03"): {"41101": 3000.0}}, 2026, date(2026, 9, 28))
         march, april = out["rows"][0]["months"][2], out["rows"][0]["months"][3]
-        self.assertEqual((march["inForce"], march["expected"], march["received"], march["status"]), (True, 0.0, 3000.0, "paid"))
+        # Oct 7: shown, but outside the lease - it counts toward neither the
+        # balance nor the month totals, and the row says money came in outside it.
+        self.assertEqual((march["inForce"], march["expected"], march["received"], march["status"], march["balance"]), (True, 0, 3000.0, "outside", 0))
         self.assertEqual(april, {"month": "2026-04", "inForce": False})
+        self.assertEqual(out["rows"][0]["outsideLease"], {"months": ["2026-03"], "received": 3000.0})
+        self.assertEqual(out["totals"][2]["received"], 0.0)
+
+    def test_oct7_lease_typed_in_on_oct_2_paid_since_january(self):
+        """Charmi, 10/07: Expected 2,201.61 / Received 22,750.00 / Balance
+        (20,548.39) Credit for one 2,275 a month lease paid Jan-Oct. New Lease
+        defaulted Lease Start and the first rent to the day it was typed in
+        (Oct 2): October expected 30/31 of the rent and every earlier payment
+        counted against nothing."""
+        paid = {("C1", f"2026-{m:02d}"): {"41101": 2275.0} for m in range(1, 11)}
+        typed = lease(leaseStart="2026-10-02", rates=[{"startDate": "2026-10-02", "rent": 2275.0, "cam": 0, "other": 0}])
+        row = leasing.rent_roll([typed], {}, paid, 2026, date(2026, 10, 20))["rows"][0]
+        counted = [c for c in row["months"] if c.get("inForce") and c["status"] not in ("upcoming", "outside")]
+        self.assertEqual(round(sum(c["balance"] for c in counted), 2), -73.39)      # no fake 20.5K credit
+        self.assertEqual(row["outsideLease"]["received"], 20475.0)                  # flagged: check the Lease Start
+        # With the real start date the year adds up: 10 x 2,275 expected and received.
+        right = lease(leaseStart="2026-01-01", rates=[{"startDate": "2026-10-02", "rent": 2275.0, "cam": 0, "other": 0}])
+        row = leasing.rent_roll([right], {}, paid, 2026, date(2026, 10, 20))["rows"][0]
+        counted = [c for c in row["months"] if c.get("inForce") and c["status"] not in ("upcoming", "outside")]
+        self.assertEqual((round(sum(c["expected"] for c in counted), 2), round(sum(c["received"] for c in counted), 2), row["balanceToDate"]), (22750.0, 22750.0, 0.0))
+
+    def test_the_first_rent_applies_from_the_lease_start(self):
+        l = lease(leaseStart="2026-01-01", rates=[{"startDate": "2026-03-15", "rent": 3100.0, "cam": 0, "other": 0}])
+        self.assertEqual([leasing.expected_for_month(l, 2026, m) for m in (1, 2, 3)], [3100.0, 3100.0, 3100.0])
+        # No lease start: nothing is in force before the first rent.
+        l = lease(leaseStart="", rates=[{"startDate": "2026-03-01", "rent": 3100.0, "cam": 0, "other": 0}])
+        self.assertEqual([leasing.expected_for_month(l, 2026, m) for m in (2, 3)], [None, 3100.0])
+
+    def test_received_by_account_rides_with_each_month(self):
+        l = lease(incomeAccounts=["41101", "41102"])
+        out = leasing.rent_roll([l], {}, {("C1", "2026-02"): {"41101": 3000.0, "41102": 150.0, "42000": 99.0}}, 2026, date(2026, 9, 28))
+        self.assertEqual(out["rows"][0]["months"][1]["byAccount"], {"41101": 3000.0, "41102": 150.0})
 
 
 def _as(email):
     os.environ["NEXUS_DEV_EMAIL"] = email
+
+
+class CustomerLinkTests(unittest.TestCase):
+    """Oct 6 (Charmi, 10/04): "when we manually added the customer number,
+    the data populated" - received is read by customer code, so a lease
+    without one read nothing. Leases are now matched by name."""
+
+    DIRECTORY = {"C00498": {"name": "Greens Fairfield, LLC."}, "C00272": {"name": "Dr. Azadeh Sham"}, "C00100": {"name": "Smith & Sons"}, "C00101": {"name": "Smith and Sons Inc."}}
+
+    def test_names_compare_without_case_punctuation_or_company_suffix(self):
+        self.assertEqual(leasing.norm_name("Greens Fairfield, LLC."), "greens fairfield")
+        self.assertEqual(leasing.norm_name("GREENS FAIRFIELD llc"), "greens fairfield")
+        self.assertEqual(leasing.norm_name("Smith & Sons, Inc."), "smith and sons")
+
+    def test_resolve(self):
+        idx = leasing.customer_index(self.DIRECTORY)
+        r = leasing.resolve_customer
+        self.assertEqual(r("", "Greens Fairfield LLC", idx), "C00498")            # the name alone: linked
+        self.assertEqual(r("c00498", "", idx), "C00498")                          # the code in the wrong case: corrected
+        self.assertEqual(r("Dr Azadeh Sham", "", idx), "C00272")                  # a name typed in the code box
+        self.assertEqual(r("C00498", "Someone Else", idx), "C00498")              # a known code is never second-guessed
+        self.assertIsNone(r("C99999", "Greens Fairfield", idx))                   # an unknown code is left alone
+        self.assertIsNone(r("", "Smith and Sons", idx))                           # two customers by that name: no guess
+        self.assertIsNone(r("", "Nobody", idx))
+
+    def test_balance_is_expected_less_received_and_a_prepayment_is_a_credit(self):
+        out = leasing.rent_roll([lease()], {}, {("C1", "2026-01"): {"41101": 6000.0}}, 2026, date(2026, 1, 20))
+        row = out["rows"][0]
+        self.assertEqual((row["months"][0]["balance"], row["balanceToDate"], row["owed"], out["summary"]["balance"]), (-3000.0, -3000.0, 0, -3000.0))
+
+    def test_expired(self):
+        self.assertTrue(leasing.expired(lease(status="ended"), date(2026, 10, 6)))
+        self.assertTrue(leasing.expired(lease(leaseEnd="2026-09-30"), date(2026, 10, 6)))
+        self.assertFalse(leasing.expired(lease(leaseEnd="2026-10-31"), date(2026, 10, 6)))
+        self.assertFalse(leasing.expired(lease(), date(2026, 10, 6)))
 
 
 class LeasingApiTests(unittest.TestCase):
@@ -143,9 +212,16 @@ class LeasingApiTests(unittest.TestCase):
 
         self._get = accounting._acct_get
         accounting._acct_get = fake_get
+        self.partners = []
+
+        async def partners():
+            return self.partners
+        self._partners, leasing._partner_customers = leasing._partner_customers, partners
+        leasing._PARTNERS_DOWN.clear()
 
     def tearDown(self):
         accounting._acct_get = self._get
+        leasing._partner_customers = self._partners
         self._cleanup()
         auth.SKIP_AUTH = self._skip
         if self._email is None:
@@ -189,6 +265,18 @@ class LeasingApiTests(unittest.TestCase):
         body = self._body()
         del body["rates"]
         self.assertEqual(len(self.client.put(f"/leasing/leases/{lid}", json=body).json()["rates"]), 2)
+
+    def test_an_income_source_has_a_type(self):
+        """Oct 7 (Charmi): MRI is one list of every recurring income source."""
+        _as(EDITOR)
+        self.assertEqual(self.client.post("/leasing/leases", json=self._body()).json()["incomeType"], "lease")
+        made = self.client.post("/leasing/leases", json=self._body(incomeType="interest", propertyName="Note to Oversite Inv2"))
+        self.assertEqual((made.status_code, made.json()["incomeType"]), (201, "interest"))
+        odd = self.client.post("/leasing/leases", json=self._body(incomeType="bitcoin"))
+        self.assertEqual(odd.json()["incomeType"], "lease")
+        refused = self.client.post("/leasing/leases", json=self._body(incomeType="loan_payment", tenantName=""))
+        self.assertEqual((refused.status_code, refused.json()["detail"]), (400, "Name who pays it."))
+        self.assertEqual({l["incomeType"] for l in self._mine()}, {"lease", "interest"})
 
     def test_what_is_refused(self):
         _as(EDITOR)
@@ -272,6 +360,78 @@ class LeasingApiTests(unittest.TestCase):
         _as(MANAGER)
         self.assertEqual(self.client.delete(f"/leasing/leases/{lid}").status_code, 204)
         self.assertEqual(self._mine(), [])
+
+    def _row(self, lid, **params):
+        return [r for r in self.client.get("/leasing/rent-roll", params=params).json()["rows"] if r["lease"]["id"] == lid]
+
+    def test_a_lease_with_only_the_tenant_name_is_linked_and_reads_the_ledger(self):
+        _as(EDITOR)
+        # Saved with the name only: linked on save.
+        made = self.client.post("/leasing/leases", json=self._body(customerId="", tenantName="GREENS FAIRFIELD LLC")).json()
+        self.assertEqual((made["customerId"], made["linkSource"]), ("C00498", "auto-name"))
+        # An old row with no code (before this fix): linked when the rent roll loads, and the payment shows.
+        db = database.SessionLocal()
+        try:
+            db.query(models.Lease).filter(models.Lease.id == made["id"]).update({"customer_id": "", "link_source": ""})
+            db.commit()
+        finally:
+            db.close()
+        out = self.client.get("/leasing/rent-roll").json()
+        self.assertIn(made["id"], [x["leaseId"] for x in out["linked"]])
+        row = [r for r in out["rows"] if r["lease"]["id"] == made["id"]][0]
+        self.assertEqual((row["lease"]["customerId"], row["months"][0]["received"]), ("C00498", 3000.0))
+        self.assertEqual([l["customerId"] for l in self._mine()], ["C00498"])        # kept
+        self.assertEqual(self.client.get("/leasing/rent-roll").json()["linked"], [])  # nothing left to link
+
+    def test_the_customer_record_and_an_inactive_customer(self):
+        _as(EDITOR)
+        lid = self.client.post("/leasing/leases", json=self._body(phone="760-555-0100", email="")).json()["id"]
+        # Before the accounting app serves the full record: the ledger's name, the lease's own details.
+        c = self.client.get("/leasing/customers/C00498").json()
+        self.assertEqual((c["name"], c["phone"], c["active"], c["source"]), ("Greens Fairfield, LLC.", "760-555-0100", True, "ledger"))
+        self.assertEqual([x["id"] for x in c["leases"]], [lid])
+        self.assertTrue(self._row(lid)[0]["customerActive"])
+        # Intacct's record, inactive.
+        self.partners = [{"id": "C00498", "name": "Greens Fairfield, LLC.", "displayName": "Greens Fairfield", "phone": "(951) 555-0199", "email": "ap@fairfield.example",
+                          "address": {"line1": "100 Main St", "line2": "", "city": "Fairfield", "state": "CA", "zip": "94533", "country": ""}, "status": "inactive"}]
+        c = self.client.get("/leasing/customers/C00498").json()
+        self.assertEqual((c["name"], c["phone"], c["email"], c["address"], c["active"], c["source"]),
+                         ("Greens Fairfield", "(951) 555-0199", "ap@fairfield.example", "100 Main St, Fairfield, CA 94533", False, "intacct"))
+        out = self.client.get("/leasing/rent-roll").json()
+        row = [r for r in out["rows"] if r["lease"]["id"] == lid][0]
+        self.assertEqual((row["customerActive"], row["customer"]["phone"], out["customerDetails"]), (False, "(951) 555-0199", True))
+        self.assertGreaterEqual(out["summary"]["inactive"], 1)
+        self.assertEqual(self.client.get("/leasing/customers/C55555").status_code, 404)
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/leasing/customers/C00272").status_code, 403)
+
+    def test_the_team_note(self):
+        _as(EDITOR)
+        lid = self.client.post("/leasing/leases", json=self._body()).json()["id"]
+        r = self.client.put(f"/leasing/leases/{lid}/note", json={"note": "Promised to pay by the 15th"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["text"], r.json()["by"]), ("Promised to pay by the 15th", EDITOR))
+        note = self._row(lid)[0]["lease"]["teamNote"]
+        self.assertEqual((note["text"], note["by"], bool(note["at"])), ("Promised to pay by the 15th", EDITOR, True))
+        self.assertEqual(self.client.put(f"/leasing/leases/{lid}/note", json={"note": " "}).json(), {"text": "", "by": "", "byName": "", "at": ""})
+        _as(VIEWER)
+        self.assertEqual(self.client.put(f"/leasing/leases/{lid}/note", json={"note": "x"}).status_code, 403)
+
+    def test_entities_customers_and_expired(self):
+        _as(EDITOR)
+        y = date.today().year
+        a = self.client.post("/leasing/leases", json=self._body()).json()["id"]
+        b = self.client.post("/leasing/leases", json=self._body(entityCode="12000", customerId="C00272", tenantName="Dr. Azadeh Sham", status="ended", leaseEnd=f"{y}-02-28")).json()["id"]
+
+        def ids(**p):
+            return {r["lease"]["id"] for r in self.client.get("/leasing/rent-roll", params=p).json()["rows"] if r["lease"]["region"] == TAG}
+        self.assertEqual(ids(), {a, b})
+        self.assertEqual(ids(entities="12000"), {b})
+        self.assertEqual(ids(customers="C00498"), {a})
+        self.assertTrue(self._row(b)[0]["expired"])
+        self.assertFalse(self._row(a)[0]["expired"])
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/leasing/rent-roll", params={"entities": "12000"}).status_code, 403)
 
 
 if __name__ == "__main__":

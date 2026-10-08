@@ -44,6 +44,7 @@ VIEWER = "view.viewer@greensglobal.com"
 G_ED, G_VW, GROUP = "grant-view-ed", "grant-view-vw", "group-view"
 MON, TUE = "2026-11-16", "2026-11-17"
 ACTS = [{"start": "12:00", "end": "13:00", "label": "Training"}]
+ACTS_OUT = [{**a, "paid": True} for a in ACTS]   # as the API returns them (Oct 2)
 
 
 class ShiftViewTests(unittest.TestCase):
@@ -143,13 +144,13 @@ class ShiftViewTests(unittest.TestCase):
         self._as(ADMIN)
         self._publish()
         self._as(VIEWER)
-        self.assertEqual(self._grid()[0]["activities"], ACTS)
+        self.assertEqual(self._grid()[0]["activities"], ACTS_OUT)
 
     def test_copy_carries_activities(self):
         self._place(activities=ACTS)
         self.client.post("/timeclock/schedule/copy", json={"source_start": MON, "source_end": MON, "target_start": TUE})
         tue = [s for s in self._grid() if s["date"] == TUE]
-        self.assertEqual(tue[0]["activities"], ACTS)
+        self.assertEqual(tue[0]["activities"], ACTS_OUT)
 
     # ── Drag and drop ─────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ class ShiftViewTests(unittest.TestCase):
         self.assertEqual(self._grid(A), [])
         moved = self._grid(B)
         self.assertEqual([(m["date"], m["label"], m["activities"], m["published"]) for m in moved],
-                         [(TUE, "Front desk", ACTS, False)])
+                         [(TUE, "Front desk", ACTS_OUT, False)])
 
     def test_moving_a_published_shift_waits_for_publish(self):
         sid = self._place()["id"]
@@ -181,7 +182,7 @@ class ShiftViewTests(unittest.TestCase):
         self.assertEqual(len(self._grid(B)), 1)
 
     def test_open_shifts_stay_open_and_removals_cannot_move(self):
-        open_id = self._place(email="", open_slots=2)["id"]
+        open_id = self._place(email="", open_slots=2, group_id=GROUP)["id"]
         self.assertEqual(self.client.post(f"/timeclock/schedule/{open_id}/move",
                                           json={"employee_email": A, "work_date": MON}).status_code, 400)
         moved = self.client.post(f"/timeclock/schedule/{open_id}/move", json={"employee_email": "", "work_date": TUE}).json()

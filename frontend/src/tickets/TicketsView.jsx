@@ -12,10 +12,9 @@ import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import LiveView from '../components/LiveView';
-import { filesFromPaste, richBodyHtml } from '../tasks/lib';
+import { filesFromPaste, richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { takePendingOpen, setPendingOpen } from '../lib/pendingOpen';
-import { supabase } from '../lib/supabase';
 import { formatDateTime } from '../lib/datetime';
 import { startScreenRecording, primeReturnCue } from '../lib/screenRecorder';
 import {
@@ -29,15 +28,19 @@ import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
 import {
-  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS, NO_RECORDING_TYPES,
+  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
   SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
-  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, serviceFieldApplies, withDynamicOptions,
+  SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, withDynamicOptions,
+  topicQuestionDefs, allTopicQuestionDefs, labelFromKey,
   OTHER_TOPIC, TOPIC_MAX_LEN, helpGroupFor, topicArea,
+  intakeFieldsFor, intakeDefaults, defaultIntakeType, richToPlain,
 } from './ticketMeta';
+// The help topic's optional "Which one?" level (Neil, Oct 1 2026).
+import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
   TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
@@ -46,9 +49,15 @@ import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
 import { buildTicketTourSteps } from './ticketTourSteps';
 import TicketDeflection from '../support/TicketDeflection';
-import { toViewUrl, toDownloadUrl } from '../lib/storageView';
+import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening from './TicketOpening';
+import { PropertySelect } from './PropertySelect';
+import { uploadTicketEvidence } from './evidenceUpload';
+import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
+import { LatestCommentPreview, latestCommentText } from './LatestComment';
+import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
+import { useTicketAccess } from './ticketAccess';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -70,20 +79,30 @@ const TICKET_VIEW_TABS = [
 // resize kit the Task List uses) owns them, persisted to the user's profile
 // under table:"tickets" so an arrangement follows them between devices.
 // checkbox/type/resolved are `fixed`: structure, not data - they never move.
+// `shrink` (Oct 6): how narrow a column may get. Until someone drags a width,
+// every data column is elastic - minmax(shrink, width as a share) - so the
+// table fills the screen it is on and only scrolls sideways once every column
+// is at its floor (Pranshu: "no horizontal scroll bar at the bottom").
 const TICKET_COLUMNS = [
   { key: 'checkbox', label: '', width: 34, fixed: true },
   { key: 'type', label: '', width: 34, fixed: true },
-  { key: 'title', label: 'Title', width: 260, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'company', label: 'Company', width: 130, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
+  // minWidth: a floor even under a width someone dragged - the title is what
+  // the row IS, and it must never be squeezed to nothing to make room for
+  // another column (Neil, Oct 1).
+  { key: 'title', label: 'Title', width: 260, minWidth: 200, shrink: 200, sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'company', label: 'Company', width: 130, shrink: 80, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
   // State and Priority each carry a second chip when a ticket needs it
   // (Awaiting approval / SLA breached), so they're sized for the pair - at 150
   // the pair ran past the column and painted over the one after it.
-  { key: 'state', label: 'Status', width: 180, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
-  { key: 'priority', label: 'Priority', width: 180, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  { key: 'due', label: 'Due Date', width: 110, sort: (t) => t.slaDueOn || '' },
-  { key: 'requester', label: 'Requester', width: 150, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assigned To', width: 150, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created Date', width: 110, sort: (t) => t.createdAt || '' },
+  { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  { key: 'due', label: 'Due Date', width: 110, shrink: 92, sort: (t) => t.slaDueOn || '' },
+  { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
+  { key: 'assignee', label: 'Assigned To', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created Date', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
+  // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
+  // enough by default for a name and a line of the preview; sorts by when.
+  { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
   { key: 'resolved', label: '', width: 24, fixed: true },
 ];
 // ── What do you need help with? ──────────────────────────────────────────────
@@ -118,6 +137,19 @@ function areaForTopic(topic) {
   return topicArea(name) || 'general';
 }
 
+// Is this department offered on Submit a Ticket? Off in Settings > Ticket
+// Manager (Neil, Oct 1: "I don't want a construction ticket"), or deleted from
+// the company's global list - both still name the tickets already filed.
+const offeredAtIntake = (d) => d.enabled !== false && !d.removed;
+
+// typeFields with the help topic's "Which one?" answer set ('' removes it).
+function withHelpSubtopic(typeFields, sub) {
+  const next = { ...(typeFields || {}) };
+  if (sub) next[HELP_SUBTOPIC_KEY] = sub;
+  else delete next[HELP_SUBTOPIC_KEY];
+  return next;
+}
+
 // Is `value` one of this department's listed topics? (case-insensitive)
 function listedTopic(group, value) {
   const v = (value || '').trim().toLowerCase();
@@ -128,9 +160,31 @@ function listedTopic(group, value) {
 // answer it requires - max TOPIC_MAX_LEN characters, a name for the thing
 // rather than a second description (Neil: "it cannot be like a huge long
 // sentence... max 50 characters").
-function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false }) {
+//
+// `subValue` / `onSubChange` (optional, Oct 1 2026): when the picked topic has
+// sub-options, a second "Which one?" dropdown appears under it (Microsoft ->
+// Outlook). Never required. Picking a different topic clears it. Without
+// onSubChange the field behaves exactly as before.
+function HelpTopicField({ deptName, value, onChange, invalid = false, disabled = false, subValue = '', onSubChange = null }) {
   const group = helpGroupFor(deptName);
   const listed = listedTopic(group, value);
+  const subOptions = listed ? topicOptions(listed.name, group) : [];
+  const subPicker = onSubChange && subOptions.length > 0 ? (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, margin: '2px 0 5px' }}>
+        {HELP_SUBTOPIC_LABEL} <span style={{ fontWeight: 400, color: NX.faint }}>(optional)</span>
+      </div>
+      <TicketSelect value={subOptions.includes(subValue) ? subValue : ''} disabled={disabled}
+        placeholder="Pick one, if it fits" searchPlaceholder="Search…"
+        options={[['', 'Not Sure'], ...subOptions.map((o) => [o, o])]}
+        onChange={(v) => onSubChange(v)} />
+    </div>
+  ) : null;
+  // A new topic has its own list - the old "which one" belonged to the other.
+  const changeTopic = (v) => {
+    if (onSubChange && (v || '').trim().toLowerCase() !== (value || '').trim().toLowerCase() && subValue) onSubChange('');
+    onChange(v);
+  };
   // "Other" picked but nothing typed yet is a real state the value alone
   // cannot express ("" also means "nothing picked").
   const [otherPicked, setOtherPicked] = useState(!!(value && !listed));
@@ -140,7 +194,7 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
   const textInput = (
     <div style={{ position: 'relative' }}>
       <input value={listed ? '' : (value || '')} maxLength={TOPIC_MAX_LEN} disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => changeTopic(e.target.value)}
         placeholder={group ? 'Tell us what it is, in a few words' : 'e.g. Front gate keypad, Outlook, Payroll report'}
         style={{ ...inputStyle, paddingRight: 52, ...(invalid ? { borderColor: NX.red } : null) }} />
       <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: NX.faint, pointerEvents: 'none' }}>
@@ -156,11 +210,12 @@ function HelpTopicField({ deptName, value, onChange, invalid = false, disabled =
         placeholder="Select one" searchPlaceholder="Search…"
         options={[['', 'Select one'], ...group.topics.map((tp) => [tp.name, tp.name]), [OTHER_TOPIC, 'Other']]}
         onChange={(v) => {
-          if (v === OTHER_TOPIC) { setOtherPicked(true); onChange(''); return; }
+          if (v === OTHER_TOPIC) { setOtherPicked(true); changeTopic(''); return; }
           setOtherPicked(false);
-          onChange(v);
+          changeTopic(v);
         }} />
       {showText && textInput}
+      {subPicker}
     </div>
   );
 }
@@ -184,7 +239,9 @@ const GROUP_BY_OPTIONS = [
 // hand-written <option> list of the same choices.
 const statusOptions = () => TICKET_STATUS_ORDER.map((s) => [s, TICKET_STATUS_META[s].label]);
 const priorityOptions = () => PRIORITY_ORDER.map((p) => [p, PRIORITY_META[p].label]);
-const typeOptions = () => TICKET_TYPE_ORDER.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
+// The list's Type filter: all five, on or off - a type switched off at intake
+// still has its tickets to find.
+const typeOptions = () => TICKET_TYPE_KEYS.map((ty) => [ty, TICKET_TYPE_META[ty].label]);
 // Same list, each with its plain-English definition under it in the open
 // dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
 // ticket) actually picks one.
@@ -205,15 +262,16 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description'];
+  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
-    t.application || '', serviceAreaLabel(t.serviceArea) || '',
+    helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
     t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
-    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', t.description || '',
+    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
+    latestCommentText(t.latestComment, nameOf),
   ]);
   const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -227,6 +285,32 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// The phone's Sort By choices - the keys the desktop column headers sort on
+// (TICKET_COLUMNS[].sort), each in the direction someone usually wants it.
+// Newest First (created, desc) is the list's default.
+const MOBILE_SORTS = [
+  ['created:desc', 'Newest First'],
+  ['created:asc', 'Oldest First'],
+  ['due:asc', 'Due Date'],
+  ['priority:asc', 'Priority'],
+  ['state:asc', 'Status'],
+  ['latestComment:desc', 'Latest Comment'],
+  ['title:asc', 'Title (A-Z)'],
+  ['company:asc', 'Company (A-Z)'],
+  ['requester:asc', 'Requester (A-Z)'],
+  ['assignee:asc', 'Assigned To (A-Z)'],
+];
+const sortValueOf = (sort) => `${sort?.key || 'created'}:${sort?.dir === 'asc' ? 'asc' : 'desc'}`;
+// A sort picked from a desktop header (say Title, descending) and carried over
+// by a rotate still reads as itself instead of a blank picker.
+function mobileSortOptions(sort) {
+  const cur = sortValueOf(sort);
+  if (MOBILE_SORTS.some(([v]) => v === cur)) return MOBILE_SORTS;
+  const col = TICKET_COLUMNS.find((c) => c.key === sort?.key);
+  if (!col?.sort) return MOBILE_SORTS;
+  return [...MOBILE_SORTS, [cur, `${col.label} (${sort.dir === 'asc' ? 'Ascending' : 'Descending'})`]];
+}
+
 // Every filter the desktop toolbar shows, stacked into the mobile bar's sheet.
 // Changes apply immediately - the sheet is a view onto the same state, so there
 // is nothing to "save" and no way to lose a selection by dismissing it.
@@ -234,15 +318,31 @@ function TicketMobileFilters({
   onClose, statusFilter, setStatusFilter, priorityFilter, setPriorityFilter,
   typeFilter, setTypeFilter, slaFilter, setSlaFilter, hrDeptFilter, setHrDeptFilter, hrDepts,
   serviceAreaFilter, setServiceAreaFilter, assigneeFilter, setAssigneeFilter, assigneeOptions,
-  groupBy, setGroupBy, showGroup,
+  groupBy, setGroupBy, showGroup, showSort = true, sort, setSort, onClearAll,
 }) {
   const row = { width: '100%', fontSize: 15, padding: '10px 12px' };
+  // Clear All only when there is something to clear - the same seven filters
+  // TicketFilterMenu counts on desktop.
+  const anyFilter = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter]
+    .some((v) => v !== 'all');
   const wrap = { marginBottom: 14 };
   const lab = { ...label, fontSize: 12.5 };
   // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
   // chrome (same contract as the task module's MobileFilters).
   return (
-    <BottomSheet title="Filter & Group" onClose={onClose}>
+    <BottomSheet title="Filter, Sort & Group" onClose={onClose}>
+      {/* Phones have no column headers to tap, so the sort the desktop list
+          takes from its headers lives here - the same `sort` state. Only the
+          list is sorted (Board and Reports get the unsorted set), so like
+          Group By it is hidden on the other views. */}
+      {showSort && sort && setSort && (
+        <div style={wrap}>
+          <label style={lab}>Sort By</label>
+          <TicketSelect value={sortValueOf(sort)} style={row}
+            options={mobileSortOptions(sort)}
+            onChange={(v) => { const [key, dir] = String(v).split(':'); setSort({ key, dir: dir === 'asc' ? 'asc' : 'desc' }); }} />
+        </div>
+      )}
       <div style={wrap}>
         <label style={lab}>Status</label>
         <TicketSelect value={statusFilter} onChange={setStatusFilter} options={statusFilterOptions()} style={row} />
@@ -286,7 +386,25 @@ function TicketMobileFilters({
           <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={row} />
         </div>
       )}
-      <button onClick={onClose} style={{ ...btn('primary'), width: '100%', justifyContent: 'center', padding: '11px 0', fontSize: 15 }}>Done</button>
+      {/* Pinned to the bottom of the sheet's scroll area (the phone create
+          form's technique): with every filter showing, the sheet is taller than
+          the screen and Done used to sit below the fold. Negative margins let
+          the bar span the sheet's full width over its padding - the bottom
+          padding is 16px PLUS the safe-area inset (BottomSheet), so the bar
+          cancels both and pads itself back out, reaching the sheet's edge on
+          Face ID iPhones with nothing scrolling visibly underneath. */}
+      <div style={{
+        position: 'sticky', bottom: 'calc(-16px - env(safe-area-inset-bottom))', zIndex: 2, background: NX.surface,
+        borderTop: `1px solid ${NX.border2}`, marginTop: 6,
+        marginLeft: -16, marginRight: -16, marginBottom: 'calc(-16px - env(safe-area-inset-bottom))',
+        padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        {anyFilter && onClearAll && (
+          <button type="button" onClick={onClearAll}
+            style={{ ...btn('outline'), flex: '0 0 auto', justifyContent: 'center', padding: '11px 14px', fontSize: 15 }}>Clear All</button>
+        )}
+        <button type="button" onClick={onClose} style={{ ...btn('primary'), flex: 1, justifyContent: 'center', padding: '11px 0', fontSize: 15 }}>Done</button>
+      </div>
     </BottomSheet>
   );
 }
@@ -460,6 +578,8 @@ export default function TicketsView() {
   // false while it loads - the queues appear a beat later rather than flashing
   // for someone who should not see them. The backend re-checks every action.
   const [itAdmin, setItAdmin] = useState(false);
+  // Bulk Delete is a supervisor's (ticket_roles.can_delete on the server).
+  const { canDelete: canBulkDelete } = useTicketAccess();
   useEffect(() => {
     let alive = true;
     // onDesk, not canAct: the queues are shown to the people whose work they
@@ -509,7 +629,21 @@ export default function TicketsView() {
   const [view, setView] = useState('list');   // 'list' | 'board' | 'reports'
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
+  // Which drawer tab to land on - the Latest Comment cell opens straight onto
+  // the Conversation (Neil, Oct 1).
+  const [openTab, setOpenTab] = useState(null);
+  const openTicket = (id, tab = null) => { setOpenTab(tab); setOpenId(id); };
   const [selected, setSelected] = useState(() => new Set());
+  // Phones have no row checkboxes, so a selection made on desktop must not
+  // survive a rotate into the phone layout - the bulk pill would float over a
+  // list with nothing ticked and no way to untick it. Adjusted during render
+  // (React's "storing information from previous renders" pattern) so the pill
+  // never paints even for one frame.
+  const [selLayoutMobile, setSelLayoutMobile] = useState(isMobile);
+  if (selLayoutMobile !== isMobile) {
+    setSelLayoutMobile(isMobile);
+    if (isMobile && selected.size) setSelected(new Set());
+  }
 
   // A screen recording that ended while the user was on ANOTHER view navigates
   // the app back here (recordingDraft.finishRecording) - reopen the create
@@ -577,7 +711,8 @@ export default function TicketsView() {
   // column set entirely on My Requests (rather than being hidden per-row), so
   // the grid template - and the reorder/resize state - never has to know about it.
   const columnDefs = useMemo(
-    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester')),
+    () => TICKET_COLUMNS.filter((c) => !(scope === 'mine' && c.key === 'requester'))
+      .map((c) => (c.shrink ? { ...c, template: `minmax(${c.shrink}px, ${c.width}fr)` } : c)),
     [scope],
   );
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps, hidden, toggleHidden } = useTableColumns({
@@ -626,6 +761,12 @@ export default function TicketsView() {
     if (v.group) setGroupBy(v.group);
     if (v.view) setView(v.view);
   };
+  // The phone filter sheet's Clear All - every filter back to 'all'. Scope,
+  // search, sort and grouping are not filters and stay as they are.
+  const clearFilters = () => {
+    setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all');
+    setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all');
+  };
   const saveTicketView = () => {
     const name = window.prompt('Name this view');
     if (!name || !name.trim()) return;
@@ -661,7 +802,7 @@ export default function TicketsView() {
       if (q) {
         // Application is searchable too - "egnyte" is how someone looks for the
         // ticket they raised, and it is rarely the word they put in the title.
-        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${t.application || ''} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
+        const hay = `${t.code} ${normalizeCode(t.code)} ${ticketNoShort(t.code)} ${t.subject} ${t.description} ${helpWithLabel(t)} ${nameOf(t.requesterId) || ''} ${nameOf(t.assigneeId) || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -674,14 +815,19 @@ export default function TicketsView() {
     if (!col?.sort) return list;
     const ctx = { nameOf, companyName };
     const dir = sort.dir === 'asc' ? 1 : -1;
+    // Phones sort by due date from a picker with no "reverse" - undated
+    // tickets (still awaiting approval, no SLA) go last either way, so the
+    // ones actually due soonest lead. Desktop keeps its header behavior.
+    const undatedLast = isMobile && col.key === 'due';
     return [...list].sort((a, b) => {
       const av = col.sort(a, ctx); const bv = col.sort(b, ctx);
+      if (undatedLast && (!av || !bv)) return av === bv ? 0 : (!av ? 1 : -1);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, nameOf, companies]);
+  }, [sort, nameOf, companies, isMobile]);
 
   // Completed (resolved/closed) tickets never sit inline with the ones still in
   // flight - they collapse into their own section at the bottom (see
@@ -735,7 +881,10 @@ export default function TicketsView() {
   // Resolving needs a written resolution now (Neil, Sep 30), so every quick
   // path into Resolved/Closed - the row's status cell, a board drag, the bulk
   // bar - opens the Resolve dialog instead of saving straight away.
-  const [resolveReq, setResolveReq] = useState(null);   // { ids, status }
+  const [resolveReq, setResolveReq] = useState(null);   // { ids, status, mode? }
+  // The row's Mark Resolved: `mode` is 'self_resolve' for the requester (an
+  // optional "What fixed it?") or 'resolve' for the desk (a written resolution).
+  const requestResolve = (tk, mode = 'resolve') => setResolveReq({ ids: [tk.id], status: 'resolved', mode });
   const guardedUpdate = (id, patch) => {
     const tk = tickets.find((x) => x.id === id);
     if (patch?.status && needsResolution(tk, patch.status)) {
@@ -752,7 +901,7 @@ export default function TicketsView() {
     await Promise.all(selIds.map((id) => updateTicket(id, patch).catch(() => {}))); clearSel();
   };
   const bulkDelete = async () => {
-    if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? Their history is kept and a manager can restore them.`)) return;
     await Promise.all(selIds.map((id) => deleteTicket(id).catch(() => {}))); clearSel();
   };
 
@@ -784,12 +933,31 @@ export default function TicketsView() {
       {/* Phones keep a scope strip under the title (the desktop scope pills
           moved into the toolbar row, which doesn't render on mobile). */}
       {isMobile && (
-        <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
+        <div data-tour="ticket-scope" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, margin: '0 12px 8px', overflowX: 'auto' }}>
           {[['all', 'All'], ['mine', 'Mine'], ['assigned', 'Assigned'],
             ...(routeCount > 0 ? [['route', `To Route (${routeCount})`]] : []),
             ...(approvalCount > 0 ? [['approve', `To Approve (${approvalCount})`]] : [])].map(([k, lab]) => (
             <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
           ))}
+        </div>
+      )}
+      {/* Phone search - the same `search` state as the desktop toolbar's box,
+          which does not render here. 16px so iOS does not zoom the page on
+          focus; the clear button is a full 32px target. type="text" (with
+          inputMode="search") rather than type="search", whose native cancel
+          button would sit beside our own X on Chrome/Android. */}
+      {isMobile && (
+        <div style={{ position: 'relative', margin: '0 12px 8px' }}>
+          <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
+          <input type="text" inputMode="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
+            aria-label="Search tickets" enterKeyHint="search"
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} aria-label="Clear search"
+              style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0 }}>
+              <X size={16} />
+            </button>
+          )}
         </div>
       )}
 
@@ -864,9 +1032,9 @@ export default function TicketsView() {
         // ticket having no assignee is not work waiting for someone.
         const unassignedCount = tickets.filter(
           (t) => !t.assigneeId && !CLOSED_STATES.includes(t.status)).length;
-        const tile = (label, bandBg, bandFg, n, sub, onGo, active) => (
+        const tile = (label, bandBg, bandFg, n, sub, onGo, active, bodyBg) => (
           <button key={label} onClick={onGo}
-            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
+            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: bodyBg || NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? `0 0 0 1px ${bandFg}` : 'none'; }}>
             <span style={{ display: 'block', padding: '6px 14px', background: bandBg, color: bandFg, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
@@ -882,39 +1050,45 @@ export default function TicketsView() {
                 scope on the way in - otherwise a card reading 4 opens a list of
                 1 because "My Requests" was still selected, and the number looks
                 broken. */}
-            {tile('Open', 'rgba(9,152,195,0.14)', '#0998c3', openCount, 'not yet resolved',
+            {/* The Open status color (ticketMeta's TICKET_STATUS_META) - not
+                blue, which no status uses any more (Neil, Oct 1). */}
+            {/* Unassigned leads the row, in yellow (Pranshu, Oct 6): the major
+                item - tickets nobody is working - so it is the first thing
+                the desk sees, the whole card tinted, not only its band. */}
+            {tile('Unassigned', 'rgba(245,158,11,0.24)', '#b45309', unassignedCount, 'nobody working them',
+              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
+              statusFilter === 'unassigned', 'rgba(245,158,11,0.09)')}
+            {tile('Open', TICKET_STATUS_META.open.tint, TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
-            {/* Red once there's actually a backlog - purple read as "just an
-                info card" and nobody's eye caught it climbing (Pranshu, Sept
-                8 2026). Same red the SLA-breached tile uses, so red already
-                means one thing across this row: something needs a person. */}
-            {tile('Unassigned', unassignedCount > 0 ? 'rgba(220,38,38,0.12)' : 'rgba(124,58,237,0.14)',
-              unassignedCount > 0 ? NX.red : '#7c3aed', unassignedCount, 'nobody working them',
-              () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
-              statusFilter === 'unassigned')}
             {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
               () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
               slaFilter === 'breached')}
             {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); },
               statusFilter === 'resolved')}
-            {tile('Closed', 'rgba(100,116,139,0.16)', '#475569', closedCount, 'done and filed',
+            {tile('Closed', TICKET_STATUS_META.closed.tint, TICKET_STATUS_META.closed.color, closedCount, 'done and filed',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'closed' ? 'all' : 'closed'); },
               statusFilter === 'closed')}
           </div>
         );
       })()}
 
-      {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
-      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : 76 }}>
+      {/* Body. Desktop: paddingBottom leaves room under the last row. Phones:
+          a small paddingBottom only - the ticket-bar-spacer at the end of the
+          body clears the floating MobileTaskBar, so a larger value here would
+          stack on top of it. */}
+      <div data-tour="ticket-body" className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas,
+        // Longhands only: React warns when a shorthand and its longhand
+        // both change on one re-render (rotating the phone, List <-> Board).
+        paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
           <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
         ) : view === 'board' ? (
-          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => guardedUpdate(id, { status }).catch(() => {})} />
+          <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => guardedUpdate(id, { status }).catch(() => {})} mobile={isMobile} />
         ) : visible.length === 0 ? (
           <EmptyState icon={TicketToken} title={tickets.length ? 'No Tickets' : 'No Tickets Yet'}
-            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. Choose ${isMobile ? 'Create' : 'New Ticket'} to report a problem or ask for help.`} />
+            hint={tickets.length ? 'No tickets match your filters.' : `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.`} />
         ) : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {groups.map((g) => (
@@ -926,8 +1100,9 @@ export default function TicketsView() {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
                 ))}
                 {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
               </div>
@@ -946,8 +1121,9 @@ export default function TicketsView() {
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} />
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
                 ))}
                 {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
               </div>
@@ -973,7 +1149,13 @@ export default function TicketsView() {
                 div's actual width to its grid content, so there's nothing
                 left over to paint; still never shrinks below it either, so
                 a narrow screen scrolls horizontally exactly as before. */}
-            <div ref={wrapRef} style={{ width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }}>
+            {/* Elastic columns (Oct 6) fill the width; the table scrolls only
+                below every column's floor (min-content). Once EVERY data
+                column carries a dragged px width, fit-content again, so there
+                is no blank strip past the last column. */}
+            <div ref={wrapRef} style={cols.every((c) => c.fixed || widths[c.key])
+              ? { width: 'fit-content', minWidth: 'fit-content', '--nx-grid': template }
+              : { width: '100%', minWidth: 'min-content', '--nx-grid': template }}>
               <TicketListHeader cols={cols} widths={widths} startResize={startResize} resetWidth={resetWidth} autofitWidth={autofitWidth}
                 dragProps={dragProps} sort={sort} onSort={onSort} allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} />
               {groups.map((g) => (
@@ -988,7 +1170,8 @@ export default function TicketsView() {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {g.rows.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {g.rows.length - 200} more - filter to narrow down</div>}
@@ -1010,7 +1193,8 @@ export default function TicketsView() {
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => setOpenId(t.id)}
+                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
                   {!completedCollapsed && sortedCompleted.length > 200 && <div style={{ padding: '8px 16px', fontSize: 12, color: NX.faint }}>+ {sortedCompleted.length - 200} more - filter to narrow down</div>}
@@ -1019,9 +1203,18 @@ export default function TicketsView() {
             </div>
           </div>
         )}
+        {/* Phones: room to scroll the last card clear of the floating
+            MobileTaskBar (52px tall). A spacer rather than paddingBottom, so it
+            works whether or not .nx-gutter's phone rule (style.css) overrides
+            this body's bottom padding. Where .main-content reserves 64px + the
+            safe-area inset at the bottom, the bar sits 18px above that and
+            overlaps the body by 70px; where it does not (no module nav), the
+            bar sits 16px + the inset above the screen edge, 68px + the inset
+            of overlap. 96px + the inset clears both with 26-28px to spare. */}
+        {isMobile && <div aria-hidden="true" data-testid="ticket-bar-spacer" style={{ height: 'calc(96px + env(safe-area-inset-bottom))', flexShrink: 0 }} />}
       </div>
 
-      {view === 'list' && selIds.length > 0 && (
+      {!isMobile && view === 'list' && selIds.length > 0 && (
         // Floating pill, centered at the bottom of the panel - doesn't push the
         // list's layout (position:absolute against the panel's position:relative
         // above) and stays compact instead of stretching edge to edge.
@@ -1040,7 +1233,7 @@ export default function TicketsView() {
             options={[['', 'Unassign'], ...people.map((p) => [p.email, p.name || p.email])]}
             style={{ ...compactSelStyle, maxWidth: 140 }} onChange={(v) => bulkPatch({ assigneeId: v })} />
           <button style={compactBtnStyle} onClick={() => bulkPatch({ status: 'resolved' })}><CheckCircle2 size={13} /> Resolve</button>
-          <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>
+          {canBulkDelete && <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>}
           <button style={{ ...compactBtnStyle, background: 'transparent', padding: 6 }} onClick={clearSel} title="Clear selection"><X size={14} /></button>
         </div>
       )}
@@ -1049,6 +1242,7 @@ export default function TicketsView() {
         <MobileTaskBar
           views={TICKET_VIEW_TABS} view={view} setView={setView}
           onCreate={() => setCreating(true)}
+          hasModuleNav={false} createLabel="Create Ticket"
           filterSheet={(onClose) => (
             <TicketMobileFilters
               onClose={onClose}
@@ -1060,15 +1254,16 @@ export default function TicketsView() {
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
               assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
+              showSort={view === 'list'} sort={sort} setSort={setSort} onClearAll={clearFilters}
             />
           )}
         />
       )}
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
-      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
+      {openId && <TicketDrawer key={openId} ticketId={openId} initialTab={openTab} onClose={() => { setOpenId(null); setOpenTab(null); }} />}
       {resolveReq && (
-        <TicketActionDialog mode="resolve" targetStatus={resolveReq.status}
+        <TicketActionDialog mode={resolveReq.mode || 'resolve'} targetStatus={resolveReq.status}
           ticket={resolveReq.ids.length === 1 ? tickets.find((x) => x.id === resolveReq.ids[0]) : null}
           onSubmit={async (p) => {
             // Bulk: one resolution for all of them, each still refused
@@ -1230,11 +1425,17 @@ function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryCo
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, checked, onToggle, cols, band = false }) {
-  const isMobile = useIsMobile();
-  // Resting background: selection wins, then the zebra band (same NX.zebra /
-  // NX.hover pair the task list rows use). Selected tint matches the task
-  // list's row-select highlight exactly, rather than a plain surface swap.
+// `mobile` comes from TicketsView, never from a useIsMobile() of the row's own:
+// two hooks listening to the same media query flip on separate renders, so on a
+// rotate across 640px a row could switch to the desktop grid while its parent
+// was still rendering the phone list (which passes no `cols`) and crash the
+// whole view on cols.map.
+function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
+  const isMobile = !!mobile || !Array.isArray(cols);
+  const [assigning, setAssigning] = useState(false);
+  // Resting background: selection wins, then the zebra band. Hover is the
+  // .nx-row-hover class (style.css) - the Accounting ledger's whole-row
+  // highlight, layered over both (Neil, Oct 1).
   const rowBg = checked ? 'rgba(37,99,235,0.10)' : band ? NX.zebra : NX.surface;
   // Every cell shares this base (minHeight/padding/border) - the same cellPad
   // contract the task rich-list rows use, so the two grids read identically.
@@ -1260,6 +1461,17 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   const rowRequesterLocked = rowIsRequester && !rowPrivileged && t.status !== 'open';
   const rowLocked = t.status === 'in_progress' && !!t.assigneeId;
   const canWorking = rowPrivileged || (!rowRequesterLocked && (rowLocked ? rowIsAssignee : true));
+  // Mark Resolved from the row (Neil, Oct 1): the person who raised it may
+  // resolve their own still-active ticket whatever its state ("a colleague
+  // helped me" - optional comment, no write-up); anyone who can work it gets
+  // the desk's Resolve dialog. Mirrors _requester_self_resolve server-side.
+  const rowRequesterOnly = rowIsRequester && !rowPrivileged && !rowIsAssignee;
+  const canResolveRow = !!onResolve && !CLOSED_STATES.includes(t.status) && (rowRequesterOnly || canWorking);
+  const resolveRow = (e) => { e.stopPropagation(); onResolve(t, rowRequesterOnly ? 'self_resolve' : 'resolve'); };
+  // Assigning is the desk's (the drawer hides Assign To from a requester on an
+  // Open ticket) and waits for any approval - the same gates as the drawer.
+  const canAssignRow = isMobile && !!people && canWorking && !rowRequesterOnly
+    && t.approvalStatus !== 'pending' && !CLOSED_STATES.includes(t.status);
 
   // Phones: two stacked lines instead of eight columns. Subject leads; the chips
   // and the assignee wrap underneath. Requester, the separate SLA date column and
@@ -1267,7 +1479,7 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   // and bulk edit is a desktop job.
   if (isMobile) {
     return (
-      <div onClick={onOpen} style={{
+      <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
         display: 'flex', flexDirection: 'column', gap: 6, padding: '11px 12px',
         borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: rowBg,
       }}>
@@ -1283,25 +1495,67 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
+          {canResolveRow && (
+            <button type="button" onClick={resolveRow} title="Mark Resolved" aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}
+              style={{ ...btn('outline'), flexShrink: 0, padding: '5px 8px', fontSize: 12, gap: 4, color: NX.green, minHeight: 32 }}>
+              <CheckCircle2 size={14} /> Resolve
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <TicketStatusChip status={t.status} />
           {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
           <PriorityChip priority={t.priority} />
-          <SlaBadge t={t} compact />
+          {/* Words, not icon-only chips with a hover title - a phone has no
+              hover. The SLA due date reads as a date (red once breached, amber
+              when due soon) and a quiet ticket says it needs a comment. */}
+          {t.slaDueOn && !CLOSED_STATES.includes(t.status) && (
+            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : `SLA due ${fmtDate(t.slaDueOn)}`}
+              style={slaM
+                ? { ...chip(slaM.color, slaM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
+                : { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.dim }}>
+              {slaM ? <slaM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
+              Due {fmtDate(t.slaDueOn)}
+            </span>
+          )}
           {staleM && (
             <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
               style={{ ...chip(staleM.color, staleM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
-              <staleM.Icon size={11} />
+              <staleM.Icon size={11} /> {staleM.label}
             </span>
           )}
-          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-            {t.assigneeId
-              ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
-                  <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
-              : <UnassignedAvatar size={20} />}
-          </span>
+          {/* Tap to assign right from the card (Neil, Oct 1: assigning "is
+              not working for me on mobile") - a bottom sheet, saved at once
+              like the desktop list's inline Status/Priority. Only for someone
+              who could assign it in the drawer. */}
+          {canAssignRow ? (
+            <button type="button" onClick={(e) => { e.stopPropagation(); setAssigning(true); }}
+              aria-label={t.assigneeId ? `Assigned to ${nameOf(t.assigneeId) || t.assigneeId} - change` : 'Assign this ticket'}
+              style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, minHeight: 32, padding: '3px 8px 3px 4px',
+                border: `1px solid ${NX.border}`, borderRadius: 999, background: NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+              {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} card={false} /> : <UnassignedAvatar size={22} />}
+              <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.blue, fontWeight: t.assigneeId ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                {t.assigneeId ? nameOf(t.assigneeId) || t.assigneeId : 'Assign'}
+              </span>
+              <ChevronDown size={13} style={{ color: NX.faint, flexShrink: 0 }} />
+            </button>
+          ) : (
+            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              {t.assigneeId
+                ? <><Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />
+                    <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>{nameOf(t.assigneeId)}</span></>
+                : <UnassignedAvatar size={20} />}
+            </span>
+          )}
         </div>
+        {t.latestComment && (
+          <LatestCommentPreview compact comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+        )}
+        {assigning && (
+          <TicketAssignSheet value={t.assigneeId || ''} people={people}
+            onPick={(email) => { updateTicket(t.id, { assigneeId: email || '' }).catch((err) => alert(`Could not assign: ${err.message || err}`)); }}
+            onClose={() => setAssigning(false)} />
+        )}
       </div>
     );
   }
@@ -1398,20 +1652,33 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
     ),
+    latestComment: (
+      <div style={{ ...cell, overflow: 'hidden', padding: '0 10px' }}>
+        <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+      </div>
+    ),
+    // The resolved gutter doubles as the row's Mark Resolved action: a faint
+    // outline check on a ticket still in flight (solid green once on hover),
+    // the filled green check once it is resolved.
     resolved: (
-      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none' }}>
-        {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />}
+      <div style={{ ...cell, justifyContent: 'center', borderRight: 'none', padding: 0 }}>
+        {t.resolvedAt
+          ? <CheckCircle2 size={16} style={{ color: NX.green }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
+          : canResolveRow && (
+            <button type="button" className="nx-row-resolve" onClick={resolveRow} title="Mark Resolved"
+              aria-label={`Mark ${ticketNoShort(t.code) || 'ticket'} Resolved`}>
+              <CheckCircle2 size={16} />
+            </button>
+          )}
       </div>
     ),
   };
 
   return (
-    <div onClick={onOpen} style={{
+    <div onClick={onOpen} className="nx-row-hover" data-selected={checked ? 'true' : undefined} style={{
       display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch',
       borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', background: rowBg,
-    }}
-      onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = rowBg; }}>
+    }}>
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
@@ -1422,16 +1689,6 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
 // scheme it replaced (which silently dropped anything over 2MB; recordings
 // always would have). Bucket must exist on the Supabase project - public,
 // same as Testing's qa-evidence - create `ticket-evidence` there.
-async function uploadTicketEvidence(file, prefix = 'file') {
-  if (!supabase) throw new Error('Storage not configured');
-  const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
-  const path = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { data, error } = await supabase.storage.from('ticket-evidence')
-    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
-  if (error || !data) throw new Error(error?.message || 'Upload failed');
-  return toViewUrl(supabase.storage.from('ticket-evidence').getPublicUrl(data.path).data.publicUrl);
-}
-
 function attachmentKindOf(f) {
   if (f.type.startsWith('image/')) return 'image';
   if (f.type.startsWith('video/')) return 'video';
@@ -1456,7 +1713,10 @@ async function uploadTicketFile(ticketId, f) {
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
 // time (recordings become File objects too); the caller decides whether to
 // queue it locally (pre-creation) or upload it immediately (post-creation).
-function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange }) {
+// `compact` (the Create a Ticket form, Oct 1): a slimmer pair that sits in a
+// row directly under the description editor instead of a featured red button
+// at the foot of the form - same actions, same recording flow.
+function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingChange, compact = false }) {
   const fileRef = useRef(null);
   const [menu, setMenu] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -1511,32 +1771,57 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               likely getting reflexively dismissed. That's the "come back"
               cue this button promises. */}
           <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
-            style={{
+            style={compact ? {
+              ...btn('outline'), fontSize: 12.5, fontWeight: 600, color: NX.red,
+              borderColor: 'rgba(220,38,38,0.45)', display: 'inline-flex', alignItems: 'center', gap: 6,
+            } : {
               ...btn('primary'), background: NX.red, borderColor: NX.red,
               padding: '11px 18px', fontSize: 14, fontWeight: 700, borderRadius: 10,
               boxShadow: recording ? 'none' : '0 2px 8px rgba(220,38,38,0.28)',
               display: 'inline-flex', alignItems: 'center', gap: 8,
             }}>
-            {recording ? <Spinner size="inline" /> : <CircleDot size={17} />}
-            {recording ? 'Recording…' : 'Record screen'}
+            {recording ? <Spinner size="inline" /> : <CircleDot size={compact ? 14 : 17} />}
+            {recording ? 'Recording…' : 'Record Screen'}
           </button>
           <AnchoredMenu anchorRef={recordBtnRef} open={menu} onClose={() => setMenu(false)}
             style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 4, width: 210 }}>
             <button type="button" role="menuitem" onClick={() => record(false)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Video size={14} /> Screen recording
+              <Video size={14} /> Screen Recording
             </button>
             <button type="button" role="menuitem" onClick={() => record(true)} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12 }}>
-              <Mic size={14} /> Screen + narration
+              <Mic size={14} /> Screen + Narration
             </button>
           </AnchoredMenu>
         </div>
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
-        style={{ ...btn('outline'), fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <UploadIcon size={13} /> Upload
+        style={{ ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <UploadIcon size={13} /> Upload Attachment
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
+    </div>
+  );
+}
+
+// The Create a Ticket evidence card (Oct 6): a recording (where the type takes
+// one) or a file, made impossible to miss.
+function EvidenceCard({ canRecord, children }) {
+  return (
+    <div style={{ marginTop: 10, borderRadius: 12, padding: '14px 16px',
+      border: `1.5px dashed ${canRecord ? 'rgba(220,38,38,0.45)' : NX.border}`,
+      background: canRecord ? 'rgba(220,38,38,0.04)' : NX.surface2 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+        {canRecord ? <Video size={16} style={{ color: NX.red }} /> : <Paperclip size={16} style={{ color: NX.dim }} />}
+        <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{canRecord ? 'Show Us the Problem' : 'Attach Files'}</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12, lineHeight: 1.45 }}>
+        {canRecord
+          ? 'A short screen recording is the fastest way to get this fixed - record what happens (add your voice if it helps), or attach a screenshot or file.'
+          : 'Attach a screenshot or a document if it helps explain the request.'}
+      </div>
+      {children}
+      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 10 }}>or press Ctrl+V to paste a screenshot</div>
     </div>
   );
 }
@@ -1554,13 +1839,31 @@ function PendingFileChip({ file, onRemove }) {
   );
 }
 
+// Does a (possibly rich) description say anything? An editor that was opened
+// and left empty saves "<p></p>"; a screenshot on its own still counts.
+const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
+
 // ── Create ───────────────────────────────────────────────────────────────────
-export function CreateTicketModal({ onClose }) {
+// `fromTask` (Convert to Ticket, Neil 10/05): { id, title, description,
+// priority, ownerId, fileCount } - the form opens pre-filled from the task,
+// names every required field the task could not supply, and on create the
+// server links the ticket to the task, copies its files and (when asked)
+// closes the task. `onCreated(ticket)` runs after a successful create.
+// `forProperty` (Property Tickets, Neil 10/05): { id, name } - opened from a
+// property in Asset Management; the ticket is linked to it and the building
+// department is preselected, so a title and a category are all that is left.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
   useTicketConfig();
   const { createTicket, projects = [], myEmail } = useTasks();
+  const { myEmail: roleEmail } = useRole();
+  // Who "me" is - the Requester field's default. The store's copy first, the
+  // signed-in identity as the fallback for a form mounted outside the Tasks
+  // view (Support), before the store has loaded.
+  const me = (myEmail || roleEmail || '').toLowerCase();
+  // The curated Nexus People list (/myhr/directory) - never M365/GAL.
   const people = usePeople();
   const isMobile = useIsMobile();
   const [companies, setCompanies] = useState([]);
@@ -1582,35 +1885,49 @@ export function CreateTicketModal({ onClose }) {
   // form when it reopens - possibly after the user navigated to another view
   // and back. Consumed exactly once per mount via the ref guard.
   const seedRef = useRef(undefined);
-  if (seedRef.current === undefined) seedRef.current = takeDraft() || null;
+  // A conversion starts from the task, never from a recording draft (which
+  // stays stashed for the form it belongs to).
+  if (seedRef.current === undefined) seedRef.current = fromTask ? null : (takeDraft() || null);
   const seed = seedRef.current;
+  // Opens on Incident (Neil, Oct 1 2026: "nine times out of ten it is simply
+  // an incident") - preselected, still changeable. See defaultIntakeType.
+  const initialType = useRef(defaultIntakeType()).current;
   const [form, setForm] = useState(seed?.form || {
-    // Opens on the first type offered, read from the order rather than named
-    // here, so the two can never drift into a default that isn't in the list.
-    subject: '', description: '', type: TICKET_TYPE_ORDER[0], priority: 'medium', status: 'open',
-    requesterId: myEmail || null, companyId: '', hrDepartmentId: '', application: '',
+    subject: fromTask?.title || '', description: fromTask?.description || '', type: initialType,
+    priority: PRIORITY_ORDER.includes(fromTask?.priority) ? fromTask.priority : 'medium', status: 'open',
+    // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
+    // A converted task is for whoever owns it - they asked for the work.
+    requesterId: (fromTask?.ownerId || myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
+    propertyAssetId: forProperty?.id || '',
   });
-  const [tf, setTf] = useState(seed?.tf || {});   // per-type field values (keyed by field key)
-  const [showErrors, setShowErrors] = useState(false);   // only nag after a failed submit
+  // Close the task once the ticket exists, so the work is not tracked twice.
+  const [closeSource, setCloseSource] = useState(true);
+  // Per-type field values (keyed by field key), pre-answered where the
+  // question has a sensible default - Who is affected? = One User, When did
+  // it start? = now.
+  const [tf, setTf] = useState(() => seed?.tf || intakeDefaults(initialType));
+  // Only nag after a failed submit - except on a conversion, where showing
+  // what the task could not fill in is the point (Neil: "this is missing,
+  // this is missing").
+  const [showErrors, setShowErrors] = useState(!!fromTask);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const setTfVal = (k, v) => setTf((p) => ({ ...p, [k]: v }));
-  // intakeFields, not TYPE_FIELDS: retired fields stay in the definitions so
-  // tickets that already captured one still render it, but nobody is asked
-  // for them again.
-  const typeFieldDefs = useMemo(() => intakeFields(form.type), [form.type]);
-  // The work-site list the Which site? / Which facility? questions use.
-  const sites = useTicketSites();
-  // Derived, not asked. The server derives it again on save from the same
-  // topic list - this copy only lets the form ask the follow-up questions that
-  // area needs, so the requester is never made to classify their own problem.
-  const serviceArea = useMemo(() => areaForTopic(form.application), [form.application]);
-  // Driven by BOTH the topic's service area and the ticket type: "which
-  // facility?" is the right question for a camera that has stopped working and
-  // noise on a request to reword a report. See SERVICE_FIELDS' `types`.
-  const svcFieldDefs = useMemo(
-    () => withDynamicOptions(serviceFields(serviceArea, form.type), { sites }),
-    [serviceArea, form.type, sites]);
+  // The admin's saved type order arrives after mount (useTicketConfig). If it
+  // took Incident out of intake, move off it - but only while the person has
+  // not picked a type themselves.
+  const typeTouched = useRef(!!seed?.form);
+  const typeOrderKey = TICKET_TYPE_ORDER.join(',');
+  useEffect(() => {
+    if (typeTouched.current || TICKET_TYPE_ORDER.includes(form.type)) return;
+    const next = defaultIntakeType();
+    setForm((f) => ({ ...f, type: next }));
+    setTf((prev) => ({ ...Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_'))), ...intakeDefaults(next) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeOrderKey]);
+  // No follow-up questions per topic (Pranshu, Oct 1: "A Few More Details" -
+  // Which facility? Unit? - was not needed). The topic and the description are
+  // the whole ask; the server still files the ticket under the topic's area.
   // Company field on intake (Sep 19, Pranshu: "End user don't have the
   // ability to choose company... admin have the control to turn on/off the
   // company field"). Off (the default): no picker, departments come
@@ -1628,11 +1945,54 @@ export function CreateTicketModal({ onClose }) {
   }, [COMPANY_FIELD.enabled, enabledCompanies.length && enabledCompanies[0]?.id]);
   // Departments narrow to whichever company is in play: the requester's own
   // (the field is off, or on with nothing picked yet) or the one they chose.
-  const deptOptions = COMPANY_FIELD.enabled
+  const deptOptions = (COMPANY_FIELD.enabled
     ? allDepts.filter((d) => d.companyId === form.companyId)
-    : allDepts;
+    : allDepts).filter(offeredAtIntake)
+    // Raised from a property in Asset Management: only property tickets, so
+    // only the building and site teams (Pranshu, 10/06).
+    .filter((d) => !forProperty || groupTakesProperty(helpGroupFor(d.name)));
   // The chosen department's NAME - what the help topics are listed by.
   const deptName = deptOptions.find((d) => d.id === form.hrDepartmentId)?.name || '';
+  // Ask "Which property?" only for a team that takes one - a building, site
+  // operations or site security team (the server enforces the same rule).
+  const deptTakesProperty = groupTakesProperty(helpGroupFor(deptName));
+  // Raised from a property (Asset Management): start on the team that handles
+  // buildings once the departments arrive - once, and never over a pick.
+  // Adjusting state while rendering (React's pattern for "derive once from
+  // async data"), guarded by the flag so it runs a single time.
+  const [pickBuildingDept, setPickBuildingDept] = useState(!!forProperty);
+  if (pickBuildingDept && deptOptions.length) {
+    setPickBuildingDept(false);
+    const building = deptOptions.find((d) => isBuildingGroup(helpGroupFor(d.name)));
+    if (building && !form.hrDepartmentId) set('hrDepartmentId', building.id);
+  }
+  // intakeFieldsFor, not TYPE_FIELDS: retired fields stay in the definitions
+  // so tickets that already captured one still render it, but nobody is asked
+  // for them again; radios are asked as dropdowns; and the error-message
+  // question only appears once the department is IT (Neil, Oct 1).
+  const typeFieldDefs = useMemo(() => intakeFieldsFor(form.type, deptName), [form.type, deptName]);
+  // Requester picker: me first, then everyone else on the People list.
+  const requester = form.requesterId || me;
+  const requesterOptions = useMemo(() => {
+    const nameFor = (email) => people.find((p) => p.email === email)?.name || email;
+    const others = people.filter((p) => p.email !== me && !p.external)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }))
+      .map((p) => ({ id: p.email, label: p.name, desc: p.email }));
+    const mine = me ? [{ id: me, label: `${nameFor(me)} (Me)`, desc: me }] : [];
+    // Someone picked who is not in the loaded list (a recording draft from a
+    // session where the list differed) still shows as themselves.
+    const known = new Set([me, ...others.map((o) => o.id)]);
+    const extra = requester && !known.has(requester) ? [{ id: requester, label: requester, desc: '' }] : [];
+    return [...mine, ...extra, ...others];
+  }, [people, me, requester]);
+  const onBehalf = !!requester && !!me && requester !== me;
+  // A converted task's owner who is not on the People list (an external
+  // collaborator) cannot be a requester - fall back to me once the list is in.
+  useEffect(() => {
+    if (fromTask && people.length && form.requesterId && form.requesterId !== me
+        && !people.some((p) => p.email === form.requesterId && !p.external)) set('requesterId', me || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [people.length]);
 
   // ── Validation ──
   // One step now (Neil, Sep 30: "consolidate step one and step 2... there's
@@ -1649,11 +2009,11 @@ export function CreateTicketModal({ onClose }) {
     if (showCompanyPicker && !form.companyId) out.add('companyId');
     if (deptOptions.length > 0 && !form.hrDepartmentId) out.add('hrDepartmentId');
     if (!form.application.trim()) out.add('application');
-    for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
+    for (const f of typeFieldDefs) {
       if (f.req && isBlankFieldValue(tf[f.key])) out.add(f.key);
     }
     return out;
-  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, svcFieldDefs, tf]);
+  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, tf]);
 
   // ── Mobile capture shortcuts (mirrors CreateTaskModal) ──
   // Photo / attach / scan sit in the footer so they're one tap away on a phone.
@@ -1685,6 +2045,17 @@ export function CreateTicketModal({ onClose }) {
     const list = Array.from(e.target.files || []); e.target.value = '';
     if (list.length) setAttachments((prev) => [...prev, ...list]);
   };
+  const addFile = (f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); };
+  // Ctrl+V of a screenshot anywhere in the form. Inside the description the
+  // editor has already embedded it in place (and marked the event handled);
+  // anywhere else - the title, a dropdown - it is attached instead.
+  const onFormPaste = (e) => {
+    if (e.defaultPrevented) return;
+    const files = filesFromPaste(e);
+    if (!files.length) return;
+    e.preventDefault();
+    files.forEach(addFile);
+  };
   // ABC scanner → OCR the photo server-side and append the text to the Title.
   const onScan = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -1709,28 +2080,61 @@ export function CreateTicketModal({ onClose }) {
       // type or a topic the user moved away from are never submitted, because
       // only the CURRENT definitions are walked.
       const typeFields = {};
-      for (const f of [...typeFieldDefs, ...svcFieldDefs]) {
+      for (const f of typeFieldDefs) {
         if (!isBlankFieldValue(tf[f.key])) typeFields[f.key] = tf[f.key];
       }
+      // Rich description (Oct 1). A picture pasted into it is held inline (a
+      // data: URL) while typing, exactly like Create a Task; before saving it
+      // goes to ticket storage and the description points at the stored copy,
+      // so the ticket, its activity snapshot and its emails never carry a
+      // megabyte of base64. Each one is also filed under Attachments once the
+      // ticket exists. A failed upload keeps the inline copy - never worse.
+      const inlineImages = [];
+      // A screenshot alone is a description too - isEmptyDoc only sees text.
+      const description = (isEmptyDoc(form.description) && !/<img\b/i.test(form.description || '')) ? ''
+        : await externalizeInlineImages(form.description, async (f) => {
+          const url = await uploadTicketEvidence(f, 'image');
+          inlineImages.push({ name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: 'image', url });
+          return { url };
+        });
+      // The topic's "Which one?" - only while it is still one of the picked
+      // topic's own sub-options (a company or department change can leave a
+      // stale one behind).
+      if (topicOptions(form.application, helpGroupFor(deptName)).includes(tf[HELP_SUBTOPIC_KEY])) {
+        typeFields[HELP_SUBTOPIC_KEY] = tf[HELP_SUBTOPIC_KEY];
+      }
       const created = await createTicket({
-        subject: form.subject.trim(), description: form.description, type: form.type, priority: form.priority, status: form.status,
-        // Requester defaults to the current user; SLA due date is derived from
-        // priority; the service area is derived server-side from the topic.
-        requesterId: form.requesterId || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
+        subject: form.subject.trim(), description, type: form.type, priority: form.priority, status: form.status,
+        // Requester = who it is for (defaults to me; the server checks anyone
+        // else against the People list and records me as the creator). SLA due
+        // date is derived from priority; the service area from the topic.
+        requesterId: requester || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
         application: form.application.trim(),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
+        ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
+        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
+        // Raised from the property itself: it stays that property's ticket.
+        ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
       });
       // Attachments can only be posted once the ticket has an id. A storage
       // failure here must not lose the ticket that was just created - the
       // ticket still saves, and any failed file gets one combined warning
       // (not one alert per file) rather than being silently dropped.
+      if (created?.id && inlineImages.length) {
+        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(() => {})));
+      }
       if (created?.id && attachments.length) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
         const failed = attachments.filter((_, i) => !results[i]);
         if (failed.length) {
           alert(`Ticket created, but ${failed.length} attachment${failed.length > 1 ? 's' : ''} couldn't be stored (${failed.map((f) => f.name).join(', ')}) - they won't be playable/downloadable.`);
         }
+      }
+      onCreated?.(created);
+      if (created?.propertyAssetId) {
+        // A property's ticket tabs in Asset Management refresh on this.
+        window.dispatchEvent(new CustomEvent('nexus:tickets-changed', { detail: { propertyId: created.propertyAssetId } }));
       }
       onClose();
     } catch (e) { alert(`Could not create ticket: ${e.message || e}`); setBusy(false); }
@@ -1793,7 +2197,13 @@ export function CreateTicketModal({ onClose }) {
   // Order per Neil (Sep 30): a title, a brief description, then the team and
   // the thing, then the type - the choices that shape the rest of the form
   // come before the questions they add.
-  return shell('Create a Ticket', {
+  // Convert to Ticket: what came across, and each required field still empty.
+  const fieldLabel = (k) => ({ subject: 'Title', companyId: 'Company', hrDepartmentId: 'Department',
+    application: 'What Do You Need Help With?' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
+  const carried = fromTask ? ['title', 'description', 'priority', 'requester',
+    ...(fromTask.fileCount ? [`${fromTask.fileCount} file${fromTask.fileCount > 1 ? 's' : ''}`] : [])] : [];
+
+  return shell(fromTask ? 'Convert to Ticket' : 'Create a Ticket', {
     // Phone only - same trio as Create a Task, so raising a ticket from a phone
     // can capture a photo of the problem without leaving the form.
     extras: (<>
@@ -1828,11 +2238,30 @@ export function CreateTicketModal({ onClose }) {
             {missing.size} required field{missing.size > 1 ? 's' : ''} still empty
           </span>
         )}
+        {fromTask && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim, cursor: 'pointer' }}>
+            <input type="checkbox" checked={closeSource} onChange={(e) => setCloseSource(e.target.checked)} />
+            Close the task
+          </label>
+        )}
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Ticket'}</button>
+        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>
+          {busy ? (fromTask ? 'Converting…' : 'Creating…') : (fromTask ? 'Convert to Ticket' : 'Create Ticket')}
+        </button>
       </>
     ),
-    children: (<>
+    children: (<div onPaste={onFormPaste} style={{ display: 'contents' }}>
+      {fromTask && (
+        <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10,
+          padding: '10px 12px', marginBottom: 14, fontSize: 12.5, lineHeight: 1.5, color: NX.dim }}>
+          <div>From the task <b style={{ color: NX.ink }}>{fromTask.title}</b>: {carried.join(', ')} filled in.</div>
+          {missing.size > 0
+            ? <div style={{ color: NX.red, fontWeight: 600, marginTop: 4 }}>
+                Still needed: {[...missing].map(fieldLabel).join(', ')}
+              </div>
+            : <div style={{ color: NX.green, fontWeight: 600, marginTop: 4 }}>Everything required is filled in - check the Type, then convert.</div>}
+        </div>
+      )}
       <div style={field}>
         <label style={label}>Title {req}</label>
         <input autoFocus value={form.subject} onChange={(e) => set('subject', e.target.value)} placeholder="What is the issue? e.g. Light out in the front office"
@@ -1840,17 +2269,49 @@ export function CreateTicketModal({ onClose }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
         {err('subject') && <div style={requiredHint}>Required</div>}
       </div>
+
+      {/* Requester (Neil, Oct 1 2026) - replaces the "Email & Microsoft 365"
+          section, which was really asking who this is for. You by default;
+          anyone on the People list otherwise. They get the updates, see it as
+          theirs, and confirm or reopen it; you stay on it as a watcher. */}
+      <div style={field}>
+        <label style={label}>Requester</label>
+        <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
+          options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
+          emptyText="No one matches." style={sel} />
+        {sub(onBehalf
+          ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
+          : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+      </div>
+
+      {/* Rich description (Neil, Oct 1): the Task module's own editor, with
+          Record Screen / Upload Attachment directly beneath it rather than at
+          the foot of the form. */}
       <div style={field}>
         <label style={label}>Description</label>
-        <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3}
-          placeholder="A few words on what is happening" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+        <RichDescription value={form.description} onChange={(html) => set('description', html)} minHeight={isMobile ? 90 : 110}
+          placeholder="What is happening? What were you doing, and what did you expect?" />
+        {/* Its own card (Pranshu, Oct 6: "too small and hard to find"): a
+            recording shows the desk more than any description, so it gets a
+            heading, a line on why, and the full-size red Record button. */}
+        <EvidenceCard canRecord={!NO_RECORDING_TYPES.includes(form.type)}>
+          <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
+            onFile={addFile} onRecordingChange={onRecChange} />
+          {attachments.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              {attachments.map((f, i) => (
+                <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
+              ))}
+            </div>
+          )}
+        </EvidenceCard>
       </div>
 
       {/* Self-service before a ticket (Neil, Sep 26): guide articles that
           match what is being typed. Advisory only - it never blocks Create
           Ticket, and shows nothing when nothing is a confident match.
           "This Solved My Problem" closes the form without creating one. */}
-      <TicketDeflection subject={form.subject} description={form.description} onSolved={onClose} />
+      <TicketDeflection subject={form.subject} description={richToPlain(form.description)} onSolved={onClose} />
 
       {/* Company picker (Sep 19, Pranshu) - hidden by default; appears only
           once an admin has turned it on AND picked 2+ companies to offer
@@ -1893,20 +2354,35 @@ export function CreateTicketModal({ onClose }) {
           <label style={label}>What Do You Need Help With? {req}</label>
           <HelpTopicField key={form.hrDepartmentId || 'none'} deptName={deptName} value={form.application}
             invalid={err('application')}
+            subValue={tf[HELP_SUBTOPIC_KEY] || ''} onSubChange={(v) => setTfVal(HELP_SUBTOPIC_KEY, v)}
             onChange={(name) => {
               set('application', name);
-              // Only when the AREA changes: swapping one maintenance topic for
-              // another asks the same questions, and throwing away the site
-              // they already picked would be gratuitous.
-              if (areaForTopic(name) !== serviceArea) {
-                setTf((prev) => Object.fromEntries(
-                  Object.entries(prev).filter(([k]) => !k.startsWith('svc_'))));
-              }
+              // Keep only the answers the new topic also asks: swapping one
+              // maintenance topic for another asks the same "Which site?", and
+              // throwing away the site already picked would be gratuitous.
+              const asks = new Set(topicQuestionDefs(name, areaForTopic(name)).map((f) => f.key));
+              setTf((prev) => Object.fromEntries(
+                Object.entries(prev).filter(([k]) => !k.startsWith('svc_') || asks.has(k))));
             }} />
           {err('application') && <div style={requiredHint}>Required</div>}
           {sub(helpGroupFor(deptName) ? 'Pick the closest match, or Other to type it.' : 'Name it in a few words.')}
         </div>
       </div>
+
+      {deptTakesProperty && (
+        <div style={field}>
+          <label style={label}>Property</label>
+          {forProperty ? (
+            // Raised from the property itself - fixed, not a choice.
+            <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2, color: NX.ink }}>{forProperty.name}</div>
+          ) : (
+            <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)} style={sel} />
+          )}
+          {sub(forProperty
+            ? `Shows on ${forProperty.name}'s Maintenance in Asset Management.`
+            : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -1918,8 +2394,11 @@ export function CreateTicketModal({ onClose }) {
             // SERVICE_FIELDS' `types`) - one that no longer applies is simply
             // not rendered and never submitted, because both the form and the
             // save walk the current definitions.
-            setTf((prev) => Object.fromEntries(
-              Object.entries(prev).filter(([k]) => k.startsWith('svc_'))));
+            typeTouched.current = true;
+            setTf((prev) => {
+              const kept = Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('svc_')));
+              return { ...kept, ...intakeDefaults(v, kept) };
+            });
           }} />
           {/* The definition of whichever type is picked - the same one each
               option carries in the open list. */}
@@ -1957,48 +2436,7 @@ export function CreateTicketModal({ onClose }) {
         </div>
       )}
 
-      {/* Follow-ups for what it is about (Which site? Which device?). Most
-          topics ask nothing and this block simply doesn't appear. */}
-      {svcFieldDefs.length > 0 && (
-        <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, padding: 14, background: NX.surface2, marginBottom: 10 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 10 }}>
-            {serviceAreaLabel(serviceArea)} Details
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-            {svcFieldDefs.map((f) => (
-              <div key={f.key} style={{ ...field, marginBottom: 0, gridColumn: (f.full || f.type === 'textarea') ? '1 / -1' : 'auto' }}>
-                <label style={label}>{f.label}{f.req && <span style={{ color: NX.red }}> *</span>}</label>
-                <TypeFieldInput field={f} value={tf[f.key]} onChange={(v) => setTfVal(f.key, v)} people={people} projects={projects}
-                  invalid={err(f.key)} />
-                {err(f.key) && <div style={requiredHint}>Required</div>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={field}>
-        <label style={label}>Attachments</label>
-        {/* Framed as a benefit to the requester (faster triage), not an
-            instruction. Only shown when recording is actually offered for this
-            ticket type (NO_RECORDING_TYPES hides the Record button itself). */}
-        {!NO_RECORDING_TYPES.includes(form.type) && (
-          <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 8, lineHeight: 1.4 }}>
-            A photo or a quick screen recording shows us exactly what's happening - usually faster than typing it out.
-          </div>
-        )}
-        <RecordUploadButtons showRecord={!NO_RECORDING_TYPES.includes(form.type)}
-          onFile={(f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); }}
-          onRecordingChange={onRecChange} />
-        {attachments.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {attachments.map((f, i) => (
-              <PendingFileChip key={`${f.name}-${i}`} file={f} onRemove={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))} />
-            ))}
-          </div>
-        )}
-      </div>
-    </>),
+    </div>),
   });
 }
 
@@ -2011,27 +2449,44 @@ export function CreateTicketModal({ onClose }) {
 //   confirm - the requester rates how it was handled, 1-5 stars ("you need to
 //             give them stars... comments are optional"). Stars required.
 //   reopen  - the requester says why it is not fixed.
+//   self_resolve - the requester marks their own ticket Resolved while it is
+//             still Open or being worked (Neil, Oct 1: "a colleague helped
+//             me"). "What fixed it?" is optional and goes out as a public
+//             reply; the server records the resolution as theirs.
 // A dialog rather than window.prompt so the rating can be stars and the note
 // can be more than one line. `onSubmit(patch)` does the save and returns a
 // promise; the caller decides how (the TasksContext store, or Support's api).
 export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', onSubmit, onClose }) {
   const [note, setNote] = useState(ticket?.resolutionNote || '');
   const [resolution, setResolution] = useState(ticket?.resolution || 'fixed');
+  // The maintenance record's vendor and cost (Property Tickets) - only for a
+  // ticket linked to a property; kept from a previous resolve after a reopen.
+  const [vendor, setVendor] = useState(ticket?.maintenanceVendor || '');
+  const [cost, setCost] = useState(ticket?.maintenanceCost || '');
+  const onProperty = !!ticket?.propertyAssetId;
+  const costBad = onProperty && cost.trim() !== '' && !/^\$?(\d{1,3}(,\d{3})+|\d+)(\.\d{1,2})?$/.test(cost.trim());
+  const noteBad = !note.trim();
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
   const [comment, setComment] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [showErr, setShowErr] = useState(false);
-  const invalid = mode === 'resolve' ? !note.trim() : mode === 'confirm' ? rating < 1 : !reason.trim();
+  const invalid = mode === 'resolve' ? (noteBad || costBad) : mode === 'confirm' ? rating < 1
+    : mode === 'self_resolve' ? false : !reason.trim();
   const title = mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Resolve Ticket')
-    : mode === 'confirm' ? 'Confirm Resolution' : 'Reopen Ticket';
+    : mode === 'self_resolve' ? 'Mark Resolved'
+    : mode === 'confirm' ? 'How Satisfied Are You?' : 'Reopen Ticket';
   const go = async () => {
     if (busy) return;
     if (invalid) { setShowErr(true); return; }
     setBusy(true);
     const patch = mode === 'resolve'
-      ? { status: targetStatus, resolution, resolutionNote: note.trim() }
+      ? { status: targetStatus, resolution, resolutionNote: note.trim(),
+          ...(onProperty && (vendor.trim() || ticket?.maintenanceVendor) ? { maintenanceVendor: vendor.trim() } : {}),
+          ...(onProperty && (cost.trim() || ticket?.maintenanceCost) ? { maintenanceCost: cost.trim() } : {}) }
+      : mode === 'self_resolve'
+        ? { status: 'resolved', ...(comment.trim() ? { comment: textToHtml(comment) } : {}) }
       : mode === 'confirm'
         ? { status: 'closed', csatRating: rating, csatComment: comment.trim() }
         : { status: 'reopened', reopen_reason: reason.trim() };
@@ -2043,8 +2498,8 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       <>
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={onClose}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={go} disabled={busy}>
-          {busy ? 'Saving…' : mode === 'resolve' ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
-            : mode === 'confirm' ? 'Confirm' : 'Reopen'}
+          {busy ? 'Saving…' : (mode === 'resolve' || mode === 'self_resolve') ? (targetStatus === 'closed' ? 'Close Ticket' : 'Mark Resolved')
+            : mode === 'confirm' ? 'Submit and Close Ticket' : 'Reopen'}
         </button>
       </>
     }>
@@ -2058,18 +2513,47 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           <label style={label}>Resolution <span style={{ color: NX.red }}>*</span></label>
           <textarea autoFocus value={note} onChange={(e) => setNote(e.target.value)} rows={4} maxLength={2000}
             placeholder="What was done to fix it? e.g. Replaced the ballast in the front office light."
-            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
-          {showErr && invalid && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && noteBad ? { borderColor: NX.red } : null) }} />
+          {showErr && noteBad && <div style={requiredHint}>Required - the requester sees this, and it is the record for next time.</div>}
         </div>
         <div style={field}>
           <label style={label}>Outcome</label>
           <TicketSelect value={resolution} onChange={setResolution}
             options={TICKET_RESOLUTION.map((r) => [r.key, r.label])} />
         </div>
+        {onProperty && (<>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10 }}>
+            <div style={field}>
+              <label style={label}>Vendor</label>
+              <input value={vendor} onChange={(e) => setVendor(e.target.value)} maxLength={200}
+                placeholder="e.g. ABC Plumbing" style={{ ...inputStyle, fontFamily: FONT }} />
+            </div>
+            <div style={field}>
+              <label style={label}>Cost</label>
+              <input value={cost} onChange={(e) => setCost(e.target.value)} inputMode="decimal" placeholder="$0.00"
+                style={{ ...inputStyle, fontFamily: FONT, ...(showErr && costBad ? { borderColor: NX.red } : null) }} />
+              {showErr && costBad && <div style={requiredHint}>An amount like 1250.50</div>}
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 12 }}>
+            Optional - goes on {ticket.propertyName || 'the property'}'s maintenance record and its Total Spend.
+          </div>
+        </>)}
       </>)}
+      {mode === 'self_resolve' && (
+        <div style={field}>
+          <label style={label}>What fixed it? (optional)</label>
+          <textarea autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
+            placeholder="e.g. A colleague showed me how to reconnect the printer."
+            style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            Posted on the ticket's conversation so the team knows. You can still reopen it if the problem comes back.
+          </div>
+        </div>
+      )}
       {mode === 'confirm' && (<>
         <div style={field}>
-          <label style={label}>How was your ticket handled? <span style={{ color: NX.red }}>*</span></label>
+          <label style={label}>How satisfied are you with how your ticket was handled? <span style={{ color: NX.red }}>*</span></label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onMouseLeave={() => setHover(0)}>
             {[1, 2, 3, 4, 5].map((n) => (
               <button key={n} type="button" aria-label={`${n} star${n > 1 ? 's' : ''}`} onClick={() => setRating(n)} onMouseEnter={() => setHover(n)}
@@ -2077,9 +2561,9 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
                 <Star size={28} style={{ color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
               </button>
             ))}
-            {rating > 0 && <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
+            {(hover || rating) > 0 && <span style={{ fontSize: 13, color: NX.ink, fontWeight: 600, marginLeft: 8 }}>{CSAT_LABELS[hover || rating]}</span>}
           </div>
-          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to confirm.</div>}
+          {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to close the ticket.</div>}
         </div>
         {ticket?.resolutionNote && (
           <div style={{ fontSize: 12.5, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
@@ -2087,7 +2571,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           </div>
         )}
         <div style={field}>
-          <label style={label}>Comments (optional)</label>
+          <label style={label}>Anything you would like to tell the team? (optional)</label>
           <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="Anything the team should know?" style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
         </div>
@@ -2106,6 +2590,12 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
   );
 }
 
+// Plain text from a dialog going out as a reply - escaped, one <p> per line,
+// the same shape the rich editor writes.
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+const textToHtml = (s) => String(s || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  .map((l) => `<p>${escapeHtml(l)}</p>`).join('');
+
 // Does moving this ticket to `status` need the Resolve dialog? Any move INTO
 // Resolved/Closed from a status that is still being worked.
 export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && !CLOSED_STATES.includes(t?.status);
@@ -2113,16 +2603,22 @@ export const needsResolution = (t, status) => CLOSED_STATES.includes(status) && 
 // The drawer's Help With field: a pick saves at once, a typed "Other" answer
 // saves when the field loses focus - never one save per keystroke (each save
 // is an audit row and a requester notification).
-function DrawerHelpTopic({ value, deptName, onCommit }) {
+//
+// `subValue` / `onCommitSub` (optional): the topic's "Which one?" answer
+// (typeFields.svc_helpSubtopic), saved the moment it is picked. A picked
+// topic commits as onCommit(name, '') - its old sub-option no longer applies.
+function DrawerHelpTopic({ value, deptName, onCommit, subValue = '', onCommitSub = null }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const group = helpGroupFor(deptName);
   return (
     <div onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget) && v.trim()) onCommit(v.trim()); }}>
-      <HelpTopicField deptName={deptName} value={v} onChange={(n) => {
-        setV(n);
-        if (listedTopic(group, n)) onCommit(n);
-      }} />
+      <HelpTopicField deptName={deptName} value={v} subValue={subValue}
+        onSubChange={onCommitSub ? (s) => { if (s !== subValue) onCommitSub(s); } : null}
+        onChange={(n) => {
+          setV(n);
+          if (listedTopic(group, n)) onCommit(n, '');
+        }} />
     </div>
   );
 }
@@ -2156,7 +2652,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 // module for someone without the desk grant.
 // `startEditing` opens straight into the title/description editor - the
 // Support list's pencil (Neil, Sep 30) lands here.
-export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
+export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
@@ -2167,7 +2663,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
-  const [tab, setTab] = useState('overview');
+  // The desk role the server gives this person (ticket_roles.py) - internal
+  // notes and deleting follow it, not the raw module grants.
+  const deskAccess = useTicketAccess();
+  // initialTab: the list's Latest Comment cell lands on the Conversation.
+  const [tab, setTab] = useState(initialTab || 'overview');
   // Up here with the other hooks, and NOT next to canRequestControl where it is
   // used, because `if (!t) return null` sits between the two: a hook after that
   // return runs on some renders and not others, which is the one thing React
@@ -2251,13 +2751,20 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const shownSvcFields = (() => {
     const area = t?.serviceArea || '';
     const answered = (f) => !isBlankFieldValue(t?.typeFields?.[f.key]);
-    const own = (SERVICE_FIELDS[area] || []).filter(
-      (f) => (!f.retired && serviceFieldApplies(f, t?.type)) || answered(f));
+    // Only what was answered: new tickets are asked none of these (Oct 1),
+    // older ones keep showing what they said.
+    const own = topicQuestionDefs(t?.application, area).filter(answered);
     const ownKeys = new Set(own.map((f) => f.key));
-    const orphans = Object.values(SERVICE_FIELDS).flat()
+    const orphans = [...allTopicQuestionDefs(), ...Object.values(SERVICE_FIELDS).flat()]
       .filter((f) => !ownKeys.has(f.key) && answered(f));
+    // An answer whose question an admin has since removed still shows,
+    // under a label read off its key.
+    const known = new Set([...own, ...orphans].map((f) => f.key));
+    const loose = Object.keys(t?.typeFields || {})
+      .filter((k) => k.startsWith('svc_') && k !== HELP_SUBTOPIC_KEY && !known.has(k) && !isBlankFieldValue(t.typeFields[k]))
+      .map((k) => ({ key: k, label: labelFromKey(k), type: 'text' }));
     const seen = new Set();
-    return [...own, ...orphans].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
+    return [...own, ...orphans, ...loose].filter((f) => (seen.has(f.key) ? false : seen.add(f.key)));
   })();
   // Opened from an email link before the ticket list has landed: show the
   // "Opening your ticket" screen rather than nothing (Oct 1 - it read as the
@@ -2318,6 +2825,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // privileged) keeps normal dropdown access; this only takes it away from a
   // requester who isn't.
   const canEditStatus = canWorking && !(isRequester && !privileged && !isAssignee);
+  // Just the person who raised it - not working it, not a manager.
+  const requesterOnly = isRequester && !privileged && !isAssignee;
+  // The person it was raised by and for, who is not working it - whatever
+  // their role. They get the requester's own Mark Resolved and are the one
+  // asked how satisfied they are (a manager's own ticket included).
+  const ownRequester = isRequester && !isAssignee;
   // Company is carved out of fullAccess: the assignee can work everything else
   // about a locked ticket, but never reassign which company it belongs to -
   // that stays with the requester (pre-lock) or a manager. Mirrors the
@@ -2337,7 +2850,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // the requester lock: once someone else is acting on a ticket, its own
   // requester deleting it out from under them is exactly the kind of change
   // this lock exists to prevent.
-  const canDelete = privileged || (!requesterLocked && isRequester);
+  // And only for a desk supervisor - the server's delete route requires one
+  // (ticket_roles.can_delete), so offering it to anybody else is a dead button.
+  const canDelete = deskAccess.canDelete && (privileged || (!requesterLocked && isRequester));
   // Escalate is a distress flare, not a priority bump: it mails the ticket's
   // department head that it needs instant care. The assignee or a manager -
   // whoever is actually working it - can raise it any time it's open,
@@ -2373,14 +2888,24 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   // own change (Confirm / Reopen) that goes out with the rest.
   const commit = async (extra = {}) => {
     const body = { ...pending, ...extra };
-    if (hasReply) { body.comment = reply.body; body.comment_internal = reply.internal; }
+    if (hasReply) {
+      // A reply being written AND a dialog's own comment (Mark Resolved's
+      // "What fixed it?") go out as one reply, the dialog's line last.
+      body.comment = extra.comment ? `${reply.body}${extra.comment}` : reply.body;
+      body.comment_internal = reply.internal;
+    }
     if (!Object.keys(body).length) return;
     await updateTicket(t.id, body);
     setPending({});
     setReply({ body: '', internal: false });
   };
+  // The requester's Confirm Resolution is held like any other edit; Done is
+  // where it is asked how satisfied they are (Oct 1) - the survey saves the
+  // rating with everything else and closes the ticket.
+  const confirmingClose = ownRequester && t.status === 'resolved' && pending.status === 'closed';
   const done = async () => {
     if (saving) return;
+    if (confirmingClose) { setDialog({ mode: 'confirm', viaDone: true }); return; }
     if (!dirty) { onClose(); return; }
     setSaving(true);
     try { await commit(); onClose(); }
@@ -2432,7 +2957,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
   const overdue = slaBreached && !CLOSED_STATES.includes(t.status);
 
   const remove = () => {
-    if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${ticketNo(t.code) || 'this ticket'}? Its history is kept and a manager can restore it.`)) return;
     deleteTicket(t.id).then(onClose).catch((e) => alert(`Could not delete ticket: ${e.message || e}`));
   };
 
@@ -2457,19 +2982,35 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           // status jump" the requester is carved out of above; their only
           // status moves are Confirm Resolution / Reopen below, once there
           // actually is a resolution to confirm or reopen.
-          canEditStatus && !CLOSED_STATES.includes(v.status) && (
-            <button style={{ ...btn('outline'), color: NX.green }} onClick={() => setDialog({ mode: 'resolve', targetStatus: 'resolved' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+          // The one exception (Neil, Oct 1): the requester may mark their own
+          // ticket Resolved - "a colleague helped me" - with an optional
+          // comment instead of the desk's written resolution.
+          (canEditStatus || ownRequester) && !CLOSED_STATES.includes(v.status) && (
+            <button style={{ ...btn('outline'), color: NX.green }}
+              onClick={() => setDialog({ mode: ownRequester ? 'self_resolve' : 'resolve', targetStatus: 'resolved' })}>
+              <CheckCircle2 size={14} /> Mark Resolved
+            </button>
           )
         ) : (
           <>
             {/* The requester confirms with a rating; the desk just closes it
                 out (the resolution was written when it was resolved). */}
             {t.status === 'resolved' && (
-              <button style={{ ...btn('outline'), color: NX.green }}
-                onClick={() => (isRequester && !privileged && !isAssignee ? setDialog({ mode: 'confirm' }) : stage({ status: 'closed' }))}
-                title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
+              <button style={{ ...btn(v.status === 'closed' ? 'primary' : 'outline'), ...(v.status === 'closed' ? { background: NX.green, borderColor: NX.green } : { color: NX.green }) }}
+                aria-pressed={v.status === 'closed'}
+                onClick={() => stage({ status: v.status === 'closed' ? t.status : 'closed' })}
+                title={v.status === 'closed' ? 'Click Done to finish - or click again to undo'
+                  : 'Close this ticket now instead of waiting for it to auto-close'}>
+                <CheckCircle2 size={14} /> {v.status === 'closed' ? 'Resolution Confirmed' : 'Confirm Resolution'}
+              </button>
             )}
-            <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            {/* Reopen while it is Resolved (Oct 1). A closed ticket is closed
+                for the requester - the desk can still reopen one. */}
+            {(t.status === 'resolved' || canEditStatus) ? (
+              <button style={btn('outline')} onClick={reopen}>Reopen</button>
+            ) : (
+              <span style={{ fontSize: 12, color: NX.faint }}>Closed - if the problem is back, submit a new ticket.</span>
+            )}
           </>
         )}
         {dirty && (
@@ -2489,9 +3030,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <input autoFocus value={(draft ?? { subject: v.subject }).subject ?? ''} placeholder="Title"
               onChange={(e) => setDraft((d) => ({ ...(d || { description: v.description || '' }), subject: e.target.value }))}
               style={{ ...inputStyle, fontSize: 15, fontWeight: 700 }} />
-            <textarea value={(draft ?? { description: v.description }).description ?? ''} rows={4} placeholder="Describe the issue"
-              onChange={(e) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: e.target.value }))}
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+            {/* The same rich editor the Create a Ticket form uses (Oct 1) - a
+                plain-text description written before then opens as one paragraph. */}
+            <RichDescription value={(draft ?? { description: v.description }).description ?? ''} minHeight={90}
+              placeholder="Describe the issue"
+              onChange={(html) => setDraft((d) => ({ ...(d || { subject: v.subject || '' }), description: html }))} />
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={btn('outline')} onClick={() => { setEditing(false); setDraft(null); }}>Cancel</button>
               <button style={btn('primary')} onClick={saveEdit} title="Saved with everything else when you click Done">Apply</button>
@@ -2505,8 +3048,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
                 style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
             )}
           </div>
-          {v.description
-            ? <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{v.description}</p>
+          {/* Rich text since Oct 1: richBodyHtml sanitizes it, and wraps an
+              older plain-text description in paragraphs so both read alike. */}
+          {hasRichText(v.description)
+            ? <div className="nx-rich-body" style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim }}
+                dangerouslySetInnerHTML={{ __html: richBodyHtml(v.description, nameOf) }} />
             : canEditText && (
               <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
                 <Plus size={13} /> Add a Description
@@ -2561,6 +3107,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         </div>
 
         {tab === 'overview' && (<>
+      {(t.csatRating || 0) > 0 && <SatisfactionCard ticket={t} nameOf={nameOf} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         <div style={field}>
@@ -2576,7 +3123,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
               style={sel} />
           ) : (
             <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-              {TICKET_STATUS_META[t.status]?.label || t.status}
+              {TICKET_STATUS_META[v.status]?.label || v.status}
             </div>
           )}
         </div>
@@ -2603,9 +3150,17 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             <label style={label}>Assign To</label>
             {/* Locked until the request is approved - the backend refuses it anyway,
                 so showing an open picker would only produce a 409 the user can't act on. */}
-            <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
-              disabled={!canWorking || t.approvalStatus === 'pending'}
-              placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+            {/* Phones get a bottom sheet (TicketAssignSheet) - the anchored
+                dropdown and its auto-focused search fought the keyboard. */}
+            {isMobile ? (
+              <MobileAssignField value={v.assigneeId || ''} people={people} nameOf={nameOf} onChange={(val) => stage({ assigneeId: val || '' })}
+                disabled={!canWorking || t.approvalStatus === 'pending'}
+                placeholder={t.approvalStatus === 'pending' ? 'Awaiting Approval' : 'Unassigned'} />
+            ) : (
+              <PersonSelect value={v.assigneeId || null} people={people} onChange={(val) => stage({ assigneeId: val || '' })}
+                disabled={!canWorking || t.approvalStatus === 'pending'}
+                placeholder={t.approvalStatus === 'pending' ? 'Awaiting approval' : 'Unassigned'} />
+            )}
           </div>
         )}
         {t.assignedById && (
@@ -2635,7 +3190,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
             disabled={!v.companyId || !canWorking} searchPlaceholder="Search departments…"
             placeholder={v.companyId ? 'Select department' : 'Select a company first'}
             options={[['', v.companyId ? 'Select department' : 'Select a company first'],
-              ...allDepts.filter((d) => d.companyId === v.companyId).map((d) => [d.id, d.name]),
+              // Turned off for tickets / deleted globally: not offered, but the
+              // one this ticket is already filed under still shows its name.
+              ...allDepts.filter((d) => d.companyId === v.companyId
+                && (offeredAtIntake(d) || d.id === v.hrDepartmentId)).map((d) => [d.id, d.name]),
               // Filed against a department since removed from the desk list -
               // still show what it was filed under rather than a blank.
               ...(v.hrDepartmentId && allDepts.length && !allDepts.some((d) => d.id === v.hrDepartmentId)
@@ -2651,11 +3209,41 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           {fullAccess ? (
             <DrawerHelpTopic key={`${t.id}:${v.hrDepartmentId || ''}`} value={v.application || ''}
               deptName={allDepts.find((d) => d.id === v.hrDepartmentId)?.name || ''}
-              onCommit={(name) => { if (name !== (v.application || '')) stage({ application: name }); }} />
+              subValue={v.typeFields?.[HELP_SUBTOPIC_KEY] || ''}
+              onCommitSub={(sub) => stage({ typeFields: withHelpSubtopic(v.typeFields, sub) })}
+              onCommit={(name) => {
+                if (name === (v.application || '')) return;
+                // A different topic: its old "which one" no longer applies.
+                stage(v.typeFields?.[HELP_SUBTOPIC_KEY]
+                  ? { application: name, typeFields: withHelpSubtopic(v.typeFields, '') }
+                  : { application: name });
+              }} />
           ) : (
-            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.application || '-'}</div>
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{helpWithLabel(v) || '-'}</div>
           )}
         </div>
+        {/* Property Tickets (Neil, 10/05). Same edit rule as Help With: the
+            backend leaves property_asset_id out of _WORKING_FIELDS. A
+            Resolved/Closed ticket is that property's maintenance record, so
+            it moves only after a reopen (the server refuses it too). */}
+        {(v.propertyAssetId || (fullAccess && groupTakesProperty(helpGroupFor(allDepts.find((d) => d.id === v.hrDepartmentId)?.name || '')))) && (
+          <div style={field}>
+            <label style={label}>Property</label>
+            {fullAccess && !v.propertyLocked ? (<>
+              <PropertySelect value={v.propertyAssetId || ''} fallbackName={v.propertyName || ''}
+                disabled={['resolved', 'closed'].includes(v.status)}
+                onChange={(id) => { if (id !== (v.propertyAssetId || '')) stage({ propertyAssetId: id }); }} />
+              {['resolved', 'closed'].includes(v.status) && v.propertyAssetId && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Part of this property's maintenance history - reopen the ticket to change it.</div>
+              )}
+            </>) : (<>
+              <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyName || '-'}</div>
+              {v.propertyLocked && (
+                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>Raised from this property in Asset Management - it can't be changed.</div>
+              )}
+            </>)}
+          </div>
+        )}
         {/* Derived from the application by the server, and re-derived whenever
             it changes. A manager can still override it here for an app the
             directory has mapped wrongly - correcting the mapping itself is a
@@ -2750,9 +3338,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
           onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
       </div>
 
-      {CLOSED_STATES.includes(v.status) && (
+      {CLOSED_STATES.includes(t.status) && !(t.csatRating > 0) && (
         <div style={field}>
-          <label style={label}>Satisfaction (CSAT)</label>
+          <label style={label}>Satisfaction</label>
           <CsatWidget ticket={v} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => stage({ csatRating: rating })}
             onComment={(comment) => stage({ csatComment: comment })} />
         </div>
@@ -2760,14 +3348,15 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
 
         </>)}
         {tab === 'conversation' && (
-          <TicketConversation ticketId={t.id} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
+          <TicketConversation ticketId={t.id} ticketType={t.type} nameOf={nameOf} newSince={meIsRequester ? seenBefore : undefined}
             reply={reply} onReplyChange={setReply} onDone={done}
             // The public-reply / internal-note switch is the desk's. The person
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
-            canInternal={(privileged || isAssignee || !isRequester) && (canAccessModule('tickets', 'administrator') || canAccessModule('tasks', 'administrator'))} />
+            canInternal={(privileged || isAssignee || !isRequester) && deskAccess.canReadInternal}
+            canDelete={deskAccess.canDelete} />
         )}
-        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} />}
+        {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
@@ -2777,7 +3366,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false }) {
         // Resolving is a status change like any other - held for Done. Confirm
         // and Reopen are the requester's own finishing moves, so they save
         // (with anything else held) right away.
-        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p) : commit(p))} onClose={() => setDialog(null)} />
+        // Self-resolve is the requester's own finishing move too.
+        // The satisfaction survey raised by Done closes the drawer once saved.
+        onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p)
+          : dialog.viaDone ? commit(p).then(() => onClose()) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />
@@ -2813,7 +3405,8 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
     let alive = true;
     // canAct here, not onDesk - an administrator must be able to unstick a
     // request whose desk was mis-configured.
-    api.getMyTicketAccess().then((r) => { if (alive) setItAdmin(!!r?.canAct); }).catch(() => {});
+    // ...and a desk supervisor's: routing for approval is ticket_roles.can_manage_desk.
+    api.getMyTicketAccess().then((r) => { if (alive) setItAdmin(!!r?.canAct && r?.canManageDesk !== false); }).catch(() => {});
     return () => { alive = false; };
   }, []);
   const status = t.approvalStatus || 'none';
@@ -3012,6 +3605,36 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
   );
 }
 
+// What each star means, in the requester's words - shown while they pick and
+// on the Overview card afterwards.
+const CSAT_LABELS = { 1: 'Very Dissatisfied', 2: 'Dissatisfied', 3: 'Neutral', 4: 'Satisfied', 5: 'Very Satisfied' };
+
+// The requester's satisfaction survey, at the top of the Overview tab once it
+// is in (Oct 1) - the first thing anyone opening a closed ticket sees.
+function SatisfactionCard({ ticket, nameOf }) {
+  const rating = ticket.csatRating || 0;
+  const tone = rating >= 4 ? NX.green : rating === 3 ? NX.amber : NX.red;
+  const who = ticket.requesterId ? (nameOf?.(ticket.requesterId) || ticket.requesterId) : 'The requester';
+  return (
+    <div data-testid="satisfaction-card" style={{ border: `1px solid ${NX.border}`, borderLeft: `4px solid ${tone}`, borderRadius: 10,
+      background: NX.surface2, padding: '10px 14px', marginBottom: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.dim, marginBottom: 6 }}>
+        Satisfaction Survey
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star key={n} size={18} aria-hidden style={{ color: rating >= n ? NX.amber : NX.border, fill: rating >= n ? NX.amber : 'none' }} />
+        ))}
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: tone, marginLeft: 8 }}>{CSAT_LABELS[rating] || `${rating}/5`}</span>
+        <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5 · rated by {who}</span>
+      </div>
+      {ticket.csatComment && (
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>“{ticket.csatComment}”</p>
+      )}
+    </div>
+  );
+}
+
 // ── CSAT - a 1-5 satisfaction rating shown once a ticket is resolved/closed ────
 function CsatWidget({ ticket, canRate, onRate, onComment }) {
   const [hover, setHover] = useState(0);
@@ -3042,7 +3665,8 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
   const stats = useMemo(() => {
     const open = tickets.filter((t) => !CLOSED_STATES.includes(t.status));
     const byStatus = TICKET_STATUS_ORDER.map((s) => ({ label: TICKET_STATUS_META[s].label, value: tickets.filter((t) => t.status === s).length, color: TICKET_STATUS_META[s].color })).filter((d) => d.value > 0);
-    const byType = TICKET_TYPE_ORDER.map((ty) => ({ label: TICKET_TYPE_META[ty].label, value: tickets.filter((t) => (t.type || 'request') === ty).length, color: TICKET_TYPE_META[ty].color })).filter((d) => d.value > 0);
+    // Every type that has tickets - a type switched off, or retired, still counts.
+    const byType = Object.keys(TICKET_TYPE_META).map((ty) => ({ label: TICKET_TYPE_META[ty].label, value: tickets.filter((t) => (t.type || 'request') === ty).length, color: TICKET_TYPE_META[ty].color })).filter((d) => d.value > 0);
     const byPriority = PRIORITY_ORDER.map((p) => ({ label: PRIORITY_META[p].label, value: tickets.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
     const PAL = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
     // top assignees among open tickets
@@ -3149,8 +3773,9 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, reply, onReplyChange, onDone }) {
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone }) {
   const [rows, setRows] = useState(null);
+  const [attaching, setAttaching] = useState(false);
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
   const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
@@ -3168,6 +3793,25 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
   const del = async (id) => { await api.deleteTicketComment(id).catch(() => {}); await Promise.all([reload(), refresh()]); };
+
+  // Record / attach from the conversation (Pranshu, Oct 6: "if the same issue
+  // happens again there's no option to add a recording again"). The file goes
+  // to the ticket's Attachments straight away, and a link to it is added to
+  // the reply being written, so it is sent with the message on Done.
+  const attach = async (f) => {
+    setAttaching(true);
+    const kind = attachmentKindOf(f);
+    let url = '';
+    try { url = await uploadTicketEvidence(f, kind); } catch (e) {
+      alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
+    }
+    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(() => {});
+    setAttaching(false);
+    if (!url) return;
+    const text = kind === 'video' ? 'Screen recording' : f.name;
+    const link = `<p>${kind === 'video' ? 'Attached a screen recording' : 'Attached'}: <a href="${escapeHtml(url)}">${escapeHtml(text)}</a></p>`;
+    onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? link : `${r.body || ''}${link}` }));
+  };
 
   return (
     <div>
@@ -3187,7 +3831,7 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
                       <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 10.5 }}>New</span>
                     )}
                     <span style={{ fontSize: 11, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>
-                    {canInternal && (
+                    {canDelete && (
                       <button onClick={() => del(c.id)} title="Delete" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
                     )}
                   </div>
@@ -3221,6 +3865,12 @@ function TicketConversation({ ticketId, nameOf, canInternal = true, newSince, re
           minHeight={64}
           placeholder={internal ? 'Internal note - visible to agents, not the requester…' : canInternal ? 'Public reply…' : 'Write a reply…'}
         />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
+          onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+        {attaching && <Spinner size={14} />}
+        <span style={{ fontSize: 11, color: NX.faint }}>Saved to Attachments and linked in your reply. Ctrl+V pastes a screenshot straight into the reply.</span>
       </div>
       <div style={{ fontSize: 11, color: NX.faint, marginTop: 8 }}>
         {isEmptyDoc(body) ? (
@@ -3279,6 +3929,16 @@ function AttachmentViewer({ att, onClose }) {
   );
 }
 
+// After a recording made from an EXISTING ticket stops, bring the person back
+// to that ticket if they wandered off mid-recording (shared by the Attachments
+// tab and the Conversation, Oct 6). Links in a reply use escapeHtml (above).
+const returnToTicketAfterRecording = (ticketId) => (v) => {
+  if (v || isTicketDrawerOpen(ticketId)) return;
+  setPendingOpen('ticket', ticketId);
+  window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
+};
+
 // ── Attachments ──────────────────────────────────────────────────────────────
 // Card size for the attachment gallery - wide/tall enough for a video thumbnail
 // to actually read as a preview rather than an icon, narrow enough that a
@@ -3286,7 +3946,7 @@ function AttachmentViewer({ att, onClose }) {
 const ATT_CARD_W = 138;
 const ATT_THUMB_H = 84;
 
-function TicketAttachments({ ticketId, ticketType }) {
+function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState(null);   // attachment open in the in-app viewer
@@ -3323,12 +3983,7 @@ function TicketAttachments({ ticketId, ticketType }) {
   // fire both the live event (drawer already mounted, showing something
   // else) and the module navigate (TicketsView itself unmounted) so
   // whichever one applies brings this exact ticket back up.
-  const onRecChange = (v) => {
-    if (v || isTicketDrawerOpen(ticketId)) return;
-    setPendingOpen('ticket', ticketId);
-    window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId } }));
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } }));
-  };
+  const onRecChange = returnToTicketAfterRecording(ticketId);
 
   return (
     <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
@@ -3394,7 +4049,7 @@ function TicketAttachments({ ticketId, ticketType }) {
                 {showActions && (
                   <div style={{ position: 'absolute', top: 6, left: 6, display: 'flex', gap: 4 }}>
                     {a.url && <a href={toDownloadUrl(a.url)} download={a.name} title="Download" style={actionBtn}><Download size={12} /></a>}
-                    <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>
+                    {canDelete && <button onClick={() => del(a.id)} title="Remove" style={actionBtn}><X size={12} /></button>}
                   </div>
                 )}
               </div>
@@ -3416,8 +4071,10 @@ function TicketAttachments({ ticketId, ticketType }) {
 // time), falling back to the raw key if nothing matches at all.
 function auditFieldDef(type, key) {
   return (TYPE_FIELDS[type] || []).find((f) => f.key === key)
+    || allTopicQuestionDefs().find((f) => f.key === key)
     || Object.values(SERVICE_FIELDS).flat().find((f) => f.key === key)
-    || { key, label: key, type: 'text' };
+    || (key === HELP_SUBTOPIC_KEY ? { key, label: HELP_SUBTOPIC_LABEL, type: 'text' } : null)
+    || { key, label: key.startsWith('svc_') ? labelFromKey(key) : key, type: 'text' };
 }
 
 // The original submission, exactly as raised - see _ticket_snapshot on the
@@ -3443,10 +4100,11 @@ function CreatedSnapshotCard({ snapshot, nameOf, companies, allDepts }) {
         <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Title</div>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{snapshot.subject || '-'}</div>
       </div>
-      {snapshot.description && (
+      {hasRichText(snapshot.description) && (
         <div style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Description</div>
-          <p style={{ margin: 0, fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{snapshot.description}</p>
+          <div className="nx-rich-body" style={{ fontSize: 13, color: NX.dim }}
+            dangerouslySetInnerHTML={{ __html: richBodyHtml(snapshot.description, nameOf) }} />
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', fontSize: 12.5 }}>
@@ -3495,15 +4153,21 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         if (a.type === 'commented') {
           try { comment = JSON.parse(a.detail); } catch { /* pre-existing plain-text row */ }
         }
+        // A deleted comment is logged as JSON too ({internal, text, ...}) -
+        // never with the comment's words; show its `text` and the Internal chip.
+        let removed = null;
+        if (a.type === 'comment_deleted') {
+          try { removed = JSON.parse(a.detail); } catch { /* plain-text row */ }
+        }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
               <Avatar email={a.actorId} name={nameOf(a.actorId)} size={22} />
               <span style={{ color: NX.ink, fontWeight: 600 }}>{nameOf(a.actorId) || a.actorId || 'Someone'}</span>
               <span style={{ color: NX.dim }}>
-                {snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : a.detail}
+                {snapshot ? 'created this ticket' : comment ? (comment.internal ? 'added an internal note' : 'commented') : removed ? (removed.text || 'deleted a comment') : a.detail}
               </span>
-              {comment?.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
+              {(comment?.internal || removed?.internal) && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}><Lock size={10} /> Internal</span>}
               <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
             </div>
             {snapshot && <CreatedSnapshotCard snapshot={snapshot} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
@@ -3522,11 +4186,17 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
 }
 
 // ── Kanban board - columns by status, drag a card to change its status ────────
-function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
+// `mobile` (from TicketsView): HTML5 drag-and-drop does not exist on touch
+// screens, so on a phone the cards are not draggable and each carries a Move To
+// picker instead - routed through the same onMove (TicketsView's guardedUpdate)
+// a drop uses, so moving to Resolved/Closed still asks for the resolution.
+// Columns narrow to leave the next one peeking in and snap as they scroll.
+function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false }) {
   const [dragId, setDragId] = useState(null);
   const [over, setOver] = useState(null);
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 8 }}>
+    <div data-testid="ticket-board" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', overflowX: 'auto', paddingBottom: 8,
+      ...(mobile ? { scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' } : null) }}>
       {TICKET_STATUS_ORDER.map((s) => {
         const m = TICKET_STATUS_META[s];
         const col = tickets.filter((t) => t.status === s);
@@ -3535,15 +4205,16 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
             onDragOver={(e) => { e.preventDefault(); setOver(s); }}
             onDragLeave={() => setOver((o) => (o === s ? null : o))}
             onDrop={() => { if (dragId) onMove(dragId, s); setDragId(null); setOver(null); }}
-            style={{ width: 260, flexShrink: 0, background: over === s ? `${m.color}12` : NX.surface2, border: `1px solid ${over === s ? m.color : NX.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            style={{ width: mobile ? 'min(260px, 82vw)' : 260, flexShrink: 0, background: over === s ? `${m.color}12` : NX.surface2, border: `1px solid ${over === s ? m.color : NX.border}`, borderRadius: 12, padding: 8, display: 'flex', flexDirection: 'column', gap: 8,
+              ...(mobile ? { scrollSnapAlign: 'start', boxSizing: 'border-box' } : null) }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color }} />
               <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{m.label}</span>
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{col.length}</span>
             </div>
             {col.slice(0, 100).map((t) => (
-              <div key={t.id} draggable onDragStart={() => setDragId(t.id)} onDragEnd={() => setDragId(null)} onClick={() => onOpen(t.id)}
-                style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+              <div key={t.id} draggable={!mobile} onDragStart={mobile ? undefined : () => setDragId(t.id)} onDragEnd={mobile ? undefined : () => setDragId(null)} onClick={() => onOpen(t.id)}
+                style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: mobile ? 'pointer' : 'grab', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <TicketTypeIcon type={t.type} size={14} />
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
@@ -3556,6 +4227,18 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove }) {
                   </span>
                   {t.assigneeId && <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={20} />}
                 </div>
+                {mobile && (
+                  // A native select: the phone's own picker, which no column or
+                  // scroller can clip. Clicks stop here so they never open the card.
+                  <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Move To</span>
+                    <select value={t.status} aria-label={`Move ${ticketNoShort(t.code) || 'ticket'} To`}
+                      onChange={(e) => { const next = e.target.value; if (next && next !== t.status) onMove(t.id, next); }}
+                      style={{ ...inputStyle, flex: 1, minWidth: 0, width: 'auto', fontSize: 16, padding: '6px 8px', minHeight: 36, cursor: 'pointer', appearance: 'auto' }}>
+                      {TICKET_STATUS_ORDER.map((st) => <option key={st} value={st}>{TICKET_STATUS_META[st].label}</option>)}
+                    </select>
+                  </div>
+                )}
               </div>
             ))}
             {col.length > 100 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
