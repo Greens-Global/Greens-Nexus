@@ -5317,3 +5317,10 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
 }
 .acct-lines .acct-op-filter input { min-width: 48px; text-align: right; }
+
+/* Two lines, then an ellipsis - the Support ticket list's Title and Latest
+   Comment cells (Neil, 10/08: two-row cells so both can actually be read). */
+.nx-clamp-2 {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; min-width: 0;
+}

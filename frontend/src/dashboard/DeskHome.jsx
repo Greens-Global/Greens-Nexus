@@ -15,8 +15,8 @@ Jul 28); craft bar monday.com.
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
-  ArrowUpRight, BookOpen, CheckCircle2, CheckSquare, ChevronRight,
-  Clock, Package, PenLine, Users,
+  ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight,
+  Package, PenLine, Ticket, Users,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -362,12 +362,10 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
               <span className="dk-chip dk-chip--blue"><CheckSquare /></span> New task
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
-            <button className="dk-key" onClick={() => navTo('timeclock')}>
-              <span className="dk-chip dk-chip--green"><Clock /></span> Time clock
-              <ChevronRight size={14} className="dk-key-arrow" />
-            </button>
-            <button className="dk-key" onClick={() => navTo('sop')}>
-              <span className="dk-chip dk-chip--brand"><BookOpen /></span> Knowledge base
+            {/* New ticket replaced Time clock and Knowledge base here (Neil,
+                10/08) - the Ticket module's own form, opened in place. */}
+            <button className="dk-key" onClick={() => setComposing('ticket')}>
+              <span className="dk-chip dk-chip--red"><Ticket /></span> New ticket
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
             <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search everything</div>

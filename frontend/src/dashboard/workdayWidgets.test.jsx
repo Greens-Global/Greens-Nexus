@@ -155,10 +155,11 @@ describe('registry, KPI catalog and quick actions', () => {
     for (const k of ['time-clock', 'my-requests', 'due-back', 'coming-up']) expect(WIDGETS[k]?.cat).toBe('Workday');
     expect(KPI_CATALOG.signatures_needed.label).toBe('Signatures Needed');
   });
-  it('adds the workday deep links to the catalog without changing the default six', () => {
+  it('adds the workday deep links to the catalog without changing the default set', () => {
     const keys = QUICK_ACTIONS.map(a => a.key);
     for (const k of ['time-off', 'punch-fix', 'ask-hr', 'purchase']) expect(keys).toContain(k);
-    expect(DEFAULT_QUICK_ACTIONS).toEqual(['task', 'event', 'email', 'request-item', 'timeclock', 'kb']);
+    // New Ticket replaced Time Clock and Knowledge Base in the defaults (Neil, 10/08).
+    expect(DEFAULT_QUICK_ACTIONS).toEqual(['task', 'event', 'email', 'request-item', 'ticket']);
     expect(QUICK_ACTIONS.find(a => a.key === 'time-off')).toMatchObject({ view: 'timeclock', sub: 'timeoff' });
   });
 });

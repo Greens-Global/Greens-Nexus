@@ -2754,7 +2754,13 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     db.add(req)
     # Notify the approver - the employee's manager, or ALL managers if none is set,
     # so a no-manager employee's request still reaches someone.
-    what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
+    # Plain English, not field names (Neil, 10/08: "add a break_end punch"
+    # -> "add a break end punch at 1:20 PM"): the kind's label plus the time
+    # the fix is about, so the approver reads it without opening the request.
+    if action == "add":
+        what = f"add a {_kind_label(body.punch_kind)} punch at {_us_time(at_utc, body.tz_offset_min or 0)}"
+    else:
+        what = f"remove their {_kind_label(tp.kind)} punch at {_us_time(tp.at, tp.tz_offset_min or 0)}"
     # Open lands on the request itself - People > Time > Punch requests with
     # this row highlighted (Neil, 10/02: "doesn't take me to Amy's approval,
     # it just takes me to the time card area"). The timecard keys stay so an
@@ -3218,7 +3224,7 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
-                      body=f"{name} proposed a new time for their {row.kind} punch on {_us_day(row.local_date)}."
+                      body=f"{name} asked to adjust their {_kind_label(row.kind)} punch on {_us_day(row.local_date)}."
                       + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
                       ref_id=row.id, action=_timecard_action(db, email, row.local_date))
     db.commit()
@@ -8777,6 +8783,16 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
         except Exception:
             pass   # queued; the sweep owns it now
     queued = (not row.sent) and bool(row.channel_id and row.html)
+    # The team's first BOD of the day brings the "Out today" post with it
+    # (Neil, 10/08; off_today.py) - who on this chat/channel is on approved
+    # time off. Same person, same destination, same delivery queue. A failure
+    # here is its own: the BOD above has already committed.
+    if kind == "bod" and row.channel_id and row.message != "(sent outside Nexus)":
+        try:
+            import off_today
+            off_today.maybe_post(db, row)
+        except Exception as e:
+            print(f"[off-today] skipped for {row.channel_id[:12]}: {e}")
     return {"ok": True, "id": row.id, "sent": bool(row.sent), "queued": queued}
 
 
@@ -9193,6 +9209,16 @@ def _us_day(iso: str) -> str:
         return datetime.strptime((iso or "")[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
     except ValueError:
         return iso or ""
+
+
+def _us_time(utc_iso: str, tz_offset_min: int) -> str:
+    """A UTC punch time as the employee's own wall clock, '1:20 PM' - the
+    device's offset, the same way _local_date dates it."""
+    dt = _parse_iso(utc_iso)
+    if not dt:
+        return ""
+    local = dt - timedelta(minutes=tz_offset_min or 0)
+    return local.strftime("%I:%M %p").lstrip("0")
 
 
 def _us_span(a: str, b: str) -> str:

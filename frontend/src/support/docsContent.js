@@ -135,7 +135,7 @@ export const DOCS = [
         steps: [
           'Open Dashboard from the left menu. Home shows your greeting, clock status and local times.',
           'Click any stat tile (Open Tasks, Checked-out Items, My Equipment, Signatures Needed) to jump to that list.',
-          'Click an alert in the queue to open it, or use Quick Actions to start a task, event, email or item request.',
+          'Click an alert in the queue to open it, or use Quick Actions to start a task, event, email, ticket or item request.',
         ],
       },
       {
@@ -1303,7 +1303,7 @@ export const DOCS = [
       {
         title: 'Follow Up on Your Ticket',
         steps: [
-          'Find it in Open Tickets (search by ticket number or title). A blue dot means something changed since you last opened it, and Latest Comment shows the newest reply.',
+          'Find it in Open Tickets (search by ticket number or title). A blue dot to the left of the row means something changed since you last opened it. Each row shows the date and time it was created and last updated, and Latest Comment shows who replied last (their picture) and what they said. Drag a column edge to resize it.',
           'Click the row to open the full thread and reply. While it is still Open, click the pencil to edit it.',
           'Sorted out already, maybe with a colleague\'s help? Click Mark Resolved, optionally say what fixed it, and the team is told.',
           'When it is resolved, click Confirm Resolution and then Done - a short survey asks how satisfied you are (1 to 5 stars, a comment is optional) and closes the ticket. Your rating then shows at the top of the Overview tab. Or click Reopen and say why.',
@@ -1389,6 +1389,7 @@ export const DOCS = [
     tips: [
       'Changes to a job role apply to everyone with that role right away.',
       'Where BOD, EOD and break messages post in Microsoft Teams is set on the job role: open the role, then under Teams Messages pick Group Chat or Channel and bind it. Everyone given the role posts there. A shift group chat is only used for people whose role sets none.',
+      'Who is off today: the first BOD posted to a chat or channel each day is followed by one "Out today" post listing everyone who posts there and is on approved time off that day - the type of leave (or just "Time off" when the request is confidential), the hours of a partial day, or the date it runs through. Nothing posts on a day nobody is off.',
       'Not sure which category a setting is in? Type a word like "email" or "SLA" in Filter Settings.',
     ],
   },
