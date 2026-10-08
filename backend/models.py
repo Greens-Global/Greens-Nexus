@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index
 from database import Base
 
 
@@ -439,6 +439,16 @@ class NexusNotification(Base):
     # Global-Admin-only when armed. Stamped by _notify / create_notification.
     company     = Column(String, default="", index=True)
     created_at  = Column(String, nullable=False)
+    # Priority (Neil, call of 09/29): 1 = shown as a bar across the top of
+    # every screen until acted on (a timecard due, a timesheet to review, a
+    # punch fix waiting); 0 = the quiet bell. The system stamps it on those
+    # flows; a manager can raise one by hand.
+    priority    = Column(Integer, default=0)
+    # Closed (Neil, 10/01): nothing is deleted when a person clears a
+    # notification - it moves to the bell's Closed list (per person, like
+    # read_by) and can be brought back. Every row is kept 30 days from
+    # created_at, then the retention sweep removes it (notification_retention).
+    closed_by   = Column(String, default="")
 
 
 class InventoryRequest(Base):
@@ -653,6 +663,10 @@ class NexusGroup(Base):
     # Aug 25: field workers "that cannot type" were blocked from clocking in by
     # the required BOD message). A person is exempt if ANY of their groups sets it.
     bod_exempt        = Column(Integer, default=0)
+    # Members of a group flagged time_tracking_exempt=1 have no time clock and no
+    # timesheet (salaried leadership; Visesh, Oct 2 - set in Settings > Access
+    # beside the screen-share exemption). A person is exempt if ANY group sets it.
+    time_tracking_exempt = Column(Integer, default=0)
     # Job roles only: the role's default manager/timesheet approver. Assigning the
     # role to someone with NO manager set copies this onto their People card -
     # per-person Manager stays the source of truth and can always be overridden.
@@ -666,6 +680,16 @@ class NexusGroup(Base):
     # Members of a group flagged is_global_admin=1 are GLOBAL ADMINS: unrestricted
     # across every company - the only role that sees past the company walls.
     is_global_admin = Column(Integer, default=0)
+    # Job roles: where its people's BOD / EOD / break messages post in Microsoft
+    # Teams (Neil, 10/07: "it should be based on a role" - set once in Access,
+    # not person by person, and not in a Shifts setting). A group chat
+    # (bod_chat_id) or a channel (bod_chat_id = channel, bod_team_* its team).
+    # Wins over a shift group's binding, which stays as the fallback.
+    bod_target      = Column(String, default="chat")   # chat | channel
+    bod_chat_id     = Column(String, default="")
+    bod_chat_name   = Column(String, default="")
+    bod_team_id     = Column(String, default="")
+    bod_team_name   = Column(String, default="")
 
 
 class NexusGroupMember(Base):
@@ -877,6 +901,20 @@ class NexusEmployee(Base):
     # changes; name/role/email/template/address/socials are untouched -
     # this isn't a second branding system, just one picture swapped out.
     signature_logo_url       = Column(String, default="")
+    # Microsoft 365 contact info, kept in step both ways (Neil, 10/07: "we
+    # should be able to select office, office phone, have all of these fields
+    # inside Nexus and change it there and it updates [in M365]. Change it in
+    # MS, it updates in Nexus"). phone = mobile, location = office, country =
+    # ISO code (M365 holds the name). See m365_profile_sync.py.
+    office_phone             = Column(String, default="")       # businessPhones[0]
+    street_address           = Column(String, default="")       # the WORK street address M365 shows - not the home address in `personal`
+    city                     = Column(String, default="")
+    state                    = Column(String, default="")
+    postal_code              = Column(String, default="")
+    # {"base": {field: value as M365 last had it}, "at": ISO, "error": ""} - the
+    # common ancestor of the three-way merge, so a change on either side is told
+    # apart from the other side simply being different.
+    m365_sync                = Column(JSON, default=dict)
 
 
 class HrRemovedIdentity(Base):
@@ -1403,14 +1441,22 @@ class HrDepartment(Base):
 
 
 class TicketDepartment(Base):
-    """A department for TICKET routing/escalation, scoped to one company
-    (HrEntity). Deliberately its own table, NOT HrDepartment: those two used to
-    be the same rows, so adding/renaming/deleting a department from Tickets ->
-    Manage -> Service Desk silently changed the People -> Companies -> Global
-    Company Setup list too, and vice versa (Pranshu, Sept 13 2026).
-    Seeded once from HrDepartment (same ids, so every ticket's existing
-    hr_department_id keeps resolving) - after that the two lists are
-    independent. New table - create_all builds it, no migration line needed."""
+    """The Tickets module's SETTINGS for one of a company's global departments
+    (HrDepartment) - not a department list of its own any more.
+
+    History: split off HrDepartment as an independent copy on Sept 13 2026
+    (Pranshu) so editing the ticket desk's list stopped changing People ->
+    Companies. Neil rejected that on Oct 1 2026 ("the departments should come
+    from global... It can't be that tasks have different departments and
+    tickets have different"): the department list - names, adding, renaming,
+    deleting - now lives ONLY in the company's global setup (HrDepartment),
+    and this row, keyed by the SAME id, holds what is ticket-specific: whether
+    the department is offered at intake (`enabled`), its escalation lead /
+    backup, and the order the intake dropdown lists it in. `name` is a mirror
+    of the global name, refreshed on every department read (routers/tickets.py
+    _sync_ticket_departments) so older readers of this table still see the
+    current name. Kept, never dropped: it is also the record of the ticket
+    desk's settings from before the merge."""
     __tablename__ = "ticket_departments"
     id         = Column(String, primary_key=True)   # uuid
     company_id = Column(String, nullable=False)     # HrEntity.id this department belongs to
@@ -1423,6 +1469,10 @@ class TicketDepartment(Base):
     backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+    # Offered at ticket intake? (Neil, Oct 1 2026: "I don't want a construction
+    # ticket.") Off hides it from the Submit a Ticket picker only - tickets
+    # already filed against it keep showing its name.
+    enabled    = Column(Boolean, default=True)
 
 
 class HrWorkSite(Base):
@@ -1448,6 +1498,11 @@ class HrWorkSite(Base):
     # an older site whose point came from the map; the UI asks for a re-check.
     address_verified_at = Column(String, default="")
     address_verified_by = Column(String, default="")
+    # Where the point came from (Sep 30): "address" (a searched, picked
+    # address), "google_link" (a pasted Google Maps link or coordinates), ""
+    # (older sites). map_link keeps the pasted link as the record of it.
+    location_source = Column(String, default="")
+    map_link        = Column(String, default="")
 
 
 class HrCompanyWorkSite(Base):
@@ -2132,6 +2187,10 @@ class TimeBod(Base):
     team_name      = Column(String, default="")
     channel_id     = Column(String, default="")
     channel_name   = Column(String, default="")
+    # What channel_id is: a Teams group chat ("chat", every row before Oct 6)
+    # or a channel in team_id ("channel") - teams_post.deliver_row posts to
+    # whichever it names.
+    target_type    = Column(String, default="chat")
     sent           = Column(Integer, default=0)         # 1 = landed in Teams
     send_error     = Column(String, default="")
     created_at     = Column(String, default="")
@@ -2335,6 +2394,16 @@ class ScheduledShift(Base):
     activities_json = Column(String, default="")
     # This shift's own color (#rrggbb, Sep 29); '' = its preset's color.
     color           = Column(String, default="")
+    # The scheduling group (team) this placement belongs to (Oct 2, Shifts
+    # rebuild): open shifts, day notes, hours and "publish this team" key on
+    # it; '' = none. An OPEN shift always carries one.
+    group_id        = Column(String, default="", index=True)
+    # The IANA zone the wall-clock times above are in, stamped from the
+    # preset / team setting when placed (Oct 2); '' on older rows, which
+    # resolve preset -> team at read time (_sched_dict).
+    timezone        = Column(String, default="")
+    # The grid and the reminder scan read one person's days (Oct 2).
+    __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 
 
 class ShiftGroup(Base):
@@ -2343,13 +2412,24 @@ class ShiftGroup(Base):
     __tablename__ = "shift_groups"
     id              = Column(String, primary_key=True)   # uuid
     name            = Column(String, default="")
-    teams_chat_id   = Column(String, default="")         # bound Teams group chat
+    teams_chat_id   = Column(String, default="")         # bound Teams group chat - or channel id (teams_target)
     teams_chat_name = Column(String, default="")
+    # Where this group's BOD / EOD / Break messages post (Pranshu, 10/06): a
+    # Teams group chat (the original binding) or a channel in a team, for an
+    # organization that runs a channel per department. For "channel",
+    # teams_chat_id/_name hold the CHANNEL and teams_team_* its team.
+    teams_target    = Column(String, default="chat")     # chat | channel
+    teams_team_id   = Column(String, default="")
+    teams_team_name = Column(String, default="")
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     # People who may build THIS group's schedule without team-wide access
     # (Sep 29, Teams "scheduling owner" per team). JSON list of emails.
     scheduler_emails = Column(String, default="")
+    # Teams switcher (Neil, Sep 30): archived teams drop out of the active list;
+    # sort_order is the manager's own order (Reorder Teams), then name.
+    archived        = Column(Integer, default=0)
+    sort_order      = Column(Integer, default=0)
 
 
 class ShiftGroupMember(Base):
@@ -2393,7 +2473,7 @@ class PayrollRate(Base):
     # Salaried/exempt people (leadership, principals) are not time-tracked at all:
     # no punch card, no "hours this week" widgets (Charmi, Aug 21). Distinct from
     # pay_type='fixed' - fixed-salary staff still punch (attendance drives pay).
-    time_tracking_exempt = Column(Integer, default=0)      # 1 = hide/skip time tracking
+    time_tracking_exempt = Column(Integer, default=0)      # LEGACY (Oct 2): no longer read - the exemption is nexus_groups.time_tracking_exempt
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 
@@ -3178,8 +3258,50 @@ class TaskTicket(Base):
     # date breach. Blank on a ticket nobody has commented on yet; the frontend
     # falls back to created_at in that case.
     last_comment_at = Column(String, default="")
+    # Requester-facing "something new" signal (Neil, Sep 30): stamped when
+    # anyone OTHER than the requester changes the ticket or replies publicly,
+    # and requester_seen_at when the requester opens it. Newer update than
+    # seen = the unread dot on Support's My Tickets list.
+    requester_update_at = Column(String, default="")
+    requester_seen_at   = Column(String, default="")
+    # What was actually done - required to resolve/close a ticket (Neil, Sep 30).
+    resolution_note     = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
+    # Who actually filed it (Neil, Oct 1 2026: the intake form's Requester field
+    # raises a ticket on someone else's behalf). requester_email is who it is
+    # FOR - notified, sees it as theirs, rates and reopens it; this is who typed
+    # it in. Stamped server-side from the caller, never taken from the payload.
+    # Blank on tickets raised before this existed (creator == requester then).
+    created_by_email    = Column(String, default="", index=True)
+    # Property Tickets (Neil, 10/05/2026). The Asset Management property this
+    # ticket is about: a SOFT link to PropertyAsset.id (no FK - the workspace
+    # PUT deletes and re-inserts every property row; same as
+    # IrFund.property_asset_id). property_name is the name when linked, shown
+    # after the property is gone. See property_links.py.
+    property_asset_id   = Column(String, default="", index=True)
+    property_name       = Column(String, default="")
+    # The Property Walkthrough this ticket was filed in (TicketBatch.id).
+    batch_id            = Column(String, default="", index=True)
+    # The maintenance record's vendor and cost (optional, set at Resolve).
+    # Cost is a normalized decimal string ("1250.00") like the maintenance
+    # log's own cost field, so Total Spend adds both the same way.
+    maintenance_vendor  = Column(String, default="")
+    maintenance_cost    = Column(String, default="")
+    # Raised from the property itself in Asset Management (its Create New
+    # Ticket / Start Walkthrough, or opened by a recurring service): the
+    # property is fixed for the ticket's life (Pranshu, 10/06).
+    property_locked     = Column(Integer, default=0)
+    # A ticket opened by a recurring service: the original ("parent") ticket
+    # whose maintenance record set the schedule, and the schedule itself.
+    parent_ticket_id    = Column(String, default="", index=True)
+    service_id          = Column(String, default="", index=True)
+    # Soft delete (Oct 2026): deleting a ticket marks it instead of dropping it
+    # with its conversation, files and activity, so it can be restored and the
+    # trail survives. Non-empty deleted_at = hidden everywhere by the hook in
+    # database.py; .execution_options(include_deleted=True) sees it.
+    deleted_at          = Column(String, default="", index=True)
+    deleted_by          = Column(String, default="")
 
 
 class TicketEmailLog(Base):
@@ -4603,6 +4725,11 @@ class AccountingUserPref(Base):
     email      = Column(String, primary_key=True)
     prefs      = Column(JSON, default=dict)
     updated_at = Column(String, default="")
+    # When this person last opened Accounting, and how many times (Charmi,
+    # call of 09/29: "a log of when each person last accessed"). Written by
+    # POST /accounting/opened on every visit; shown on the Access tab.
+    last_opened_at = Column(String, default="")
+    opens          = Column(Integer, default=0)
 
 
 class PfsProfile(Base):
@@ -4708,6 +4835,17 @@ class Lease(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 6 (Charmi): the team's note on the rent roll's Notes column, with
+    # who wrote it and when; and how the lease found its Intacct customer
+    # ('' typed or picked, 'auto-name' matched by the tenant's name,
+    # 'auto-ledger' added by the ledger sync).
+    team_note        = Column(String, default="")
+    team_note_by     = Column(String, default="")
+    team_note_at     = Column(String, default="")
+    link_source      = Column(String, default="")
+    # Oct 7 (Charmi): MRI is one list of every recurring income source, so a
+    # row says what it is - lease | interest | loan_payment | other.
+    income_type      = Column(String, default="lease")
 
 
 class LeaseRate(Base):
@@ -4750,3 +4888,693 @@ class TimecardNote(Base):
     note           = Column(String, default="")
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
+
+
+class PayrollRateHistory(Base):
+    """Pay priced per day (Charmi, Sep 30): one row per compensation change,
+    appended by Pay & Benefits on every save. `effective_date` is YYYY-MM-DD;
+    '' means "since always" - the row backfilled from the then-current
+    PayrollRate the first time a person gets a dated change, so earlier days
+    keep the rate they were really paid at. The timecard prices each day at
+    the row in effect that day (_rate_on in routers/timeclock.py);
+    PayrollRate stays the CURRENT rate. Only the back-compat PUT /payroll/rate
+    corrects the latest row in place. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "payroll_rate_history"
+    id             = Column(String, primary_key=True)             # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    effective_date = Column(String, default="", index=True)       # YYYY-MM-DD | '' = since always
+    pay_type       = Column(String, default="hourly")             # hourly | fixed
+    hourly_rate    = Column(Float, default=0)
+    monthly_salary = Column(Float, default=0)
+    currency       = Column(String, default="USD")                # USD | INR
+    overtime_rule  = Column(String, default="ca")                 # ca | federal | none
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class AccountingFluxNote(Base):
+    """An explanation on one line of a Flux Analysis (Neil, 10/02: "MRE ...
+    Flux Analysis"): why account X moved between this period and the last,
+    kept in Nexus per entity set, account and period so the next close finds
+    it. `entity` is the picked entity codes joined by ',' (or 'all');
+    `period` is "<from>_<to>". The person and the time are `noted_by` /
+    `noted_at` (the spec's by/at - BY is an SQL keyword). New table -
+    create_all builds it; RLS must be enabled on dev and prod at release
+    (the startup sweep and the line in main.py both do it)."""
+    __tablename__ = "accounting_flux_notes"
+    id         = Column(String, primary_key=True)                # uuid
+    entity     = Column(String, default="", index=True)          # "15000" | "15000,56000" | "all"
+    account_no = Column(String, default="", index=True)
+    period     = Column(String, default="", index=True)          # "YYYY-MM-DD_YYYY-MM-DD"
+    note       = Column(String, default="")
+    noted_by   = Column(String, default="")
+    noted_at   = Column(String, default="")
+
+
+class AccountingPartnerChange(Base):
+    """A requested change to a vendor or customer record (Charmi and Neil,
+    10/01: "edit a vendor, change all the details and get pushed to manager
+    for approval"). Intacct stays the source of truth, one way: the record
+    itself lives there, Nexus keeps the ask. `changes` is {field: {from, to}}
+    for the fields edited; `status` runs pending -> approved | declined. An
+    approved row shows on the record as its current values with an "Awaiting
+    Intacct" badge until someone keys it into Intacct from the export. New
+    table - create_all builds it; RLS must be enabled on dev and prod at
+    release."""
+    __tablename__ = "accounting_partner_changes"
+    id           = Column(String, primary_key=True)              # uuid
+    kind         = Column(String, default="vendor", index=True)  # vendor | customer
+    partner_id   = Column(String, default="", index=True)        # Intacct VENDORID / CUSTOMERID
+    partner_name = Column(String, default="")
+    changes      = Column(JSON, default=dict)                    # {field: {"from": .., "to": ..}}
+    status       = Column(String, default="pending", index=True)  # pending | approved | declined
+    requested_by = Column(String, default="", index=True)
+    requested_at = Column(String, default="")
+    decided_by   = Column(String, default="")
+    decided_at   = Column(String, default="")
+    note         = Column(String, default="")
+
+
+class AccountingAllocationRun(Base):
+    """One monthly payroll allocation entry as it was built (Neil, 10/01:
+    "allocations journal entry from people and done monthly"). The basis is
+    each person's worked hours by work site from Time Clock, the cost that
+    month's wages from the payroll card; `lines` keeps the whole preview
+    (people, their shares, the entry lines and the mapping used) so the
+    export can be produced again unchanged. Nothing is posted anywhere - the
+    CSV is keyed into Intacct by hand. `run_by` / `run_at` answer as `by` /
+    `at` on the API. New table - create_all builds it; RLS must be enabled
+    on dev and prod at release."""
+    __tablename__ = "accounting_allocation_runs"
+    id      = Column(String, primary_key=True)                   # uuid
+    month   = Column(String, default="", index=True)             # YYYY-MM
+    entity  = Column(String, default="", index=True)             # paying entity code, "" = every entity
+    run_by  = Column(String, default="")
+    run_at  = Column(String, default="")
+    lines   = Column(JSON, default=dict)
+
+
+class HrChecklistTemplate(Base):
+    """The rows a new onboarding / offboarding / leave checklist is built from
+    (HR roadmap Section C). One per kind and company; entity_id '' is the
+    default every company falls back to. `items` is the ordered list of rows -
+    see hr_checklist_seed.py for the shape. Seeded on first read. New table -
+    create_all builds it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "hr_checklist_templates"
+    id         = Column(String, primary_key=True)                 # uuid
+    kind       = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    entity_id  = Column(String, default="", index=True)            # HrEntity.id ('' = every company)
+    name       = Column(String, default="")
+    items      = Column(JSON, default=list)
+    updated_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class HrChecklist(Base):
+    """One person's onboarding, offboarding or leave checklist. Due dates hang
+    off `anchor_date` (start date, exit date or leave start); when the person's
+    start date changes, open rows move with it. New table - create_all builds
+    it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "hr_checklists"
+    id          = Column(String, primary_key=True)                 # uuid
+    employee_id = Column(String, nullable=False, index=True)
+    kind        = Column(String, default="onboarding", index=True)  # onboarding | offboarding | inactive
+    template_id = Column(String, default="")
+    company     = Column(String, default="", index=True)           # HrEntity.id, frozen at start
+    anchor_date = Column(String, default="")                       # YYYY-MM-DD ('' = not known yet)
+    exit_type   = Column(String, default="")                       # offboarding only (hr_checklist_seed.EXIT_TYPES)
+    status      = Column(String, default="open", index=True)        # open | done | cancelled
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    closed_at   = Column(String, default="")
+
+
+class HrChecklistItem(Base):
+    """One row of a person's checklist. Owner and due date are resolved when
+    the checklist starts (owner_role -> a person, offset -> a date) and can be
+    changed by HR; owner_manual / due_manual keep a hand-set value from being
+    overwritten when the anchor moves. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "hr_checklist_items"
+    id           = Column(String, primary_key=True)                # uuid
+    checklist_id = Column(String, nullable=False, index=True)
+    key          = Column(String, default="")                      # template row key, e.g. ON-12
+    phase        = Column(String, default="")
+    title        = Column(String, default="")
+    hint         = Column(String, default="")
+    owner_role   = Column(String, default="")                      # hr | manager | employee | it | payroll | equipment | finance
+    owner_email  = Column(String, default="", index=True)
+    owner_manual = Column(Boolean, default=False)
+    anchor       = Column(String, default="")                      # S | X | created | none
+    offset       = Column(Integer, default=0)
+    business_days = Column(Boolean, default=False)
+    due_date     = Column(String, default="")                      # YYYY-MM-DD ('' = no date)
+    due_manual   = Column(Boolean, default=False)
+    signal       = Column(String, default="")                      # auto-tick rule (hr_checklists.SIGNALS)
+    status       = Column(String, default="open", index=True)       # open | done | na
+    done_by      = Column(String, default="")                      # email, or "Nexus" for an auto-tick
+    done_at      = Column(String, default="")
+    note         = Column(String, default="")
+    sort_order   = Column(Integer, default=0)
+
+
+class AccountingLoanSchedule(Base):
+    """The amortization schedule of one loan (Charmi and Neil, 10/06: "Add in
+    Amortization schedule for Commercial loans, allow us to build it or upload
+    an existing file from the bank"). One per loan: `loan_id` is the fin_loans
+    row id in the accounting app (the loan itself never lives here), and
+    `entity_code` is the loan's entity when it was saved, so a person limited
+    to certain entities only lists schedules of those. `source` is 'build'
+    (`params` = the inputs it was built from) or 'upload' (`file_url` = the
+    bank's file in the PRIVATE task-files bucket, `column_map` = which column
+    was which). `rows` is [{n, date, payment, interest, principal, balloon,
+    balance}]. New table - create_all builds it; RLS must be enabled on dev
+    and prod at release."""
+    __tablename__ = "accounting_loan_schedules"
+    id          = Column(String, primary_key=True)                # uuid
+    loan_id     = Column(String, nullable=False, unique=True, index=True)
+    entity_code = Column(String, default="", index=True)
+    source      = Column(String, default="build")                 # build | upload
+    params      = Column(JSON, default=dict)
+    rows        = Column(JSON, default=list)
+    column_map  = Column(JSON, default=dict)
+    file_url    = Column(String, default="")
+    file_name   = Column(String, default="")
+    saved_by    = Column(String, default="")
+    saved_at    = Column(String, default="")
+
+
+class AccountingLoanStressScenario(Base):
+    """A saved rate-shock scenario on one loan (Charmi and Neil, 10/06: "if
+    the interest rate were to go up, we should be able to calculate if the
+    income will support the loan"). `params` is what was typed (shock in bps,
+    NOI, covenant, floating or fixed, amortization); the figures are always
+    recomputed on screen from them. New table - create_all builds it; RLS
+    must be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_stress_scenarios"
+    id          = Column(String, primary_key=True)                # uuid
+    loan_id     = Column(String, nullable=False, index=True)
+    entity_code = Column(String, default="", index=True)
+    name        = Column(String, default="")
+    params      = Column(JSON, default=dict)
+    saved_by    = Column(String, default="")
+    saved_at    = Column(String, default="")
+
+
+class RecurringExpense(Base):
+    """One monthly recurring expense (MRE, Oct 6 - the expense-side mirror of
+    MRI; Neil listed it as pending, Charmi wants it under Reporting next to
+    MRI): a vendor (an Intacct vendor) that the entity pays from the same
+    expense account(s) on a schedule - utilities, insurance, payroll
+    services, software, rent paid. Debt service is NOT kept here: Loans &
+    Financing covers it. What was PAID is never keyed: it is what posted to
+    the line's expense accounts for that vendor in that month, read from the
+    ledger (routers/accounting_mre.py). A line that stops is ENDED, not
+    deleted. New table - create_all builds it; RLS by main.py and the startup
+    sweep; enable it on dev and prod at release."""
+    __tablename__ = "recurring_expenses"
+    id               = Column(String, primary_key=True)          # uuid
+    entity_code      = Column(String, default="", index=True)    # Intacct entity the expense posts to
+    entity_name      = Column(String, default="")
+    vendor_id        = Column(String, default="", index=True)    # Intacct vendor
+    vendor_name      = Column(String, default="")
+    expense_accounts = Column(JSON, default=list)                # GL codes, e.g. ["62100", "62110"]
+    category         = Column(String, default="other")           # utilities | insurance | payroll_services | software | rent_paid | other
+    frequency        = Column(String, default="monthly")         # monthly | quarterly | annual
+    expected_amount  = Column(Float, default=0)                  # per occurrence
+    start_date       = Column(String, default="")                # YYYY-MM-DD; quarterly / annual fall due from this month
+    end_date         = Column(String, default="")                # '' = open-ended
+    status           = Column(String, default="active")          # active | ended
+    notes            = Column(String, default="")
+    source           = Column(String, default="manual")          # manual | ledger
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class PfsAffiliate(Base):
+    """One entity a PFS's borrowers own or hold an interest in (Charmi, 10/04:
+    "the banker wants ownership and beneficial ownership interest in all
+    entities"): the Affiliated Entities tab. Kept per statement file (a
+    pfs_profiles row, both borrowers of a joint statement). `ownership` is
+    {"primary": pct, "co": pct} - the borrower's and the co-borrower's share.
+    Only the last four digits of an EIN, never more (routers/pfs_affiliates.py
+    refuses a longer number). New table - create_all builds it; RLS by the
+    startup sweep and main.py."""
+    __tablename__ = "pfs_affiliates"
+    id             = Column(String, primary_key=True)    # uuid
+    profile_id     = Column(String, index=True, nullable=False)
+    sort           = Column(Integer, default=0)
+    name           = Column(String, default="")
+    entity_type    = Column(String, default="other")     # single_member_llc | multi_member_llc | general_partnership | limited_partnership | c_corporation | s_corporation | trust | other
+    ein_last4      = Column(String, default="")
+    state          = Column(String, default="")
+    ownership      = Column(JSON, default=dict)
+    beneficial_pct = Column(Float, nullable=True)
+    role           = Column(String, default="")          # Member, Manager, Partner, Shareholder, Trustee, Beneficiary...
+    notes          = Column(String, default="")
+    ledger_entity  = Column(String, default="")          # Intacct entity code when picked from the ledger list
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+    # Oct 7 (Neil): a role per borrower, keyed like `ownership` ({"primary":
+    # "Managing Member", "co": "Member"}). `role` above stays = roles.primary.
+    roles          = Column(JSON, default=dict)
+
+
+class PfsProfileExtra(Base):
+    """What a PFS file holds beyond pfs_profiles, one row per file (Charmi,
+    10/04: "Executive profile should be there for both borrowers") - the
+    co-borrower's executive profile, saved on its own. The borrower's stays in
+    pfs_profiles.executive_profile. New table - RLS by the startup sweep and
+    main.py."""
+    __tablename__ = "pfs_profile_extras"
+    profile_id           = Column(String, primary_key=True)
+    co_executive_profile = Column(Text, default="")
+    updated_by           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
+class PfsAccessChallenge(Base):
+    """A one-time code that opens ONE PFS file for ONE person in ONE browser
+    session (Charmi, 10/04: "it should ask for OTP to the file and not to the
+    module"). The code is never stored: `code_hash` is sha256 over
+    "id:code", salted with an id the caller never sees. A used code becomes
+    the grant: `granted_until` is when the file closes again (30 minutes).
+    `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
+    routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
+    __tablename__ = "pfs_access_challenges"
+    id            = Column(String, primary_key=True)     # uuid - also the hash salt
+    profile_id    = Column(String, index=True, nullable=False)
+    email         = Column(String, index=True, nullable=False)   # the viewer the code went to
+    session_hash  = Column(String, default="")
+    target        = Column(String, default="")           # the address it was sent to
+    code_hash     = Column(String, default="")           # '' = opened without a code (the file's creator)
+    attempts      = Column(Integer, default=0)
+    created_at    = Column(String, default="")
+    expires_at    = Column(String, default="")
+    consumed_at   = Column(String, default="")
+    granted_until = Column(String, default="", index=True)
+
+
+class PfsAccessLog(Base):
+    """Who opened which PFS file, when, and what they did (Charmi, 10/04: "it
+    should maintain a log"): otp_sent, unlocked, failed, viewed, exported,
+    locked, notified (the borrowers were emailed). Never a figure, never a
+    code. Kept for good - nothing deletes these rows. New table - RLS by the
+    startup sweep and main.py."""
+    __tablename__ = "pfs_access_log"
+    id         = Column(String, primary_key=True)        # uuid
+    profile_id = Column(String, index=True, nullable=False)
+    email      = Column(String, index=True, default="")
+    action     = Column(String, default="")
+    at         = Column(String, index=True, default="")
+    ip         = Column(String, default="")
+    details    = Column(JSON, default=dict)
+
+
+class AccountingLoanSetting(Base):
+    """What Nexus keeps beside one loan of Accounting > Loans & Financing
+    (Charmi and Neil, 10/03-10/04). The loan itself is a fin_loans row in the
+    accounting app (lender, number, entity, principal GL account, rate,
+    maturity, monthly payment) - that table takes no new columns from Nexus,
+    so the wiring and the links Nexus adds live here, keyed on its id: the
+    interest expense account the interest is read from ('' = matched
+    automatically), the original principal typed over the ledger's first
+    credit (None = the ledger's), Internal / External (None = by kind:
+    intercompany is internal), and the Egnyte folders of the loan documents
+    and the lender's statements. New table - create_all builds it; RLS must
+    be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_settings"
+    loan_id            = Column(String, primary_key=True)          # fin_loans.id (uuid)
+    entity_code        = Column(String, default="", index=True)    # for reference; the loan row is the truth
+    interest_account   = Column(String, default="")                # GL code; '' = automatic
+    original_principal = Column(Float, nullable=True)              # typed over the ledger's; None = ledger
+    internal           = Column(Boolean, nullable=True)            # None = by kind
+    docs_path          = Column(String, default="")                # Egnyte folder, /Shared/...
+    statements_path    = Column(String, default="")                # Egnyte folder, /Shared/...
+    updated_by         = Column(String, default="")
+    updated_at         = Column(String, default="")
+    # Oct 7 (Charmi): the loan's product - '' = guessed from the GL title,
+    # 'term' or 'line_of_credit' (Draws show only for a line of credit) - and
+    # whether the Stress Test leaves it out (restorable; the loan stays).
+    loan_type          = Column(String, default="")
+    stress_excluded    = Column(Boolean, default=False)
+# ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
+# Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
+# is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
+# One dedicated Google account (an Owner / Manager on every location) is
+# connected once; everyone works through it, and Nexus records which person
+# did what - Google itself shows every reply as "Response from the owner".
+# New tables: create_all builds them; RLS must be enabled on dev and prod at
+# release (CLAUDE.md).
+
+class MarketingIntegrationToken(Base):
+    """One connected external account per provider (encrypted, server-only).
+    id is the provider: "gbp" today; Google Ads / GA4 / Meta later."""
+    __tablename__ = "marketing_integration_tokens"
+    id                = Column(String, primary_key=True)
+    account_email     = Column(String, default="")      # the account that granted access
+    account_name      = Column(String, default="")      # the provider's id for it, e.g. GBP "accounts/123..."
+    account_label     = Column(String, default="")      # its display name at the provider
+    refresh_token_enc = Column(Text, default="")        # secret_box-encrypted; never leaves the server
+    scope             = Column(String, default="")
+    connected_by      = Column(String, default="")      # the Nexus admin who connected it
+    connected_at      = Column(String, default="")
+    last_sync_at      = Column(String, default="")
+    last_error        = Column(String, default="")
+    perf_synced_at    = Column(String, default="")      # performance + keywords + photo counts (every 6 hours)
+    perf_error        = Column(String, default="")      # kept apart: reviews still sync when only Performance is refused
+
+
+class MarketingGbpLocation(Base):
+    """A Google Business Profile location, mirrored from Google on each sync."""
+    __tablename__ = "marketing_gbp_locations"
+    id            = Column(String, primary_key=True)    # Google's "locations/123..."
+    account_name  = Column(String, default="")
+    title         = Column(String, default="")
+    address       = Column(String, default="")
+    place_id      = Column(String, default="")          # for the "write a review" link
+    phone         = Column(String, default="")
+    website       = Column(String, default="")
+    facility_name = Column(String, default="", index=True)   # the property it is (mapped in Nexus)
+    review_count  = Column(Integer, default=0)
+    avg_rating    = Column(Float, default=0)
+    listing       = Column(JSON, default=dict)          # the last Business Information read, for the edit form
+    synced_at     = Column(String, default="")
+    photo_count   = Column(Integer, default=0)
+    last_photo_at = Column(String, default="")          # newest photo's createTime - the "stale photos" alert
+
+
+class MarketingReview(Base):
+    """A review and its reply, mirrored from the platform on each sync -
+    platform "google" today. replied_by is the Nexus person who last replied
+    FROM Nexus; blank for a reply made on the platform directly."""
+    __tablename__ = "marketing_reviews"
+    id               = Column(String, primary_key=True)
+    platform         = Column(String, default="google", index=True)
+    external_id      = Column(String, unique=True, index=True)   # GBP "accounts/../locations/../reviews/.."
+    location_id      = Column(String, default="", index=True)
+    reviewer_name    = Column(String, default="")
+    reviewer_photo   = Column(String, default="")
+    rating           = Column(Integer, default=0)
+    text             = Column(Text, default="")
+    reviewed_at      = Column(String, default="", index=True)
+    updated_at       = Column(String, default="")
+    reply_text       = Column(Text, default="")
+    reply_updated_at = Column(String, default="")
+    replied_by       = Column(String, default="")
+    replied_at       = Column(String, default="")
+    synced_at        = Column(String, default="")
+
+
+class MarketingReviewAction(Base):
+    """Every reply, edit and delete made from Nexus - who, what, and whether
+    the platform accepted it. The accountability Google does not give."""
+    __tablename__ = "marketing_review_actions"
+    id          = Column(String, primary_key=True)
+    review_id   = Column(String, default="", index=True)
+    action      = Column(String, default="")    # reply | edit | delete
+    actor_email = Column(String, default="")
+    text        = Column(Text, default="")
+    ok          = Column(Boolean, default=True)
+    error       = Column(String, default="")
+    at          = Column(String, default="")
+
+
+class MarketingListingAction(Base):
+    """Every listing edit made from Nexus (description, phone, website,
+    hours) - who, which fields, what was sent, and whether Google accepted
+    it. Google keeps no record of which manager changed a listing."""
+    __tablename__ = "marketing_listing_actions"
+    id          = Column(String, primary_key=True)
+    location_id = Column(String, default="", index=True)
+    actor_email = Column(String, default="")
+    fields      = Column(String, default="")    # comma-separated updateMask, e.g. "profile.description,regularHours"
+    changes     = Column(JSON, default=dict)    # the patch that was sent
+    ok          = Column(Boolean, default=True)
+    error       = Column(String, default="")
+    at          = Column(String, default="")
+
+
+class MarketingGbpDaily(Base):
+    """One location's Business Profile Performance figures for one day
+    (fetchMultiDailyMetricsTimeSeries). Maps / Search views add the mobile
+    and desktop impressions together. Google reports a few days late, so
+    the last two weeks are re-read on every performance sync."""
+    __tablename__ = "marketing_gbp_daily"
+    id                 = Column(String, primary_key=True)    # "<location id>|<YYYY-MM-DD>"
+    location_id        = Column(String, default="", index=True)
+    date               = Column(String, default="", index=True)
+    maps_views         = Column(Integer, default=0)
+    search_views       = Column(Integer, default=0)
+    website_clicks     = Column(Integer, default=0)
+    call_clicks        = Column(Integer, default=0)
+    direction_requests = Column(Integer, default=0)
+
+
+class MarketingGbpKeyword(Base):
+    """A search term that showed a location's profile, per month
+    (searchkeywords.impressions.monthly). Google gives a floor instead of a
+    count for rare terms - below_threshold marks those (impressions holds the
+    floor)."""
+    __tablename__ = "marketing_gbp_keywords"
+    id              = Column(String, primary_key=True)
+    location_id     = Column(String, default="", index=True)
+    month           = Column(String, default="", index=True)   # YYYY-MM
+    keyword         = Column(String, default="")
+    impressions     = Column(Integer, default=0)
+    below_threshold = Column(Boolean, default=False)
+
+
+class TicketBatch(Base):
+    """One Property Walkthrough submit (Neil, 10/05/2026): many tickets at one
+    property, filed together by routers/ticket_walkthroughs.py.
+
+    `id` is generated by the form when the walkthrough opens and is the
+    idempotency key: a retried submit (the phone lost signal after the server
+    committed) returns the tickets already filed instead of filing them twice.
+    asset_manager_email is frozen at submit so the batch email goes to whoever
+    was told at the time. New table - RLS on dev AND prod (main.py list)."""
+    __tablename__ = "ticket_batches"
+    id                  = Column(String, primary_key=True)
+    # SHA-256 of the normalized property + team + requester + lines. A retry
+    # with the same id replays ONLY if this matches - a retry carrying
+    # different lines is a 409, never a silent "already filed" that drops them.
+    lines_hash          = Column(String, default="")
+    property_asset_id   = Column(String, default="", index=True)
+    property_name       = Column(String, default="")
+    created_by_email    = Column(String, default="", index=True)
+    requester_email     = Column(String, default="")
+    company_id          = Column(String, default="")
+    hr_department_id    = Column(String, default="")
+    asset_manager_email = Column(String, default="")
+    ticket_ids          = Column(JSON, default=list)
+    ticket_count        = Column(Integer, default=0)
+    note                = Column(String, default="")
+    created_at          = Column(String, default="")
+
+
+class TicketMaintenanceRecord(Base):
+    """A resolved property ticket, added to the property's maintenance record by
+    its asset manager (Pranshu, 10/06: resolved -> "Needs Action" -> "Add to
+    Maintenance Record"). One per ticket. Kept here, not in the Asset
+    Management workspace blob: the workspace PUT deletes and re-inserts every
+    row, so a server-written row there would be erased by the next stale save.
+    The Maintenance Log merges these rows in. New table - RLS (main.py list)."""
+    __tablename__ = "ticket_maintenance_records"
+    id                = Column(String, primary_key=True)
+    ticket_id         = Column(String, default="", index=True, unique=True)
+    property_asset_id = Column(String, default="", index=True)
+    # The recurring-service family this belongs to: the parent ticket's id
+    # (the parent itself, or a child the service opened). Blank otherwise.
+    parent_ticket_id  = Column(String, default="", index=True)
+    service_date      = Column(String, default="")   # YYYY-MM-DD
+    system            = Column(String, default="")   # the Maintenance Log's System / Area
+    description       = Column(String, default="")   # work performed
+    vendor            = Column(String, default="")
+    cost              = Column(String, default="")   # normalized decimal, "1250.00"
+    currency          = Column(String, default="USD")   # ISO 4217 code of `cost` (any world currency)
+    doc_url           = Column(String, default="")   # invoice / report (private ticket-evidence bucket)
+    doc_name          = Column(String, default="")
+    notes             = Column(String, default="")
+    created_by_email  = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+class PropertyMaintenanceService(Base):
+    """A recurring (or one-time) service set from a parent ticket's maintenance
+    record - "Next Service Due" + how often (Pranshu, 10/06). 15 days before
+    next_due the asset manager is reminded; on next_due, if nobody opened the
+    service ticket, one opens automatically with the parent's details, and
+    next_due moves on by the recurrence (a one-time service then ends). See
+    maintenance_services.py. New table - RLS (main.py list)."""
+    __tablename__ = "property_maintenance_services"
+    id                 = Column(String, primary_key=True)
+    property_asset_id  = Column(String, default="", index=True)
+    parent_ticket_id   = Column(String, default="", index=True, unique=True)
+    template           = Column(JSON, default=dict)   # what each opened ticket copies from the parent
+    next_due           = Column(String, default="")   # YYYY-MM-DD
+    recurrence_unit    = Column(String, default="")   # "" one time | week | month | year
+    recurrence_every   = Column(Integer, default=1)
+    reminder_sent_for  = Column(String, default="")   # the next_due the 15-day reminder went out for
+    last_opened_for    = Column(String, default="")   # the next_due a ticket was last opened for
+    last_ticket_id     = Column(String, default="")
+    active             = Column(Integer, default=1)
+    created_by_email   = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_by_email   = Column(String, default="")
+    updated_at         = Column(String, default="")
+
+
+# ── Marketing: Google Ads (Oct 2026, read-only) ──────────────────────────────
+# Plan Phase 3. The connection is a MarketingIntegrationToken row with id
+# "google_ads"; google_ads.py syncs these every 2 hours. Google Ads stays the
+# source of truth - Nexus never creates or changes a campaign.
+
+class MarketingAdsAccount(Base):
+    """A Google Ads account (customer) the connection reads."""
+    __tablename__ = "marketing_ads_accounts"
+    id         = Column(String, primary_key=True)      # customer id, digits only
+    name       = Column(String, default="")
+    currency   = Column(String, default="")
+    manager_id = Column(String, default="")            # the manager account it is read through ('' = directly)
+    active     = Column(Boolean, default=True)         # False once it no longer appears under the connection
+    synced_at  = Column(String, default="")
+
+
+class MarketingAdsCampaign(Base):
+    """A campaign, and the facility Nexus counts it toward (Google has no
+    notion of our facilities - someone with the full grant maps it)."""
+    __tablename__ = "marketing_ads_campaigns"
+    id            = Column(String, primary_key=True)   # "<customer>|<campaign>"
+    customer_id   = Column(String, default="", index=True)
+    campaign_id   = Column(String, default="")
+    name          = Column(String, default="")
+    status        = Column(String, default="")         # ENABLED | PAUSED | REMOVED (Google's)
+    serving       = Column(String, default="")         # campaign.serving_status: SERVING | ENDED | ...
+    channel       = Column(String, default="")         # SEARCH | DISPLAY | PERFORMANCE_MAX | ...
+    daily_budget  = Column(Float, default=0)
+    facility_name = Column(String, default="", index=True)
+    mapped_by     = Column(String, default="")
+    mapped_at     = Column(String, default="")
+    synced_at     = Column(String, default="")
+
+
+class MarketingAdsDaily(Base):
+    """One campaign's figures for one day. Cost is in the account currency."""
+    __tablename__ = "marketing_ads_daily"
+    id          = Column(String, primary_key=True)     # "<customer>|<campaign>|<date>"
+    customer_id = Column(String, default="", index=True)
+    campaign_id = Column(String, default="", index=True)
+    date        = Column(String, default="", index=True)   # YYYY-MM-DD
+    impressions = Column(Integer, default=0)
+    clicks      = Column(Integer, default=0)
+    conversions = Column(Float, default=0)
+    cost        = Column(Float, default=0)
+
+
+class MarketingAdsKeyword(Base):
+    """One bought keyword's figures for one day (keyword_view)."""
+    __tablename__ = "marketing_ads_keywords"
+    id           = Column(String, primary_key=True)    # "<customer>|<campaign>|<criterion>|<date>"
+    customer_id  = Column(String, default="", index=True)
+    campaign_id  = Column(String, default="", index=True)
+    criterion_id = Column(String, default="")
+    keyword      = Column(String, default="")
+    match_type   = Column(String, default="")          # EXACT | PHRASE | BROAD
+    date         = Column(String, default="", index=True)
+    impressions  = Column(Integer, default=0)
+    clicks       = Column(Integer, default=0)
+    conversions  = Column(Float, default=0)
+    cost         = Column(Float, default=0)
+
+
+class MarketingAdBudget(Base):
+    """The monthly Google Ads budget Nexus paces spend against, per facility
+    (was browser state, reset on every reload)."""
+    __tablename__ = "marketing_ad_budgets"
+    facility_name  = Column(String, primary_key=True)
+    monthly_budget = Column(Float, default=0)
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class NexusCounter(Base):
+    """One row per number sequence that must never repeat - "ticket_code" and
+    "task_code" today (Oct 2026). Bumped with an atomic UPDATE ... RETURNING
+    inside the caller's transaction; see code_sequence.py. Never decremented,
+    never reset: a number handed out stays handed out. New table - create_all
+    builds it; RLS by main.py's migration list and the startup sweep, and
+    enabled by hand on dev and prod at release."""
+    __tablename__ = "nexus_counters"
+    name       = Column(String, primary_key=True)
+    value      = Column(BigInteger, nullable=False, default=0)
+    updated_at = Column(String, default="")
+
+
+class AccountingLoanDismissed(Base):
+    """A loan-like ledger account someone removed from Accounting > Loans &
+    Financing (Charmi, Oct 7: "there should be a delete option"). The
+    fin_loans row is deleted in the accounting app; this remembers the entity
+    + GL account so + Add > From the Ledger stops offering it (listed again
+    under "Show Removed", and creating it again clears this row). New table -
+    create_all builds it; RLS must be enabled on dev and prod at release."""
+    __tablename__ = "accounting_loan_dismissed"
+    id           = Column(String, primary_key=True)                # uuid
+    entity_code  = Column(String, nullable=False, index=True)
+    gl_account   = Column(String, nullable=False)
+    loan_id      = Column(String, default="")                      # the fin_loans id it had
+    lender       = Column(String, default="")
+    title        = Column(String, default="")
+    dismissed_by = Column(String, default="")
+    dismissed_at = Column(String, default="")
+    __table_args__ = (UniqueConstraint("entity_code", "gl_account", name="uq_accounting_loan_dismissed"),)
+
+
+class AccountingLoanStressEntity(Base):
+    """Per entity on Loans & Financing > Stress Test (Charmi, Oct 7): which
+    NOI the DSCR starts from (`noi_basis`: t12 | ytd | manual, '' = the page
+    default), the typed NOI for Manual, and the Addback (typed, with a note -
+    depreciation, one-off costs, owner comp) that makes Adjusted NOI = NOI +
+    Addback. New table - create_all builds it; RLS must be enabled on dev
+    and prod at release."""
+    __tablename__ = "accounting_loan_stress_entities"
+    entity_code  = Column(String, primary_key=True)
+    noi_basis    = Column(String, default="")
+    noi_manual   = Column(Float, nullable=True)
+    addback      = Column(Float, nullable=True)
+    addback_note = Column(String, default="")
+    updated_by   = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class AccountingAmaAgreement(Base):
+    """One Asset Management Agreement (AMA, Priyanka, Oct 7: "We still need to
+    build AMA"): the fee one entity (the manager, optional) earns for managing
+    another (the managed ledger entity) - a percent of the managed entity's
+    revenue or a flat amount per billing period, billed monthly, quarterly or
+    annually. What was BILLED is never keyed: it is the net credits on
+    `fee_gl_account` read from the ledger (routers/accounting_ama.py). New
+    table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_agreements"
+    id                  = Column(String, primary_key=True)            # uuid
+    entity_code         = Column(String, nullable=False, index=True)  # the managed ledger entity
+    manager_entity_code = Column(String, default="")                  # the entity that earns / bills the fee
+    status              = Column(String, default="Active")            # Active | Pending Review | Ended
+    fee_basis           = Column(String, default="percent_revenue")   # percent_revenue | flat
+    fee_rate            = Column(Float, nullable=True)                # percent, for percent_revenue
+    flat_amount         = Column(Float, nullable=True)                # per billing period, for flat
+    billing_frequency   = Column(String, default="Monthly")           # Monthly | Quarterly | Annually
+    start_date          = Column(String, default="")                  # YYYY-MM-DD
+    end_date            = Column(String, default="")                  # '' = open-ended
+    fee_gl_account      = Column(String, default="")                  # GL code the fee posts to (Billed YTD)
+    agreement_url       = Column(String, default="")                  # Egnyte / SharePoint link
+    notes               = Column(String, default="")
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")

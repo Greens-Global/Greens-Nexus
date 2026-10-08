@@ -8,6 +8,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { ViewNotice } from '../components/workforce/WorkforceViews';
 import { useWorkforceView } from '../components/workforce/viewContext';
+import { formatAccuracy } from '../lib/distance';
 
 // Company-wide map of where each person LAST punched from. Pins are the person's
 // profile photo, ringed green when they're clocked in. Filter by company /
@@ -21,13 +22,13 @@ const CLOCK = {
   off:      { color: '#94a3b8', label: 'Not Clocked In' },
 };
 const clockOf = (p) => CLOCK[p.status] || (p.clockedIn ? CLOCK.working : CLOCK.off);
-const fmtAcc = (m) => m >= 1000 ? `±${(m / 1000).toFixed(m >= 10000 ? 0 : 1)}km` : `±${m}m`;
+const fmtAcc = (m) => formatAccuracy(m);   // feet / miles (lib/distance.js)
 // Status label + color. On-site/off-site come from the geofence verdict; otherwise
 // judge by ACCURACY, not geo_status - a punch reads "no_location" whenever there's
 // no geofenced site to compare against, even with a pin-perfect phone GPS fix.
 function locStatus(p) {
   if (p.geoStatus === 'in_fence') return { color: '#16a34a', label: `On Site${p.workSiteName ? ` · ${p.workSiteName}` : ''}` };
-  // Not at any of their allowed sites (Sep 29) - never a site's name.
+  // Inside none of the company's sites (Sep 30) - never a site's name.
   if (p.geoStatus === 'out_of_fence') return { color: '#d97706', label: 'Out of Location' };
   // Tagged remote in People - Work Mode: anywhere is fine, nothing to flag (Neil, Sep 19).
   if (p.geoStatus === 'remote') return { color: '#2563eb', label: 'Remote' };
@@ -422,7 +423,7 @@ export default function Locations({ toastErr, embedded = false }) {
               <span style={{ flex: 1, minWidth: 0 }}>
                 <strong style={{ color: 'var(--ink)' }}>{selP.name}</strong> · {clockOf(selP).label} · {locStatus(selP).label}.
                 {selP.locStale && <span style={{ color: '#b45309', fontWeight: 600 }}> Last known location ({ago(selP.at)}) - their current session isn't sharing one.</span>}
-                {' '}Accuracy ±{selP.accuracyM >= 1000 ? `${(selP.accuracyM / 1000).toFixed(1)} km` : `${selP.accuracyM} m`}
+                {' '}Accuracy {formatAccuracy(selP.accuracyM)}
                 {selP.accuracyM > 1000 ? ' - no GPS on this device (a phone punch gives a precise fix).' : '.'}
               </span>
               <button type="button" onClick={() => setSel(null)} aria-label="Show everyone" title="Show everyone"

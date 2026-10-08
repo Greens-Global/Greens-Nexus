@@ -106,7 +106,10 @@ class HrContactTests(unittest.TestCase):
         timeclock.request_timeoff(
             timeclock.TimeOffIn(type="vacation", start_date="2026-10-01", end_date="2026-10-02"),
             user={"email": EMP, "level": 1}, db=self.db)
-        self.assertEqual(self._recipients(), sorted([MGR, HR, OWNER]))
+        # A new time-off request goes to the manager and the HR contact; the
+        # Global Admins only step in when there is neither (Oct 2, Shifts QA
+        # B4-34: every request used to land on every owner's bell).
+        self.assertEqual(self._recipients(), sorted([MGR, HR]))
 
 
 if __name__ == "__main__":

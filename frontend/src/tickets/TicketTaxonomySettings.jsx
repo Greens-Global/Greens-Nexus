@@ -20,7 +20,8 @@ import { ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } fr
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
-import { TICKET_TYPE_META } from './ticketMeta';
+import { TICKET_TYPE_META, TICKET_TYPE_KEYS, TICKET_TYPE_ORDER } from './ticketMeta';
+import DragList from './DragList';
 import { refreshTicketConfig } from './ticketConfig';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -71,13 +72,6 @@ function FieldEditor({ typeKey, fields, onChange }) {
   const [newKind, setNewKind] = useState('text');
 
   const set = (i, patch) => onChange(fields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  const move = (i, dir) => {
-    const j = i + dir;
-    if (j < 0 || j >= fields.length) return;
-    const next = fields.slice();
-    [next[i], next[j]] = [next[j], next[i]];
-    onChange(next);
-  };
   const addField = () => {
     if (!newLabel.trim()) return;
     const key = slugKey(newLabel, fields);
@@ -90,13 +84,11 @@ function FieldEditor({ typeKey, fields, onChange }) {
       {fields.length === 0 && (
         <div style={{ fontSize: 12.5, color: NX.faint, padding: '6px 0 10px' }}>No intake questions for this type yet.</div>
       )}
-      {fields.map((f, i) => (
-        <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 9, border: `1px solid ${NX.border}`, background: NX.surface, marginBottom: 8, opacity: f.retired ? 0.55 : 1 }}>
+      <DragList items={fields} getKey={(f) => f.key} onReorder={onChange} label="question" gap={8}
+        renderItem={(f, handle, i) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderRadius: 9, border: `1px solid ${NX.border}`, background: NX.surface, opacity: f.retired ? 0.55 : 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <button onClick={() => move(i, -1)} disabled={i === 0} style={{ ...btn('ghost'), padding: 2, opacity: i === 0 ? 0.3 : 1 }}><ChevronUp size={12} /></button>
-              <button onClick={() => move(i, 1)} disabled={i === fields.length - 1} style={{ ...btn('ghost'), padding: 2, opacity: i === fields.length - 1 ? 0.3 : 1 }}><ChevronDown size={12} /></button>
-            </div>
+            {handle}
             <input value={f.label} onChange={(e) => set(i, { label: e.target.value })} style={{ ...inputStyle, flex: 1 }} placeholder="Question label" />
             <select value={f.type} onChange={(e) => set(i, { type: e.target.value })} style={{ ...inputStyle, width: 140 }}>
               {FIELD_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -117,9 +109,9 @@ function FieldEditor({ typeKey, fields, onChange }) {
               placeholder="Checklist items, comma-separated" style={inputStyle} />
           )}
         </div>
-      ))}
+      )} />
       {adding ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
           <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="New question label"
             style={{ ...inputStyle, flex: 1 }} onKeyDown={(e) => e.key === 'Enter' && addField()} autoFocus />
           <select value={newKind} onChange={(e) => setNewKind(e.target.value)} style={{ ...inputStyle, width: 140 }}>
@@ -129,7 +121,7 @@ function FieldEditor({ typeKey, fields, onChange }) {
           <button onClick={() => { setAdding(false); setNewLabel(''); }} style={{ ...btn('ghost'), padding: '7px 12px' }}>Cancel</button>
         </div>
       ) : (
-        <button onClick={() => setAdding(true)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px' }}>
+        <button onClick={() => setAdding(true)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px', marginTop: 8 }}>
           <Plus size={13} /> Add question
         </button>
       )}
@@ -137,7 +129,7 @@ function FieldEditor({ typeKey, fields, onChange }) {
   );
 }
 
-function TypeRow({ typeKey, meta, shown, onToggleShown, canMoveUp, canMoveDown, onMove, typeCfg, onChangeType }) {
+function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, onChangeType }) {
   const [open, setOpen] = useState(false);
   const Icon = meta.icon;
   const label = typeCfg.label ?? meta.label;
@@ -148,18 +140,18 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, canMoveUp, canMoveDown, 
   const requiresApproval = typeCfg.requiresApproval === true;
 
   return (
-    <div style={{ ...card, padding: 0, marginBottom: 10, overflow: 'hidden' }}>
+    <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
+        {/* Intake order is dragged by the grip; types not shown at intake
+            have no order to set, so no grip. */}
+        {handle || <span style={{ width: 19, flexShrink: 0 }} />}
         <Icon size={16} style={{ color: meta.color, flexShrink: 0 }} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button onClick={() => onMove(-1)} disabled={!canMoveUp} style={{ ...btn('ghost'), padding: 1, opacity: canMoveUp ? 1 : 0.3 }}><ChevronUp size={11} /></button>
-          <button onClick={() => onMove(1)} disabled={!canMoveDown} style={{ ...btn('ghost'), padding: 1, opacity: canMoveDown ? 1 : 0.3 }}><ChevronDown size={11} /></button>
-        </div>
         <input value={label} onChange={(e) => onChangeType({ label: e.target.value })} style={{ ...inputStyle, width: 200 }} />
         <input value={hint} onChange={(e) => onChangeType({ hint: e.target.value })} placeholder="Hint shown under the type picker"
           style={{ ...inputStyle, flex: 1 }} />
         <label title="Shown at intake" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          <Toggle on={shown} onChange={onToggleShown} /> Intake
+          <Toggle on={shown} onChange={onToggleShown} label={`Offered on Submit a Ticket: ${meta.label}`}
+            title={shown ? 'On - offered on Submit a Ticket' : 'Off - not offered on Submit a Ticket'} /> Intake
         </label>
         <button onClick={() => setOpen((o) => !o)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 10px', whiteSpace: 'nowrap' }}>
           {fields.length} question{fields.length === 1 ? '' : 's'} {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
@@ -209,10 +201,12 @@ export default function TicketTaxonomySettings() {
   }
   if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
-  const allKeys = Object.keys(TICKET_TYPE_META);
-  // null order = "use the compiled-in default order" - shown editable as that
-  // default until the admin actually reorders/toggles something.
-  const shownOrder = order ?? allKeys.filter((k) => TICKET_TYPE_META[k]);
+  // Only the five types exist (Oct 1) - each listed here, on or off. A saved
+  // order naming a retired type (Service Request, Change) just drops it.
+  const allKeys = [...TICKET_TYPE_KEYS];
+  // null order = nothing saved yet: what intake offers today (the five, in the
+  // default order) until the admin actually reorders or switches one.
+  const shownOrder = (order ?? [...TICKET_TYPE_ORDER]).filter((k, i, arr) => allKeys.includes(k) && arr.indexOf(k) === i);
   const hidden = allKeys.filter((k) => !shownOrder.includes(k));
 
   const setSla = (k, v) => setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: Math.max(1, Number(v) || 1) } }));
@@ -224,22 +218,15 @@ export default function TicketTaxonomySettings() {
       : [...cfg.companyField.companyIds, id],
   });
   const toggleShown = (key) => {
-    const cur = order ?? allKeys.filter((k) => TICKET_TYPE_META[k]);
+    const cur = shownOrder;
+    if (cur.includes(key) && cur.length === 1) return;   // intake always offers at least one type
     setOrder(cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]);
-  };
-  const moveShown = (key, dir) => {
-    const cur = (order ?? allKeys.filter((k) => TICKET_TYPE_META[k])).slice();
-    const i = cur.indexOf(key);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= cur.length) return;
-    [cur[i], cur[j]] = [cur[j], cur[i]];
-    setOrder(cur);
   };
 
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
     try {
-      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order, companyField: cfg.companyField });
+      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
       setCfg(next);
       setOrder(Array.isArray(next.typeOrder) ? next.typeOrder : null);
       await refreshTicketConfig();
@@ -325,28 +312,32 @@ export default function TicketTaxonomySettings() {
         <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ticket types & intake questions</div>
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
-        Label, hint, intake order/visibility, whether it requires approval, and the questions each type asks are all editable. A retired question
-        stays on tickets that already answered it - it just stops being asked. Icon and color aren't editable here.
+        The five ticket types. Each one's label, hint, whether it is offered on Submit a Ticket, the order, whether it requires approval
+        and the questions it asks are all editable. At least one stays on. A retired question stays on tickets that already answered it -
+        it just stops being asked. Icon and color aren't editable here.
       </div>
 
-      {shownOrder.map((key, i) => TICKET_TYPE_META[key] && (
-        <TypeRow key={key} typeKey={key} meta={TICKET_TYPE_META[key]} shown
-          onToggleShown={() => toggleShown(key)}
-          canMoveUp={i > 0} canMoveDown={i < shownOrder.length - 1} onMove={(dir) => moveShown(key, dir)}
-          typeCfg={cfg.types[key] || {}} onChangeType={(patch) => setTypeCfg(key, patch)} />
-      ))}
+      {/* Drag the grip to set the order requesters see them in (Save to keep it). */}
+      <DragList items={shownOrder} getKey={(k) => k} onReorder={setOrder}
+        label="ticket type" gap={10}
+        renderItem={(key, handle) => (
+          <TypeRow typeKey={key} meta={TICKET_TYPE_META[key]} shown handle={handle}
+            onToggleShown={() => toggleShown(key)}
+            typeCfg={cfg.types[key] || {}} onChangeType={(patch) => setTypeCfg(key, patch)} />
+        )} />
 
       {hidden.length > 0 && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, letterSpacing: '.04em', margin: '16px 0 8px' }}>
-            NOT SHOWN AT INTAKE (still usable for existing tickets)
+            TURNED OFF (not offered on Submit a Ticket - tickets already raised keep their type)
           </div>
-          {hidden.map((key) => TICKET_TYPE_META[key] && (
-            <TypeRow key={key} typeKey={key} meta={TICKET_TYPE_META[key]} shown={false}
-              onToggleShown={() => toggleShown(key)}
-              canMoveUp={false} canMoveDown={false} onMove={() => {}}
-              typeCfg={cfg.types[key] || {}} onChangeType={(patch) => setTypeCfg(key, patch)} />
-          ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {hidden.map((key) => TICKET_TYPE_META[key] && (
+              <TypeRow key={key} typeKey={key} meta={TICKET_TYPE_META[key]} shown={false}
+                onToggleShown={() => toggleShown(key)}
+                typeCfg={cfg.types[key] || {}} onChangeType={(patch) => setTypeCfg(key, patch)} />
+            ))}
+          </div>
         </>
       )}
 

@@ -116,8 +116,10 @@ describe('EmailAppearancePanel', () => {
     fireEvent.change(style, { target: { value: 'logo_title' } });
     expect(screen.getByText(/Until a logo is added/)).toBeInTheDocument();
     // The panel previews once on load and keeps Preview disabled until that
-    // returns; on a slow CI box a click before then is a no-op, so wait for it.
-    const previewBtn = screen.getByRole('button', { name: /^Preview$/ });
+    // returns - and while it runs the button's name includes the spinner's
+    // label, so it is not yet exactly "Preview". On a slow CI box the load is
+    // still running here (CI #1463, Sep 30): wait for the idle button itself.
+    const previewBtn = await screen.findByRole('button', { name: /^Preview$/ }, { timeout: 5000 });
     await waitFor(() => expect(previewBtn).toBeEnabled());
     fireEvent.click(previewBtn);
     await waitFor(() => expect(mockApi.previewEmailTheme).toHaveBeenLastCalledWith(expect.objectContaining({ headerStyle: 'logo_title' })));

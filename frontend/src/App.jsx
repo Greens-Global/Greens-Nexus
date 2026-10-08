@@ -12,6 +12,7 @@ import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
 import NotificationToasts from "./components/NotificationToasts";
+import PriorityBar from "./components/PriorityBar";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
@@ -354,7 +355,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
-    case "timeclock":          return <TimeClock initialTab="clock" activeSub={activeSub} onSubChange={onSubChange} />;
+    case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
     case "credvault":          return <CredentialVault />;
@@ -429,7 +430,7 @@ const DEFAULT_SUBS = {
   // click, not just after switching tabs once (see TimeClock.jsx's own
   // activeSub sync for that half).
   myhr:              "overview",
-  timeclock:         "clock",
+  timeclock:         "overview",   // the Clock tab is a widget on Overview (Oct 2)
   "admin-console":   "global",
 };
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
@@ -753,6 +754,8 @@ function MainApp() {
               prevLabel={prevLabel}
             />
             )}
+            {/* Priority notices (Neil, 09/29): the yellow bar that stays until acted on. */}
+            {!pdfHasDoc && <PriorityBar onNavigate={navigate} />}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

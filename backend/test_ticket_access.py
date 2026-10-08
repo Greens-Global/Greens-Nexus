@@ -48,7 +48,7 @@ class TicketAccessTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.TaskTicket, models.TaskComment, models.TaskActivity,
-                  models.NexusGroup, models.NexusGroupMember):
+                  models.NexusGroup, models.NexusGroupMember, models.NexusEmployee):
             self.db.query(m).delete()
         # A group granting `tickets` is what puts somebody on the desk.
         g = models.NexusGroup(id="g1", name="Service Desk", allowed_modules="tickets:editor")
@@ -137,19 +137,27 @@ class TicketAccessTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 403)
 
-    def test_an_employee_cannot_raise_a_ticket_as_somebody_else(self):
+    def test_an_employee_cannot_raise_a_ticket_for_somebody_off_the_people_list(self):
+        """Raising one on someone's behalf is open to everyone since Oct 1 2026
+        (the intake form's Requester field), so the address is checked against
+        the People list instead - test_ticket_on_behalf covers the rest."""
         body = T.TicketBody(subject="not mine to file", requester_email="ceo@greensglobal.com")
 
-        out = T.create_ticket(body, BackgroundTasks(), user=EMPLOYEE, db=self.db)
+        with self.assertRaises(HTTPException) as ctx:
+            T.create_ticket(body, BackgroundTasks(), user=EMPLOYEE, db=self.db)
 
-        self.assertEqual(out["requesterId"], EMPLOYEE["email"])
+        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_an_agent_may_raise_one_on_behalf_of_somebody(self):
+        self.db.add(models.NexusEmployee(id=gen_id(), first_name="Caller",
+                                         work_email="caller@greensglobal.com", status="active"))
+        self.db.commit()
         body = T.TicketBody(subject="phoned in", requester_email="caller@greensglobal.com")
 
         out = T.create_ticket(body, BackgroundTasks(), user=AGENT, db=self.db)
 
         self.assertEqual(out["requesterId"], "caller@greensglobal.com")
+        self.assertEqual(out["createdById"], AGENT["email"])
 
     def test_an_employees_note_can_never_be_internal(self):
         """Internal notes are the desk talking among themselves, and are hidden
@@ -242,8 +250,10 @@ class TicketAccessTests(unittest.TestCase):
         """The whole point of the split - if a future edit drops the dependency
         from one of these, the queue opens to everybody."""
         from fastapi.routing import APIRoute
+        # PATCH is not here: since Sep 30 the ticket's own requester may edit
+        # it (while Open), confirm or reopen it without a grant - the route
+        # checks _may_patch_ticket itself (test_ticket_requester_status_lock).
         must_be_guarded = {
-            ("PATCH", "/task-tickets/{ticket_id}"),
             ("DELETE", "/task-tickets/{ticket_id}"),
             ("POST", "/task-tickets/{ticket_id}/approval"),
             ("POST", "/task-ticket-components"),
@@ -253,8 +263,9 @@ class TicketAccessTests(unittest.TestCase):
         for r in T.router.routes:
             if not isinstance(r, APIRoute):
                 continue
-            guarded = any(getattr(getattr(d, "dependency", None), "__qualname__", "")
-                          .startswith("require_any_module_grant") for d in r.dependencies)
+            # The desk-role guards (ticket_roles.py, Oct 2026): agent or supervisor.
+            guarded = any(getattr(d, "dependency", None) in (T.require_ticket_desk, T.require_ticket_supervisor)
+                          for d in r.dependencies)
             for method in r.methods:
                 if (method, r.path) in must_be_guarded and guarded:
                     seen.add((method, r.path))

@@ -23,11 +23,11 @@
 // own roster now. The flat list above becomes the DEFAULT: it's what a
 // company with no roster of its own falls back to, before the backend's last
 // resort of "every administrator" (see ticket_notify.ticket_agents).
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { Headset, Save, Building2, Siren, Plus, ChevronDown, ChevronRight, Pencil, X } from 'lucide-react';
+import { Headset, Save, Building2, Siren, ChevronDown, ChevronRight } from 'lucide-react';
+import DragList from './DragList';
 import { api } from '../api';
-import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
 import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
@@ -66,43 +66,41 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // against that department (routers/tickets.py:escalate_ticket). A separate
 // concept from the agent roster above: agents WORK tickets in general, the
 // department head owns the "this needs instant care" alert for tickets about
-// their specific department. Lives here (not People -> Companies) so setting
-// it doesn't require an HR module grant - same reasoning as /ticket-companies
-// and /ticket-departments existing as their own read endpoints.
-function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHead, onRename, onDelete, defaultOpen = false }) {
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
+// their specific department.
+//
+// The departments themselves are the company's GLOBAL list (Neil, Oct 1 2026:
+// "the departments should come from global... and then have the option of
+// turning it off. Like, I don't want a construction ticket."). They are added,
+// renamed and deleted in Settings > Company Settings only; here each one gets
+// an on/off switch for Submit a Ticket, its head, and its place in the order.
+const goToCompanySettings = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'company' } }));
+
+function SwitchButton({ on, onClick, label }) {
+  return (
+    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={onClick}
+      title={on ? 'Offered on Submit a Ticket' : 'Not offered on Submit a Ticket'} style={{
+        position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer',
+        background: on ? NX.green : NX.border, transition: 'background 0.15s', flexShrink: 0, padding: 0,
+      }}>
+      <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+    </button>
+  );
+}
+
+function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onSetEnabled, onReorder, defaultOpen = false }) {
   // Collapsed by default - a company with a lot of departments (a real one
   // has 11) made its card towering over its grid neighbors, forcing scroll
   // through every card just to reach the Save button. Independent per card,
   // no need to persist across reloads.
   const [open, setOpen] = useState(defaultOpen);
-  const [editId, setEditId] = useState(null);   // department being renamed
-  const [editName, setEditName] = useState('');
-  const cancelRef = useRef(false);   // set on Escape so the ensuing onBlur doesn't SAVE
-  const add = async () => {
-    const n = name.trim();
-    if (!n || busy) return;
-    setBusy(true);
-    try { await onAdd(companyId, n); setName(''); }
-    catch (e) { alert(e.message || 'Could not add department.'); }
-    finally { setBusy(false); }
-  };
-  const rename = async (d) => {
-    const n = editName.trim();
-    setEditId(null);
-    if (!n || n === d.name) return;
-    try { await onRename(d.id, n); }
-    catch (e) { alert(e.message || 'Could not rename department.'); }
-  };
-  const remove = async (d) => {
-    if (!await dialog.confirm(
-      `Delete the "${d.name}" department from ${companyName}'s ticket desk? Tickets already filed against it are untouched - it just stops being a pickable choice. This only affects the ticket desk, not the company's own department list in Company Settings.`,
-      { title: 'Delete department', confirmText: 'Delete', danger: true })) return;
-    try { await onDelete(d.id); }
-    catch (e) { alert(e.message || 'Could not delete department.'); }
-  };
   const hasDepts = depts.length > 0;
+  const offCount = depts.filter((d) => d.enabled === false).length;
+  const manageLink = (
+    <button type="button" onClick={goToCompanySettings}
+      style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 'inherit', color: 'var(--wk-brand)', fontWeight: 600 }}>
+      Settings &gt; Company Settings
+    </button>
+  );
   return (
     <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${NX.border}` }}>
       {hasDepts ? (
@@ -112,7 +110,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
         }}>
           <Siren size={13} style={{ color: NX.dim }} />
           <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink, flex: 1 }}>
-            Departments &amp; Escalation ({depts.length})
+            Departments &amp; Escalation ({depts.length}{offCount ? `, ${offCount} Off` : ''})
           </div>
           {open ? <ChevronDown size={14} style={{ color: NX.dim }} /> : <ChevronRight size={14} style={{ color: NX.dim }} />}
         </button>
@@ -123,49 +121,41 @@ function DepartmentHeads({ companyId, companyName, depts, people, onAdd, onSetHe
         </div>
       )}
       {!hasDepts && (
-        <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>No departments yet for {companyName}.</div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8, lineHeight: 1.5 }}>
+          No departments yet for {companyName}. Add them in {manageLink} - they show up here automatically.
+        </div>
       )}
-      {(hasDepts && !open) ? null : (
+      {(hasDepts && !open) ? null : hasDepts && (
         <>
-          {depts.map((d) => (
-            <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              {editId === d.id ? (
-                <input autoFocus value={editName} maxLength={40}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } if (e.key === 'Escape') { cancelRef.current = true; setEditId(null); } }}
-                  onBlur={() => { if (cancelRef.current) { cancelRef.current = false; return; } rename(d); }}
-                  style={{ width: 110, flexShrink: 0, fontFamily: FONT, fontSize: 12.5, padding: '3px 6px', border: `1px solid ${NX.border}`, borderRadius: 6, color: NX.ink, background: 'transparent' }} />
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: 110, flexShrink: 0 }}>
-                  <span style={{ fontSize: 12.5, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.name}>{d.name}</span>
-                  <button onClick={() => { setEditId(d.id); setEditName(d.name); }} title={`Rename ${d.name}`} aria-label={`Rename ${d.name}`}
-                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0, flexShrink: 0 }}>
-                    <Pencil size={11} />
-                  </button>
-                </div>
-              )}
-              <div style={{ flex: 1 }}>
-                <PersonSelect value={d.leadEmail || null} people={people}
-                  onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
-                  placeholder="No department head set" />
-              </div>
-              <button onClick={() => remove(d)} title={`Delete ${d.name}`} aria-label={`Delete ${d.name}`}
-                style={{ border: 'none', background: 'none', cursor: 'pointer', color: NX.dim, display: 'grid', placeItems: 'center', width: 20, height: 20, borderRadius: '50%', padding: 0, flexShrink: 0 }}>
-                <X size={13} />
-              </button>
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40}
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-              placeholder="Add a department…"
-              style={{ flex: 1, fontFamily: FONT, fontSize: 12.5, padding: '6px 9px', border: `1px solid ${NX.border}`, borderRadius: 7, color: NX.ink, background: 'transparent' }} />
-            <button onClick={add} disabled={!name.trim() || busy} style={{ ...btn('outline'), padding: '6px 10px', opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
-              <Plus size={13} />
-            </button>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8, lineHeight: 1.5 }}>
+            Departments are managed in {manageLink}, the same list every module uses. Turn one off to stop
+            offering it on Submit a Ticket.
           </div>
+          {/* Drag the grip to set the order the Submit a Ticket dropdown lists
+              them in (Neil, Sep 30: IT first, then Construction, Admin,
+              Operations). Saved the moment it is dropped. */}
+          <DragList items={depts} getKey={(d) => d.id} label="department" gap={6}
+            onReorder={(next) => onReorder(companyId, next).catch((e) => alert(e.message || 'Could not reorder departments.'))}
+            renderItem={(d, handle) => {
+              const on = d.enabled !== false;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {handle}
+                  <SwitchButton on={on} label={`Offer ${d.name} on Submit a Ticket`}
+                    onClick={() => onSetEnabled(d.id, !on).catch((e) => alert(e.message || 'Could not update department.'))} />
+                  <span style={{ width: 110, flexShrink: 0, fontSize: 12.5, color: on ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={on ? d.name : `${d.name} - off for tickets`}>{d.name}</span>
+                  <div style={{ flex: 1, opacity: on ? 1 : 0.6 }}>
+                    <PersonSelect value={d.leadEmail || null} people={people}
+                      onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
+                      placeholder="No department head set" />
+                  </div>
+                </div>
+              );
+            }} />
           <div style={{ fontSize: 11, color: NX.faint, marginTop: 6, lineHeight: 1.5 }}>
             A ticket filed against a department with no head falls back to this company's ticket agents when escalated.
+            Tickets already filed against a department that is off keep it.
           </div>
         </>
       )}
@@ -221,7 +211,7 @@ export default function TicketDeskSettings() {
   const [agents, setAgents] = useState(null);            // default/fallback roster (agentEmails)
   const [byCompany, setByCompany] = useState(null);       // { companyId: [email, ...] }
   const [companies, setCompanies] = useState(null);
-  const [depts, setDepts] = useState(null);               // flat list, every company - {id, name, companyId, leadEmail, backupEmail}
+  const [depts, setDepts] = useState(null);               // flat list, every company - {id, name, companyId, leadEmail, backupEmail, enabled, removed}
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -239,7 +229,7 @@ export default function TicketDeskSettings() {
         setByCompany(c.agentEmailsByCompany || {});
         setBaseline(JSON.stringify([c.agentEmails || [], c.agentEmailsByCompany || {}]));
         setCompanies(comps || []);
-        setDepts(dep || []);
+        setDepts((dep || []).filter((d) => !d.removed));
       })
       .catch((e) => setErr(e.message || String(e)));
   }, [myLevel]);
@@ -267,18 +257,18 @@ export default function TicketDeskSettings() {
   // back into the flat list rather than refetching everyone else's.
   const mergeDepts = (companyId, rows) =>
     setDepts((d) => [...d.filter((x) => x.companyId !== companyId), ...rows]);
-  const addDept = (companyId, name) => api.addTicketDepartment(companyId, name).then((rows) => mergeDepts(companyId, rows));
   const setDeptHead = (deptId, email) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.setTicketDepartmentHead(deptId, email).then((rows) => mergeDepts(companyId, rows));
   };
-  const renameDept = (deptId, name) => {
+  const setDeptEnabled = (deptId, enabled) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
-    return api.renameTicketDepartment(deptId, name).then((rows) => mergeDepts(companyId, rows));
+    return api.setTicketDepartmentEnabled(deptId, enabled).then((rows) => mergeDepts(companyId, rows));
   };
-  const deleteDept = (deptId) => {
-    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
-    return api.deleteTicketDepartment(deptId).then((rows) => mergeDepts(companyId, rows));
+  // Shown in the new order at once; the server's list (same order) replaces it.
+  const reorderDepts = (companyId, next) => {
+    mergeDepts(companyId, next);
+    return api.reorderTicketDepartments(companyId, next.map((d) => d.id)).then((rows) => mergeDepts(companyId, rows));
   };
 
   const save = async () => {
@@ -348,7 +338,7 @@ export default function TicketDeskSettings() {
     >
       <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
         depts={depts.filter((d) => d.companyId === company.id)}
-        onAdd={addDept} onSetHead={setDeptHead} onRename={renameDept} onDelete={deleteDept} />
+        onSetHead={setDeptHead} onSetEnabled={setDeptEnabled} onReorder={reorderDepts} />
     </DeskRoster>
   ) : (
     <DeskRoster

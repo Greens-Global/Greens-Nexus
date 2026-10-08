@@ -24,7 +24,9 @@ function pathFromPaste(v) {
   return s;
 }
 
-export default function FolderPickModal({ startPath = '', title = 'Pick a Folder', hint = 'Browse to the folder, or paste its path, then press "Use This Folder".', onPick, onClose }) {
+// showTree: the Files screen's folder tree on the left as well (Save to Files,
+// Charmi 10/02: "use the same UI so it's familiar") - the picker grows to fit.
+export default function FolderPickModal({ startPath = '', title = 'Pick a Folder', hint = 'Browse to the folder, or paste its path, then press "Use This Folder".', onPick, onClose, showTree = false }) {
   const [start, setStart] = useState(startPath);
   const [pasted, setPasted] = useState('');
 
@@ -39,7 +41,7 @@ export default function FolderPickModal({ startPath = '', title = 'Pick a Folder
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(15,18,24,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
     >
-      <div style={{ ...CARD, width: 'min(860px, 100%)', maxHeight: '86vh', overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ ...CARD, width: showTree ? 'min(1180px, 100%)' : 'min(860px, 100%)', maxHeight: showTree ? '90vh' : '86vh', overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ ...HEADING, fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderSearch size={16} /> {title}
@@ -61,7 +63,7 @@ export default function FolderPickModal({ startPath = '', title = 'Pick a Folder
             <ArrowRight size={13} /> Go To Folder
           </button>
         </form>
-        <EgnyteFolderBrowser initialPath={start} showUpload={false} onPick={onPick} />
+        <EgnyteFolderBrowser initialPath={start} showUpload={false} showTree={showTree} onPick={onPick} />
       </div>
     </div>
   );

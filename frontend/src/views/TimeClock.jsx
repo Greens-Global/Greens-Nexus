@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
-  CheckCircle, Plus, X, CalendarDays, Monitor, User, Lock,
+  CheckCircle, Plus, X, CalendarDays, Monitor, Lock,
+  ChevronDown, Check, ClipboardCheck, ArrowRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
+import TimesheetsToReview from '../components/TimesheetsToReview';
+import { openNotificationTarget } from '../lib/openTarget';
+import { reasonLook, REQUEST_TIMEOFF_TYPES } from '../lib/timeOffReasons';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
@@ -12,16 +17,23 @@ import BodModal from '../components/BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
-import { formatTime } from '../lib/datetime';
+import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay, greetingFor } from '../lib/datetime';
 import { getPosition, punchPosition } from '../lib/geoPosition';
-import { useIsMobile } from '../lib/useIsMobile';
 import { MyHROverview } from './MyHR';
+import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
+import { timeOffLabel } from '../components/shiftScheduleLib';
+import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
+import { formatDistance, formatAccuracy } from '../lib/distance';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
-// "My HR" Sep 4 once it covered both halves). Four tabs: Overview (profile/
-// documents/paystubs/Ask HR - MyHR.jsx's MyHROverview), Clock, Time Sheet,
-// Time Off. Punch in/out keeps its geofencing (all employees) ─────────────
+// "My HR" Sep 4 once it covered both halves). Three tabs: Overview, Time
+// Sheet, Time Off. The Time Clock is no longer its own tab (Neil, Oct 1: "is
+// there a need for the clock to be its own screen? ... it should be a widget
+// and it should have the entire time clock in it") - it is the first card on
+// Overview (MyHR.jsx's MyHROverview, which takes it as `clock`), so the page
+// people land on is the page they punch from. Old 'clock' links open
+// Overview. Punch in/out keeps its geofencing (all employees) ──────────────
 // Soft-gate design (research-verified SwipeClock behavior): location is asked
 // for AT THE MOMENT of punching only; a denied prompt or coarse fix never
 // blocks the punch - it's recorded and flagged for review instead. The button
@@ -43,15 +55,15 @@ const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break st
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
-  overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your profile, documents and leave - only you see this' },
-  clock:     { title: 'Time Clock', label: 'Clock',      subtitle: 'Punch in and out, your timesheet and time off' },
+  overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your clock, hours, documents and time off - only you see this' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
   timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
 };
+// The Clock tab folded into Overview (Oct 2) - a bookmark, a bell or an
+// email that still says 'clock' lands there.
+const tabFor = (sub) => (sub === 'clock' ? 'overview' : sub);
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
-// Small stat label / value inside cards.
-const STAT_L = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 
 // Timesheet motion (module-scoped, CSS keyframes - reliable regardless of tab focus).
 if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
@@ -66,11 +78,102 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .ts-day   { animation: tsIn .4s cubic-bezier(.22,1,.36,1) forwards; transition: background .12s ease, box-shadow .12s ease; }
     .ts-day:hover { background: var(--mist); }
     .ts-open  { animation: tsPulse 1.6s ease-in-out infinite; }
-    /* Clock tab: ONE shared grid so card edges align across both rows. */
-    .tc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
-    .tc-span2 { grid-column: span 2; }
-    @media (max-width: 1080px) { .tc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 720px) { .tc-grid { grid-template-columns: 1fr; } .tc-span2 { grid-column: auto; } }
+    /* Time Clock widget (Overview): the page's headline card - a greeting
+       band, then the punch panel left and today/this week right. Brand-
+       derived tints only, so a company's accent color carries through. */
+    .wd-clock { background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; box-shadow: var(--wk-shadow); overflow: hidden; }
+    .wd-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 2px 0 14px; }
+    .wd-intro-greet { margin: 0; font-size: 21px; font-weight: 700; color: var(--ink); letter-spacing: -.015em; }
+    .wd-clock-body { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+    .wd-clock-main { padding: 18px 26px; display: flex; align-items: center; gap: 22px; min-width: 0; }
+    .wd-clock-info { width: 250px; display: flex; flex-direction: column; gap: 10px; }
+    .wd-clock--in .wd-clock-main { background: radial-gradient(circle at 16% 50%, color-mix(in srgb, var(--wk-brand) 8%, transparent) 0, transparent 60%); }
+    .wd-clock--break .wd-clock-main { background: radial-gradient(circle at 16% 50%, rgba(180,83,9,.08) 0, transparent 60%); }
+    .wd-state { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+    .wd-state--in { color: var(--wk-brand); background: color-mix(in srgb, var(--wk-brand) 12%, transparent); }
+    .wd-state--break { color: #b45309; background: rgba(180,83,9,.1); }
+    .wd-state--out { color: var(--muted); background: var(--mist); }
+    .wd-since { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    .wd-since b { color: var(--ink); font-weight: 700; }
+    .wd-punch { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 12px; border: none; font-family: var(--wk-font);
+      font-size: 14px; font-weight: 700; box-shadow: 0 1px 2px rgba(17,24,39,.08), 0 6px 16px -8px rgba(17,24,39,.35); transition: transform .12s ease, box-shadow .12s ease, filter .12s ease; }
+    .wd-punch:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 2px 4px rgba(17,24,39,.1), 0 10px 22px -8px rgba(17,24,39,.4); }
+    .wd-punch:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+    .wd-clock-side { padding: 14px 22px 16px; border-left: 1px solid var(--line); background: var(--wk-hover); display: flex; flex-direction: column; min-width: 0; }
+    .wd-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: none; }
+    .wd-side-head > span:first-child { color: var(--ink); font-size: 13.5px; font-weight: 600; }
+    .wd-link, .wd-flag { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--wk-brand); }
+    .wd-flag { color: #b45309; font-weight: 700; }
+    .wd-empty { font-size: 12.5px; color: var(--muted); padding: 8px 0 2px; }
+    .wd-hp-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .wd-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--card); border: 1px solid var(--wk-line2); }
+    .wd-seg button { border: none; background: none; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+    .wd-seg button:hover { color: var(--ink); }
+    .wd-seg button.on { background: color-mix(in srgb, var(--wk-brand) 12%, transparent); color: var(--wk-brand); }
+    .wd-seg button:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+    .wd-hp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 14px 0 12px; }
+    .wd-hp-total { font-size: 28px; font-weight: 800; color: var(--ink); letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+    .wd-hp-cap { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .wd-hp-facts { display: flex; gap: 22px; margin: 0; }
+    .wd-hp-facts div { min-width: 0; }
+    .wd-hp-facts dt { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .wd-hp-facts dd { margin: 2px 0 0; font-size: 14px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    /* Today is a slim timeline, so the card shrinks and the page moves up;
+       the bar views share one height. */
+    .wd-hp-viz > * { width: 100%; }
+    .wd-bars-plot { position: relative; display: flex; align-items: flex-end; gap: 8px; height: 92px; padding-top: 14px; border-bottom: 1px solid var(--wk-line2); }
+    .wd-bars-target { position: absolute; left: 0; right: 0; border-top: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); pointer-events: none; }
+    .wd-bars-target em { position: absolute; right: 0; top: -15px; font-style: normal; font-size: 10px; font-weight: 600; color: var(--muted); }
+    .wd-bar { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+    .wd-bar-fill { width: 100%; max-width: 34px; border-radius: 6px 6px 2px 2px; background: color-mix(in srgb, var(--wk-brand) 34%, transparent); transition: height .5s cubic-bezier(.22,1,.36,1); }
+    .wd-bar.is-today .wd-bar-fill { background: var(--wk-brand); }
+    .wd-bar.is-zero .wd-bar-fill { height: 3px; background: var(--wk-line2); }
+    .wd-bar.is-future .wd-bar-fill { height: 0; }
+    .wd-bar.is-future::after { content: ''; position: absolute; bottom: 0; width: 100%; max-width: 34px; height: 10px; border: 1px dashed var(--wk-line2); border-bottom: none; border-radius: 6px 6px 0 0; }
+    .wd-bar-val { font-size: 10.5px; font-weight: 700; color: var(--ink); margin-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wd-bars-x { display: flex; gap: 8px; margin-top: 6px; }
+    .wd-bars-x span { flex: 1; min-width: 0; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; }
+    .wd-bars-x b { display: block; font-weight: 500; font-size: 10px; color: var(--wk-faint); }
+    .wd-bars-x span.is-today, .wd-bars-x span.is-today b { color: var(--wk-brand); font-weight: 800; }
+    .wd-metric { background: var(--card); border: 1px solid var(--wk-line2); border-radius: 10px; padding: 8px 11px; min-width: 0; }
+    .wd-metric-l { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-metric-v { font-size: 16px; font-weight: 700; color: var(--ink); margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wd-week-total { font-size: 12.5px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    [data-theme="dark"] .wd-clock-side { background: rgba(255,255,255,.02); }
+    /* Overview tiles (dk-stat look, hero gradient included) in one compact
+       row: chip, then number / label / hint, then the arrow. */
+    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .dk-stat.wd-stat.wd-hero { padding: 0; gap: 0; align-items: stretch; }
+    .wd-hero-part { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: inherit; transition: background .15s ease; }
+    .wd-hero-part:first-child { flex: 1.15; }
+    .wd-hero-part:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+    .wd-hero-part:disabled { cursor: default; }
+    .wd-hero-part:focus-visible { outline: 2px solid #fff; outline-offset: -3px; }
+    .dk-stat.wd-hero:hover { transform: none; }
+    .wd-hero-shift { flex: 1; position: relative; }
+    .wd-hero-shift::before { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; border-left: 1px solid rgba(255,255,255,.28); }
+    .wd-hero-shift-l { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,.8); }
+    .wd-hero-shift-v { font-size: 16px; font-weight: 700; color: #fff; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-hero-shift-s { font-size: 11.5px; color: rgba(255,255,255,.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 1000px) { .wd-statgrid { grid-template-columns: 1fr 1fr; } .wd-statgrid > .wd-hero { grid-column: 1 / -1; } }
+    @media (max-width: 600px) {
+      .wd-statgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .wd-hero .dk-stat-sub { display: block; }
+
+      .dk-stat.wd-stat { padding: 10px 12px; gap: 10px; }
+      .wd-stat .dk-chip { width: 30px; height: 30px; }
+      .wd-stat .dk-stat-num { font-size: 18px; }
+      .wd-stat .dk-stat-sub, .wd-stat .dk-stat-arrow { display: none; }
+    }
+    .dk-stat.wd-stat { flex-direction: row; align-items: center; gap: 12px; padding: 12px 14px; }
+    .wd-stat .dk-chip { width: 34px; height: 34px; }
+    .wd-stat-text { flex: 1; min-width: 0; }
+    .wd-stat .dk-stat-num { font-size: 21px; margin-top: 0; line-height: 1.15; }
+    .wd-stat .dk-stat-label { margin-top: 1px; font-size: 12.5px; }
+    .wd-stat .dk-stat-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; }
+    .wd-stat .dk-stat-arrow { flex-shrink: 0; }
+    @media (max-width: 900px) { .wd-clock-body { grid-template-columns: 1fr; } .wd-clock-main { justify-content: center; flex-wrap: wrap; } .wd-clock-side { border-left: none; border-top: 1px solid var(--line); } }
+    @media (max-width: 560px) { .wd-clock-head { padding: 12px 16px; } .wd-clock-main { padding: 16px; gap: 16px; } .wd-clock-info { width: 100%; } .wd-clock-side { padding: 14px 16px; } .wd-punch { flex: 1; justify-content: center; } }
     /* Clocked-in hero: pinging live dot, per-second digit tick, smooth ring sweep. */
     @keyframes tcPing { 0% { box-shadow: 0 0 0 0 var(--ping, rgba(34,150,83,.4)); } 70% { box-shadow: 0 0 0 10px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
     @keyframes tcTick { from { transform: translateY(-40%); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -78,50 +181,6 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .tc-tick { animation: tcTick .22s ease-out; }
     @media (prefers-reduced-motion: reduce) { .tc-live, .tc-tick { animation: none; } }`;
   document.head.appendChild(s);
-}
-
-// Last-7-calendar-days hours bars (fills from the timesheet data already loaded).
-function WeekBars({ days }) {
-  const series = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000 - i * 86400000);
-    const key = d.toISOString().slice(0, 10);
-    series.push({ key, label: d.toISOString().slice(0, 10) === key ? d : d, min: days?.[key]?.workedMin || 0, date: d });
-  }
-  const max = Math.max(60 * 8, ...series.map(s => s.min));
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110 }}>
-      {series.map(s => (
-        <div key={s.key} title={`${s.key} - ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
-          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: s.min ? 'var(--ink)' : 'transparent', fontVariantNumeric: 'tabular-nums' }}>
-            {s.min ? `${(s.min / 60).toFixed(1)}h` : '·'}
-          </span>
-          <div style={{ width: '70%', maxWidth: 40, height: Math.max(s.min ? 6 : 3, (s.min / max) * 70),
-            background: s.min ? 'var(--wk-brand)' : 'var(--mist)', borderRadius: 99 }} />
-          <span style={{ fontSize: 9.5, color: 'var(--muted)' }}>{s.date.toLocaleDateString([], { weekday: 'short' })}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Bars for a full bi-weekly pay period (one per day, from /my-payroll's day list).
-function PeriodBars({ days }) {
-  const series = (days || []).map(d => ({ key: d.date, min: d.workedMin || 0, date: new Date(d.date + 'T12:00:00') }));
-  const max = Math.max(60 * 8, ...series.map(s => s.min));
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 110 }}>
-      {series.map(s => (
-        <div key={s.key} title={`${s.key} - ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
-          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
-          <div style={{ width: '78%', maxWidth: 26, height: Math.max(s.min ? 5 : 3, (s.min / max) * 74),
-            background: s.min ? 'var(--wk-brand)' : 'var(--mist)', borderRadius: 99 }} />
-          <span style={{ fontSize: 8.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.date.getDate()}</span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // Live session timer digits - the seconds pair slides in on each tick (keyed
@@ -143,21 +202,71 @@ function TimerDigits({ seconds, color, size = 24 }) {
 // Digits inside are the CURRENT session's stopwatch. On break the arc becomes
 // the 60m allowance draining (that one is real policy, not an assumption).
 function SessionRing({ seconds, pct, color, label, sub }) {
-  const size = 148, stroke = 9;
+  const size = 128, stroke = 8;
   const r = (size - stroke) / 2, c = 2 * Math.PI * r;
   const off = c * (1 - Math.min(1, Math.max(0, pct)));
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--mist)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--wk-line2)" strokeWidth={stroke} />
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
           strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off}
           style={{ transition: 'stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .3s ease' }} />
       </svg>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-        <TimerDigits seconds={seconds} color={color} />
+        <TimerDigits seconds={seconds} color={color} size={21} />
         <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
         {sub && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Clocked-out dial - the same footprint as SessionRing so the widget never
+// jumps when you punch: an empty track around the wall-clock time.
+function IdleDial({ now }) {
+  const size = 128, stroke = 8;
+  const r = (size - stroke) / 2;
+  const [hm, ap] = formatTime(now).split(' ');
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--wk-line2)" strokeWidth={stroke} />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 3, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>{hm}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{ap}</span>
+        </span>
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Not Clocked In</span>
+      </div>
+    </div>
+  );
+}
+
+// Daily hours as bars against the 8-hour line - the clock card's This Week
+// and Pay Period views. Today is the solid brand bar; days still to come are
+// dashed outlines; each worked day carries its hours above the bar.
+const barHours = (m) => (m >= 60 ? `${Math.round((m / 60) * 10) / 10}h` : `${m}m`);
+function HoursBars({ series }) {
+  const target = 8 * 60;
+  const max = Math.max(target, ...series.map(x => x.min)) * 1.08;
+  return (
+    <div className="wd-bars">
+      <div className="wd-bars-plot" role="list" aria-label="Hours by day">
+        <span className="wd-bars-target" style={{ bottom: `${(target / max) * 100}%` }}><em>8h</em></span>
+        {series.map(x => (
+          <div key={x.key} role="listitem" title={`${formatWeekday(x.key + 'T12:00:00')}, ${formatDate(x.key + 'T12:00:00')} - ${fmtMin(x.min)}`}
+            className={`wd-bar${x.today ? ' is-today' : ''}${x.future ? ' is-future' : ''}${!x.min && !x.future ? ' is-zero' : ''}`}>
+            {x.min > 0 && <span className="wd-bar-val">{barHours(x.min)}</span>}
+            <span className="wd-bar-fill" style={{ height: x.min ? `${Math.max(4, (x.min / max) * 100)}%` : undefined }} />
+          </div>
+        ))}
+      </div>
+      <div className="wd-bars-x">
+        {series.map(x => (
+          <span key={x.key} className={x.today ? 'is-today' : ''}>{x.label}<b>{x.sub}</b></span>
+        ))}
       </div>
     </div>
   );
@@ -181,15 +290,6 @@ const gapBreakFromPunches = (punches) => {
   }
   return total;
 };
-const gapBreakFromSegments = (segs) => {
-  let total = 0;
-  for (let i = 1; i < (segs || []).length; i++) {
-    const pOut = segs[i - 1].out, tIn = segs[i].in;
-    if (pOut && tIn) { const m = Math.round((new Date(tIn + 'Z') - new Date(pOut + 'Z')) / 60000); if (m > 0 && m <= BREAK_GAP_MAX) total += m; }
-  }
-  return total;
-};
-const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
 // 'HH:MM' (24h, from the partial-day time-off fields) -> '2:30 PM'
 const hm12 = (v) => {
   if (!v) return '';
@@ -200,19 +300,63 @@ const hm12 = (v) => {
 const toWindow = (r) => r?.startTime && r?.endTime ? ` · ${hm12(r.startTime)} - ${hm12(r.endTime)}` : '';
 const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rejected: '#b91c1c', cancelled: 'var(--muted)' };
 const TO_TINT = { pending: 'rgba(180,83,9,0.1)', approved: 'hsla(var(--color-green),0.1)', rejected: 'rgba(185,28,28,0.08)', cancelled: 'var(--mist)' };
+const TO_STATUS_LABEL = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' };
+// Field label on the request form.
+const TO_LBL = { fontSize: 12, fontWeight: 600, color: 'var(--ink)' };
+// 'YYYY-MM-DD' -> '10/02/2026' (noon, so no zone can roll it a day).
+const toDay = (d) => formatDate(d ? d + 'T12:00:00' : '', d || '');
 
 // Shared by the live "Total" preview on the request form and the year-at-a-
-// glance sidebar's approved-days tally: a partial day counts as its fraction
-// of an 8-hour day, everything else counts whole calendar days inclusive.
-const toDayCount = (start, end, startTime, endTime) => {
-  if (startTime && endTime) {
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    return Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 480);
-  }
-  const a = new Date(start), b = new Date(end);
-  return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1;
-};
+// glance sidebar's approved-days tally: WORKING days (Mon-Fri), a partial day
+// as its fraction of an 8-hour day (lib/workdayStats.js - the same math as the
+// Overview's "Leave this year" tile, so the numbers always agree).
+const toDayCount = (start, end, startTime, endTime, year) =>
+  leaveRequestDays({ startDate: start, endDate: end, startTime, endTime }, year);
+
+const toMinutes = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+
+// Reason picker (Neil, Sep 30): Teams lists each kind of time off with its icon,
+// which a native <select> can't draw - so a small listbox. Labeled "Reason"
+// since Oct 1 (it IS the reason; the free text under it is the Note).
+function ReasonPicker({ value, options, onChange, style }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const down = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+  const label = (options.find(([k]) => k === value) || [value, value])[1];
+  const icon = (k, size = 14) => {
+    const { Icon, color } = reasonLook(k, (options.find(([key]) => key === k) || [])[1]);
+    return <Icon size={size} color={color} style={{ flexShrink: 0 }} />;
+  };
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0, ...style }}>
+      <button type="button" className="form-input" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
+        aria-label={`Reason: ${label}`}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer', textAlign: 'left', background: 'var(--card)' }}>
+        {icon(value)}<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <ChevronDown size={13} color="var(--muted)" />
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Reason" style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, minWidth: '100%', width: 220, zIndex: 50,
+          background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: 'var(--wk-shadow)', padding: '4px 0', maxHeight: 280, overflowY: 'auto' }}>
+          {options.map(([k, l]) => (
+            <button key={k} type="button" role="option" aria-selected={k === value} onClick={() => { onChange(k); setOpen(false); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', cursor: 'pointer', fontSize: 12.5,
+                fontFamily: 'inherit', textAlign: 'left', color: 'var(--ink)', background: k === value ? 'var(--wk-brand-tint)' : 'none' }}>
+              {icon(k, 15)}<span style={{ flex: 1 }}>{l}</span>{k === value && <Check size={13} color="var(--wk-brand)" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Teams-style "All day" switch (see TaskNotifySettings.jsx for the same
 // anatomy) - kept local since this is the only place in Time Off that needs it.
@@ -259,7 +403,7 @@ function GeoChip({ p }) {
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
-      title={`Not at any of your work sites${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${p.distanceM}m away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
+      title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${formatDistance(p.distanceM)} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
       <AlertTriangle size={12} /> Out of Location - flagged
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
@@ -271,7 +415,7 @@ function GeoChip({ p }) {
   if (p.geoStatus === 'low_accuracy') return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
       title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
-      <MapPinOff size={12} /> approx. location (±{p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})
+      <MapPinOff size={12} /> approx. location ({formatAccuracy(p.accuracyM)})
     </span>);
   // No geofence verdict, but a location WAS captured (no geofenced work site to
   // judge against, or a coarse Wi-Fi/IP fix): still show the recorded location so
@@ -279,8 +423,8 @@ function GeoChip({ p }) {
   // punch shows nothing (Neil, Jul 28 - an empty chip read as an error state).
   if (p.lat && p.lng) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
-      title="Location recorded. No geofenced work site to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
-      <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (±${p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})` : ''}
+      title="Location recorded. No geofenced location to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
+      <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (${formatAccuracy(p.accuracyM)})` : ''}
     </span>);
   return null;
 }
@@ -292,14 +436,20 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // setTab(...) call below just updates local state - the effects further
   // down mirror it out to activeSub/the URL in one place, so no call site had
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
-  const [tab, setTab] = useState(() => (TAB_META[activeSub] ? activeSub : initialTab));
+  const [tab, setTab] = useState(() => {
+    const t = tabFor(activeSub) || tabFor(initialTab);
+    return TAB_META[t] ? t : 'overview';
+  });
   // Workday > Shifts moved into the Shifts module (Sep 29). Old links - a
   // bookmark, a bell or schedule email sent before the move - land there.
   useEffect(() => {
     if (activeSub === 'shifts') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
   }, [activeSub]);   // overview | clock | timesheet | timeoff
   useEffect(() => {
-    if (TAB_META[activeSub] && activeSub !== tab) setTab(activeSub);
+    const t = tabFor(activeSub);
+    if (TAB_META[t] && t !== tab) setTab(t);
+    // An old 'clock' address already shows Overview - rewrite it to say so.
+    else if (activeSub === 'clock' && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -448,20 +598,21 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // calendar day(s), no time fields; off = a specific window, which the
   // backend only accepts on a single day, so start/end date stay locked
   // together while it's off.
-  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
+  const [toForm, setToForm] = useState({ type: 'personal', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
-  // The request form's 7-column row needs ~700px; under this it stacks so
-  // Request stays on screen on phones (QA, Sep 23).
-  const toNarrow = useIsMobile('(max-width: 820px)');
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
-  // Custom reasons and the admins' requests switch (Sep 29, Shifts settings).
+  // The admins' requests on/off switch (Sep 29, Shifts settings). The
+  // reasons themselves are the fixed REQUEST_TIMEOFF_TYPES list (Neil, Oct 1).
   const [toTypes, setToTypes] = useState(null);
   useEffect(() => { api.timeOffTypes().then(setToTypes).catch(() => setToTypes(null)); }, []);
-  const toOptions = [...Object.entries(TIMEOFF_TYPES), ...(toTypes?.custom || []).map(t => [t, t])];
   const toPartialOk = !toForm.allDay && toForm.start && toForm.end && toForm.start === toForm.end;
   // Live preview of what "Total" will show - same math as the year-at-a-
   // glance sidebar's approved-days tally, so the two numbers always agree.
+  // Specific hours count in hours (Neil, Sep 30: 8:30 AM - 5:30 PM is "9
+  // hours", not "1.13 days"); whole days stay in days.
+  const toTotalHours = toPartialOk && toForm.startTime && toForm.endTime
+    ? Math.max(0, (toMinutes(toForm.endTime) - toMinutes(toForm.startTime)) / 60) : 0;
   const toTotalDays = toForm.start && toForm.end
     ? toDayCount(toForm.start, toForm.end, toPartialOk ? toForm.startTime : '', toPartialOk ? toForm.endTime : '')
     : 0;
@@ -482,15 +633,14 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const et = toPartialOk ? toForm.endTime : '';
     if (!toForm.allDay && (!st || !et)) { toast(false, 'Set the start and end times, or switch All day back on.'); return; }
     if (st && et && et <= st) { toast(false, 'The end time has to be after the start time.'); return; }
-    // Every request says why (Visesh, Sep 29) - the approver decides on it.
-    // Private reasons use "Keep this confidential" rather than leaving it out.
-    if (!toForm.note.trim()) { toast(false, 'Add the reason for this time off.'); return; }
+    // The Reason picker always says why; the Note under it is optional
+    // (Neil, Oct 1 - "optional in terms of logic", but never labeled so).
     setToBusy(true);
     try {
       await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end,
         start_time: st, end_time: et, note: toForm.note.trim(), confidential: !!toForm.confidential });
       toast(true, 'Time-off request sent - your manager gets a notification.');
-      setToForm({ type: 'vacation', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
+      setToForm({ type: 'personal', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
@@ -692,7 +842,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
   const todayKey = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const todayData = days[todayKey];
-  const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
   // Daily break allowance: 1 hour. Count against the SHIFT's day (the in-punch's
   // date), not the wall-clock day - otherwise a night shift's allowance silently
   // resets at midnight mid-shift and stops warning. Falls back to today when not
@@ -706,11 +855,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // they get plain elapsed break time instead. Server decides via the OT rule.
   const showAllowance = !!status?.breakCountdown;
 
-  // ── Current pay period (the Clock tab's mini summary). The Time Sheet tab is the
+  // ── Current pay period (the clock widget's Pay Period total). The Time Sheet tab is the
   //    PayrollTimecard, which loads and paginates periods on its own. ────────────
   const [clockPeriod, setClockPeriod] = useState(null);
   useEffect(() => {
-    if (tab !== 'clock') return;
+    if (tab !== 'overview') return;
     const refresh = () => api.timeMyPayroll('').then(setClockPeriod).catch(() => setClockPeriod(null));
     refresh();
     // Every punch - here or from the floating timer - re-reads the period so
@@ -718,7 +867,334 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('nexus:timeclock-changed', refresh);
     return () => window.removeEventListener('nexus:timeclock-changed', refresh);
   }, [tab]);
-  const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  // Which hours the clock card shows - Today / This Week / Pay Period. A
+  // per-viewer convenience, so it is remembered in this browser only.
+  const [hoursView, setHoursView] = useState(() => {
+    try { return localStorage.getItem('nx-wd-hours-view') || 'week'; } catch { return 'week'; }
+  });
+  const pickHoursView = (v) => {
+    setHoursView(v);
+    try { localStorage.setItem('nx-wd-hours-view', v); } catch { /* storage blocked - fine */ }
+  };
+  // Today's scheduled shift(s) from Shifts, for the clock's greeting band.
+  // null = not loaded (the line stays hidden rather than claiming "none").
+  const [todayShifts, setTodayShifts] = useState(null);
+  useEffect(() => {
+    if (tab !== 'overview') return undefined;
+    let live = true;
+    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    api.timeMySchedule(d, d)
+      .then(r => { if (live) setTodayShifts((r?.scheduled || []).filter(x => x.date === d).sort((x, y) => (x.start || '').localeCompare(y.start || ''))); })
+      .catch(() => { if (live) setTodayShifts(null); });
+    return () => { live = false; };
+  }, [tab]);
+
+  // Timesheets to Review lives on this Time Sheet tab (Oct 1): the list of
+  // timesheets submitted to me, with Agree / Send Back on each row - where the
+  // "Timesheet to review" bell lands (timesheet_review._notify). It used to be
+  // only in People > Time, which needs the HR grant a reviewing manager may
+  // not have; Agree / Send Back themselves only need manager level. The count
+  // is read once for the whole Workday (the badge, and the tab for a
+  // time-tracking-exempt reviewer, who otherwise has no Time Sheet tab).
+  // `|| {}`: the role context is null outside RoleProvider (render tests).
+  const { can = () => false, myGrantedModules, myEmail = '' } = useRole() || {};
+  const mayOpenTime = can('administrator') || !!myGrantedModules?.has('hr');
+  const [toReview, setToReview] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.timesheetReviewWaiting()
+      .then(r => { if (live) setToReview(Array.isArray(r?.reviews) ? r.reviews.length : 0); })
+      .catch(() => {});
+    load();
+    window.addEventListener('nexus:timesheet-review-changed', load);
+    return () => { live = false; window.removeEventListener('nexus:timesheet-review-changed', load); };
+  }, []);
+  const reviewRef = useRef(null);
+  // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
+  const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
+  const showReview = tab === 'timesheet' && toReview > 0;
+  // Whether this person is time-tracking exempt, before /time/status answers
+  // (Neil, 10/06: the Time Sheet tab showed for a moment, then vanished, on
+  // every visit). The last answer is remembered per person; with none, the
+  // tab waits for the answer instead of guessing.
+  const exemptKey = `nexus.timeExempt.${(myEmail || '').toLowerCase()}`;
+  const [exemptGuess] = useState(() => { try { const v = localStorage.getItem(exemptKey); return v === null ? null : v === '1'; } catch { return null; } });
+  const exempt = status ? !!status.timeTrackingExempt : (exemptGuess ?? true);
+  useEffect(() => {
+    if (!status) return;
+    try { localStorage.setItem(exemptKey, status.timeTrackingExempt ? '1' : '0'); } catch { /* private window */ }
+  }, [status, exemptKey]);
+  const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Review opens that employee's full timecard in People > Time - only for
+  // those who can open it (administrator, or the HR grant - App.jsx's gate).
+  const openTimecardFor = mayOpenTime ? (r) => {
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-time' } }));
+    openNotificationTarget({ timecard: r.employeeEmail, start: r.periodStart, payType: r.payType });
+  } : undefined;
+
+  // ── The Time Clock widget (top of Overview, Oct 2) ─────────────────────────
+  // The page's one headline: a greeting with today's scheduled shift, the
+  // live dial, the punch buttons, then today's timeline, the running totals
+  // and the week at a glance. The banners that must not be missed (a 12-hour
+  // shift, a punch that did not record, a shift left open) sit inside it,
+  // right above the buttons they concern. Every color comes from the brand
+  // tokens so a company's own accent carries through.
+  const now = new Date();
+  // Today's minutes so far: finished segments plus the one still running
+  // (the server counts a segment only once it closes).
+  const liveMin = clockedIn && !onBreak ? openShiftMinutes(days) : 0;
+  const liveDay = sessionDay || todayKey;
+  const workedToday = (todayData?.workedMin || 0) + (liveDay === todayKey ? liveMin : 0);
+  const periodMin = (clockPeriod?.totals?.workedMin || 0) + liveMin;
+  const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dayOf = (k) => new Date(k + 'T12:00:00');
+  const withLive = (k, min) => (min || 0) + (k === liveDay ? liveMin : 0);
+  const avgOf = (total, n) => (n ? fmtMin(Math.round(total / n)) : '-');
+  const hp = (() => {
+    if (hoursView === 'today') {
+      const firstIn = (todayData?.punches || []).find(p => p.kind === 'in' && !p.voided);
+      return {
+        total: workedToday, caption: 'Worked today',
+        facts: [
+          ['Breaks', showAllowance ? `${breakUsedMin} / 60m` : `${breakUsedMin}m`, showAllowance && breakUsedMin > 60],
+          ['First In', firstIn ? localTime(firstIn.at) : '-'],
+        ],
+        series: [],
+      };
+    }
+    if (hoursView === 'period') {
+      // Every day of the period, start to end - the payroll list carries
+      // only the days that have hours.
+      const byDay = Object.fromEntries((clockPeriod?.days || []).map(d => [d.date, d.workedMin || 0]));
+      const series = [];
+      if (clockPeriod?.periodStart && clockPeriod?.periodEnd) {
+        for (let d = dayOf(clockPeriod.periodStart); keyOf(d) <= clockPeriod.periodEnd && series.length < 31; d.setDate(d.getDate() + 1)) {
+          const k = keyOf(d);
+          series.push({ key: k, label: formatWeekday(d, 'narrow'), sub: String(d.getDate()),
+            min: withLive(k, byDay[k]), today: k === todayKey, future: k > todayKey });
+        }
+      }
+      const worked = series.filter(x => x.min > 0).length;
+      return {
+        total: periodMin,
+        caption: clockPeriod?.periodStart ? `Worked ${formatMonthDay(dayOf(clockPeriod.periodStart))} - ${formatMonthDay(dayOf(clockPeriod.periodEnd))}` : 'Worked this pay period',
+        facts: [['Days Worked', String(worked)], ['Daily Avg', avgOf(periodMin, worked)]],
+        series,
+      };
+    }
+    const base = dayOf(todayKey);
+    const monday = new Date(base); monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+    const series = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i);
+      const k = keyOf(d);
+      return { key: k, label: formatWeekday(d, 'short'), sub: String(d.getDate()), min: withLive(k, days[k]?.workedMin), today: k === todayKey, future: k > todayKey };
+    });
+    const total = series.reduce((a, x) => a + x.min, 0);
+    const worked = series.filter(x => x.min > 0).length;
+    const breaks = series.reduce((a, x) => a + (days[x.key]?.breakMin || 0), 0);
+    return {
+      total, caption: `Worked this week · ${formatMonthDay(dayOf(series[0].key))} - ${formatMonthDay(dayOf(series[6].key))}`,
+      facts: [['Days Worked', String(worked)], ['Daily Avg', avgOf(total, worked)], ['Breaks', `${breaks}m`]],
+      series,
+    };
+  })();
+  const tone = onBreak ? 'break' : clockedIn ? 'in' : 'out';
+  // Today's shift for Overview's Hours tile (Oct 2 - it sits beside this
+  // week's hours rather than as a grey line under the greeting). null while
+  // loading, so the tile never claims "no shift" before it knows.
+  const todayShift = todayShifts === null ? null : todayShifts.length
+    ? { time: todayShifts.map(x => `${formatHHMM(x.start)} - ${formatHHMM(x.end)}`).join(', '), label: todayShifts[0].label || '' }
+    : { time: '', label: '' };
+
+  // Overview's top, in reading order (Oct 2): `intro` - the greeting with the
+  // day and today's shift, as plain page text - then MyHR's summary tiles,
+  // then `card` - the clock itself, which opens straight onto the punch
+  // panel and the hours panel (no header band of its own).
+  const clockIntro = (firstName) => (
+    <div className="wd-intro">
+      <div style={{ minWidth: 0 }}>
+        <h3 className="wd-intro-greet">{greetingFor(now)}{firstName ? `, ${firstName}` : ''}</h3>
+      </div>
+    </div>
+  );
+  const clockWidget = (firstName) => ({ intro: clockIntro(firstName), card: clockCard(), shift: todayShift });
+  // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
+  // off, please take it off so the data that's coming in is relevant") - the
+  // old "Time Tracking Is Off for You" note was a card about nothing.
+  const clockCard = () => status?.timeTrackingExempt ? null : (
+    <div style={{ marginBottom: 18 }}>
+      {showLongBanner && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
+          <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#b45309', flex: 1, minWidth: 220 }}>
+            You've been clocked in for {Math.floor(sessionHours)} hours - still working, or did you forget to punch out?
+          </span>
+          <button className="secondary-btn" style={{ fontSize: 12 }}
+            onClick={() => { const t = Date.now(); localStorage.setItem('nexus:longShiftAck', String(t)); setLongAckAt(t); }}>
+            I'm Still Working
+          </button>
+          <button className="primary-btn" style={{ fontSize: 12 }}
+            onClick={() => {
+              // The fix lives inline on the Time Sheet: click the red "Missing" out-cell
+              // to send an approver-confirmed clock-out request.
+              setTab('timesheet');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}>
+            Fix My Punch Out
+          </button>
+        </div>
+      )}
+      <section className={`wd-clock wd-clock--${tone}`} aria-label="Time Clock">
+        {!status ? (
+          <div style={{ padding: '22px 24px' }}><SkeletonBlocks count={2} height={20} /></div>
+        ) : (
+          <div className="wd-clock-body">
+            <div className="wd-clock-main">
+              {clockedIn ? (
+                /* Working: stopwatch dial, one sweep per hour of this session.
+                   On break: arc = the 60m allowance draining (red once over). */
+                <SessionRing seconds={sinceSec}
+                  pct={onBreak && showAllowance ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
+                  color={onBreak ? (showAllowance && breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
+                  label={onBreak ? 'On Break' : 'This Session'}
+                  sub={onBreak && showAllowance ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
+              ) : <IdleDial now={now} />}
+              <div className="wd-clock-info">
+                <div>
+                  <span className={`wd-state wd-state--${tone}`}>
+                    <span className={clockedIn ? 'tc-live' : ''} style={{ width: 8, height: 8, borderRadius: '50%', background: 'currentColor', flexShrink: 0,
+                      '--ping': onBreak ? 'rgba(180,83,9,.4)' : 'color-mix(in srgb, var(--wk-brand) 40%, transparent)' }} />
+                    {onBreak ? 'On Break' : clockedIn ? 'Clocked In' : 'Clocked Out'}
+                  </span>
+                  <div className="wd-since">
+                    {last && !staleShift
+                      ? <>{KIND_DONE[last.kind] || 'Last punch'} at <b>{localTime(last.at)}</b></>
+                      : 'Punch in when you start - your location is checked at that moment only.'}
+                  </div>
+                  {last && !staleShift && <div style={{ marginTop: 6 }}><GeoChip p={last} /></div>}
+                </div>
+                {onBreak && (
+                  <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
+                    background: showAllowance && breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
+                    color: showAllowance && breakLeftMin < 0 ? 'hsl(var(--color-red))' : '#b45309', fontSize: 13, fontWeight: 700 }}>
+                    <Coffee size={14} />
+                    {!showAllowance
+                      ? `On break for ${breakUsedMin} min today`
+                      : breakLeftMin >= 0
+                        ? `${breakLeftMin} min left of your 1h daily break`
+                        : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
+                  </div>
+                )}
+                {/* Dismissing the dialog must not leave silence - the punch is still
+                    owed, and this is the line that stops them "fixing" it by
+                    punching out. It clears itself the moment the punch lands. */}
+                {parked && !lostModal && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 13px', borderRadius: 10,
+                    background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 200 }}>
+                      Your {(KIND_LABEL[parked.kind] || 'punch').toLowerCase()} at {localTime(parked.at)} still
+                      hasn&apos;t recorded.{parked.held ? ' Nexus is still trying - it will go in at that time. Don’t punch out to fix it.' : ' Retry from this screen.'}
+                    </span>
+                    <button onClick={retryLostPunch} disabled={!!busy}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer', font: 'inherit', fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>
+                      Retry Now
+                    </button>
+                  </div>
+                )}
+                {staleShift && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', borderRadius: 12,
+                    background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 200 }}>
+                      Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
+                      Submit a Missed Punch request with the real clock-out time - and clock in to start today.
+                    </span>
+                    <button className="primary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setTab('timesheet')}>
+                      Fix My Punch Out
+                    </button>
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {(status.allowed || []).map(kind => {
+                    const M = KIND_META[kind];
+                    return (
+                      <button key={kind} className="wd-punch" onClick={async () => {
+                          // Screen-share is required to clock in / come back from break
+                          // (except for monitoring-exempt staff). The browser only grants
+                          // sharing on a user gesture, so start it from within this click
+                          // and WAIT: if the person dismisses the picker, block the punch.
+                          // start() resolves true when a stream is live or capture isn't
+                          // required here - so a false means "required but declined".
+                          if (kind === 'in' || kind === 'break_end') {
+                            const ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true));
+                            if (!ok) {
+                              toast(false, kind === 'in'
+                                ? 'You need to share a screen to clock in. Choose a screen when your browser asks, then tap again.'
+                                : 'You need to share a screen to end your break. Choose a screen when your browser asks, then tap again.');
+                              return;
+                            }
+                          }
+                          doPunch(kind);
+                        }} disabled={!!busy}
+                        style={{ background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1, cursor: busy ? 'default' : 'pointer' }}>
+                        {busy === kind ? <Spinner size="inline" /> : <M.Icon size={17} />}
+                        {busy === kind ? 'Getting location…' : M.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Hours panel (Oct 2, the pattern Jibble / ZEP / Rippling use):
+                ONE view at a time behind a Today / Week / Pay Period switch -
+                a big total, a few quiet supporting numbers, then a single
+                picture of it (today's punches, or daily bars against the
+                8-hour line). Replaces a stacked timeline + metric boxes +
+                separate chart that all said the same thing. */}
+            <div className="wd-clock-side">
+              <div className="wd-hp-top">
+                <div className="wd-seg" role="tablist" aria-label="Hours for">
+                  {[['today', 'Today'], ['week', 'This Week'], ['period', 'Pay Period']].map(([k, l]) => (
+                    <button key={k} type="button" role="tab" aria-selected={hoursView === k}
+                      className={hoursView === k ? 'on' : ''} onClick={() => pickHoursView(k)}>{l}</button>
+                  ))}
+                </div>
+                {todayData?.flags?.length > 0 ? (
+                  <button onClick={() => setTab('timesheet')} className="wd-flag">
+                    <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review
+                  </button>
+                ) : (
+                  <button className="wd-link" onClick={() => setTab('timesheet')}>Time Sheet <ArrowRight size={12} /></button>
+                )}
+              </div>
+
+              <div className="wd-hp-head">
+                <div>
+                  <div className="wd-hp-total">{fmtMin(hp.total)}</div>
+                  <div className="wd-hp-cap">{hp.caption}</div>
+                </div>
+                <dl className="wd-hp-facts">
+                  {hp.facts.map(([l, v, warn]) => (
+                    <div key={l}><dt>{l}</dt><dd style={warn ? { color: 'hsl(var(--color-red))' } : undefined}>{v}</dd></div>
+                  ))}
+                </dl>
+              </div>
+
+              {hoursView === 'today' ? (
+                todayData?.punches?.length
+                  ? <div className="wd-hp-viz"><DayTimeline punches={todayData.punches} date={todayKey} /></div>
+                  : <div className="wd-hp-viz wd-empty">No punches yet today - punch in and your day draws here.</div>
+              ) : (
+                <div className="wd-hp-viz"><HoursBars series={hp.series} /></div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -727,13 +1203,24 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       <div className="view-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {tab === 'overview' ? <User size={19} /> : <Clock size={19} />}
+            {tab === 'timeoff' ? <CalendarDays size={19} /> : <Clock size={19} />}
           </span>
           <div className="view-title-group">
             <h2 style={{ margin: 0 }}>{TAB_META[tab].title}</h2>
             <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
           </div>
         </div>
+        {showReview && (
+          <button type="button" className={toReview > 0 ? 'primary-btn' : 'secondary-btn'} onClick={openReview}
+            title="Jump to the timesheets submitted to you - agree to them or send them back"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, alignSelf: 'center', whiteSpace: 'nowrap' }}>
+            <ClipboardCheck size={15} /> Timesheets to Review
+            {toReview > 0 && (
+              <span aria-label={`${toReview} waiting`} style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: '#fff', color: 'var(--wk-brand)',
+                fontSize: 11.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{toReview}</span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
@@ -743,245 +1230,39 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           reading "Time Clock". Overview always leads - My HR content applies
           to everyone regardless of time-tracking-exempt status. */}
       <ModuleTabs
-        tabs={(status?.timeTrackingExempt
+        tabs={(exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'clock', 'timeoff']
-          : ['overview', 'clock', 'timesheet', 'timeoff']
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+          : ['overview', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
-      {tab === 'overview' && <MyHROverview onOpenTimeOff={() => setTab('timeoff')} />}
-
       {msg && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
           background: msg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: msg.ok ? 'hsl(var(--color-green))' : '#b91c1c', fontSize: 13, fontWeight: 600 }}>
           {msg.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
       )}
 
-      {/* Salaried/exempt people see no punch UI or hours at all (Charmi, Aug 21:
-          "if you're salaried, there should be an option that this turns off"). */}
-      {tab === 'clock' && status?.timeTrackingExempt && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '26px 28px', boxShadow: 'var(--wk-shadow)', display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
-          <span style={{ width: 42, height: 42, borderRadius: 12, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Clock size={20} />
-          </span>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>Time Tracking Is Off for You</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-              You're on a salaried, time-tracking-exempt setup, so Nexus doesn't record punches or hours for you.
-              Time-off requests still work from the Time Off tab.
-            </div>
-          </div>
-        </div>
+      {/* Overview: the Time Clock widget first, then the employee's own HR
+          page (profile, hours, documents, time off, Ask HR). */}
+      {tab === 'overview' && (
+        <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={status?.timeTrackingExempt ? undefined : () => setTab('timesheet')} />
       )}
 
-      {/* Punch card + today panel, side by side on wide screens */}
-      {tab === 'clock' && !status?.timeTrackingExempt && (<>
-      {showLongBanner && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
-          <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#b45309', flex: 1, minWidth: 220 }}>
-            You've been clocked in for {Math.floor(sessionHours)} hours - still working, or did you forget to punch out?
-          </span>
-          <button className="secondary-btn" style={{ fontSize: 12 }}
-            onClick={() => { const t = Date.now(); localStorage.setItem('nexus:longShiftAck', String(t)); setLongAckAt(t); }}>
-            I'm still working
-          </button>
-          <button className="primary-btn" style={{ fontSize: 12 }}
-            onClick={() => {
-              // The fix lives inline on the Time Sheet: click the red "Missing" out-cell
-              // to send an approver-confirmed clock-out request.
-              setTab('timesheet');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}>
-            I forgot - fix my punch-out
-          </button>
+      {/* Timesheets submitted to me, not decided yet - above my own timesheet,
+          for exempt reviewers too. Renders nothing when nothing is waiting. */}
+      {tab === 'timesheet' && (
+        <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
+          <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
+            onCount={onReviewCount} onOpen={openTimecardFor} />
         </div>
       )}
-      <div className="tc-grid" style={{ marginBottom: 18 }}>
-      <div className="tc-span2" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-        {!status ? (
-          <SkeletonBlocks count={2} height={20} />
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
-            {clockedIn && (
-              /* Working: stopwatch dial, one sweep per hour of this session.
-                 On break: arc = the 60m allowance draining (red once over). */
-              <SessionRing seconds={sinceSec}
-                pct={onBreak && showAllowance ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
-                color={onBreak ? (showAllowance && breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
-                label={onBreak ? 'On Break' : 'This Session'}
-                sub={onBreak && showAllowance ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
-            )}
-            <div style={{ flex: 1, minWidth: 250, display: 'flex', flexDirection: 'column', gap: 11 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
-              <span className={clockedIn ? 'tc-live' : ''} style={{ width: 11, height: 11, borderRadius: '50%', flexShrink: 0,
-                background: onBreak ? '#b45309' : clockedIn ? 'var(--wk-brand)' : 'var(--wk-faint)',
-                '--ping': onBreak ? 'rgba(180,83,9,.4)' : 'rgba(43,69,225,.4)' }} />
-              <span style={{ fontSize: 25, fontWeight: 700, color: onBreak ? '#b45309' : clockedIn ? 'var(--wk-brand)' : 'var(--ink)' }}>
-                {onBreak ? 'On Break' : clockedIn ? 'Clocked In' : 'Clocked Out'}
-              </span>
-              {last && (
-                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  since {localTime(last.at)}
-                </span>
-              )}
-            </div>
-            {last && <div><GeoChip p={last} /></div>}
-            {onBreak && (
-              <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
-                background: showAllowance && breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
-                color: showAllowance && breakLeftMin < 0 ? 'hsl(var(--color-red))' : '#b45309', fontSize: 13, fontWeight: 700 }}>
-                <Coffee size={14} />
-                {!showAllowance
-                  ? `On break for ${breakUsedMin} min today`
-                  : breakLeftMin >= 0
-                    ? `${breakLeftMin} min left of your 1h daily break`
-                    : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
-              </div>
-            )}
-            {/* Dismissing the dialog must not leave silence - the punch is still
-                owed, and this is the line that stops them "fixing" it by
-                punching out. It clears itself the moment the punch lands. */}
-            {parked && !lostModal && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 13px', borderRadius: 10,
-                background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
-                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 200 }}>
-                  Your {(KIND_LABEL[parked.kind] || 'punch').toLowerCase()} at {localTime(parked.at)} still
-                  hasn&apos;t recorded.{parked.held ? ' Nexus is still trying - it will go in at that time. Don\u2019t punch out to fix it.' : ' Retry from this screen.'}
-                </span>
-                <button onClick={retryLostPunch} disabled={!!busy}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer', font: 'inherit', fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>
-                  Retry Now
-                </button>
-              </div>
-            )}
-            {status.staleOpenShift && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, marginBottom: 10,
-                background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
-                <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 200 }}>
-                  Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
-                  Submit a Missed Punch request with the real clock-out time - and clock in to start today.
-                </span>
-                <button className="primary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setTab('timesheet')}>
-                  Fix my punch-out
-                </button>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 3 }}>
-              {(status.allowed || []).map(kind => {
-                const M = KIND_META[kind];
-                return (
-                  <button key={kind} onClick={async () => {
-                      // Screen-share is required to clock in / come back from break
-                      // (except for monitoring-exempt staff). The browser only grants
-                      // sharing on a user gesture, so start it from within this click
-                      // and WAIT: if the person dismisses the picker, block the punch.
-                      // start() resolves true when a stream is live or capture isn't
-                      // required here - so a false means "required but declined".
-                      if (kind === 'in' || kind === 'break_end') {
-                        const ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true));
-                        if (!ok) {
-                          toast(false, kind === 'in'
-                            ? 'You need to share a screen to clock in. Choose a screen when your browser asks, then tap again.'
-                            : 'You need to share a screen to end your break. Choose a screen when your browser asks, then tap again.');
-                          return;
-                        }
-                      }
-                      doPunch(kind);
-                    }} disabled={!!busy}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
-                      border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'var(--wk-font)',
-                      fontSize: 15, fontWeight: 700, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
-                    {busy === kind ? <Spinner size="inline" /> : <M.Icon size={17} />}
-                    {busy === kind ? 'Getting location…' : M.label}
-                  </button>
-                );
-              })}
-            </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0 }}>
-        <div style={{ ...HD, marginBottom: 12 }}>Today</div>
-        {todayData ? (
-          <>
-            <DayTimeline punches={todayData.punches} date={todayKey} />
-            <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
-              {[['Worked Today', fmtMin(todayData.workedMin), 'var(--ink)'],
-                ['Breaks', showAllowance ? `${breakUsedMin} / 60m` : `${breakUsedMin}m`,
-                  showAllowance && breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)']].map(([l, v, c]) => (
-                <div key={l}>
-                  <div style={STAT_L}>{l}</div>
-                  <div style={{ fontSize: 19, fontWeight: 700, color: c, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
-                </div>
-              ))}
-            </div>
-            {todayData.flags.length > 0 && (
-              <button onClick={() => setTab('timesheet')}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700,
-                  color: '#b45309', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
-                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review - see Time Sheet
-              </button>
-            )}
-          </>
-        ) : (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-            No punches yet today.
-          </div>
-        )}
-      </div>
-      {/* Jul 24: the standing location/monitoring notice paragraphs were removed by
-          management decision - capture is initiated by the employee's own share
-          action (with the browser's persistent sharing indicator), and standing
-          disclosure lives in the signed monitoring policy. The consent-gate modal
-          below stays as dormant code (the server no longer requests it). */}
-
-        <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '20px 22px', boxShadow: 'var(--wk-shadow)', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14 }}>
-            <span style={HD}>This Pay Period</span>
-            {clockPeriod?.periodStart && (
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                {fmtShort(clockPeriod.periodStart)} – {fmtShort(clockPeriod.periodEnd)}
-              </span>
-            )}
-          </div>
-          {clockPeriod ? (<>
-            {(clockPeriod.totals?.workedMin || 0) > 0 ? <PeriodBars days={clockPeriod.days} /> : (
-              <div style={{ height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '0 12px' }}>
-                No hours yet this period - your days chart here as you punch in.
-              </div>
-            )}
-            {(() => {
-              const t = clockPeriod.totals || {};
-              const activeDays = (clockPeriod.days || []).filter(d => (d.workedMin || 0) > 0).length;
-              const periodBreak = (clockPeriod.days || []).reduce((a, d) => a + (d.breakMin || 0) + gapBreakFromSegments(d.segments), 0);
-              return (
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
-                  <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(t.workedMin || 0)}</span>
-                  <span style={{ color: 'var(--muted)' }}>{activeDays} day{activeDays !== 1 ? 's' : ''} worked · {periodBreak}m breaks</span>
-                </div>
-              );
-            })()}
-            <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12, alignSelf: 'flex-start' }} onClick={() => setTab('timesheet')}>
-              Open Time Sheet
-            </button>
-          </>) : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110, color: 'var(--muted)' }}>
-              <WeekBars days={days} />
-            </div>
-          )}
-        </div>
-
-      </div>
-      </>)}
+      {tab === 'timesheet' && status?.timeTrackingExempt && toReview === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 2px' }}>Nothing is waiting on you to review.</div>
+      )}
 
       {/* Timesheet - day list + week summary side panel */}
       {tab === 'timesheet' && !status?.timeTrackingExempt && (<>
@@ -1034,188 +1315,172 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
       {tab === 'timeoff' && (<>
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
           <span className="wkc-chip"><CalendarDays size={14} /></span>
           <span style={HD}>Request Time Off</span>
         </div>
-        {/* A grid, not stacked flex rows, so "Total" lands directly under
-            "All day" - the same column - instead of crowding the Note field
-            (Pranshu, Sep 16 follow-up): that also happens to be exactly the
-            blank space row 1 leaves under the toggle once Request is pinned
-            to the far right, so Total fills space that was going unused
-            rather than competing with Note for room. Explicit gridRow on
-            every cell (not auto-flow) keeps this correct whether or not the
-            specific-hours row is present. */}
+        {/* Labeled fields that wrap on their own (Oct 2): Reason (the type,
+            Neil Oct 1 - "the first thing that says Vacation was supposed to
+            be Reason"), From, To, All day; the hours row when it is part of
+            a day; then a free-text Note - optional, not labeled optional
+            ("it's always in our interest to get details"). */}
         {toTypes && toTypes.requestsOn === false ? (
           <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Time-off requests are turned off. Ask your manager to add your time off.</div>
-        ) : (() => {
-          const noteRow = toForm.allDay ? 2 : 3;
-          // Where each cell sits. Phones (toNarrow): type / start "to" end /
-          // All day + Total / hours / Note / Request, all full width.
-          const narrowNote = toForm.allDay ? 4 : 5;
-          const at = toNarrow ? {
-            cols: 'minmax(0,1fr) auto minmax(0,1fr)',
-            type: ['1 / -1', 1], start: [1, 2], to: [2, 2], end: [3, 2], allDay: ['1 / 3', 3],
-            request: ['1 / -1', narrowNote + 2], hours: ['1 / -1', 4], note: ['1 / -1', narrowNote], total: [3, 3],
-            confidential: ['1 / -1', narrowNote + 1],
-          } : {
-            cols: '140px 150px auto 150px auto 1fr auto',
-            type: [1, 1], start: [2, 1], to: [3, 1], end: [4, 1], allDay: [5, 1],
-            request: [7, 1], hours: ['1 / 5', 2], note: ['1 / 5', noteRow], total: [5, noteRow],
-            confidential: ['1 / 8', noteRow + 1],
-          };
-          const cell = (k) => ({ gridColumn: at[k][0], gridRow: at[k][1] });
-          return (
-            <div style={{ display: 'grid', gridTemplateColumns: at.cols, gap: 10, alignItems: 'center' }}>
-              <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
-                style={{ ...cell('type'), fontSize: 12.5 }}>
-                {toOptions.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
-              <input className="form-input" type="date" value={toForm.start}
-                onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? f.end : e.target.value }))}
-                style={{ ...cell('start'), fontSize: 12.5, minWidth: 0 }} />
-              <span style={{ ...cell('to'), fontSize: 12, color: 'var(--muted)' }}>to</span>
-              <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay}
-                title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
-                onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
-                style={{ ...cell('end'), fontSize: 12.5, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
+              <div style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+                <span style={TO_LBL}>Reason</span>
+                <ReasonPicker value={toForm.type} options={REQUEST_TIMEOFF_TYPES} onChange={type => setToForm(f => ({ ...f, type }))} />
+              </div>
+              <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+                <span style={TO_LBL}>From</span>
+                <input className="form-input" type="date" value={toForm.start}
+                  onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? (f.end && f.end >= e.target.value ? f.end : e.target.value) : e.target.value }))}
+                  style={{ fontSize: 12.5, minWidth: 0 }} />
+              </label>
+              <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+                <span style={TO_LBL}>To</span>
+                <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay} min={toForm.start || undefined}
+                  title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
+                  onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
+                  style={{ fontSize: 12.5, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
+              </label>
               {/* Teams' New Request "All day" switch (Pranshu, Sep 16): on = whole
                   day(s), off = a specific start/end time on that one day. */}
-              <label style={{ ...cell('allDay'), display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap', height: 36 }}>
                 <AllDayToggle on={toForm.allDay} onChange={toggleAllDay} />
                 All day
               </label>
-              <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
-                style={{ ...cell('request'), fontSize: 12.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, justifySelf: toNarrow ? 'stretch' : 'end' }}>
-                {toBusy ? <Spinner size={13} /> : <Plus size={13} />} Request
-              </button>
+            </div>
 
-              {/* Specific hours: only offered on a one-day range, since that's
-                  all the backend accepts a start/end time on. */}
-              {!toForm.allDay && (
-                <div style={{ ...cell('hours'), display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {/* Label + input pairs, so a phone wraps between the pairs,
-                      never between a label and its field. */}
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, minWidth: 58 }}>Start time</span>
-                    <input className="form-input" type="time" value={toForm.startTime}
-                      onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, minWidth: 58 }}>End time</span>
-                    <input className="form-input" type="time" value={toForm.endTime}
-                      onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5, width: 120 }} />
-                  </span>
-                </div>
-              )}
+            {/* Specific hours: only offered on a one-day range, since that's
+                all the backend accepts a start/end time on. */}
+            {!toForm.allDay && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 220px))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 5 }}>
+                  <span style={TO_LBL}>Start time</span>
+                  <input className="form-input" type="time" value={toForm.startTime}
+                    onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5 }} />
+                </label>
+                <label style={{ display: 'grid', gap: 5 }}>
+                  <span style={TO_LBL}>End time</span>
+                  <input className="form-input" type="time" value={toForm.endTime}
+                    onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5 }} />
+                </label>
+              </div>
+            )}
 
-              {/* Note: bigger now that it isn't squeezed against Total
-                  (Pranshu, Sep 16 follow-up) - spans the same width as the
-                  type/date fields above it. */}
-              <label style={{ ...cell('note'), display: 'grid', gap: 4, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>Reason</span>
-                <textarea className="form-input" aria-label="Reason" placeholder="Why you are taking this time off" value={toForm.note} rows={2}
-                  maxLength={400} onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
-                  style={{ fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
-              </label>
-              {/* Confidential (Neil, Sep 29): the team still sees that you're
-                  out; the type and note stay between you and your approver. */}
-              <label style={{ ...cell('confidential'), display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+            <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
+              <span style={TO_LBL}>Note</span>
+              <textarea className="form-input" aria-label="Note" placeholder="Anything your approver should know" value={toForm.note} rows={2}
+                maxLength={400} onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
+                style={{ fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
+            </label>
+
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
+              {/* Confidential (Neil, Sep 29/30): the team sees that you're out
+                  and the type ("Time off - Medical"); the note stays between
+                  you and your approver. */}
+              <label style={{ flex: '1 1 320px', display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
                 <input type="checkbox" checked={!!toForm.confidential} onChange={e => setToForm(f => ({ ...f, confidential: e.target.checked }))}
                   style={{ marginTop: 2 }} />
                 <span>
                   <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    Your team sees only that you're out. The type and reason are visible only to you and your approver (your manager).
+                    Your team sees that you're out and the reason (for example Sick). Your note is visible only to you and your approver (your manager).
                   </span>
                 </span>
               </label>
-              {/* Total: a live read of what this request will count as, using
-                  the same day-fraction math as the year-at-a-glance tally
-                  below, so the two numbers never disagree (Pranshu, Sep 16) -
-                  directly under "All day", not beside Note. */}
-              {toTotalDays > 0 && (
-                <span style={{ ...cell('total'), justifySelf: toNarrow ? 'end' : undefined, fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+              {/* Total: a live read of what this request will count as.
+                  Specific hours count in hours (Neil, Sep 30: 8:30 AM - 5:30 PM
+                  is "9 hours", not "1.13 days"); whole days in working days. */}
+              {(toTotalHours > 0 || (!toPartialOk && toTotalDays > 0)) && (
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap', paddingBottom: 9 }}>
                   Total
-                  <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>day{toTotalDays === 1 ? '' : 's'}</span>
+                  {toPartialOk ? (
+                    <>
+                      <span style={{ fontSize: 13.5 }}>{Math.round(toTotalHours * 100) / 100}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--muted)' }}>hour{toTotalHours === 1 ? '' : 's'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
+                      <span style={{ fontWeight: 600, color: 'var(--muted)' }}>working day{toTotalDays === 1 ? '' : 's'}</span>
+                    </>
+                  )}
                 </span>
               )}
+              <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 120 }}>
+                {toBusy ? <Spinner size={13} /> : <Plus size={13} />} Request
+              </button>
             </div>
-          );
-        })()}
+          </div>
+        )}
       </div>
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-      <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
-        {(timeoff || []).length === 0 && (
-          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+      {/* Shift Requests (Charmi, 09/30): swaps, offers and open-shift requests
+          live here with the time-off form, not in the Shifts module. */}
+      <WorkdayShiftRequests toast={toast} />
+      {/* My requests, full width. The year-at-a-glance panel is gone (Neil,
+          Oct 1: "old and useless") - the year's approved total is a tile on
+          Overview. */}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '13px 16px', borderBottom: '1px solid var(--line)' }}>
+          <span style={HD}>My Requests</span>
+          {(timeoff || []).some(r => r.status === 'pending') && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 999, background: TO_TINT.pending, color: TO_STATUS.pending }}>
+              {(timeoff || []).filter(r => r.status === 'pending').length} Pending
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Your manager decides - you get a bell notification</span>
+        </div>
+        {timeoff === null && <div style={{ padding: 16 }}><SkeletonBlocks count={2} height={18} /></div>}
+        {Array.isArray(timeoff) && timeoff.length === 0 && (
+          <div style={{ padding: '18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
             No time-off requests yet.
           </div>
         )}
-        {(timeoff || []).map(r => (
-          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 800, width: 90 }}>{TIMEOFF_TYPES[r.type] || r.type}</span>
-            {r.confidential && <ConfidentialBadge />}
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}{toWindow(r)}</span>
-            {r.note && <span title={r.note} style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Reason: {r.note}</span>}
-            <div style={{ flex: 1 }} />
-            {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
-            {/* The requester can withdraw their own request while it's still
-                pending or before it's actually decided against, i.e. anything
-                not already rejected/cancelled (Pranshu, Sep 16 - there was no
-                way to take a request back once filed). */}
-            {(r.status === 'pending' || r.status === 'approved') && (
-              <button onClick={() => cancelTimeoff(r.id)} disabled={toCancelling === r.id}
-                title="Cancel this request"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
-                  cursor: toCancelling === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
-                  padding: '2px 6px', opacity: toCancelling === r.id ? 0.5 : 1 }}>
-                {toCancelling === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
-              </button>
-            )}
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
-              background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}>
-              {r.status}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Year-at-a-glance side panel */}
-      <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' }}>
-        <div style={{ ...HD, marginBottom: 12 }}>
-          {new Date().getFullYear()} at a Glance
-        </div>
-        {(() => {
-          const yr = String(new Date().getFullYear());
-          const dayCount = (r) => toDayCount(r.startDate, r.endDate, r.startTime, r.endTime);
-          const approved = (timeoff || []).filter(r => r.status === 'approved' && (r.startDate || '').startsWith(yr));
-          const byType = {};
-          approved.forEach(r => { byType[r.type] = (byType[r.type] || 0) + dayCount(r); });
-          const totalDays = Object.values(byType).reduce((a, b) => a + b, 0);
-          const pending = (timeoff || []).filter(r => r.status === 'pending').length;
+        {(timeoff || []).map(r => {
+          const label = timeOffLabel(r.type);
+          const { Icon: TIcon, color } = reasonLook(r.type, label);
+          const days = r.startDate === r.endDate ? toDay(r.startDate) : `${toDay(r.startDate)} - ${toDay(r.endDate)}`;
           return (
-            <>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--wk-brand)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(totalDays * 100) / 100}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
-              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-                {Object.keys(byType).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No approved leave this year yet.</div>}
-                {Object.entries(byType).map(([t, n]) => (
-                  <div key={t} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
-                    <span style={{ textTransform: 'capitalize', color: 'var(--muted)', fontWeight: 600 }}>{TIMEOFF_TYPES[t] || t}</span>
-                    <span style={{ fontWeight: 800 }}>{Math.round(n * 100) / 100}d</span>
-                  </div>
-                ))}
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+              <span style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--mist)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <TIcon size={15} color={color} />
+              </span>
+              <div style={{ minWidth: 160, flex: '0 1 240px' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 7 }}>
+                  {label}{r.confidential && <ConfidentialBadge />}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{days}{toWindow(r)}</div>
               </div>
-              {pending > 0 && (
-                <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: '#b45309' }}>{pending} request{pending !== 1 ? 's' : ''} awaiting approval</div>
+              <div style={{ flex: 1, minWidth: 120, fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.note || undefined}>
+                {r.note ? <>Note: {r.note}</> : null}
+              </div>
+              {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
+              {/* The requester can withdraw their own request while it's still
+                  pending or before it's actually decided against, i.e. anything
+                  not already rejected/cancelled (Pranshu, Sep 16 - there was no
+                  way to take a request back once filed). */}
+              {(r.status === 'pending' || r.status === 'approved') && (
+                <button onClick={() => cancelTimeoff(r.id)} disabled={toCancelling === r.id}
+                  title="Cancel this request"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
+                    cursor: toCancelling === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                    padding: '2px 6px', opacity: toCancelling === r.id ? 0.5 : 1 }}>
+                  {toCancelling === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
+                </button>
               )}
-              <p style={{ margin: '14px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
-                Requests go to your manager; you'll get a bell notification when they decide.
-              </p>
-            </>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 999, minWidth: 74, textAlign: 'center',
+                background: TO_TINT[r.status] || 'var(--mist)', color: TO_STATUS[r.status] || 'var(--muted)' }}>
+                {TO_STATUS_LABEL[r.status] || r.status}
+              </span>
+            </div>
           );
-        })()}
-      </div>
+        })}
       </div>
       </>)}
 
@@ -1323,7 +1588,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 // Lock + "Confidential" chip on a confidential time-off row (Sep 29).
 function ConfidentialBadge() {
   return (
-    <span title="Confidential - only you and your approver see the type and note"
+    <span title="Confidential - only you and your approver see the note"
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)',
         background: 'var(--mist)', borderRadius: 999, padding: '2px 8px' }}>
       <Lock size={10} /> Confidential

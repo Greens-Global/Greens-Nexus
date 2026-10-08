@@ -344,15 +344,13 @@ export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile,
         const extraProjects = teamProjects.length - shownProjects.length;
         const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
         return (
-          <div key={team.id} onClick={() => onOpen(team.id)}
+          <div key={team.id} onClick={() => onOpen(team.id)} className="nx-row-hover"
             style={{
               display: 'grid', gridTemplateColumns: cols,
               gap: isMobile ? 6 : 12, alignItems: 'center',
               padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
               cursor: 'pointer', background: rowBg,
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
+            }}>
 
             {/* Cells are keyed and rendered in the HEADER's order, not in source
                 order - once columns can be dragged, a row that renders them in a

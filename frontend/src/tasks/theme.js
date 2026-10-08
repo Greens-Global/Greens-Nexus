@@ -38,7 +38,15 @@ export const STATUS_META = {
   recurring:   { label: 'Recurring',   color: '#0d9488', tint: 'rgba(13,148,136,0.15)' },
   in_progress: { label: 'In Progress', color: '#fdab3d', tint: 'rgba(253,171,61,0.18)' },
   completed:   { label: 'Completed',   color: '#00c875', tint: 'rgba(0,200,117,0.16)' },
+  // A recurring occurrence the system closed when the next one came due before
+  // it was done (Oct 2). Shown wherever a status is drawn, but deliberately NOT
+  // in STATUS_ORDER - the order every status picker, board column and rule
+  // trigger is built from - so nobody can choose it by hand (the server
+  // refuses it too).
+  missed:      { label: 'Missed',      color: '#9ca3af', tint: 'rgba(156,163,175,0.18)' },
 };
+export const isMissed = (t) => t?.status === 'missed';
+export const MISSED_TITLE = 'Missed - closed when the next occurrence came due. Click to reopen.';
 // Completed stays LAST: list groups render in this order and hand out the
 // incremental row budget group-by-group, so anything sorted after the (ever-
 // growing) Completed bucket gets starved off-screen - the Recurring section

@@ -65,7 +65,8 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
     const { config, def, columns, rows } = result;
     const wide = columns.length > 3;
     const many = columns.length > 6;
-    const figW = (c) => (c.type === 'pct' ? 70 : c.type === 'date' ? 84 : many ? 88 : wide ? 104 : 112);
+    // A General Ledger's text columns (entry, description, entity) read left and take more room.
+    const figW = (c) => (c.type === 'pct' ? 70 : c.type === 'date' ? 84 : c.type === 'text' ? (c.key === 'description' ? 220 : 110) : many ? 88 : wide ? 104 : 112);
     const figures = columns.reduce((s, c) => s + figW(c), 0);
     // The account names keep at least 230 points; the sheet grows past that.
     const need = MARGIN * 2 + 230 + figures;
@@ -94,12 +95,13 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
       }
       y -= 18;
       // Column headings.
-      page.drawText('ACCOUNT', { x: MARGIN, y, size: 7.5, font: bold, color: MUTED });
+      page.drawText(clean((result.glLabel || 'Account').toUpperCase()), { x: MARGIN, y, size: 7.5, font: bold, color: MUTED });
       let x = MARGIN + labelW;
       columns.forEach((c) => {
         const w = figW(c);
         const t = fit(bold, 7.5, c.label.toUpperCase(), w - 8);
-        page.drawText(t, { x: x + w - bold.widthOfTextAtSize(t, 7.5), y, size: 7.5, font: bold, color: MUTED });
+        if (c.type === 'text') page.drawText(t, { x: x + 3, y, size: 7.5, font: bold, color: MUTED });
+        else page.drawText(t, { x: x + w - bold.widthOfTextAtSize(t, 7.5), y, size: 7.5, font: bold, color: MUTED });
         x += w;
       });
       y -= 5;
@@ -114,9 +116,9 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
 
     head();
     rows.forEach((r, i) => {
-      const heavy = r.kind !== 'account';
+      const heavy = r.kind !== 'account' && r.kind !== 'line';
       // A section heading never sits alone at the foot of a page.
-      room(r.kind === 'section' ? ROW * 2 + 4 : r.kind === 'account' ? 0 : 8);
+      room(r.kind === 'section' ? ROW * 2 + 4 : r.kind === 'account' || r.kind === 'line' ? 0 : 8);
       if (r.kind === 'subtotal' || r.kind === 'grand' || r.kind === 'margin') {
         y -= 3;
         page.drawLine({ start: { x: MARGIN, y: y + ROW - 3 }, end: { x: W - MARGIN, y: y + ROW - 3 }, thickness: 0.7, color: INK });
@@ -138,16 +140,17 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
         }
         page.drawText(fit(font, fs, r.title, MARGIN + labelW - x - 8), { x, y, size: fs, font, color: INK });
       } else {
-        page.drawText(fit(f, fs, r.label, labelW - 8), { x: MARGIN + (r.kind === 'section' ? 4 : 0), y, size: fs, font: f, color: INK });
+        page.drawText(fit(f, fs, r.label, labelW - 8), { x: MARGIN + (r.kind === 'section' ? 4 : r.kind === 'line' ? 12 : 0), y, size: fs, font: f, color: r.kind === 'line' ? MUTED : INK });
       }
       let x = MARGIN + labelW;
       columns.forEach((c, k) => {
         const w = figW(c);
         const t = clean(cellText(r, c, r.values[k]));
-        if (t) page.drawText(t, { x: x + w - f.widthOfTextAtSize(t, fs), y, size: fs, font: f, color: INK });
+        if (t && c.type === 'text') page.drawText(fit(f, fs, t, w - 6), { x: x + 3, y, size: fs, font: f, color: INK });
+        else if (t) page.drawText(t, { x: x + w - f.widthOfTextAtSize(t, fs), y, size: fs, font: f, color: INK });
         x += w;
       });
-      if (r.kind === 'account') page.drawLine({ start: { x: MARGIN, y: y - 4 }, end: { x: W - MARGIN, y: y - 4 }, thickness: 0.3, color: RULE });
+      if (r.kind === 'account' || r.kind === 'line') page.drawLine({ start: { x: MARGIN, y: y - 4 }, end: { x: W - MARGIN, y: y - 4 }, thickness: 0.3, color: RULE });
       y -= ROW;
     });
   });

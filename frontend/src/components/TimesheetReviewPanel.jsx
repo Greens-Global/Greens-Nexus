@@ -20,6 +20,7 @@ const ACTION_LABEL = {
   submitted: 'submitted the timesheet', resubmitted: 'resubmitted the timesheet',
   sent_back: 'sent it back', agreed: 'agreed and sent it for signature',
   declined: 'declined to sign', returned: 'returned it', cancelled: 'cancelled signing',
+  recalled: 'recalled it from signing to apply a punch fix',
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
 };
@@ -131,6 +132,13 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     finally { setBusy(false); }
   }
 
+  // A missing clock-out, a clock-out with no clock-in or an unended break is
+  // fixed before it reaches the manager (Oct 1) - the server refuses Submit
+  // with the same words.
+  const submitNote = r.submitBlocker && (
+    <p role="note" style={{ fontSize: 12.5, margin: '0 0 8px', color: '#b45309' }}>{r.submitBlocker}</p>
+  );
+
   const noteBox = (placeholder) => (
     <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={1000}
       placeholder={placeholder} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13, marginBottom: 8 }} />
@@ -142,7 +150,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>When your hours are right, submit them to your manager for review. You sign after they agree.</p>
         {noteBox('Anything your manager should know? (optional)')}
-        <button className="primary-btn" disabled={busy} onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Submitted to your manager.')}
+        {submitNote}
+        <button className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
+          onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Submitted to your manager.')}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Send size={13} /> Submit for Review</button>
       </>
     ) : <p style={{ fontSize: 13, margin: 0, color: 'var(--muted)' }}>Not submitted yet.</p>;
@@ -173,7 +183,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
           {name(r.managerEmail)} sent it back{lastNote ? <>: <strong>"{lastNote}"</strong></> : '.'} Make the changes above, then resubmit.
         </p>
         {noteBox('What did you change? (optional)')}
-        <button className="primary-btn" disabled={busy} onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Resubmitted to your manager.')}
+        {submitNote}
+        <button className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
+          onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Resubmitted to your manager.')}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Send size={13} /> Resubmit</button>
       </>
     ) : <p style={{ fontSize: 13, margin: 0 }}><Lock size={12} style={{ verticalAlign: '-1px' }} /> Back with {name(r.employeeEmail) || 'the employee'} for changes.</p>;

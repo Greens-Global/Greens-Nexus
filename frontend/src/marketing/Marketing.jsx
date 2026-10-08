@@ -1,17 +1,20 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import GoogleAdsPage from './googleAds/GoogleAdsPage';
 import ReputationPage from './reputation/ReputationPage';
 import BusinessProfilePage from './reputation/BusinessProfilePage';
 import InsightsPage from './insights/InsightsPage';
 import SeoPage from './seo/SeoPage';
 import LeadsPage from './leads/LeadsPage';
-import { ALL_PROPERTIES } from './shared/facilities';
+import { ALL_PROPERTIES, FACILITIES } from './shared/facilities';
 import { thisMonth } from './shared/utils';
 import { computeAlerts } from './shared/alerts';
 import { monthlyBudgetByPropertyDefault } from './googleAds/data';
 import { leadGoalByPropertyDefault } from './insights/data';
 import { generateInsights } from './insights/insightEngine';
 import { buildAccountWideInsightInput } from './insights/buildAccountWideInsightInput';
+import { useGbpSummary, useGbpPermissions } from './gbp/useGbp';
+import { useAdsSummary } from './googleAds/useAds';
+import { api } from '../api';
 
 // Ported 1:1 from the standalone "Marketing Module Nexus" export (src/pages/
 // marketing/Marketing.tsx). The export drove tab/date-range/property state
@@ -19,29 +22,72 @@ import { buildAccountWideInsightInput } from './insights/buildAccountWideInsight
 // one view among many, so that state lives in React state here instead. Budget
 // and goal targets are lifted to this shell (not owned by the pages) so the
 // alerts bell - shown on every tab - reflects edits immediately.
-export default function Marketing() {
-  const [tab, setTab] = useState('google-ads');   // google-ads | reputation | insights | seo | listings | leads
+// The sidebar / address-bar sub ids (MobileMenu, App.jsx DEFAULT_SUBS) -> tab.
+const SUB_TO_TAB = { 'marketing-ads': 'google-ads', 'marketing-reputation': 'reputation', 'marketing-listings': 'listings' };
+
+export default function Marketing({ initialSub } = {}) {
+  const [tab, setTab] = useState(() => SUB_TO_TAB[initialSub] || 'google-ads');   // google-ads | reputation | insights | seo | listings | leads
   const [range, setRange] = useState(thisMonth());
   const [property, setProperty] = useState(ALL_PROPERTIES);
   const [action, setAction] = useState(null);
   const [monthlyBudgetByProperty, setMonthlyBudgetByProperty] = useState(monthlyBudgetByPropertyDefault);
   const [leadGoalByProperty, setLeadGoalByProperty] = useState(leadGoalByPropertyDefault);
   const [dismissedAlertIds, setDismissedAlertIds] = useState(() => new Set());
+  // Real Google review figures once Google Business Profile is connected
+  // (null until then, or without the Marketing grant) - the alerts bell and
+  // the AI Analyst use them instead of the sample reviews.
+  const gbpSummary = useGbpSummary();
+  // Real Google Ads spend once Google Ads is connected (null until then).
+  const adsSummary = useAdsSummary();
+  const { canReply: canSaveBudgets } = useGbpPermissions();
+
+  // Budgets saved on the server replace the sample ones; a property with no
+  // saved budget has none. Nothing saved yet (or no access) -> the samples.
+  useEffect(() => {
+    let live = true;
+    api.getAdBudgets()
+      .then((saved) => {
+        if (live && saved && Object.keys(saved).length) {
+          setMonthlyBudgetByProperty({ ...Object.fromEntries(FACILITIES.map((f) => [f, 0])), ...saved });
+        }
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  // A bell notification (e.g. a new low-star review) opens a specific tab via
+  // nexus:navigate - follow it even when Marketing is already open.
+  useEffect(() => {
+    const onNav = (e) => {
+      const { view, sub } = e.detail || {};
+      if (view === 'marketing' && SUB_TO_TAB[sub]) { setTab(SUB_TO_TAB[sub]); setAction(null); }
+    };
+    window.addEventListener('nexus:navigate', onNav);
+    return () => window.removeEventListener('nexus:navigate', onNav);
+  }, []);
 
   const totalMonthlyBudget = useMemo(() => Object.values(monthlyBudgetByProperty).reduce((a, b) => a + b, 0), [monthlyBudgetByProperty]);
   const totalLeadGoal = useMemo(() => Object.values(leadGoalByProperty).reduce((a, b) => a + b, 0), [leadGoalByProperty]);
 
   const allAlerts = useMemo(
-    () => computeAlerts({ monthlyBudget: totalMonthlyBudget, leadGoal: totalLeadGoal }),
-    [totalMonthlyBudget, totalLeadGoal],
+    () => computeAlerts({ monthlyBudget: totalMonthlyBudget, leadGoal: totalLeadGoal, gbp: gbpSummary, ads: adsSummary }),
+    [totalMonthlyBudget, totalLeadGoal, gbpSummary, adsSummary],
   );
   const alerts = useMemo(() => allAlerts.filter(a => !dismissedAlertIds.has(a.id)), [allAlerts, dismissedAlertIds]);
   const insights = useMemo(
-    () => generateInsights(buildAccountWideInsightInput({ monthlyBudgetByProperty, leadGoalByProperty })),
-    [monthlyBudgetByProperty, leadGoalByProperty],
+    () => generateInsights(buildAccountWideInsightInput({ monthlyBudgetByProperty, leadGoalByProperty, gbp: gbpSummary, ads: adsSummary })),
+    [monthlyBudgetByProperty, leadGoalByProperty, gbpSummary, adsSummary],
   );
 
   const changeMonthlyBudget = (facility, value) => setMonthlyBudgetByProperty(prev => ({ ...prev, [facility]: value }));
+  // Set Budget: saved for everyone with the Marketing editor grant, kept on
+  // this screen only for the rest (as before).
+  const saveBudgets = canSaveBudgets
+    ? async (budgets) => {
+        const saved = await api.setAdBudgets(budgets);
+        setMonthlyBudgetByProperty(prev => ({ ...prev, ...saved }));
+      }
+    : undefined;
   const changeLeadGoal = (facility, value) => setLeadGoalByProperty(prev => ({ ...prev, [facility]: value }));
   const clearAlert = (id) => setDismissedAlertIds(prev => new Set(prev).add(id));
 
@@ -76,6 +122,7 @@ export default function Marketing() {
       {...sharedProps}
       monthlyBudgetByProperty={monthlyBudgetByProperty}
       onChangeMonthlyBudget={changeMonthlyBudget}
+      onSaveBudgets={saveBudgets}
     />
   );
 

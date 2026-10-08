@@ -161,6 +161,14 @@ export function setActAsSessionId(id) {
 function _actAsHeader() {
   return _actAsSessionId ? { 'X-Act-As-Session': _actAsSessionId } : {};
 }
+// PFS file lock (Charmi, 10/04): a code opens ONE file for THIS tab only, so
+// every /pfs call carries the tab's random session id (routers/pfs_access.py).
+function _pfsSessionHeader(path) {
+  if (!path.startsWith('/pfs')) return {};
+  let id;
+  try { id = sessionStorage.getItem('nexus:pfs-session') || ''; if (!id) { id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`); sessionStorage.setItem('nexus:pfs-session', id); } } catch { id = 'no-storage'; }
+  return { 'X-Pfs-Session': id };
+}
 
 // ── Keep-warm: REMOVED (Aug 1, 2026) ─────────────────────────────────────────
 // There used to be a /health ping here (boot + every 4 min per tab) papering
@@ -205,7 +213,8 @@ function _isRetryable(options) {
 // array of Intacct codes; an empty or missing key adds nothing.
 function dimsQuery(dims) {
   if (!dims) return "";
-  return ["locations", "departments", "vendor", "customer", "employee", "project", "item"]
+  // `journals` (Neil, 10/02): journal symbols, passed through on every report read.
+  return ["locations", "departments", "vendor", "customer", "employee", "project", "item", "journals"]
     .filter((k) => Array.isArray(dims[k]) && dims[k].length)
     .map((k) => `&${k}=${encodeURIComponent(dims[k].join(","))}`)
     .join("");
@@ -232,6 +241,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
           ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
           ..._actAsHeader(),
+          ..._pfsSessionHeader(path),
           ...(BFF_MODE && (options.method || 'GET').toUpperCase() !== 'GET' ? { 'X-CSRF-Token': csrfToken() } : {}),
           ...(options.headers ?? {}),
         },
@@ -510,17 +520,21 @@ export const api = {
   deleteTicketView: (id) => req(`/task-ticket-views/${id}`, { method: "DELETE" }),
   getTicketCompanies: () => req("/ticket-companies"),
   getTicketDepartments: () => req("/ticket-departments"),
-  // Manage -> Service Desk -> Departments: add / rename / delete a department,
-  // or set who gets the escalation email for it, without needing an HR module
-  // grant. Its own ticket_departments table - independent of the People ->
-  // Companies -> Global Company Setup department list (Sept 13, 2026).
+  // Ticket Manager -> Routing & Escalation: a company's GLOBAL departments
+  // (Settings > Company Settings) with the Tickets module's own settings -
+  // on/off for intake, escalation head, order (Oct 1, 2026). Add / rename /
+  // delete answer 410 now: the list itself is only edited globally.
   addTicketDepartment: (companyId, name) => req("/ticket-departments", { method: "POST", body: JSON.stringify({ company_id: companyId, name }) }),
   renameTicketDepartment: (deptId, name) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   deleteTicketDepartment: (deptId) => req(`/ticket-departments/${deptId}`, { method: "DELETE" }),
   setTicketDepartmentHead: (deptId, leadEmail) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ lead_email: leadEmail }) }),
+  // The whole order at once, as dragged in Settings.
+  reorderTicketDepartments: (companyId, ids) => req("/ticket-departments/order", { method: "PUT", body: JSON.stringify({ company_id: companyId, ids }) }),
   // Only the departments of the caller's own company - what ticket intake
   // offers now that company is resolved server-side instead of asked for.
   getMyTicketDepartments: () => req("/ticket-departments?mine=true"),
+  // Offer this department on Submit a Ticket, or not (Neil, Oct 1, 2026).
+  setTicketDepartmentEnabled: (deptId, enabled) => req(`/ticket-departments/${deptId}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
   // Work-site names for the intake form's Facility / Site questions. Ticket-
   // scoped on purpose - /hr/work-sites needs an HR grant a requester won't have.
   getTicketSites: () => cachedGet("/ticket-sites", 120_000),
@@ -563,6 +577,8 @@ export const api = {
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
   getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
   addTicketComment: (id, data) => req(`/task-tickets/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
+  // The requester opened their ticket - clears its unread dot on Support.
+  markTicketSeen: (id) => req(`/task-tickets/${id}/seen`, { method: "POST" }),
   deleteTicketComment: (cid) => req(`/task-tickets/comments/${cid}`, { method: "DELETE" }),
   getTicketAttachments: (id) => req(`/task-tickets/${id}/attachments`),
   addTicketAttachment: (id, data) => req(`/task-tickets/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
@@ -584,6 +600,9 @@ export const api = {
   getTicketTaxonomySettings: () => req("/task-tickets/taxonomy/settings"),
   updateTicketTaxonomySettings: (patch) => req("/task-tickets/taxonomy/settings", { method: "PUT", body: JSON.stringify(patch) }),
   getTicketNotifyLog: (params = {}) => req(`/task-tickets/notify/log?${new URLSearchParams(params).toString()}`),
+  // Desk Access rule (administrators): legacy / explicit - backend/ticket_roles.py.
+  getTicketDeskAccess: () => req("/task-tickets/desk-access"),
+  updateTicketDeskAccess: (deskAccess) => req("/task-tickets/desk-access", { method: "PUT", body: JSON.stringify({ deskAccess }) }),
   // Task Outlook notification workflow - admin settings + delivery log (manager+)
   getTaskNotifySettings: () => req("/tasks/notify/settings"),
   updateTaskNotifySettings: (patch) => req("/tasks/notify/settings", { method: "PUT", body: JSON.stringify(patch) }),
@@ -636,7 +655,7 @@ export const api = {
   getTaskChangelogComments: (id) => req(`/task-changelog/${id}/comments`),
   addTaskChangelogComment: (id, data) => req(`/task-changelog/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   // Long-running: pulls commits + calls Claude, so it needs the AI timeout (not the 18s default).
-  generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST", timeoutMs: 120_000 }),
+  generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST", timeoutMs: 300_000 }),   // Claude may think for a few minutes
   // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
   getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
   markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
@@ -863,9 +882,13 @@ export const api = {
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),
+  // A priority notice for one person (managers and above): the yellow bar across the top of their screen.
+  sendPriorityNotice: (body)         => req('/notifications', { method: 'POST', body: JSON.stringify({ id: '', type: 'priority', priority: 1, ...body }) }),
   markNotifRead:    (id)             => req(`/notifications/${id}/read`, { method: 'PATCH' }),
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
+  // Clearing closes (kept 30 days under the bell's Closed list); this brings one back.
+  restoreNotif:     (id)             => req(`/notifications/${id}/restore`, { method: 'PATCH' }),
   sendAlert:        (data)           => req('/notifications/send-alert', { method: 'POST', body: JSON.stringify(data) }),
 
   // Inventory Requests (legacy stack being retired - P2-1). The item/request CRUD
@@ -1008,13 +1031,21 @@ export const api = {
   getMyAccountingAccess: () => req("/accounting/access/me"),
   // The accounting team and each person's entity limit (Full level on Accounting).
   getAccountingAccess: () => req("/accounting/access"),
+  // Entity access as Intacct has it: a preview beside what Nexus has, then apply for the people ticked.
+  getAccountingAccessFromIntacct: () => req("/accounting/access/intacct", { timeoutMs: 90_000 }),
+  applyAccountingAccessFromIntacct: (emails) => req("/accounting/access/intacct/apply", { method: "POST", body: JSON.stringify({ emails }), timeoutMs: 90_000 }),
   setAccountingAccess: (email, entities) =>
     req(`/accounting/access/${encodeURIComponent(email)}`, { method: "PUT", body: JSON.stringify({ entities }) }),
+  // I opened Accounting (the Access tab shows when each person last did).
+  markAccountingOpened: () => req("/accounting/opened", { method: "POST" }),
   // My own layout of the accounting screens: columns shown, widths, density.
   getAccountingPrefs: () => req("/accounting/prefs"),
   saveAccountingPrefs: (prefs) => req("/accounting/prefs", { method: "PUT", body: JSON.stringify({ prefs }) }),
   // Memorized reports (a Reports view saved under a name) and reporting
   // packages (an ordered set of them, sent out as one PDF).
+  // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
+  emailAccountingReport: (fields) => { const fd = new FormData(); Object.entries(fields).forEach(([k, v]) => fd.append(k, v)); return req("/accounting/reports/email", { method: "POST", body: fd }); },
+  shareAccountingReport: (body) => req("/accounting/reports/share", { method: "POST", body: JSON.stringify(body) }),
   getAccountingSavedReports: () => req("/accounting/saved-reports"),
   saveAccountingReport: (body) => req("/accounting/saved-reports", { method: "POST", body: JSON.stringify(body) }),
   updateAccountingSavedReport: (id, body) =>
@@ -1037,15 +1068,22 @@ export const api = {
   addPfsLine: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines`, { method: "POST", body: JSON.stringify(body) }),
   updatePfsLine: (id, lineId, body) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "PUT", body: JSON.stringify(body) }),
+  addPfsLinesBulk: (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/lines/bulk`, { method: "POST", body: JSON.stringify(body) }),
   deletePfsLine: (id, lineId) =>
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}`, { method: "DELETE" }),
   getPfsStatement: (id, asof) => req(`/pfs/profiles/${encodeURIComponent(id)}/statement?asof=${asof}`),
-  producePfsStatement: (id, asof) =>
-    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof }) }),
+  // delivery (Oct 6): "download" | "email" | "files" - what the audit row says.
+  producePfsStatement: (id, asof, format = "pdf", delivery = "download") =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/statements`, { method: "POST", body: JSON.stringify({ asof, format, delivery }) }),
   getPfsStatements: (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/statements`),
   getPfsSavedStatement: (statementId) => req(`/pfs/statements/${encodeURIComponent(statementId)}`),
   getPfsLedgerEntities: () => req("/pfs/ledger/entities"),
   getPfsLedgerAccounts: (entity, asof) => req(`/pfs/ledger/accounts?entity=${encodeURIComponent(entity)}&asof=${asof}`),
+  // "Move to...": a line's section and category, nothing else (Charmi, 10/01).
+  movePfsLine: (id, lineId, section, category) =>
+    req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
+  // The order of lines within a section, kept per guarantor (Charmi, 10/04).
+  reorderPfsLines: (id, ids) => req(`/pfs/profiles/${encodeURIComponent(id)}/line-order`, { method: "PUT", body: JSON.stringify({ ids }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
@@ -1060,17 +1098,17 @@ export const api = {
   // Finance Dashboard (Overview / Cash / Performance / Close) - the same
   // aggregates and shared tables the accounting app's own dashboard uses,
   // proxied by backend/routers/accounting_dashboard.py.
-  getAccountingDashLedger: (scope, from, to, book) =>
-    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}`),
-  getAccountingDashCashEntities: (scope, asof, book) =>
-    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
-  getAccountingDashBudget: (from, to, book) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashLedger: (scope, from, to, book, fresh) =>
+    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashCashEntities: (scope, asof, book, fresh) =>
+    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashBudget: (from, to, book, fresh) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
   // Bank and card GL accounts per entity with their balance as of a date - the reconciliation list.
-  getAccountingDashReconAccounts: (scope, asof, book) =>
-    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
-  getAccountingDashNoi: (from, to, book) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}`),
-  getAccountingDashEntities: () => req("/accounting/dashboard/entities"),
-  getAccountingDashTables: (period) => req(`/accounting/dashboard/tables?period=${period}`),
+  getAccountingDashReconAccounts: (scope, asof, book, fresh) =>
+    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashNoi: (from, to, book, fresh) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashEntities: (fresh) => req(`/accounting/dashboard/entities${fresh ? "?fresh=1" : ""}`),
+  getAccountingDashTables: (period, fresh) => req(`/accounting/dashboard/tables?period=${period}${fresh ? "&fresh=1" : ""}`),
   accountingDashAction: (op, payload = {}) =>
     req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
 
@@ -1148,6 +1186,8 @@ export const api = {
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
   getEmployeeBod:    (id, start, end) => req(`/hr/employees/${id}/bod?start=${start || ''}&end=${end || ''}`),
   getGeofence:       (id)       => req(`/hr/employees/${id}/geofence`),
+  // The Access tab, read only, for a manager looking at their team (Oct 6).
+  getEmployeeAccessRead: (id)   => req(`/hr/employees/${id}/access`),
   setGeofence:       (id, data) => req(`/hr/employees/${id}/geofence`, { method: 'PUT', body: JSON.stringify(data) }),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
@@ -1195,6 +1235,8 @@ export const api = {
   syncM365TwoWayStatus: () => req('/hr/employees/sync-m365-two-way/status'),
   pushToEntra:       (empId)        => req(`/hr/employees/${empId}/push-to-entra`, { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
+  // Office & contact both ways with Microsoft 365, for one person, now (Oct 7).
+  syncEmployeeM365:  (empId)        => req(`/hr/employees/${empId}/m365-sync`, { method: 'POST', timeoutMs: 30000 }),
 
   // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),
@@ -1322,6 +1364,8 @@ export const api = {
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
+  // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
+  timeMyChannels:    ()          => req('/timeclock/my-channels', { timeoutMs: 45000 }),
   // Sign-in company-policy & monitoring acknowledgment
   policyStatus:      ()          => req('/policy/status'),
   policyAccept:      (version)   => req('/policy/accept', { method: 'POST', body: JSON.stringify({ version }) }),
@@ -1445,6 +1489,10 @@ export const api = {
   timeOffTypes:      ()          => req('/timeclock/timeoff/types'),
   timeOffTypesSave:  (data)      => req('/timeclock/timeoff/types', { method: 'PUT', body: JSON.stringify(data) }),
   timeSchedDayNote:  (data)      => req('/timeclock/schedule/day-note', { method: 'PUT', body: JSON.stringify(data) }),
+  // Teams on the schedule grid (Sep 30): add/remove members, rename/archive, reorder.
+  timeShiftGroupMembers: (id, data) => req(`/timeclock/shift-groups/${id}/members`, { method: 'POST', body: JSON.stringify(data) }),
+  timeShiftGroupMeta: (id, data)  => req(`/timeclock/shift-groups/${id}/meta`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeShiftGroupReorder: (ids)    => req('/timeclock/shift-groups/reorder', { method: 'POST', body: JSON.stringify({ ids }) }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
   timePayrollRateGet: (email)    => req(`/timeclock/payroll/rate?email=${encodeURIComponent(email)}`),
@@ -1748,6 +1796,257 @@ export const api = {
   // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
   //    back as `notes` on timePayroll ──
   timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
+
+  // ── Work site from a Google Maps link (Sep 30) - the point in a pasted link
+  //    or coordinates (short links opened server-side), and a check of recent
+  //    punches against a proposed fence before it is saved ──
+  resolveWorkSiteLink: (link) => req('/hr/work-sites/resolve-link', { method: 'POST', body: JSON.stringify({ link }) }),
+  workSiteFenceCheck:  ({ lat, lng, radiusM, siteId = '' }) => req(`/hr/work-sites/fence-check?lat=${lat}&lng=${lng}&radius_m=${Math.round(radiusM || 150)}&site_id=${encodeURIComponent(siteId)}`),
+
+  // ── Time Clock company settings (Charmi, Sep 30) - read by Settings > Global
+  //    Settings > Time Clock; the matching *Set calls are above ──
+  timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
+  timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
+  timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
+  //    the whole schedule, the saved group order, the request settings on
+  //    their own, and the manager's time-off list over a date range ──
+  timeSchedUnshared:   (start = '', end = '') => req(`/timeclock/schedule/unshared?start=${start}&end=${end}`),
+  timeShiftGroupOrder: (ids)       => req('/timeclock/shift-groups/order', { method: 'PUT', body: JSON.stringify({ ids }) }),
+  shiftRequestSettingsGet: ()      => req('/timeclock/shift-requests/settings'),
+  timeOffListRange:    (status = '', from = '', to = '', limit = 2000) =>
+    req(`/timeclock/timeoff?status=${encodeURIComponent(status)}&from=${from}&to=${to}&limit=${limit}`),
+  // ── Accounting > Reports, batch of 10/02 (Charmi, Neil): the journal list
+  //    for the Journals filter ({available, journals}; available false = the
+  //    accounting app has no list yet), and the Flux Analysis explanation
+  //    notes kept per entity set, account and period ──
+  getAccountingJournals:   ()               => req('/accounting/journals'),
+  getAccountingFluxNotes:  (entity, period) => req(`/accounting/flux-notes?entity=${encodeURIComponent(entity || 'all')}&period=${encodeURIComponent(period)}`),
+  saveAccountingFluxNote:  (body)           => req('/accounting/flux-notes', { method: 'PUT', body: JSON.stringify(body) }),
+
+  // ── Accounting, Oct 2 (Charmi and Neil, 10/01 call) ──
+  // Budget per entity and year (contract B1/B2 through the backend proxy).
+  // A 501 means the accounting app has not shipped the route yet.
+  getAccountingBudget:  (location, year, source = '') => req(`/accounting/budgets?location=${encodeURIComponent(location)}&year=${year}${source ? `&source=${source}` : ''}`),
+  saveAccountingBudget: (body) => req('/accounting/budgets', { method: 'PUT', body: JSON.stringify(body) }),
+  // Vendors and customers as Intacct has them (contract V1), and the change
+  // requests Nexus keeps for them.
+  getAccountingPartners:        (kind, q = '') => req(`/accounting/partners?kind=${encodeURIComponent(kind)}${q ? `&q=${encodeURIComponent(q)}` : ''}`),
+  getAccountingPartnerChanges:  (status = '', kind = '') => req(`/accounting/partners/changes?status=${encodeURIComponent(status)}&kind=${encodeURIComponent(kind)}`),
+  createAccountingPartnerChange: (body) => req('/accounting/partners/changes', { method: 'POST', body: JSON.stringify(body) }),
+  decideAccountingPartnerChange: (id, decision, note = '') => req(`/accounting/partners/changes/${encodeURIComponent(id)}/${decision}`, { method: 'POST', body: JSON.stringify({ note }) }),
+  exportAccountingPartnerChanges: (status = 'approved', kind = '') => reqBlob(`/accounting/partners/changes/export.csv?status=${status}${kind ? `&kind=${kind}` : ''}`),
+  // The monthly payroll allocation entry: the mapping, a preview for a month,
+  // the runs kept, and a run as an Intacct GL import CSV or a workbook.
+  getAllocationsMap:    () => req('/accounting/allocations/map'),
+  saveAllocationsMap:   (map) => req('/accounting/allocations/map', { method: 'PUT', body: JSON.stringify(map) }),
+  previewAllocations:   (month) => req(`/accounting/allocations/preview?month=${month}`, { timeoutMs: 120_000 }),
+  getAllocationRuns:    () => req('/accounting/allocations/runs'),
+  saveAllocationRun:    (body) => req('/accounting/allocations/runs', { method: 'POST', body: JSON.stringify(body) }),
+  deleteAllocationRun:  (id) => req(`/accounting/allocations/runs/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  allocationRunCsv:     (id) => reqBlob(`/accounting/allocations/runs/${encodeURIComponent(id)}/export.csv`),
+  allocationRunExcel:   (id) => reqBlob(`/accounting/allocations/runs/${encodeURIComponent(id)}/export.xlsx`),
+  // Payroll for the period as an Intacct GL import (same layout), next to the
+  // QuickBooks IIF on the team timecard.
+  timeExportIntacct:    (start, end, { journal = 'PYRJ', expense = '', clearing = '', location = '' } = {}) =>
+    reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
+  // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
+  // liability accounts, the ledger-driven review (balances, principal and
+  // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
+  // maturity, covenant) saved to the same fin_loans row Data > Loans edits.
+  getLoanProposals:      (month) => req(`/accounting/loans/proposals?month=${encodeURIComponent(month)}`),
+  createLoansFromLedger: (body) => req('/accounting/loans/create', { method: 'POST', body: JSON.stringify(body) }),
+  getLoanReview:         (month) => req(`/accounting/loans/review?month=${encodeURIComponent(month)}`),
+  updateLoan:            (id, month, body) => req(`/accounting/loans/${encodeURIComponent(id)}?month=${encodeURIComponent(month)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  // Oct 6 (Charmi and Neil, 10/03-10/04): the review for a window (from / to,
+  // as of today by default) and the entities picked; the scan of the active
+  // entities as of a date; a manual loan; the accounts a loan can be wired
+  // to; and the ledger lines behind a loan (drill-down and payment history).
+  getLoansReview:        ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`),
+  getLoanProposalsAsOf:  ({ asof = '', entities = [], historical = false } = {}) => req(`/accounting/loans/proposals?${new URLSearchParams({ ...(asof ? { asof } : {}), ...(entities.length ? { entities: entities.join(',') } : {}), ...(historical ? { historical: 'true' } : {}) })}`),
+  createManualLoan:      (body) => req('/accounting/loans/manual', { method: 'POST', body: JSON.stringify(body) }),
+  getLoanAccounts:       (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`),
+  getLoanHistory:        (id, { from = '', to = '', interest = '' } = {}) => req(`/accounting/loans/${encodeURIComponent(id)}/history?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(interest ? { interest } : {}) })}`),
+  // MRI > Leasing > Set Up From the Ledger: one lease per (entity, customer)
+  // with rent postings in the last twelve months, created through the same
+  // path as New Lease.
+  getLeaseProposals:      () => req('/accounting/leasing/from-ledger/proposals'),
+  createLeasesFromLedger: (body) => req('/accounting/leasing/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+  // People > onboarding / offboarding / leave checklists (hr_checklists.py).
+  // The owner of a step (manager, IT, the new hire) ticks it from My HR via
+  // getMyChecklistSteps + updateChecklistItem without an hr grant.
+  getChecklistMeta:       ()          => req('/hr/checklists/meta'),
+  getEmployeeChecklists:  (empId)     => req(`/hr/checklists/employee/${empId}`),
+  startChecklist:         (empId, d)  => req(`/hr/checklists/employee/${empId}`, { method: 'POST', body: JSON.stringify(d) }),
+  cancelChecklist:        (id)        => req(`/hr/checklists/${id}/cancel`, { method: 'POST' }),
+  reopenChecklist:        (id)        => req(`/hr/checklists/${id}/reopen`, { method: 'POST' }),
+  updateChecklistItem:    (id, d)     => req(`/hr/checklists/items/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  getMyChecklistSteps:    ()          => req('/hr/checklists/mine'),
+  getChecklistProgress:   ()          => req('/hr/checklists/progress'),
+  getChecklistBoard:      ()          => req('/hr/checklists/board'),
+  getChecklistTemplates:  (entityId = '') => req(`/hr/checklists/templates?entity_id=${encodeURIComponent(entityId)}`),
+  saveChecklistTemplate:  (kind, entityId, d) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify(d) }),
+  resetChecklistTemplate: (kind, entityId) => req(`/hr/checklists/templates/${kind}?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'DELETE' }),
+  getChecklistOwners:     (entityId = '') => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId)}`),
+  saveChecklistOwners:    (entityId, owners) => req(`/hr/checklists/owners?entity_id=${encodeURIComponent(entityId || '')}`, { method: 'PUT', body: JSON.stringify({ owners }) }),
+  // Accounting > Loans (Charmi and Neil, Oct 6): an amortization schedule per
+  // loan (built or the bank's file) and saved rate stress scenarios
+  // (routers/accounting_loan_plans.py).
+  getLoanSchedule:         (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`),
+  saveLoanSchedule:        (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteLoanSchedule:      (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/schedule`, { method: 'DELETE' }),
+  getLoanScheduleExpected: (month)        => req(`/accounting/loan-plans/expected?month=${encodeURIComponent(month)}`),
+  getLoanStressScenarios:  (loanId)       => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`),
+  saveLoanStressScenario:  (loanId, body) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteLoanStressScenario: (loanId, id)  => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Accounting > Reporting > MRE, monthly recurring expenses (Oct 6,
+  // routers/accounting_mre.py): the grid of expected against paid (paid read
+  // from the ledger), the lines, and From the Ledger (a background scan
+  // polled like the leases one: 202 with the progress until the result).
+  getMreGrid:          (year, entities = []) => req(`/accounting/mre/grid?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
+  createMreLine:       (body)     => req('/accounting/mre/lines', { method: 'POST', body: JSON.stringify(body) }),
+  updateMreLine:       (id, body) => req(`/accounting/mre/lines/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setMreNotes:         (id, notes) => req(`/accounting/mre/lines/${encodeURIComponent(id)}/notes`, { method: 'PUT', body: JSON.stringify({ notes }) }),
+  endMreLine:          (id, endDate) => req(`/accounting/mre/lines/${encodeURIComponent(id)}/end`, { method: 'POST', body: JSON.stringify({ endDate }) }),
+  deleteMreLine:       (id)       => req(`/accounting/mre/lines/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getMreVendor:        (vendorId) => req(`/accounting/mre/vendors/${encodeURIComponent(vendorId)}`),
+  getMreProposals:     (min = 3, entities = []) => req(`/accounting/mre/from-ledger/proposals?min=${min}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}`),
+  createMreFromLedger: (body)     => req('/accounting/mre/from-ledger/create', { method: 'POST', body: JSON.stringify(body) }),
+
+  // PFS file lock + Affiliated Entities + an executive profile per borrower
+  // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.
+  getPfsAccessStatus:    ()          => req('/pfs-access/status'),
+  requestPfsCode:        (id)        => req(`/pfs-access/files/${encodeURIComponent(id)}/code`, { method: 'POST' }),
+  verifyPfsCode:         (id, code)  => req(`/pfs-access/files/${encodeURIComponent(id)}/verify`, { method: 'POST', body: JSON.stringify({ code }) }),
+  lockPfsFile:           (id)        => req(`/pfs-access/files/${encodeURIComponent(id)}/lock`, { method: 'POST' }),
+  getPfsAccessLog:       (id = '')   => req(`/pfs-access/log${id ? `?profile_id=${encodeURIComponent(id)}` : ''}`),
+  getPfsAffiliatesMeta:  ()          => req('/pfs/affiliates/meta'),
+  getPfsAffiliates:      (id)        => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates`),
+  addPfsAffiliate:       (id, body)  => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates`, { method: 'POST', body: JSON.stringify(body) }),
+  updatePfsAffiliate:    (id, aid, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates/${encodeURIComponent(aid)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePfsAffiliate:    (id, aid)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates/${encodeURIComponent(aid)}`, { method: 'DELETE' }),
+  reorderPfsAffiliates:  (id, ids)   => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliates-order`, { method: 'PUT', body: JSON.stringify({ ids }) }),
+  getPfsExecutiveProfiles: (id)      => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`),
+  savePfsExecutiveProfile: (id, key, text) => req(`/pfs/profiles/${encodeURIComponent(id)}/executive-profiles`, { method: 'PUT', body: JSON.stringify({ key, text }) }),
+  // MRI > Leasing (Charmi, Oct 6): the rent roll narrowed to entities /
+  // customers, a tenant's customer record (the popover), the team's note per
+  // lease, and the ledger sync (link leases to customers, add new tenants).
+  getLeasingRentRollFor:  (year, { entities = [], customers = [] } = {}) => req(`/leasing/rent-roll?year=${year}${entities.length ? `&entities=${encodeURIComponent(entities.join(','))}` : ''}${customers.length ? `&customers=${encodeURIComponent(customers.join(','))}` : ''}`),
+  getLeasingCustomer:     (code) => req(`/leasing/customers/${encodeURIComponent(code)}`),
+  setLeasingNote:         (id, note) => req(`/leasing/leases/${encodeURIComponent(id)}/note`, { method: 'PUT', body: JSON.stringify({ note }) }),
+  syncLeasingFromLedger:  () => req('/accounting/leasing/sync', { method: 'POST' }),
+  // Marketing > Google Business Profile (backend/routers/marketing_gbp.py).
+  // A location is addressed by its Google number (the 123 of locations/123).
+  getGbpStatus: () => req('/marketing/gbp/status'),
+  startGbpConnect: () => req('/marketing/gbp/oauth/start', { method: 'POST' }),
+  disconnectGbp: () => req('/marketing/gbp/connection', { method: 'DELETE' }),
+  syncGbp: () => req('/marketing/gbp/sync', { method: 'POST', timeoutMs: 180_000 }),   // may wait on a running sync, then pull performance
+  getGbpLocations: () => req('/marketing/gbp/locations'),
+  mapGbpLocation: (key, facility) => req(`/marketing/gbp/locations/${key}/facility`, { method: 'PATCH', body: JSON.stringify({ facility }) }),
+  updateGbpListing: (key, changes) => req(`/marketing/gbp/locations/${key}/listing`, { method: 'PATCH', body: JSON.stringify(changes) }),
+  getGbpReviews: ({ replied = '', location = '', limit = 200, offset = 0 } = {}) =>
+    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, limit: String(limit), offset: String(offset) })}`),
+  replyGbpReview: (id, text) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'PUT', body: JSON.stringify({ text }) }),
+  deleteGbpReply: (id) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'DELETE' }),
+  getGbpListingHistory: (key) => req(`/marketing/gbp/locations/${key}/history`),
+  getGbpReviewHistory: (id) => req(`/marketing/gbp/reviews/${id}/history`),
+  getGbpSummary: () => req('/marketing/gbp/summary'),
+  getGbpPerformance: ({ start, end, location = '' }) => req(`/marketing/gbp/performance?${new URLSearchParams({ start, end, location })}`),
+  getGbpPosts: (key) => req(`/marketing/gbp/locations/${key}/posts`),
+  createGbpPost: (key, d) => req(`/marketing/gbp/locations/${key}/posts`, { method: 'POST', body: JSON.stringify(d) }),
+  updateGbpPost: (key, id, d) => req(`/marketing/gbp/locations/${key}/posts/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  deleteGbpPost: (key, id) => req(`/marketing/gbp/locations/${key}/posts/${id}`, { method: 'DELETE' }),
+  getGbpPhotos: (key) => req(`/marketing/gbp/locations/${key}/photos`),
+  addGbpPhoto: (key, file, category) => { const fd = new FormData(); fd.append('file', file); fd.append('category', category); return req(`/marketing/gbp/locations/${key}/photos`, { method: 'POST', body: fd, timeoutMs: 120_000 }); },
+  deleteGbpPhoto: (key, id) => req(`/marketing/gbp/locations/${key}/photos/${id}`, { method: 'DELETE' }),
+  // Property Tickets (Neil, 10/05) - routers/property_tickets.py: the property
+  // picker for ticket forms (names only, open to anyone who can raise one).
+  getTicketProperties:    () => cachedGet('/ticket-properties', 120_000),
+  // Property Walkthrough (routers/ticket_walkthroughs.py). Never retried here
+  // (mutations aren't); the form's batch_id makes a manual retry safe instead.
+  createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
+  // A property's tickets for Asset Management > Maintenance, and Follow.
+  getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
+  followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
+  // Maintenance record + recurring services (Pranshu, 10/06).
+  addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
+  updateMaintenanceService: (id, serviceId, body) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  openMaintenanceServiceNow: (id, serviceId) => req(`/property-assets/${encodeURIComponent(id)}/services/${encodeURIComponent(serviceId)}/open-now`, { method: 'POST' }),
+  // Marketing > Google Ads, read-only (backend/routers/marketing_ads.py).
+  getAdsStatus: () => req('/marketing/ads/status'),
+  startAdsConnect: () => req('/marketing/ads/oauth/start', { method: 'POST' }),
+  disconnectAds: () => req('/marketing/ads/connection', { method: 'DELETE' }),
+  syncAds: () => req('/marketing/ads/sync', { method: 'POST', timeoutMs: 240_000 }),   // a new account backfills ~14 months
+  getAdsSummary: () => req('/marketing/ads/summary'),
+  getAdsReport: ({ start, end, facility = '' }) => req(`/marketing/ads/report?${new URLSearchParams({ start, end, facility })}`),
+  getAdsCampaigns: () => req('/marketing/ads/campaigns'),
+  mapAdsCampaigns: (changes) => req('/marketing/ads/campaigns/facilities', { method: 'PUT', body: JSON.stringify({ changes }) }),
+  getAdBudgets: () => req('/marketing/ads/budgets'),
+  setAdBudgets: (budgets) => req('/marketing/ads/budgets', { method: 'PUT', body: JSON.stringify({ budgets }) }),
+  // What's New automatic drafting: last run, last error, next run (changelog_auto.py).
+  getTaskChangelogAutoStatus: () => req('/task-changelog/auto-status'),
+  // Accounting > Loans & Financing (Charmi, Oct 7): remove a loan (a ledger
+  // loan is remembered as removed), the open loans of one entity for Asset
+  // Management, NOI per entity for a window (Stress Test, Annualized YTD),
+  // and the Stress Test's kept inputs - per entity NOI basis / addback, loans
+  // left out of the run. The ledger reads behind these take longer than the
+  // 18s default, which also used to flag the API as down (see LoansTab).
+  deleteLoan:            (id)              => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 60_000 }),
+  getLoansByEntity:      (code, to = '')   => req(`/accounting/loans/by-entity/${encodeURIComponent(code)}${to ? `?to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  getLoanEntityNoi:      ({ entities = [], from = '', to = '' } = {}) => req(`/accounting/loans/noi?${new URLSearchParams({ entities: entities.join(','), ...(from ? { from } : {}), ...(to ? { to } : {}) })}`, { timeoutMs: 120_000 }),
+  getLoansReviewSlow:    ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`, { timeoutMs: 150_000 }),
+  getLoanAccountsSlow:   (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  getLoanStressSettings: ()                => req('/accounting/loan-plans/stress-settings'),
+  saveLoanStressEntity:  (entity, body)    => req(`/accounting/loan-plans/stress-settings/${encodeURIComponent(entity)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setLoanStressExcluded: (loanId, excluded) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/stress-excluded`, { method: 'PUT', body: JSON.stringify({ excluded }) }),
+  // MRI > Set Up From the Ledger (Charmi, Oct 7): `entities` reads only those
+  // again (Retry of the ones the last scan could not read); `accounts` names
+  // the rent income accounts instead of the title rule.
+  getLeaseProposalsFor: ({ entities = [], accounts = [] } = {}) => req(`/accounting/leasing/from-ledger/proposals${(() => { const q = new URLSearchParams(); if (entities.length) q.set('entities', entities.join(',')); if (accounts.length) q.set('accounts', accounts.join(',')); const s = q.toString(); return s ? `?${s}` : ''; })()}`),
+  getLeaseIncomeAccounts: () => req('/accounting/leasing/from-ledger/income-accounts'),
+  // MRI: the interest and loan income accounts by month, for the entities picked.
+  getAccountingBucketsFor: ({ from, to, by = 'month', locations = [] }) => req(`/accounting/reports/buckets?to=${to}&by=${encodeURIComponent(by)}${from ? `&from=${from}` : ''}${locations.length === 1 ? `&location=${encodeURIComponent(locations[0])}` : locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}`),
+  // PFS, Neil's Oct 7 list (routers/pfs.py, routers/pfs_access.py): the share
+  // of an entity read from Affiliated Entities, lines whose % differs, the
+  // password-protected PDF (the password is never kept), and PFS access set
+  // from Accounting > Access (owners only).
+  getPfsAffiliatedShares: (id, entities = []) => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliated-shares?entities=${encodeURIComponent(entities.join(','))}`),
+  getPfsShareMismatches:  (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`),
+  resolvePfsShareMismatches: (id, ids, action) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`, { method: 'POST', body: JSON.stringify({ ids, action }) }),
+  encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
+  getPfsAccessPeople:     () => req('/pfs-access/people'),
+  setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
+  // ── Accounting > Reports, Oct 7 (Charmi, item 35): the books a report can
+  //    read ({available, books: [{key, label, kind, journals}]}; available
+  //    false = the accounting app lists none yet), and one report read with
+  //    any params - a user-defined book (fmv, kje ...) travels as `book`.
+  //    kind: pnl | balance-sheet | trial-balance | buckets. Array params go
+  //    as comma-separated codes; empty ones are left out. ──
+  getAccountingBooks: () => req('/accounting/books'),
+  // The Intacct budget by account and month for a period ({available, budget_id,
+  // budgets, rows: [{account_no, title, section, month, amount}]}), for Actual vs
+  // Budget on the Income Statement (item 43).
+  getAccountingReportBudget: ({ from, to, location, locations, budgetId } = {}) => {
+    const qs = new URLSearchParams({ from, to });
+    if (location) qs.set('location', location);
+    if (locations?.length) qs.set('locations', locations.join(','));
+    if (budgetId) qs.set('budget_id', budgetId);
+    return req(`/accounting/reports/budget?${qs.toString()}`);
+  },
+  readAccountingReport: (kind, params = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      const val = Array.isArray(v) ? v.join(',') : v;
+      if (val !== undefined && val !== null && val !== '') qs.set(k, val);
+    });
+    return req(`/accounting/reports/${encodeURIComponent(kind)}?${qs.toString()}`);
+  },
+  // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
+  // routers/accounting_ama.py): Billed YTD read from the ledger.
+  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
+  updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

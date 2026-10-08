@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { Search, MapPin, AlertTriangle } from 'lucide-react';
 import { searchAddresses, metersBetween } from '../lib/addressSearch';
 import { Spinner } from './AsyncState';
+import { formatDistance } from '../lib/distance';
 
 // Work site location, address first (Pranshu, Sep 30).
 //
@@ -17,6 +18,12 @@ import { Spinner } from './AsyncState';
 // Until an address is chosen the map only shows where things are: a site
 // always starts from its address, never from a pin dropped at random.
 //
+// A Google Maps link (Sep 30) places the site the same way: the parent passes
+// the link's point as `focus` (with a fresh key per paste); the map frames it
+// and measures a fine-tuned pin from it, exactly like a picked address.
+// `checkPoints` = the last 30 days of punches near the fence (green inside,
+// red outside) so a wrong point shows before it is saved.
+//
 // Same Leaflet Map/Satellite layers as Workforce Analytics -> Locations. The
 // pin is an inline-SVG divIcon: Leaflet's default PNG icon 404s under Vite.
 const PIN_ICON = L.divIcon({
@@ -27,13 +34,15 @@ const PIN_ICON = L.divIcon({
 });
 const FAR_M = 500;   // a pin this far from its address is probably a mistake
 
-const distText = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+const distText = (m) => formatDistance(m);   // miles / feet (lib/distance.js)
 
-export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = false, onPick, onAdjust }) {
+export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = false, onPick, onAdjust,
+  showSearch = true, focus = null, checkPoints = null, anchorLabel = 'the address' }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
   const circleRef = useRef(null);
+  const dotsRef = useRef(null);
   const onAdjustRef = useRef(onAdjust);
   useEffect(() => { onAdjustRef.current = onAdjust; });
   const [query, setQuery] = useState('');
@@ -46,6 +55,15 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
   // by a pick; a saved site starts from its saved point, framed on open.
   const [anchor, setAnchor] = useState(() => (has ? [Number(lat), Number(lng)] : null));
   const [fitKey, setFitKey] = useState(() => (has ? 1 : 0));   // bump = re-frame the map on the site
+  // A point handed in from outside (a pasted Google Maps link) becomes the
+  // anchor a fine-tuned pin is measured from, and the map frames it - taken
+  // once per paste (its key), while rendering.
+  const [seenFocus, setSeenFocus] = useState(null);
+  if (focus && focus.key !== seenFocus && Number.isFinite(focus.lat) && Number.isFinite(focus.lng)) {
+    setSeenFocus(focus.key);
+    setAnchor([focus.lat, focus.lng]);
+    setFitKey((k) => k + 1);
+  }
 
   useEffect(() => {
     let map;
@@ -60,8 +78,26 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
     L.control.layers({ 'Map': street, 'Satellite': hybrid }, {}, { position: 'topright', collapsed: false }).addTo(map);
     mapRef.current = map;
     setTimeout(() => { try { map.invalidateSize(); } catch { /* torn down */ } }, 120);
-    return () => { try { map.remove(); } catch { /* gone */ } mapRef.current = null; markerRef.current = null; circleRef.current = null; };
+    return () => { try { map.remove(); } catch { /* gone */ } mapRef.current = null; markerRef.current = null; circleRef.current = null; dotsRef.current = null; };
   }, []);
+
+
+  // Recent punches near the fence: small dots, green inside / red outside.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    dotsRef.current?.remove();
+    dotsRef.current = null;
+    if (!checkPoints?.length) return;
+    const group = L.layerGroup();
+    for (const p of checkPoints) {
+      L.circleMarker([p.lat, p.lng], {
+        radius: 4, weight: 1, color: '#fff', fillOpacity: 0.9, interactive: false,
+        fillColor: p.inside ? '#16a34a' : '#dc2626',
+      }).addTo(group);
+    }
+    try { group.addTo(map); dotsRef.current = group; } catch { /* torn down */ }
+  }, [checkPoints]);
 
   // Clicking the map moves the pin there - only once an address is chosen.
   useEffect(() => {
@@ -124,8 +160,8 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-        <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} value={query} aria-label="Search the site's address"
+      {showSearch && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} value={query} aria-label="Search the location's address"
           placeholder="Type the full street address, e.g. 25260 N Centre City Pkwy, Escondido, CA 92026"
           onChange={e => { setQuery(e.target.value); setMatches(null); setError(''); }}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); run(); } }} />
@@ -133,10 +169,10 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
           style={{ padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {busy ? <Spinner size={14} /> : <Search size={14} />} Search
         </button>
-      </div>
+      </div>}
 
-      {error && <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
-      {matches && (
+      {showSearch && error && <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
+      {showSearch && matches && (
         <div role="listbox" aria-label="Address matches" style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 8, overflow: 'hidden' }}>
           {matches.length === 0 ? (
             <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
@@ -162,17 +198,17 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
         </div>
       )}
 
-      <div ref={mapElRef} aria-label="Map of the work site and its geofence"
+      <div ref={mapElRef} aria-label="Map of the location and its geofence"
         style={{ width: '100%', height: '100%', minHeight: 460, borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden', position: 'relative', zIndex: 0 }} />
       <p style={{ fontSize: 11, margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 5, color: far ? '#b45309' : 'var(--muted)' }}>
         {!point
-          ? <><AlertTriangle size={12} /> Search the address to place this site.</>
+          ? <><AlertTriangle size={12} /> {showSearch ? 'Search the address to place this location.' : 'Paste the Google Maps link to place this location.'}</>
           : !adjustable
-            ? <>Search the address to confirm this site. The blue circle is the geofence.</>
+            ? <>{showSearch ? 'Search the address to confirm this location.' : 'Paste the Google Maps link to confirm this location.'} The blue circle is the geofence.</>
             : far
-              ? <><AlertTriangle size={12} /> The pin is {distText(moved)} from the address - make sure it is on the right building.</>
+              ? <><AlertTriangle size={12} /> The pin is {distText(moved)} from {anchorLabel} - make sure it is on the right building.</>
               : moved >= 5
-                ? <>Pin moved {distText(moved)} from the address point. The blue circle is the geofence.</>
+                ? <>Pin moved {distText(moved)} from {anchorLabel}. The blue circle is the geofence.</>
                 : <>Drag the pin (or click the map) onto the exact building. The blue circle is the geofence.</>}
       </p>
     </div>

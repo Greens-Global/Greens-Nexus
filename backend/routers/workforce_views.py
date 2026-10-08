@@ -72,11 +72,14 @@ def _clean_criteria(raw) -> dict:
 
 
 def _roster(db: Session, user: dict):
-    """The caller's visible, active people: {email: NexusEmployee}. The same
-    audience the monitoring and locations endpoints serve."""
+    """The caller's visible people who have not left: {email: NexusEmployee}.
+    The same audience the monitoring and locations endpoints serve - which
+    includes someone still "onboarding" in People who already punches (an
+    external staffer, Oct 8), so a team view can hold them too."""
     scope = _visible_emails(db, user)
     people = {}
-    for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.status == "active").all():
+    for e in (db.query(models.NexusEmployee)
+              .filter(models.NexusEmployee.status.notin_(("offboarded", "inactive"))).all()):
         em = (e.work_email or "").lower()
         if em and (scope is None or em in scope):
             people[em] = e

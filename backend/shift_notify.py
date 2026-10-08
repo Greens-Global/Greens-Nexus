@@ -150,9 +150,29 @@ def _send_emails(batch: list) -> None:
             print(f"[shift-notify] schedule email to {to} failed: {e}")
 
 
+def _upsert_bell(db: Session, recipient: str, ref_id: str, title: str, body: str, actor: str, now: str) -> None:
+    """ONE notification per (person, ref_id), updated in place (Oct 2, B4-33:
+    five publishes of a week were five bells and five emails). An unread,
+    un-actioned row for the same key is refreshed - new text, back to the
+    top, unread again; a row the person already dealt with stays as history
+    and a new one is added."""
+    row = (db.query(models.NexusNotification)
+           .filter(models.NexusNotification.recipient == recipient, models.NexusNotification.ref_id == ref_id,
+                   models.NexusNotification.actioned == False)   # noqa: E712 - SQLAlchemy expression
+           .order_by(models.NexusNotification.created_at.desc()).first())
+    if row is not None:
+        row.title, row.body, row.requested_by, row.created_at, row.read_by = title, body, actor, now, ""
+        return
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type="custom_alert", recipient=recipient, title=title, body=body,
+        ref_id=ref_id, item_name="", requested_by=actor,
+        action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
+
+
 def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: str, bt=None) -> int:
     """One bell + one email per affected person. Returns how many people were
-    notified. Commits the bell rows; emails are queued on `bt` when given."""
+    notified. Commits the bell rows; emails are queued on `bt` when given.
+    The bell is one row per (person, date range), updated in place."""
     actor = (actor_email or "").lower()
     by_person: dict = {}
     for c in changes:
@@ -169,11 +189,8 @@ def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: 
     for em, items in by_person.items():
         dates = sorted(i["date"] for i in items)
         span = _us(dates[0]) if dates[0] == dates[-1] else f"{_us(dates[0])} - {_us(dates[-1])}"
-        db.add(models.NexusNotification(
-            id=str(uuid.uuid4()), type="custom_alert", recipient=em,
-            title="Your schedule was updated", body=f"{_summary(items).capitalize()} ({span}).",
-            ref_id=f"schedule-publish:{d0}:{d1}", item_name="", requested_by=actor,
-            action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
+        _upsert_bell(db, em, f"schedule-publish:{d0}:{d1}", "Your schedule was updated",
+                     f"{_summary(items).capitalize()} ({span}).", actor, now)
         emp = people.get(em)
         if emp is not None and (emp.status or "active") == "active":
             batch.append((em, *email_html((emp.first_name or "").strip(), items, actor_name)))
@@ -194,11 +211,8 @@ def notify_team(db: Session, emails: set, actor_email: str, d0: str, d1: str) ->
     now = datetime.now(timezone.utc).isoformat()
     n = 0
     for em in sorted(e for e in emails if e and e != actor):
-        db.add(models.NexusNotification(
-            id=str(uuid.uuid4()), type="custom_alert", recipient=em,
-            title="Schedule published", body=f"The schedule for {span} was published. Open My Shifts to see yours.",
-            ref_id=f"schedule-publish-team:{d0}:{d1}", item_name="", requested_by=actor,
-            action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
+        _upsert_bell(db, em, f"schedule-publish-team:{d0}:{d1}", "Schedule published",
+                     f"The schedule for {span} was published. Open My Shifts to see yours.", actor, now)
         n += 1
     db.commit()
     return n
@@ -212,13 +226,30 @@ def _local_now(tz: str) -> datetime:
 
 
 def _reminder_key(row) -> str:
-    return f"shift-reminder:{row.id}"
+    """One reminder per shift AND start: a shift whose start moved at the
+    next publish is reminded again at its new time (Oct 2, B2-16)."""
+    return f"shift-reminder:{row.id}:{row.work_date}T{(row.start_hhmm or '')[:5]}"
+
+
+def _clocked_in_set(db: Session, emails: set) -> set:
+    """Who is clocked in right now, from ONE read of everyone's last punch
+    (routers.timeclock._clocked_in is one query per person)."""
+    if not emails:
+        return set()
+    last = {}
+    for p in (db.query(models.TimePunch)
+              .filter(models.TimePunch.employee_email.in_(list(emails)), models.TimePunch.voided == 0)
+              .order_by(models.TimePunch.at).all()):
+        last[(p.employee_email or "").lower()] = p.kind
+    return {em for em, kind in last.items() if kind != "out"}
 
 
 def reminder_scan_once(db: Session) -> int:
     """Bell every person whose placed, published shift starts within the next
-    REMINDER_LEAD_MIN minutes in its own zone. Returns how many were sent."""
-    from routers.timeclock import _clocked_in, _company_holidays_for_employee
+    REMINDER_LEAD_MIN minutes in its own zone. Returns how many were sent.
+    Clocked-in, time off and holidays are read once per scan, not three
+    queries per candidate (Oct 2, B4-35)."""
+    from routers.timeclock import _company_holidays_for_many, _shift_tz
     from routers.shift_requests import get_settings as _settings
     cfg = _settings(db)
     if not cfg.get("reminders", True):
@@ -228,36 +259,48 @@ def reminder_scan_once(db: Session) -> int:
     lo, hi = (utc_today - timedelta(days=1)).isoformat(), (utc_today + timedelta(days=1)).isoformat()
     rows = (db.query(models.ScheduledShift)
             .filter(models.ScheduledShift.published == 1, models.ScheduledShift.employee_email != "",
+                    models.ScheduledShift.pending_delete == 0,   # being removed: no reminder
                     models.ScheduledShift.work_date >= lo, models.ScheduledShift.work_date <= hi).all())
     if not rows:
         return 0
     presets = {s.id: s for s in db.query(models.Shift).all()}
-    active = {(e.work_email or "").lower() for e in db.query(models.NexusEmployee).all()
-              if (e.status or "active") == "active" and not (e.deleted_at or "")}
-    sent = 0
+    people = {(e.work_email or "").lower(): e for e in db.query(models.NexusEmployee).all()
+              if e.work_email and (e.status or "active") == "active" and not (e.deleted_at or "")}
+    team_tz = cfg.get("timeZone") or _DEFAULT_TZ
+    # Which of these shifts are due, before any of the per-person reads.
+    due = []
     for r in rows:
         em = (r.employee_email or "").lower()
-        if em not in active:
+        if em not in people:
             continue
-        p = presets.get(r.shift_id)
-        tz = (p.timezone if p and p.timezone else "") or cfg.get("timeZone") or _DEFAULT_TZ
+        tz = _shift_tz(r, presets.get(r.shift_id), team_tz)
         try:
             start = datetime.strptime(f"{r.work_date} {(r.start_hhmm or '09:00')[:5]}", "%Y-%m-%d %H:%M")
         except ValueError:
             continue
         now = _local_now(tz)
-        if not (start - timedelta(minutes=lead) <= now < start):
-            continue
+        if start - timedelta(minutes=lead) <= now < start:
+            due.append((r, em, start, now))
+    if not due:
+        return 0
+    emails = {em for _, em, _, _ in due}
+    keys = {_reminder_key(r) for r, _, _, _ in due}
+    already = {k for (k,) in db.query(models.NexusNotification.ref_id)
+               .filter(models.NexusNotification.ref_id.in_(list(keys))).all()}
+    clocked_in = _clocked_in_set(db, emails)
+    off = {}
+    for t in (db.query(models.TimeOffRequest)
+              .filter(models.TimeOffRequest.employee_email.in_(list(emails)),
+                      models.TimeOffRequest.status == "approved",
+                      models.TimeOffRequest.start_date <= hi, models.TimeOffRequest.end_date >= lo).all()):
+        off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
+    holidays = _company_holidays_for_many(db, {em: people[em] for em in emails}, lo, hi)
+    sent = 0
+    for r, em, start, now in due:
         key = _reminder_key(r)
-        if db.query(models.NexusNotification.id).filter(models.NexusNotification.ref_id == key).first():
+        if key in already or em in clocked_in:
             continue
-        if _clocked_in(db, em):
-            continue
-        off = (db.query(models.TimeOffRequest.id)
-               .filter(models.TimeOffRequest.employee_email == em, models.TimeOffRequest.status == "approved",
-                       models.TimeOffRequest.start_date <= r.work_date,
-                       models.TimeOffRequest.end_date >= r.work_date).first())
-        if off or _company_holidays_for_employee(db, em, r.work_date, r.work_date):
+        if any(a <= r.work_date <= b for a, b in off.get(em, [])) or r.work_date in holidays.get(em, {}):
             continue
         when = "Today" if start.date() == now.date() else "Tomorrow"
         detail = f"{when}, {_us(r.work_date)} · {_t12(r.start_hhmm)} - {_t12(r.end_hhmm)}"
@@ -269,8 +312,10 @@ def reminder_scan_once(db: Session) -> int:
             ref_id=key, item_name="", requested_by="",
             action='{"view": "timeclock", "sub": "clock"}', actioned=False, read_by="",
             created_at=datetime.now(timezone.utc).isoformat()))
-        db.commit()
+        already.add(key)
         sent += 1
+    if sent:
+        db.commit()
     return sent
 
 

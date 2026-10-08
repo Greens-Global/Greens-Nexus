@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, FileText, Circle, CheckCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from './AsyncState';
+import { formatTime, formatMonthDay, wallClock } from '../lib/datetime';
 
 // ── Work Log (BOD/EOD) - a day's planned/completed/pending, read from the
 // Time Clock's Beginning/End-of-day composer. Two surfaces share this same
@@ -53,9 +54,20 @@ export function TaskChecklist({ tasks, kind }) {
   );
 }
 
-// TimePunch.at is a naive UTC ISO string (no trailing Z) - append it before
-// handing to Date so the browser doesn't misread it as already-local.
-export const punchTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+// A Work Log punch time, on the EMPLOYEE'S clock (Oct 2): `tzOffsetMin` is
+// the punching device's offset the API returns beside the time. A clock-out
+// after midnight carries its own date ("2:30 AM, Oct 2") so it is never read
+// as the workday's morning, and the zone shows when it is not the viewer's.
+// Without an offset (older callers) it falls back to the viewer's clock.
+export const punchTime = (iso, tzOffsetMin, workday) => {
+  if (!iso) return '';
+  if (tzOffsetMin === undefined || tzOffsetMin === null) return formatTime(`${iso}Z`);
+  const w = wallClock(iso, tzOffsetMin);
+  if (!w) return '';
+  const day = workday && w.date !== workday ? `, ${formatMonthDay(`${w.date}T12:00:00`)}` : '';
+  const zone = Number(tzOffsetMin) !== new Date().getTimezoneOffset() ? ` ${w.zone}` : '';
+  return `${w.time}${day}${zone}`;
+};
 
 // Small icon button a timesheet row (or People tab day row) uses to open/expand
 // the Work Log for its day.
@@ -77,13 +89,13 @@ export function WorkLogContent({ data, err }) {
   if (!data.bod && !data.eod) return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work log posted for this day.</div>;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      {[['Beginning of day', data.bod, 'bod', 'Punched in', data.punchInAt],
-        ['End of day', data.eod, 'eod', 'Punched out', data.punchOutAt]].map(([label, slot, kind, punchLabel, punchAt]) => (
+      {[['Beginning of day', data.bod, 'bod', 'Punched in', data.punchInAt, data.punchInTz],
+        ['End of day', data.eod, 'eod', 'Punched out', data.punchOutAt, data.punchOutTz]].map(([label, slot, kind, punchLabel, punchAt, punchTz]) => (
         <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
             {punchAt && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }}>{punchLabel} {punchTime(punchAt)}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }}>{punchLabel} {punchTime(punchAt, punchTz, data.date)}</span>
             )}
           </div>
           {slot ? (<>

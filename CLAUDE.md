@@ -268,7 +268,9 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
   app-wide.
 - **UI text casing (Neil, Jul 28 — supersedes any earlier sentence-case note):
   Titles, headings, tab labels, and buttons use Title Case** ("Punch In",
-  "Start Break", "Time Sheet", "Request Time Off"). Body copy, hints, empty
-  states, and descriptions stay sentence case.
+  "Start Break", "Time Sheet", "Request Time Off"). So do status labels,
+  chips and column headers ("In Progress", "On Hold", "Awaiting Approval" -
+  never "In progress"; Neil, Sep 30). Body copy, hints, empty states, and
+  descriptions stay sentence case.
 - Never use em dashes in user-facing copy — plain hyphens ("-"). Em dashes
   read as AI-generated (Visesh, Jul 28).

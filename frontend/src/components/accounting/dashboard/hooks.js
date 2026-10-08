@@ -146,7 +146,8 @@ export function useRunway() {
   const { loans } = useLoans();
   const { mv } = useHoldings();
   const fixed = useMemo(() => fixedMonthly(lines, loans), [lines, loans]);
-  const liquid = cashSplit.ctl + mv;
+  // The scope's own cash: controllable, or the partner entities' under NC (Oct 7).
+  const liquid = cashSplit.onHand + mv;
   return { fixed, liquid, months: runwayMonths(liquid, fixed) };
 }
 
@@ -155,7 +156,7 @@ export function useForecast13() {
   const { loans } = useLoans();
   const { summary } = usePartners();
   const monthlyDist = summary.rows.filter((r) => r.frequency === 'M').reduce((t, r) => t + r.distribution, 0) + summary.nextQuarterly / 3;
-  return useMemo(() => forecast13(lines, loans, period, cashSplit.ctl, monthlyDist), [lines, loans, period, cashSplit.ctl, monthlyDist]);
+  return useMemo(() => forecast13(lines, loans, period, cashSplit.onHand, monthlyDist), [lines, loans, period, cashSplit.onHand, monthlyDist]);
 }
 
 /** Six months of cash from the posted budget (Charmi, Sep 23: monthly, not weekly). Null until the ledger is in. */
@@ -164,7 +165,7 @@ export function useForecastMonthly() {
   const { loans } = useLoans();
   const { summary } = usePartners();
   const monthlyDist = summary.rows.filter((r) => r.frequency === 'M').reduce((t, r) => t + r.distribution, 0) + summary.nextQuarterly / 3;
-  return useMemo(() => (ledger ? forecastMonthly(ledger, budgetAhead, loans, period, cashSplit.ctl, monthlyDist) : null), [ledger, budgetAhead, loans, period, cashSplit.ctl, monthlyDist]);
+  return useMemo(() => (ledger ? forecastMonthly(ledger, budgetAhead, loans, period, cashSplit.onHand, monthlyDist) : null), [ledger, budgetAhead, loans, period, cashSplit.onHand, monthlyDist]);
 }
 
 export function useFlux() {

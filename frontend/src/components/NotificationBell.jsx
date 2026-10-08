@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -8,6 +8,8 @@ import { useRole }           from '../contexts/RoleContext';
 import { api }               from '../api';
 import { setPendingOpen }    from '../lib/pendingOpen';
 import { Spinner } from './AsyncState';
+import { openNotificationTarget } from '../lib/openTarget';
+import { RaiseNotice } from './PriorityBar';
 
 // Resolved dynamically from MSAL account - see myName below
 
@@ -151,15 +153,21 @@ export function destinationFor(n) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
+  const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, addNotification, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
   const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can, myGrantedModules } = useRole();
   const myName  = accounts[0]?.name     ?? '';
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
+  // Closed (Neil, 10/01): clearing keeps the row for 30 days under Closed,
+  // so an accidental clear can be undone. The lists below see only the open ones.
+  const notifications = (allNotifications || []).filter(n => !n.closed);
+  const closedRows = (allNotifications || []).filter(n => n.closed && (!n.recipient || n.recipient === myEmail || n.recipient === myName));
 
   const [open,           setOpen]           = useState(false);
+  const [showClosed,     setShowClosed]     = useState(false);
+  const [raising,        setRaising]        = useState(false);
   const [rejectingId,    setRejectingId]    = useState(null);
   const [rejectReason,   setRejectReason]   = useState('');
   const [allocatingId,   setAllocatingId]   = useState(null);
@@ -497,12 +505,11 @@ export default function NotificationBell({ onNavigate }) {
   // Timesheet review bells name the employee + period (timesheet_review._notify,
   // Sep 29): open THAT timecard in People > Time, same two-halves handoff as
   // tasks and tickets (lib/pendingOpen.js).
+  // Punch-fix requests name their row (Neil, 10/02): the same helper the
+  // priority bar uses opens the request, else the timecard.
   function openTimecardFor(n) {
-    const email = n.action?.timecard;
-    if (!email) return;
-    const detail = { email, start: n.action.start || '', payType: n.action.payType || '' };
-    setPendingOpen('timecard', detail);
-    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-timecard', { detail })), 0);
+    if (!n.action?.timecard && !n.action?.punchRequestId) return;
+    openNotificationTarget(n.action);
   }
 
   function handleUpdateClick(n) {
@@ -669,10 +676,19 @@ export default function NotificationBell({ onNavigate }) {
             )}
             {updates.length > 0 && (
               <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
+                title="Moves these to Closed, where they stay for 30 days"
                 style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
                 Clear All
+              </button>
+            )}
+            {can('manager') && (
+              <button onClick={() => setRaising(true)} aria-label="Raise a priority notice" title="Raise a priority notice for someone - a yellow bar on their screen until they click it off"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 8, borderRadius: 8, display: 'flex', flexShrink: 0 }}
+                onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
+                onMouseLeave={e => e.currentTarget.style.background='none'}>
+                <Megaphone size={18} />
               </button>
             )}
             <button onClick={() => setOpen(false)} aria-label="Close" title="Close"
@@ -875,6 +891,11 @@ export default function NotificationBell({ onNavigate }) {
                           ⚠ ALERT
                         </span>
                       )}
+                      {n.priority === 1 && (
+                        <span title="Also on the yellow bar at the top of your screen until you click it off" style={{ display: 'inline-block', fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: '#7a5d00', background: '#FFF3C4', borderRadius: 999, padding: '2px 8px', marginBottom: 4, marginLeft: isAlert ? 6 : 0 }}>
+                          NEEDS ACTION
+                        </span>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <span style={{ fontWeight: 700, fontSize: isAlert ? 15 : 14.5, color: 'var(--ink)' }}>{n.title}</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
@@ -939,7 +960,7 @@ export default function NotificationBell({ onNavigate }) {
                         </button>
                       )}
                     </div>
-                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }} title="Dismiss"
+                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }} title="Close (kept under Closed for 30 days)"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', opacity: 0.35, padding: 6, borderRadius: 6, flexShrink: 0, transition: 'opacity 0.15s' }}
                       onMouseEnter={e => e.currentTarget.style.opacity='0.8'}
                       onMouseLeave={e => e.currentTarget.style.opacity='0.35'}>
@@ -950,8 +971,45 @@ export default function NotificationBell({ onNavigate }) {
               })}
             </>
           )}
+
+          {/* Closed (Neil, 10/01): everything cleared in the last 30 days, so
+              an accidental Clear All is not the end of it. Restore puts one
+              back; the server removes rows after 30 days. */}
+          {closedRows.length > 0 && (
+            <>
+              <button type="button" onClick={() => setShowClosed(s => !s)} aria-expanded={showClosed}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '16px 24px 8px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif', textAlign: 'left' }}>
+                {showClosed ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                Closed - {closedRows.length}
+                <span style={{ marginLeft: 'auto', fontWeight: 500, letterSpacing: 0, textTransform: 'none', fontSize: 11.5 }}>Kept 30 days</span>
+              </button>
+              {showClosed && closedRows.slice(0, 300).map(n => {
+                const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
+                const Icon = n.priority === 1 ? AlertTriangle : meta.icon;
+                return (
+                  <div key={n.id} style={{ padding: '12px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 9, background: `hsla(${n.priority === 1 ? 'var(--color-gold)' : meta.color},0.12)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon size={15} color={`hsl(${n.priority === 1 ? 'var(--color-gold)' : meta.color})`} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
+                      </div>
+                      {n.body && <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{renderNotifBody(n.body)}</p>}
+                    </div>
+                    <button onClick={() => restore(n.id)} title="Put it back in the list"
+                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'hsl(var(--color-blue))', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                      Restore
+                    </button>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       </div>
+      {raising && <RaiseNotice onClose={() => setRaising(false)} myEmail={myEmail} />}
     </>
   );
 }

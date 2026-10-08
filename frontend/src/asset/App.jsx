@@ -39,13 +39,16 @@ import { PropertyMaintenanceSection } from './components/maintenance/PropertyMai
 import { ManagePage } from './components/manage/ManagePage.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
+import { ticketMaintenanceRows } from './lib/propertyTickets.js';
 import { useSession } from './lib/session.js';
 import { api } from '../api.js';
 import { AddItemModal } from '../views/InventoryManagement.jsx';
+// Oct 7 accounting feedback: a property's loans from the ledger (self-contained; see the file's header).
+import PropertyLoans from '../components/PropertyLoans.jsx';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
-export default function App() {
+export default function App({ activeSub = null, onSubChange = null } = {}) {
   const session = useSession();
   const canManage = session?.can ? session.can('manager') : false;
 
@@ -64,7 +67,30 @@ export default function App() {
   const [modal, setModal] = useState(null);                // the currently-open record/asset/timeline modal, if any
   const [equipmentItemModal, setEquipmentItemModal] = useState(null); // staged Heavy Equipment asset awaiting its paired Item Management entry
   const [lastManageVisit, setLastManageVisit] = useState(() => { try { return localStorage.getItem('nexus_manage_seen') || ''; } catch { return ''; } });
-  const [highlight, setHighlight] = useState(null);        // deep-link target set by "Go to" from the Activity Log
+  const [highlight, setHighlight] = useState(null);
+  // Ticket bells and emails deep-link here (Property Tickets, Oct 2026): sub
+  // "tickets|needs-action|services:<propertyId>[:<ticketId>]" opens that
+  // property's Maintenance on that tab (and the ticket). Consumed once (onSubChange(null)), so the
+  // next visit to Asset Management starts at the portfolio as usual.
+  const [ticketFocus, setTicketFocus] = useState(null);
+  const [subSeen, setSubSeen] = useState(null);
+  const [subMissing, setSubMissing] = useState(false);
+  const ticketSub = /^(tickets|needs-action|services):([^:]+)(?::(.+))?$/.exec(activeSub || '');
+  if (ticketSub && !loading && activeSub !== subSeen) {
+    setSubSeen(activeSub);
+    if (store.properties.some((p) => p.id === ticketSub[2] && !p.deleted)) {
+      setActiveId(ticketSub[2]);
+      setView('maintenance');
+      setTicketFocus((f) => ({ propertyId: ticketSub[2], ticketId: ticketSub[3] || null, tab: ticketSub[1], at: (f?.at || 0) + 1 }));
+    } else {
+      setSubMissing(true);
+    }
+  }
+  useEffect(() => {
+    if (!subSeen || activeSub !== subSeen) return;
+    if (subMissing) pushToast?.('That property is no longer in Asset Management.', 'mut');
+    onSubChange?.(null);
+  }, [subSeen, activeSub, subMissing, onSubChange]);        // deep-link target set by "Go to" from the Activity Log
   const [typeFilter, setTypeFilter] = useState('');
 
   const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
@@ -112,6 +138,16 @@ export default function App() {
   const recordsFor = (coll) => (store[coll] || []).filter((r) => r.propertyId === activeId);
 
   const openAsset = (id, tab = 'property') => { setActiveId(id); setView(tab); };
+  // Export CSV is "everything tied to an asset" - that includes its closed
+  // tickets summarized as maintenance records, which live in Tickets, not in
+  // the store. Fetched at export time; if that fails the file says so
+  // instead of silently leaving them out.
+  const exportCsvWithTickets = async (asset) => {
+    let ticketMaintenance = null;
+    try { ticketMaintenance = ticketMaintenanceRows(await api.getPropertyTickets(asset.id), asset); }
+    catch { /* exported with a "Not included" row */ }
+    exportAssetCsvAsFile(asset, store, { ticketMaintenance });
+  };
 
   /** All navigation goes through this - it's what enforces the unsaved-changes guard. */
   const navigate = (nextView) => {
@@ -464,6 +500,20 @@ export default function App() {
     });
   };
 
+  // The property's ledger entity (Oct 7) - what PropertyLoans reads the loans of.
+  const setEntityCode = (id, code) => {
+    setStore((s) => {
+      const idx = s.properties.findIndex((p) => p.id === id);
+      if (idx < 0) return s;
+      const before = s.properties[idx];
+      const next = { ...before, entityCode: code || '' };
+      return appendLog(
+        { ...s, properties: s.properties.map((p, i) => i === idx ? next : p) },
+        makeLogEntry({ section: 'Property', property: next.name, propertyId: id, action: 'edited', item: next.name, changes: [{ field: 'Ledger Entity', from: before.entityCode || '', to: code || '' }] })
+      );
+    });
+  };
+
   const saveImages = (images) => {
     setStore((s) => {
       const props = [...s.properties];
@@ -687,7 +737,7 @@ export default function App() {
             {active.private ? '🔒 Private' : 'Mark Private'}
           </button>
           <button className="secondary-btn" onClick={() => duplicateAsset(false)} title="Duplicate this asset as a standalone copy" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>⧉ Duplicate</button>
-          <ExportMenu onPdf={() => exportAssetPdf(active, store)} onCsv={() => exportAssetCsvAsFile(active, store)} />
+          <ExportMenu onPdf={() => exportAssetPdf(active, store)} onCsv={() => exportCsvWithTickets(active)} />
         </div>
       )}
 
@@ -745,6 +795,9 @@ export default function App() {
       {view === 'property' && active && (
         <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} />
       )}
+      {view === 'property' && active && inferAssetKind(active) === 'property' && (
+        <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
+      )}
 
       {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
         view === coll && active && (
@@ -763,7 +816,7 @@ export default function App() {
       ))}
 
       {view === 'maintenance' && active && (
-        <PropertyMaintenanceSection p={active} rows={recordsFor('maintenance')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'maintenance' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'maintenance', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'maintenance', id })} onSaveUnits={(units) => setTenantUnits(active.id, units)} onQuickAdd={(patch) => saveRecord('maintenance', null, patch)} />
+        <PropertyMaintenanceSection p={active} rows={recordsFor('maintenance')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'maintenance' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'maintenance', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'maintenance', id })} onSaveUnits={(units) => setTenantUnits(active.id, units)} onQuickAdd={(patch) => saveRecord('maintenance', null, patch)} ticketFocus={ticketFocus} />
       )}
       {view === 'vservice' && active && (
         <VserviceSection p={active} rows={recordsFor('vservice')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} onQuickAdd={(patch) => saveRecord('vservice', null, patch)} />

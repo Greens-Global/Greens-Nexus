@@ -39,7 +39,8 @@ describe('TicketTaxonomySettings - Requires Approval', () => {
     render(<TicketTaxonomySettings />);
     await screen.findByText('Ticket types & intake questions');
     expect(approvalSwitch('Access Request')).toHaveAttribute('aria-checked', 'true');
-    expect(approvalSwitch('Service Request')).toHaveAttribute('aria-checked', 'true');
+    // Retired from the five (Oct 1) - not listed at all.
+    expect(screen.queryByRole('switch', { name: 'Requires Approval: Service Request' })).toBeNull();
     expect(approvalSwitch('Bug Report')).toHaveAttribute('aria-checked', 'false');
     expect(approvalSwitch('Incident')).toHaveAttribute('aria-checked', 'false');
     expect(screen.getAllByText(/New tickets of this type wait for an approver's sign-off/).length).toBeGreaterThan(0);
@@ -69,5 +70,48 @@ describe('TicketTaxonomySettings - Requires Approval', () => {
     await waitFor(() => expect(typeRequiresApproval('access_request')).toBe(true));
     expect(typeRequiresApproval('bug')).toBe(false);
     expect(Object.keys(APPROVAL_REQUIRED).sort()).toEqual(['access_request', 'change_request', 'service_request']);
+  });
+});
+
+const intakeSwitch = (typeLabel) => screen.getByRole('switch', { name: `Offered on Submit a Ticket: ${typeLabel}` });
+
+describe('TicketTaxonomySettings - the five types (Oct 1)', () => {
+  it('lists only the five, all on by default', async () => {
+    render(<TicketTaxonomySettings />);
+    await screen.findByText('Ticket types & intake questions');
+    const listed = screen.getAllByRole('switch', { name: /^Offered on Submit a Ticket: / })
+      .map((el) => el.getAttribute('aria-label').replace('Offered on Submit a Ticket: ', ''));
+    expect(listed).toEqual(['Incident', 'Bug Report', 'Feature Request', 'Access Request', 'Other']);
+    expect(listed.every((l) => intakeSwitch(l).getAttribute('aria-checked') === 'true')).toBe(true);
+    for (const gone of ['Service Request', 'Change / Enhancement', 'Task', 'Question', 'Request']) {
+      expect(screen.queryByRole('switch', { name: `Offered on Submit a Ticket: ${gone}` })).toBeNull();
+    }
+  });
+
+  it('turns a type off and on, and saves only the five', async () => {
+    render(<TicketTaxonomySettings />);
+    await screen.findByText('Ticket types & intake questions');
+    fireEvent.click(intakeSwitch('Feature Request'));
+    expect(intakeSwitch('Feature Request')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(/TURNED OFF/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
+    expect(api.updateTicketTaxonomySettings.mock.calls[0][0].typeOrder).toEqual(['incident', 'bug', 'access_request', 'other']);
+  });
+
+  it('drops a retired type from an order saved before, and keeps at least one on', async () => {
+    api.getTicketTaxonomySettings.mockImplementationOnce(() => Promise.resolve({
+      ...JSON.parse(JSON.stringify(CONFIG)), typeOrder: ['incident', 'service_request', 'change_request'] }));
+    render(<TicketTaxonomySettings />);
+    await screen.findByText('Ticket types & intake questions');
+    expect(intakeSwitch('Incident')).toHaveAttribute('aria-checked', 'true');
+    expect(intakeSwitch('Bug Report')).toHaveAttribute('aria-checked', 'false');
+    // The last one on cannot be switched off.
+    fireEvent.click(intakeSwitch('Incident'));
+    expect(intakeSwitch('Incident')).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(intakeSwitch('Bug Report'));
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
+    expect(api.updateTicketTaxonomySettings.mock.calls[0][0].typeOrder).toEqual(['incident', 'bug']);
   });
 });

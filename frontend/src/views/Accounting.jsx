@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { CheckSquare, Database, ExternalLink, FileStack, FileText, KeyRound, Landmark, LayoutGrid, ShieldCheck, TrendingUp, Wallet } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Banknote, CheckSquare, Database, FileStack, FileText, KeyRound, Landmark, LayoutGrid, Loader2, Receipt, Search, ShieldCheck, TrendingUp, Upload, Wallet, Wrench, X } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -8,8 +8,13 @@ import ReportsTab from '../components/accounting/ReportsTab';
 import PackagesTab from '../components/accounting/PackagesTab';
 import AccessTab from '../components/accounting/AccessTab';
 import PfsTab from '../components/accounting/PfsTab';
-import LeasingTab from '../components/accounting/LeasingTab';
-import { SkeletonBlocks, Spinner } from '../components/AsyncState';
+import MriTab from '../components/accounting/MriTab';
+import LoansTab from '../components/accounting/LoansTab';
+import MreTab from '../components/accounting/MreTab';
+import ImportHub from '../components/accounting/ImportHub';
+import { control } from '../components/accounting/reportControls';
+import { dashDensityOf, useAccountingPrefs } from '../components/accounting/prefs';
+import { SkeletonBlocks } from '../components/AsyncState';
 import { DashProvider } from '../components/accounting/dashboard/DashContext';
 import { DashNav } from '../components/accounting/dashboard/registry';
 import OverviewTab from '../components/accounting/dashboard/OverviewTab';
@@ -17,6 +22,11 @@ import CashTab from '../components/accounting/dashboard/CashTab';
 import PerformanceTab from '../components/accounting/dashboard/PerformanceTab';
 import CloseTab from '../components/accounting/dashboard/CloseTab';
 import DataTab from '../components/accounting/dashboard/DataTab';
+import BudgetTab from '../components/accounting/BudgetTab';
+import PartnersTab from '../components/accounting/PartnersTab';
+import AllocationsTab from '../components/accounting/AllocationsTab';
+import AmaTab from '../components/accounting/AmaTab';
+import { Calculator, Handshake, Split, Users } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -33,22 +43,59 @@ import DataTab from '../components/accounting/dashboard/DataTab';
 // Sep 25 (Neil): Packages builds a set of memorized reports into one PDF for
 // a lender; Access (Full level on Accounting) sets which entities each person
 // may read. A person limited to certain entities gets Reports, Packages and
-// Leasing only - every other tab shows consolidated figures, and the backend refuses
+// MRI only - every other tab shows consolidated figures, and the backend refuses
 // them for that person whatever the screen shows.
+//
+// Sep 30 (Charmi and Neil, call of 09/29): the ledger search box sits in the
+// header of EVERY tab (typing lands on Reports with the words); the "Open
+// Nexus Accounting" button is gone (the accounting app's own login page still
+// hands off through Nexus); Leasing became a section of MRI, Monthly
+// Recurring Income.
 
+// Oct 6 (Charmi and Neil, 10/04): the bar was fourteen tabs long. It is now
+// six, three of them dropdowns: Dashboard (Overview / Cash / Performance /
+// Close), Reporting (Reports / Packages / PFS / MRI / MRE) and Tools (Data /
+// Access / Allocations / Import Hub). The sub keys did not change - a group
+// is only how the bar draws them - so every deep link still lands.
 const TABS = [
-  { key: 'overview', label: 'Overview', Icon: LayoutGrid },
-  { key: 'cash', label: 'Cash', Icon: Wallet },
-  { key: 'performance', label: 'Performance', Icon: TrendingUp },
-  { key: 'close', label: 'Close', Icon: CheckSquare },
-  { key: 'reports', label: 'Reports', Icon: FileText },
-  { key: 'packages', label: 'Packages', Icon: FileStack },
-  { key: 'leasing', label: 'Leasing', Icon: KeyRound },
-  { key: 'pfs', label: 'PFS', Icon: Landmark },
-  { key: 'data', label: 'Data', Icon: Database },
-  { key: 'access', label: 'Access', Icon: ShieldCheck },
+  { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, items: [
+    { key: 'overview', label: 'Overview', Icon: LayoutGrid },
+    { key: 'cash', label: 'Cash', Icon: Wallet },
+    { key: 'performance', label: 'Performance', Icon: TrendingUp },
+    { key: 'close', label: 'Close', Icon: CheckSquare },
+  ] },
+  { key: 'reporting', label: 'Reporting', Icon: FileText, items: [
+    { key: 'reports', label: 'Reports', Icon: FileText },
+    { key: 'packages', label: 'Packages', Icon: FileStack },
+    { key: 'pfs', label: 'PFS', Icon: Landmark },
+    { key: 'mri', label: 'MRI', Icon: KeyRound },
+    // Oct 6: Monthly Recurring Expenses, beside MRI.
+    { key: 'mre', label: 'MRE', Icon: Receipt },
+    // Oct 7 (Priyanka): Asset Management Agreements, billed read from the ledger.
+    { key: 'ama', label: 'AMA', Icon: Handshake },
+  ] },
+  // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
+  // month - balances, principal and interest paid, NOI, DSCR against the
+  // covenant. Per entity, so a limited person gets it too.
+  { key: 'loans', label: 'Loans & Financing', Icon: Banknote },
+  // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year, vendor
+  // and customer records with changes sent for approval, and the monthly
+  // payroll allocation entry from Time Clock hours.
+  { key: 'budget', label: 'Budget', Icon: Calculator },
+  { key: 'partners', label: 'Vendors & Customers', Icon: Users },
+  // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
+  { key: 'tools', label: 'Tools', Icon: Wrench, items: [
+    { key: 'data', label: 'Data', Icon: Database },
+    { key: 'access', label: 'Access', Icon: ShieldCheck },
+    { key: 'allocations', label: 'Allocations', Icon: Split },
+    { key: 'imports', label: 'Import Hub', Icon: Upload },
+  ] },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'leasing'];
+const LIMITED_TABS = ['reports', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama'];
+// Links made before a rename still land; a group's own key opens its first item.
+const ALIAS = { leasing: 'mri' };
+const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
+const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -57,12 +104,15 @@ export default function Accounting({ activeSub, onSubChange }) {
   // The Close tab's "My Tasks" matches a task owner to my role or my name.
   const nameOf = useNameResolver();
   const meName = nameOf(myEmail) || '';
-  const canOpenApp = canAccessModule('accounting-app', 'administrator', 'viewer');
   // Ticking close tasks, marking reconciliations, writing commentary and
   // editing reference figures need the editor level on the Accounting grant.
   const canEdit = canAccessModule('accounting', 'administrator', 'editor');
   // Deciding who reads which entities takes the Full level.
   const canManage = canAccessModule('accounting', 'administrator', 'full');
+  // Vendor / customer change requests are decided by a manager who holds
+  // the Accounting grant, or anyone at the Full level on it (the backend
+  // checks the same).
+  const canApprovePartners = canAccessModule('accounting', 'manager', 'full');
   // Personal financial statements: owners and the explicit grant, nobody else
   // - an administrator does not see the tab (and the backend refuses them).
   const canPfs = canAccessModule('pfs', 'owner', 'viewer');
@@ -70,6 +120,8 @@ export default function Accounting({ activeSub, onSubChange }) {
   // Am I limited to certain entities? Asked once; until the answer is in, no
   // tab is drawn, so a limited person never sees a dashboard tab flash by.
   const [access, setAccess] = useState(null);
+  // Stamp the visit for the Access tab's "last opened" column; nothing waits on it.
+  useEffect(() => { api.markAccountingOpened?.()?.catch?.(() => {}); }, []);
   useEffect(() => {
     let alive = true;
     api.getMyAccountingAccess()
@@ -78,26 +130,42 @@ export default function Accounting({ activeSub, onSubChange }) {
     return () => { alive = false; };
   }, []);
   const limited = !!access?.limited;
-  const tabs = TABS.filter((t) => (t.key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(t.key) : (t.key !== 'data' || canEdit) && (t.key !== 'access' || canManage)));
-  const sub = tabs.some((t) => t.key === activeSub) ? activeSub : tabs[0].key;
+  // Oct 6: the person's Dashboard density (Overview > Density), on every Dashboard tab.
+  const [prefs] = useAccountingPrefs();
+  const dashDensity = dashDensityOf(prefs);
+  const allowed = (key) => (key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(key) : (key !== 'data' || canEdit) && (key !== 'access' || canManage));
+  // Groups keep only the items this person may open; an empty group goes.
+  const tabs = TABS.map((t) => (t.items ? { ...t, items: t.items.filter((i) => allowed(i.key)) } : t))
+    .filter((t) => (t.items ? t.items.length > 0 : allowed(t.key)));
+  const leaves = leafKeys(tabs);
+  const group = tabs.find((t) => t.key === activeSub && t.items);
+  const wanted = group ? group.items[0].key : (ALIAS[activeSub] || activeSub);
+  const sub = leaves.includes(wanted) ? wanted : leaves[0];
   useEffect(() => { if (access && sub !== activeSub) onSubChange?.(sub); }, [access, sub, activeSub, onSubChange]);
 
-  // Single sign-on into the accounting app. Nexus is the only way in there: the
-  // backend provisions the caller (role mapped from their Nexus grant) and
-  // returns a one-time URL. The tab is opened synchronously on the click so
-  // popup blockers allow it, then pointed at the URL once it arrives.
-  const [launching, setLaunching] = useState(false);
-  const [launchError, setLaunchError] = useState('');
-  const openAccounting = () => {
-    if (launching) return;
-    setLaunching(true);
-    setLaunchError('');
-    const tab = window.open('', '_blank');
-    api.launchAccounting()
-      .then(({ url }) => { if (tab) tab.location = url; else window.location.assign(url); })
-      .catch((e) => { if (tab) tab.close(); setLaunchError(e?.message || 'Could not open Nexus Accounting.'); })
-      .finally(() => setLaunching(false));
+  // The ledger search, from any tab (Oct 6, Neil: "search bar should always
+  // be on the top right in the entire accounting module"): one box, top
+  // right of the header, on every tab. On Reports it IS Reports' search box
+  // (the text and the spinner are shared with ReportsTab); anywhere else,
+  // two characters typed open Reports with the words after a pause, Enter at
+  // once. Leaving Reports clears it, so it never bounces anyone back there.
+  const [searchText, setSearchText] = useState('');
+  const [searchWaiting, setSearchWaiting] = useState(false);
+  const searchTimer = useRef(null);
+  const goSearch = (text) => {
+    if (text.trim().length < 2) return;
+    if (sub !== 'reports') onSubChange?.('reports');
   };
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    if (sub !== 'reports' && searchText.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(searchText), 600);
+    return () => clearTimeout(searchTimer.current);
+  }, [searchText]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lastSub = useRef(sub);
+  useEffect(() => {
+    if (lastSub.current === 'reports' && sub !== 'reports') { setSearchText(''); setSearchWaiting(false); }
+    lastSub.current = sub;
+  }, [sub]);
 
   const subtitle = {
     overview: 'Your dashboard view of the ledger - arrange the widgets that matter to your role',
@@ -106,33 +174,54 @@ export default function Accounting({ activeSub, onSubChange }) {
     close: 'Month-end close: checklist, reconciliations, balance sheet flux and controls',
     reports: 'Financial reports from the Nexus Accounting ledger',
     packages: 'Sets of memorized reports, built into one PDF for a lender',
-    leasing: 'Tenants, rent, and what came in against what was expected',
+    mri: 'Monthly recurring income - leases, and the interest and loan payments coming in',
+    loans: 'Every loan from the ledger - balances, principal and interest paid, NOI and DSCR against the covenant',
     pfs: 'Personal financial statements of the guarantors, for any date',
     data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
     access: 'Which entities each person on the accounting team may read',
+    budget: 'The budget per entity and year, by account and month, against the actuals',
+    partners: 'Vendor and customer records, with changes sent to a manager for approval before they are keyed into Intacct',
+    allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
+    mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
+    imports: 'Every setup that reads the ledger - loans, leases and recurring expenses',
+    ama: 'Asset management agreements - the fee per managed entity, billed against expected',
   }[sub];
-  // Reports, Packages and Access are working screens: the statement has to
-  // start high on the page (Neil, Sep 25), so their header is one line.
-  const slim = ['reports', 'packages', 'access', 'pfs', 'leasing'].includes(sub);
+  // Every tab has the same one-line header (10/02): the statement still
+  // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
+  // when switching tabs.
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: slim ? 6 : 16, alignItems: slim ? 'center' : undefined }}>
-        <div className="view-title-group" style={slim ? { display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' } : undefined}>
-          <h2 style={slim ? { fontSize: '1.15rem', margin: 0 } : undefined}>Accounting</h2>
-          <p style={slim ? { margin: 0, fontSize: '0.8rem' } : undefined}>{subtitle}</p>
+    <div className="acct-module" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      {/* One header for every tab (Visesh, 10/02: the search "keeps jumping
+          on every screen change"). Oct 6 (Neil): the search sits at the TOP
+          RIGHT on every tab, Reports included - title left, the search box
+          last. One line, one height, everywhere. */}
+      <div className="view-header acct-header">
+        <div className="acct-header-title">
+          <h2>Accounting</h2>
+          <p title={subtitle}>{subtitle}</p>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-          {limited ? null : canOpenApp ? (
-            <button type="button" className="primary-btn" onClick={openAccounting} disabled={launching} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, ...(slim ? { fontSize: '0.8rem', padding: '5px 12px' } : {}) }}>
-              {launching ? <Spinner size={16} /> : <ExternalLink size={16} />} Open Nexus Accounting
-            </button>
-          ) : slim ? null : (
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: 280, textAlign: 'right' }}>
-              The Nexus Accounting app is granted separately in Settings &gt; Access.
-            </span>
+        {/* Oct 7 (Neil, comment 6: "Remove Nexus Accounting"): the "Open Nexus
+            Accounting" link is gone from every tab. The slot stays so the
+            search keeps its place. */}
+        <div className="acct-header-actions" />
+        <div className="acct-header-search">
+          {/* Oct 7 (Neil, screenshot 3): no ledger search on the PFS tab. */}
+          {access && sub !== 'pfs' && (
+            <form role="search" onSubmit={(e) => { e.preventDefault(); clearTimeout(searchTimer.current); goSearch(searchText); }} style={{ position: 'relative', width: '100%' }}>
+              {searchWaiting && sub === 'reports'
+                ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
+                : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
+              <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
+                placeholder="Search vendor, customer, invoice, amount, memo..." style={{ ...control, width: '100%', paddingLeft: 28, paddingRight: 26 }} />
+              {searchText && (
+                <button type="button" onClick={() => setSearchText('')} aria-label="Clear search"
+                  style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}>
+                  <X size={14} />
+                </button>
+              )}
+            </form>
           )}
-          {launchError && <span style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{launchError}</span>}
         </div>
       </div>
 
@@ -144,25 +233,38 @@ export default function Accounting({ activeSub, onSubChange }) {
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
         <div style={{ marginTop: 8 }}>
-          {sub === 'reports' && <ReportsTab />}
+          {sub === 'reports' && <ReportsTab searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />}
           {sub === 'packages' && <PackagesTab />}
-          {sub === 'leasing' && <LeasingTab canEdit={canEdit} canDelete={canManage} />}
+          {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
+          {sub === 'loans' && <LoansTab canEdit={canEdit} />}
           {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
+          {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
+          {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+          {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
+          {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
+          {sub === 'ama' && <AmaTab canEdit={canEdit} />}
         </div>
       ) : (
         <DashProvider>
           <DashNav.Provider value={(to) => onSubChange?.(to)}>
-            <div style={{ marginTop: slim ? 8 : 16 }}>
+            <div style={{ marginTop: 8 }} className={DASH_SUBS.includes(sub) ? `acct-dash acct-dash--${dashDensity}` : undefined}>
               {sub === 'overview' && <OverviewTab canEdit={canEdit} />}
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
-              {sub === 'reports' && <ReportsTab />}
+              {sub === 'reports' && <ReportsTab searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />}
               {sub === 'packages' && <PackagesTab />}
-              {sub === 'leasing' && <LeasingTab canEdit={canEdit} canDelete={canManage} />}
+              {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
+              {sub === 'loans' && <LoansTab canEdit={canEdit} />}
               {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
               {sub === 'data' && canEdit && <DataTab />}
               {sub === 'access' && canManage && <AccessTab />}
+              {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
+              {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+              {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
+              {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
+              {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
+              {sub === 'ama' && <AmaTab canEdit={canEdit} />}
             </div>
           </DashNav.Provider>
         </DashProvider>

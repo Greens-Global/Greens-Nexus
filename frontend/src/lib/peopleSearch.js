@@ -5,7 +5,9 @@
 // name ("Charmi De-sai") is a coincidence, not the intent, and used to rank
 // ahead of the real match whenever it came first alphabetically. Ranked:
 //   1. query prefixes the first name (case-insensitive)
-//   2. everything else that matches name or email at all
+//   2. query prefixes any other word of the name - a last name ("wil" finds
+//      Amy Wilson ahead of a mid-word hit)
+//   3. everything else that matches name or email at all
 // Each tier is then sorted alphabetically by name, so within a tier the order
 // is predictable rather than "whatever order the directory happened to load
 // in" (Sagar, Aug 27).
@@ -17,8 +19,10 @@ export function matchPeople(people, query, { limit } = {}) {
     const name = (p.name || '').toLowerCase();
     const email = (p.email || '').toLowerCase();
     if (!name.includes(q) && !email.includes(q)) continue;
-    const firstName = name.split(/\s+/)[0] || '';
-    scored.push({ p, rank: firstName.startsWith(q) ? 0 : 1 });
+    const words = name.split(/\s+/).filter(Boolean);
+    const rank = (words[0] || '').startsWith(q) || name.startsWith(q) ? 0
+      : words.some(w => w.startsWith(q)) ? 1 : 2;
+    scored.push({ p, rank });
   }
   scored.sort((a, b) => a.rank - b.rank || (a.p.name || '').localeCompare(b.p.name || ''));
   const out = scored.map((s) => s.p);

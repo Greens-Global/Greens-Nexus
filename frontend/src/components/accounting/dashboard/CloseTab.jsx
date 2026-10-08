@@ -17,7 +17,7 @@ import { TaskViewSwitch, useCloseViews } from './closeViews';
 const SECTIONS = ['checklist', 'recon', 'flux', 'controls'];
 
 export default function CloseTab({ canEdit, meName = '' }) {
-  const { period, act, m } = useDash();
+  const { period, act, m, loading } = useDash();
   const nav = useDashNav();
   const { state, history, isLoading } = useCloseState();
   const { view, setView, pickedRole, setRole, owners, showRow } = useCloseViews(state?.rows ?? [], meName);
@@ -119,8 +119,8 @@ export default function CloseTab({ canEdit, meName = '' }) {
       {section === 'recon' ? <WidgetPanel id="recon" compact={false} /> : null}
 
       {section === 'flux' ? (
-        <Panel title="Balance sheet flux - explain changes over $25K or 10%" sub={hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
-          {!hasPrior ? <EmptyBox title="No prior month to compare." style={{ margin: 16 }} /> : !flux.length ? <EmptyBox title="No material balance changes" style={{ margin: 16 }} /> : (
+        <Panel title="Balance sheet flux - explain changes over $25K or 10%" sub={loading ? 'Loading...' : hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
+          {loading ? <div style={{ padding: 16 }}><LoadingBox /></div> : !hasPrior ? <EmptyBox title="No prior month to compare." style={{ margin: 16 }} /> : !flux.length ? <EmptyBox title="No material balance changes" style={{ margin: 16 }} /> : (
             <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
               <thead><tr><th>Account</th><th style={num}>{mShort(prevKey)}</th><th style={num}>{mShort(period)}</th><th style={num}>Change</th><th style={{ width: '38%' }}>Explanation</th></tr></thead>
               <tbody>

@@ -2,15 +2,19 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
-  ChevronDown, Globe, Globe2, BookMarked, Download,
+  ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
+  ListChecks, RefreshCw,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
+import { timeTrackingText } from '../lib/timeTracking';
+import { useNameResolver } from '../lib/useNameResolver';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -36,8 +40,12 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES, countryName } from '../lib/countries';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
+import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
+import { googleMapsUrl } from '../lib/addressSearch';
+import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
+import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -140,6 +148,11 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     status:          e?.status || 'active',
     location:        e?.location || '',
     country:         e?.country || '',
+    office_phone:    e?.officePhone || '',
+    street_address:  e?.streetAddress || '',
+    city:            e?.city || '',
+    state:           e?.state || '',
+    postal_code:     e?.postalCode || '',
     company:         e?.company || '',
     identity_type:   e?.identityType || 'internal',
     contractor:      e?.contractor || {},
@@ -204,23 +217,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
 
-  // Compensation (gated by the comp-access grant). Keyed by work email; loads the
-  // current rate when editing, saved right after the profile on Save.
-  const [comp, setComp] = useState({ payType: 'hourly', currency: 'USD', hourlyRate: '', monthlySalary: '', weekendOtAmount: '1000', fullDayHours: '8', timeTrackingExempt: false });
-  const [compDirty, setCompDirty] = useState(false);
-  const setW = (k, v) => { setComp(prev => ({ ...prev, [k]: v })); setCompDirty(true); };
-  useEffect(() => {
-    if (!canSeeComp || !editing || !employee?.workEmail) return;
-    api.timePayrollRateGet(employee.workEmail).then(r => {
-      if (!r?.isSet) return;
-      setComp({ payType: r.payType || 'hourly', currency: r.currency || 'USD',
-                hourlyRate: r.hourlyRate ? String(r.hourlyRate) : '',
-                monthlySalary: r.monthlySalary ? String(r.monthlySalary) : '',
-                weekendOtAmount: r.weekendOtAmount != null ? String(r.weekendOtAmount) : '1000',
-                fullDayHours: r.fullDayHours ? String(r.fullDayHours) : '8',
-                timeTrackingExempt: !!r.timeTrackingExempt });
-    }).catch(() => {});
-  }, [canSeeComp, editing, employee?.workEmail]);
+  // Pay is NOT edited on the profile form any more (Charmi, Sep 30): the Pay &
+  // Benefits tab is the one writer of the wage, OT rule and exemption, so the
+  // inline "Payroll wage" block (a second write path into PayrollRate) is gone.
   useEffect(() => {
     if (!f.company) { setDeptOptions([]); return; }
     setDeptLoading(true);
@@ -246,30 +245,10 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
       const wemail = (saved?.workEmail || f.work_email || '').trim();
-      // Compensation, keyed by work email - saved after the profile. Any warning is
+      // Pay is set on the Pay & Benefits tab, not here (Sep 30). Any warning is
       // HELD and fired LAST so the single-slot toast doesn't overwrite it with the
       // profile "Saved"/M365 message.
       let wageWarn = '';
-      if (canSeeComp && compDirty && wemail) {
-        const up = await ensureStepUp();   // payroll writes need a fresh step-up when enforced
-        if (!up.ok) {
-          wageWarn = up.cancelled ? 'Profile saved - wage skipped (identity check cancelled).'
-            : 'Profile saved - wage skipped (identity check did not complete).';
-        } else {
-          try {
-            await api.timePayrollRate({
-              email: wemail, pay_type: comp.payType, currency: comp.currency,
-              hourly_rate: parseFloat(comp.hourlyRate) || 0,
-              monthly_salary: parseFloat(comp.monthlySalary) || 0,
-              weekend_ot_amount: parseFloat(comp.weekendOtAmount) || 0,
-              full_day_hours: parseFloat(comp.fullDayHours) || 8,
-              time_tracking_exempt: !!comp.timeTrackingExempt,
-            });
-          } catch (err) { wageWarn = `Profile saved, but the wage could not be saved: ${err?.message || 'error'} - set it on the Pay tab.`; }
-        }
-      } else if (canSeeComp && compDirty && !wemail) {
-        wageWarn = 'Profile saved - the wage needs a work email; set it once the email is provisioned.';
-      }
       // New hire + a chosen job role → set their access + tier now. Needs a work
       // email; if not provisioned yet, prompt to set it later on the Access tab.
       if (!editing && jobRoleId) {
@@ -298,7 +277,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     </div>
   );
 
-  const dirty = compDirty || JSON.stringify(f) !== JSON.stringify(initialFRef.current);
+  const dirty = JSON.stringify(f) !== JSON.stringify(initialFRef.current);
   const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
 
   return (
@@ -317,7 +296,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('LAST NAME', 'last_name')}
           {input('WORK EMAIL', 'work_email', { type: 'email', placeholder: 'empty until provisioned' })}
           {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
-          {input('PHONE', 'phone')}
+          {input('MOBILE PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
           {input('DESIGNATION', 'designation')}
           {/* Editable so Nexus codes can line up with the QuickBooks employee
@@ -385,14 +364,34 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
           </div>
-          {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
+          {/* Office and contact info, kept in step with Microsoft 365 both ways
+              (Neil, 10/07: HR updates these here instead of IT in the M365
+              admin center - the same fields as its contact info, minus fax). */}
+          <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Office &amp; Contact</span>
+            <span title="Changes here update the person's Microsoft 365 account, and changes made in Microsoft 365 come back here"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 8px', borderRadius: 999 }}>
+              <RefreshCw size={10} /> Synced With Microsoft 365
+            </span>
+          </div>
           <div>
-            <label style={FL}>COUNTRY</label>
+            {input('OFFICE', 'location', { placeholder: 'e.g. San Clemente', list: 'hr-office-options' })}
+            <datalist id="hr-office-options">
+              {[...new Set(employees.map(x => (x.location || '').trim()).filter(Boolean))].sort().map(o => <option key={o} value={o} />)}
+            </datalist>
+          </div>
+          {input('OFFICE PHONE', 'office_phone', { type: 'tel' })}
+          <div style={{ gridColumn: '1 / -1' }}>{input('STREET ADDRESS', 'street_address', { placeholder: 'Work address - shown in Outlook and Teams' })}</div>
+          {input('CITY', 'city')}
+          {input('STATE OR PROVINCE', 'state')}
+          {input('ZIP OR POSTAL CODE', 'postal_code')}
+          <div>
+            <label style={FL}>COUNTRY OR REGION</label>
             <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
               <option value="">-</option>
               {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Where this person actually is - drives their email signature's phone country code.</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Where this person actually is - also drives their email signature's phone country code.</div>
           </div>
           <div>
             <label style={FL}>ACCOUNT TYPE</label>
@@ -441,55 +440,8 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
             </div>
           )}
           {canSeeComp && !isContractor && (
-            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-blue),0.05)' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', letterSpacing: '.04em', marginBottom: 12 }}>PAYROLL WAGE</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div>
-                  <label style={FL}>PAY TYPE</label>
-                  <select className="form-input" style={{ width: '100%' }} value={comp.payType} onChange={e => setW('payType', e.target.value)}>
-                    <option value="hourly">Hourly</option>
-                    <option value="fixed">Fixed (monthly salary)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={FL}>CURRENCY</label>
-                  <select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setW('currency', e.target.value)}>
-                    <option value="USD">USD ($)</option><option value="INR">INR (₹)</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={FL}>TIME TRACKING</label>
-                  <select className="form-input" style={{ width: '100%' }} value={comp.timeTrackingExempt ? 'exempt' : 'tracked'}
-                    onChange={e => setW('timeTrackingExempt', e.target.value === 'exempt')}>
-                    <option value="tracked">Tracked (punches and hours)</option>
-                    <option value="exempt">Exempt (salaried - no time tracking)</option>
-                  </select>
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Exempt hides the punch card, timer and hours widgets for this person.</div>
-                </div>
-                {comp.payType === 'hourly' ? (
-                  <div>
-                    <label style={FL}>HOURLY RATE</label>
-                    <input className="form-input" type="number" min="0" step="0.01" style={{ width: '100%' }} value={comp.hourlyRate} onChange={e => setW('hourlyRate', e.target.value)} placeholder="0.00" />
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <label style={FL}>MONTHLY SALARY</label>
-                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.monthlySalary} onChange={e => setW('monthlySalary', e.target.value)} placeholder="e.g. 30000" />
-                    </div>
-                    <div>
-                      <label style={FL}>WEEKEND OT / DAY</label>
-                      <input className="form-input" type="number" min="0" step="1" style={{ width: '100%' }} value={comp.weekendOtAmount} onChange={e => setW('weekendOtAmount', e.target.value)} placeholder="e.g. 1000" />
-                    </div>
-                  </>
-                )}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
-                {comp.payType === 'fixed'
-                  ? 'Fixed: paid the monthly salary; a missed weekday deducts salary / days-in-month. A weekday is Present at 5h+, Half day from 4h to 5h, Absent under 4h; each weekend day worked adds the weekend overtime.'
-                  : 'Hourly: paid per hour worked, with overtime per the timecard.'}
-                {!editing && !f.work_email && ' Needs a work email to save the wage.'}
-              </div>
+            <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Wallet size={13} /> Pay, overtime rule and time tracking are set on the Pay &amp; Benefits tab{editing ? '' : ' once the profile is saved'}.
             </div>
           )}
           <div style={{ gridColumn: '1 / -1' }}>
@@ -642,8 +594,8 @@ function AssetsSection({ employee }) {
 // Every punch still records where it was made, so a doubtful one can be looked
 // at on the map - "that's on us, that's not on him."
 function GeofenceSection({ employee, toastOk, toastErr }) {
-  const { canAccessModule } = useRole();
-  const canEdit = canAccessModule('hr', 'manager', 'editor');
+  const { canAccessModule, hrTeam } = useRole();
+  const canEdit = !hrTeam && canAccessModule('hr', 'manager', 'editor');   // a team view is read only
   const [data, setData] = useState(null);        // { geofence: {remote,setBy,setAt}, lastPunchLocation, workSites }
   const [busy, setBusy] = useState(false);
 
@@ -668,8 +620,8 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
       const r = await api.setGeofence(employee.id, { work_site_ids: ids });
       setData(d => ({ ...(d || {}), geofence: r }));
       const names = sites.filter(x => ids.includes(x.id)).map(x => x.name || 'Unnamed site');
-      toastOk(ids.length ? `${firstName} may punch at ${names.join(', ')}. Anywhere else is Out of Location.` : `${firstName} may punch from any company work site.`);
-    } catch (e) { toastErr(e?.message || 'Could not save the work sites.'); }
+      toastOk(ids.length ? `${firstName}'s usual locations: ${names.join(', ')}. A punch at any company location still counts as on-site.` : `${firstName} may punch from any company location.`);
+    } catch (e) { toastErr(e?.message || 'Could not save the locations.'); }
     finally { setBusy(false); }
   };
   const toggleSite = (sid) => saveSites(allowed.includes(sid) ? allowed.filter(x => x !== sid) : [...allowed, sid]);
@@ -680,16 +632,16 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
     try {
       const r = await api.setGeofence(employee.id, { remote: next });
       setData(d => ({ ...(d || {}), geofence: r }));
-      toastOk(next ? `${firstName} is now remote - punches from anywhere are accepted.` : `${firstName} is now on-site - punches are expected at a company work site.`);
+      toastOk(next ? `${firstName} is now remote - punches from anywhere are accepted.` : `${firstName} is now on-site - punches are expected at a company location.`);
     } catch (e) { toastErr(e?.message || 'Could not save the work mode.'); }
     finally { setBusy(false); }
   };
 
   const OPTIONS = [
     { value: false, icon: Building2, title: 'On-Site',
-      body: 'Punches are expected at any company work site. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
+      body: 'Punches are expected at any company location. A punch made somewhere else is still recorded, and flagged for the manager to review.' },
     { value: true, icon: Globe, title: 'Remote',
-      body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a work site, the punch still counts toward that site.' },
+      body: 'May punch from anywhere - home, a coffee shop, another city. Nothing is flagged. At a company location, the punch still counts toward that location.' },
   ];
 
   return (
@@ -733,23 +685,23 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
 
           {!remote && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Work sites {firstName} can punch from</div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
               {sites.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
-                      ? `Punches at any of these ${allowed.length} site${allowed.length === 1 ? '' : 's'} are on-site, whichever one ${firstName} is at. Anywhere else is Out of Location.`
-                      : 'Any company work site counts. Click sites to allow only those.'}
+                      ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is Out of Location.`
+                      : 'Any company location counts as on-site. Click locations to mark the usual ones - they only matter where two locations overlap.'}
                   </span>
                   {allowed.length > 0 && canEdit && (
                     <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
-                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Allow Any Site</button>
+                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Locations</button>
                   )}
                 </div>
               )}
               {sites.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-                  No work site has a location yet, so no punch can be judged on-site. Add them under Settings - Companies - Work Sites.
+                  No company location is placed on the map yet, so no punch can be judged on-site. Place them in Settings - Location Library.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -763,7 +715,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                           background: picked ? 'var(--mist)' : 'transparent', border: `1px solid ${picked ? 'var(--pine)' : 'var(--line)'}`,
                           color: on ? 'var(--ink)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         {picked && <CheckCircle size={11} style={{ color: 'var(--pine)' }} />}
-                        {st.name || 'Unnamed site'} · {st.radiusM} m
+                        {st.name || 'Unnamed location'} · {st.radiusM} m
                       </button>
                     );
                   })}
@@ -804,7 +756,7 @@ function lastWeekRange() {
 // see what someone said they'd do and what was left pending. Defaults to the
 // trailing week; the date filter pages back through older history. BOD and
 // EOD render together on the same card for each day.
-function WorkLogsSection({ employee }) {
+export function WorkLogsSection({ employee }) {
   const [[start, end], setRange] = useState(lastWeekRange);
   const [logs, setLogs] = useState(null);
   const load = useCallback((quiet = false) => {
@@ -823,12 +775,17 @@ function WorkLogsSection({ employee }) {
     return pollWhileVisible(() => load(true), 15000);
   }, [load, start, end]);
 
-  // Group the flat, newest-first list into one card per local_date (BOD + EOD together).
+  // Group the flat, newest-first list into one card per WORKDAY (BOD + EOD together) -
+  // an overnight shift's EOD and clock-out sit on the day the shift began.
+  // EVERY message is kept (Oct 3): a day can hold two EODs - a re-sent one,
+  // or an old row filed before the shift-day fix next to the right one - and
+  // keeping only one silently hid the other (whichever came first won).
+  // Oldest first inside a day, each with its send time when there are several.
   const byDate = [];
   for (const l of logs || []) {
     let group = byDate.find(g => g.date === l.date);
-    if (!group) { group = { date: l.date, bod: null, eod: null }; byDate.push(group); }
-    group[l.kind] = l;
+    if (!group) { group = { date: l.date, bod: [], eod: [] }; byDate.push(group); }
+    group[l.kind].unshift(l);
   }
 
   return (
@@ -852,26 +809,37 @@ function WorkLogsSection({ employee }) {
         <div style={{ display: 'grid', gap: 8 }}>
           {byDate.map(g => (
             <div key={g.date} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{g.date}</div>
+              {/* The WORKDAY - the day the shift began (shift_day.py, Oct 2). */}
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{formatWeekday(`${g.date}T12:00:00`, 'short')}, {formatDate(`${g.date}T12:00:00`)}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, slot, kind, punchLabel]) => (
+                {[['Beginning of day', g.bod, 'bod', 'Punched in'], ['End of day', g.eod, 'eod', 'Punched out']].map(([label, posts, kind, punchLabel]) => {
+                  const slot = posts.find(x => x.punchAt) || posts[0];
+                  return (
                   <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '9px 12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
                       {slot?.punchAt && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt)}`}>
-                          {punchLabel} {punchTime(slot.punchAt)}
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }} title={`${punchLabel} at ${punchTime(slot.punchAt, slot.punchTz, g.date)}, on the employee's clock`}>
+                          {punchLabel} {punchTime(slot.punchAt, slot.punchTz, g.date)}
                         </span>
                       )}
                     </div>
-                    {slot ? (<>
-                      <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
-                      <TaskChecklist tasks={slot.tasks} kind={kind} />
-                    </>) : (
+                    {posts.length ? posts.map((post, i) => (
+                      <div key={post.id} style={i ? { marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--line)' } : undefined}>
+                        {posts.length > 1 && (
+                          <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>
+                            Sent {punchTime(post.at, slot?.punchTz, g.date)}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{post.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
+                        <TaskChecklist tasks={post.tasks} kind={kind} />
+                      </div>
+                    )) : (
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>-</span>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -1108,7 +1076,9 @@ function StatCard({ label, value, sub, tone }) {
 
 // Restricted read view of pay/benefits/bank; edit opens the full CompensationModal.
 // reloadToken bumps after the modal closes so saved changes show without a reload.
-function PayTab({ employee, reloadToken, onEdit }) {
+// `readOnly` (Oct 7): a manager viewing a direct report - no Edit, no upload
+// or delete, and no bank accounts (the server sends none to them either).
+function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
   const [data, setData] = useState(null);
   const [stubs, setStubs] = useState([]);
   const [stubPeriod, setStubPeriod] = useState('');
@@ -1116,10 +1086,11 @@ function PayTab({ employee, reloadToken, onEdit }) {
   const [stepLocked, setStepLocked] = useState(false);   // comp/bank need a fresh step-up
   const [suToken, setSuToken] = useState(0);
   const stubFileRef = useRef(null);
+  const nameOf = useNameResolver();   // "Changed by" shows a name, never a raw email
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [] }); } })
+      .then(r => { if (live) { setStepLocked(false); setData({ comp: r.compensation || {}, bank: r.bank || [], payroll: r.payroll || {}, rateHistory: r.rateHistory || [] }); } })
       .catch(e => {
         // Compensation/bank require a fresh step-up MFA - show the Verify gate.
         if (isStepUpRequired(e)) { if (live) setStepLocked(true); return; }
@@ -1165,8 +1136,8 @@ function PayTab({ employee, reloadToken, onEdit }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> Restricted · compensation grant</span>
-        <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> {readOnly ? 'Read only · your direct report' : 'Restricted · compensation grant'}</span>
+        {!readOnly && <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>}
       </div>
       {!data ? (
         <SkeletonBlocks count={4} height={44} />
@@ -1176,17 +1147,47 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {row2('base', 'Base', data.comp.base ? `${money(data.comp.base, data.comp.currency)} · ${label(PAY_BASIS, data.comp.payBasis)}` : '')}
           {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
           {row2('eff', 'Effective', formatDate(data.comp.effectiveDate))}
+          {sectionLabel('Time clock')}
+          {row2('otrule', 'Overtime rule', `${label(OT_RULES, data.payroll?.overtimeRule).split(' (')[0] || '-'}${data.comp.overtimeRule ? '' : ' (company default)'}`)}
+          {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
+          {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
+          {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
+          {sectionLabel('Pay history')}
+          {(data.rateHistory || []).length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No pay recorded yet.</div>
+            : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>
+                <thead>
+                  <tr>
+                    {['Base', 'Basis', 'Currency', 'Effective', 'Changed By'].map((h, i) => (
+                      <th key={h} style={{ textAlign: i === 0 ? 'right' : 'left', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', padding: '6px 8px 6px 0', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rateHistory.map((h, i) => (
+                    <tr key={h.id || i} style={{ fontWeight: i === 0 ? 700 : 400 }}>
+                      <td style={{ textAlign: 'right', padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{money(h.base, h.currency)}{h.payBasis === 'hourly' ? '/hr' : '/mo'}</td>
+                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{label(PAY_BASIS, h.payBasis)}</td>
+                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.currency}</td>
+                      <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.effectiveDate ? formatDate(h.effectiveDate) : 'Since always'}</td>
+                      <td style={{ padding: '7px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>{h.changedBy ? nameOf(h.changedBy) : '-'}{h.changedAt ? ` · ${formatDate(h.changedAt.slice(0, 10))}` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           {sectionLabel('Benefits & deductions')}
           {(data.comp.benefits || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.comp.benefits.map((bn, i) => row2(`bn${i}`, label(BENEFIT_TYPES, bn.type), [bn.plan, bn.deduction && `${money(bn.deduction, data.comp.currency)}/paycheck`, bn.note].filter(Boolean).join(' · ')))}
-          {sectionLabel('Bank accounts')}
-          {data.bank.length === 0
+          {!readOnly && sectionLabel('Bank accounts')}
+          {!readOnly && (data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
-            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · ')))}
+            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · '))))}
 
           {sectionLabel('Paystubs')}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          {!readOnly && <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
             <input className="form-input" placeholder='Pay period, e.g. "Jun 16 – Jun 30, 2026"' value={stubPeriod}
               onChange={e => setStubPeriod(e.target.value)} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
             <input ref={stubFileRef} type="file" accept="application/pdf" style={{ display: 'none' }}
@@ -1195,9 +1196,9 @@ function PayTab({ employee, reloadToken, onEdit }) {
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               {stubBusy ? 'Uploading…' : 'Upload PDF'}
             </button>
-          </div>
+          </div>}
           {stubs.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None uploaded. The employee sees these under My HR.</div>
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{readOnly ? 'None uploaded.' : 'None uploaded. The employee sees these under My HR.'}</div>
             : stubs.map(s => (
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
                 <FileText size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -1205,9 +1206,9 @@ function PayTab({ employee, reloadToken, onEdit }) {
                   {s.fileName}
                 </button>
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
-                <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                {!readOnly && <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                   <Trash2 size={13} />
-                </button>
+                </button>}
               </div>
             ))}
         </>
@@ -1515,7 +1516,115 @@ function ExternalLifecycle({ e, toastOk, toastErr, onChanged, onRemoved }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
+// The Access tab for a manager looking at their team in People (Oct 6): what
+// this person can open in Nexus, read only - access is changed by
+// administrators in Admin > Roles & Access. Remounts per person (the profile
+// is keyed on the employee), so it loads once and never resets in an effect.
+const titleCase = v => String(v || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+function TeamAccessView({ employee }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.getEmployeeAccessRead(employee.id)
+      .then(d => { if (live) setData(d); })
+      .catch(e => { if (live) setErr(e?.message || 'Could not load access.'); });
+    return () => { live = false; };
+  }, [employee.id]);
+  if (err) return <ErrorBanner message={err} />;
+  if (!data) return <SkeletonBlocks count={3} height={40} />;
+  const modName = id => MODULES.find(m => m.id === id)?.label || id;
+  const lvl = l => MODULE_LEVELS[l]?.label || titleCase(l);
+  const head = { fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', textAlign: 'left', padding: '6px 8px' };
+  const cell = { fontSize: 13, padding: '7px 8px', borderTop: '1px solid var(--line)' };
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+        <StatCard label="Role Tier" value={titleCase(data.tier || 'employee')} sub="what their role allows" />
+        <StatCard label="Job Role" value={data.job_role?.name || '-'} sub={data.extra_groups?.length ? `+ ${data.extra_groups.map(g => g.name).join(', ')}` : 'no extra groups'} />
+      </div>
+      {(data.modules || []).length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>No module access beyond what every employee has.</div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><th style={head}>Module</th><th style={head}>Level</th><th style={head}>Granted By</th></tr></thead>
+          <tbody>
+            {data.modules.map(m => (
+              <tr key={m.module}>
+                <td style={{ ...cell, fontWeight: 600 }}>{modName(m.module)}</td>
+                <td style={cell}>{lvl(m.level)}</td>
+                <td style={{ ...cell, color: 'var(--muted)' }}>{m.source}{m.manual ? ' (added)' : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Lock size={12} /> Read only - administrators change access in Admin &gt; Roles &amp; Access.
+      </div>
+    </div>
+  );
+}
+
+// Office and contact info as Microsoft 365 has it - kept in step both ways
+// (Neil, 10/07, m365_profile_sync.py): edits here go to Microsoft 365 on save,
+// edits made there come back within 15 minutes, or now with Sync Now.
+function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
+  const [busy, setBusy] = useState(false);
+  const linked = !!e.m365Id;
+  const sync = e.m365Sync || {};
+  const address = [e.streetAddress, [e.city, [e.state, e.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ');
+  async function syncNow() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const updated = await api.syncEmployeeM365(e.id);
+      onSynced?.(updated);
+      const r = updated?.m365Result || {};
+      const label = (k) => ({ phone: 'mobile phone', office_phone: 'office phone', location: 'office', street_address: 'street address',
+        city: 'city', state: 'state', postal_code: 'ZIP', country: 'country', job_title: 'job title', department: 'department' }[k] || k);
+      if (r.error) toastErr(`Microsoft 365 did not take the change: ${r.error}`);
+      else if (r.pulled?.length || r.pushed?.length) {
+        toastOk([r.pulled?.length ? `Updated from Microsoft 365: ${r.pulled.map(label).join(', ')}.` : '',
+          r.pushed?.length ? `Sent to Microsoft 365: ${r.pushed.length} field${r.pushed.length === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
+      } else if (r.waiting?.length && !r.writesEnabled) toastOk('Up to date from Microsoft 365. This environment does not write to Microsoft 365 - production does.');
+      else toastOk('Already in step with Microsoft 365.');
+    } catch (err) { toastErr(err?.message || 'Could not reach Microsoft 365.'); }
+    setBusy(false);
+  }
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Building2 size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Office &amp; contact
+        </span>
+        {linked && (
+          <span title={sync.error ? `Last attempt failed: ${sync.error}` : 'Kept in step with Microsoft 365 both ways'}
+            style={{ fontSize: 11.5, color: sync.error ? '#b45309' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {sync.error ? <AlertTriangle size={12} /> : <CheckCircle size={12} style={{ color: 'hsl(var(--color-green))' }} />}
+            {sync.error ? 'Microsoft 365 sync needs attention' : sync.at ? `Synced with Microsoft 365 ${formatDateTime(sync.at)}` : 'Synced with Microsoft 365'}
+          </span>
+        )}
+        {linked && canSync && (
+          <button className="secondary-btn" onClick={syncNow} disabled={busy}
+            title="Bring this person's details in step with Microsoft 365 now"
+            style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+            {busy ? <Spinner size={12} /> : <RefreshCw size={12} />} Sync Now
+          </button>
+        )}
+      </div>
+      <div>
+        {row(MapPin, 'Office', e.location)}
+        {row(Phone, 'Mobile phone', e.phone)}
+        {row(Phone, 'Office phone', e.officePhone)}
+        {row(MapPinned, 'Street address', address)}
+        {e.country && row(Globe2, 'Country or region', countryName(e.country))}
+      </div>
+    </>
+  );
+}
+
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1526,7 +1635,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [statusOpen, setStatusOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(initialTab);
+  // Checklist steps: HR editors start, cancel and reassign; viewers only read.
+  const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
+  const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
+  const canEditProfile = canAccessHr('hr', 'manager', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const [restoreBusy, setRestoreBusy] = useState(false);
   // Nexus-only removal - separate from offboarding (which deprovisions M365).
@@ -1566,16 +1679,27 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '-'}</span>
     </div>
   );
-  const tabs = [
+  // A manager looking at their team (Oct 6) gets five tabs, read only - plus
+  // Pay & Benefits, read only, for their DIRECT reports (Oct 7).
+  const directReport = teamView && !!mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase();
+  const tabs = (teamView ? [
+    ['overview', 'Overview', Contact],
+    directReport && ['pay', 'Pay & Benefits', Wallet],
+    ['assets', 'Assets', Briefcase],
+    ['location', 'Work Mode', MapPinned],
+    ['access', 'Access', Shield],
+    ['bod', 'Work Logs', Clock],
+  ] : [
     ['overview', 'Overview', Contact],
     canSeeComp && ['pay', 'Pay & Benefits', Wallet],
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['documents', 'Documents', FileText],
+    ['checklist', 'Checklist', ListChecks],
     isAdmin && ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
-  ].filter(Boolean);
+  ]).filter(Boolean);
   const expiry = nextExpiry(e);
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
@@ -1586,7 +1710,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
         {/* Avatar opens the photo editor: view, re-crop with grid + zoom, or change */}
-        <button title="View or change profile photo" onClick={() => setPhotoOpen(true)}
+        <button title={teamView ? fullName(e) : 'View or change profile photo'} disabled={teamView} onClick={() => setPhotoOpen(true)}
           style={{ position: 'relative', cursor: 'pointer', flexShrink: 0, background: 'none', border: 'none', padding: 0 }}>
           <Avatar e={e} size={56} card={false} />
           <span style={{ position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--card)' }}>
@@ -1609,7 +1733,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {/* A removed person is read-only: Restore is the only way forward, so
             editing, status changes and provisioning are all withheld rather
             than left live on a record that is not currently in the company. */}
-        {isRemoved ? (
+        {teamView ? (
+          <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: isRemoved ? 'hsla(var(--color-red),0.12)' : sm.bg, color: isRemoved ? 'hsl(var(--color-red))' : sm.fg }}>
+            {isRemoved ? 'Removed' : sm.label}
+          </span>
+        ) : isRemoved ? (
           <>
             <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>
               Removed
@@ -1628,6 +1756,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           {sm.label} <Pencil size={10} />
         </button>
+        {/* Open onboarding / offboarding / leave checklist at a glance. */}
+        {checklists.map(p => <ChecklistChip key={p.checklistId} p={p} onClick={() => setTab('checklist')} />)}
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
@@ -1686,9 +1816,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
-        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
+        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : mgrEmail ? `reports to ${mgrEmail === (viewerEmail || '').toLowerCase() ? 'you' : mgrEmail}` : 'no manager'} />
         <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '-'} sub={e.department || '-'} />
-        {expiry
+        {teamView ? null : expiry
           ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={formatDate(expiry.date)} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
           : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
@@ -1717,27 +1847,28 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             <div>
               {row(Mail, 'Work email', e.workEmail)}
               {row(Mail, 'Personal', e.personalEmail)}
-              {row(Phone, 'Phone', e.phone)}
               {e.designation && row(Briefcase, 'Designation', e.designation)}
               {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
               {companyName && row(Building2, 'Company', companyName)}
               {row(CalendarOff, 'Start date', formatDate(e.startDate))}
-              {row(MapPin, 'Location', e.location)}
-              {e.country && row(Globe2, 'Country', countryName(e.country))}
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
-              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
+              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
               {e.notes && row(FileText, 'Notes', e.notes)}
             </div>
+            <OfficeContact e={e} row={row} canSync={!teamView && canEditProfile && !isRemoved}
+              onSynced={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px' }}>
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
                 <Contact size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Personal details
               </span>
-              <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
-                <Pencil size={12} /> Edit
-              </button>
+              {!teamView && (
+                <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+                  <Pencil size={12} /> Edit
+                </button>
+              )}
             </div>
             <div>
               {row(CalendarDays, 'Date of birth', formatDate(e.personal?.dob))}
@@ -1747,8 +1878,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           </>
         )}
 
-        {tab === 'pay' && canSeeComp && (
-          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} />
+        {tab === 'pay' && (canSeeComp || directReport) && (
+          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} readOnly={teamView} />
         )}
 
         {tab === 'compliance' && (
@@ -1791,9 +1922,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
-        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && teamView && <TeamAccessView employee={e} />}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
+
+        {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'documents' && (
           <>
@@ -3079,7 +3213,7 @@ function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
     ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
       .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
         name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.redacted ? 'Time off' : (r.type || ''),
+        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
       })),
   ].filter(e => e.start && e.end);
 
@@ -3343,7 +3477,7 @@ const COMPANY_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'monitoring', label: 'Workforce Analytics Policy' },
   { key: 'departments', label: 'Departments' },
-  { key: 'sites', label: 'Work Sites' },
+  { key: 'sites', label: 'Locations' },
   { key: 'holidays', label: 'Holiday Calendar' },
 ];
 const COMPANY_ROLES_TAB = { key: 'roles', label: 'Roles' };
@@ -3689,72 +3823,314 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 // other company can pick it. Replaces the Sep 18 single-company `company` tag,
 // where claiming a site for one company took it away from every other.
 // address_verified: the coordinates came from an address picked in the search
-// (Sep 30) - the only way the form sets them. verifiedAt is the saved state.
-const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '', address_verified: false, verifiedAt: '' };
-const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '', address_verified: false, verifiedAt: s.addressVerifiedAt || '' });
+// (Sep 30). verifiedAt is the saved state.
+// Google Maps link (Sep 30): location_source 'google_link' + map_link = the
+// point came from a pasted Google Maps link (or coordinates) - the accurate
+// path for addresses the search misplaces. loc_changed = the point was set in
+// this edit, so the source/link are sent (a radius-only edit leaves them).
+// addr_manual: the address is being typed by hand (the link had none, or HR
+// chose to); link_address: the address the last pasted link gave. Library
+// forms also carry company_ids (Oct 1); a company's own tab does not.
+const SITE_BLANK = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, notes: '', address_verified: false, verifiedAt: '', verifiedBy: '',
+  location_source: '', map_link: '', link_point: null, loc_changed: false, addr_manual: false, link_address: '' };
+const siteForm = s => ({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, notes: s.notes || '', address_verified: false,
+  verifiedAt: s.addressVerifiedAt || '', verifiedBy: s.addressVerifiedBy || '',
+  location_source: s.locationSource || '', map_link: s.mapLink || '', link_point: null, loc_changed: false,
+  addr_manual: false, link_address: '',
+  saved_point: s.latitude && s.longitude && Number.isFinite(Number(s.latitude)) ? [Number(s.latitude), Number(s.longitude)] : null });
+// What a save sends: never the form-only keys, and the location source/link
+// only when the point was set in this edit.
+const siteBody = f => {
+  const { link_point, loc_changed, addr_manual, link_address, verifiedAt, verifiedBy, saved_point, pin_adjusted, location_source, map_link, ...rest } = f;   // eslint-disable-line no-unused-vars
+  // The form keeps exact meters (the editor works in feet); the API stores whole meters.
+  return { ...rest, radius_m: Math.round(Number(f.radius_m)) || 150, ...(loc_changed ? { location_source, map_link } : {}) };
+};
 // The list badge: a site whose point came from the old map pin is re-checked
 // once by searching its address (Sep 30) - nothing moves until someone does.
 function SiteVerifyBadge({ s }) {
+  if (s.latitude && s.longitude && s.locationSource === 'google_link') {
+    return (
+      <a href={s.mapLink && /^https?:/i.test(s.mapLink) ? s.mapLink : googleMapsUrl(s.latitude, s.longitude)} target="_blank" rel="noreferrer"
+        onClick={e => e.stopPropagation()} title="Placed from a Google Maps link - open it"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
+          background: 'rgba(37,99,235,0.1)', color: '#1d4ed8', textDecoration: 'none' }}>
+        <Link2 size={10} /> Google Maps
+      </a>
+    );
+  }
   if (s.latitude && s.longitude && s.addressVerifiedAt) return null;
   const noPoint = !(s.latitude && s.longitude);
   return (
-    <span title={noPoint ? 'No location yet - edit the site and search its address.' : 'This site was placed with the old map pin. Edit it and search its address to confirm where it is.'}
+    <span title={noPoint ? 'Not placed yet - edit the location and paste its Google Maps link.' : 'This location was placed with the old map pin. Edit it and paste its Google Maps link to confirm where it is.'}
       style={{ display: 'inline-block', marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999, verticalAlign: 'middle',
         background: 'rgba(180,83,9,0.12)', color: '#b45309' }}>
-      {noPoint ? 'No Location' : 'Verify Address'}
+      {noPoint ? 'No Location' : 'Verify Location'}
     </span>
   );
 }
-const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '-';
+const siteLine = s => [s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${formatDistance(s.radiusM)}` : ''].filter(Boolean).join(' · ') || '-';
 
-function WorkSiteForm({ f, set, busy, onBack, onSave, hint }) {
-  const field = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
+// Radius guidance (competitor research, Sep 30): phone GPS drifts ~50 m, so a
+// fence under 100 m flags people who are on-site; most sites want 100-300 m.
+// Entered and shown in FEET (Oct 2 - US units); stored in meters as before.
+const RADIUS_PRESETS_FT = [330, 500, 650, 1000, 1650];
+const ftOf = m => Math.round(metersToFeet(m));
+
+// ── The location form (Neil, Oct 1) ─────────────────────────────────────────
+// ONE way to place a location: paste the building's Google Maps link. Its
+// address fills itself from the same link, written the US way ("25260 N
+// Centre City Pkwy, Escondido, CA 92026"), and is typed by hand only when the
+// link carries none ("there should be an option to put in a manual address").
+// The address search is gone ("keep this very, very simple"). Every input -
+// and the how-to - sits on the left, the map on the right; the pin can still
+// be nudged, measured from the link's point. The last 30 days of punches are
+// an opt-in check, off by default ("that should not be there by default").
+const PUNCHES_PREF = 'nexus:locations:showPunches';
+
+function SwitchRow({ on, onChange, label, hint }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+      <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onChange}
+        style={{ position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', flexShrink: 0, marginTop: 1,
+          background: on ? 'hsl(var(--color-green))' : 'var(--line)', transition: 'background .15s' }}>
+        <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff',
+          transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+      </button>
+      <span style={{ fontSize: 12.5 }}>
+        <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
+        {hint && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+// Which companies' people punch in at this location (Neil, Oct 1: "option A
+// should be all ... or you select some", right here instead of backing into
+// each company's settings). A multi-select dropdown (Neil, Oct 2): All at the
+// top, then every company with a checkbox. All = every company there is
+// today; a company added later picks it from its own Locations tab.
+function LocationCompanyPicker({ entities, value, onChange }) {
+  const btnRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ids = entities.map(e => e.id);
+  const picked = new Set(value);
+  const isAll = ids.length > 0 && ids.every(id => picked.has(id));
+  const some = !isAll && value.length > 0;
+  const names = entities.filter(e => picked.has(e.id)).map(e => e.name);
+  const summary = isAll ? 'All Companies'
+    : names.length === 0 ? 'Select companies'
+    : names.length <= 2 ? names.join(', ')
+    : `${names.slice(0, 2).join(', ')} +${names.length - 2} more`;
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? entities.filter(e => (e.name || '').toLowerCase().includes(needle)) : entities;
+  const toggle = id => onChange(picked.has(id) ? value.filter(x => x !== id) : [...value, id]);
+  const row = { display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '7px 10px', border: 'none', borderRadius: 7,
+    background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)', textAlign: 'left' };
+  const box = (on, partial = false) => (
+    <span aria-hidden style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, display: 'grid', placeItems: 'center',
+      border: `1.5px solid ${on || partial ? 'hsl(var(--color-green))' : 'var(--line)'}`, background: on ? 'hsl(var(--color-green))' : 'var(--card)' }}>
+      {on ? <Check size={11} color="#fff" strokeWidth={3} /> : partial ? <span style={{ width: 8, height: 2, borderRadius: 1, background: 'hsl(var(--color-green))' }} /> : null}
+    </span>
   );
   return (
-    <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-      <div style={{ flex: '1 1 420px', maxWidth: 480, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        {hint && <p style={{ gridColumn: '1 / -1', fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
-        <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
-        {/* Address and coordinates come only from an address picked in the
-            search on the right (Sep 30) - read-only here, never hand-typed. */}
-        <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address', { readOnly: true, placeholder: 'search the address on the right', style: { width: '100%', background: 'var(--mist)' } })}</div>
-        {field('LATITUDE', 'latitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
-        {field('LONGITUDE', 'longitude', { readOnly: true, placeholder: '-', style: { width: '100%', background: 'var(--mist)' } })}
-        <div style={{ gridColumn: '1 / -1', fontSize: 11.5, marginTop: -6, color: f.address_verified || (f.verifiedAt && f.latitude) ? 'hsl(var(--color-green))' : '#b45309' }}>
-          {f.address_verified && f.pin_adjusted ? 'Pin fine-tuned on the map from the address you picked. Save to keep it.'
-            : f.address_verified ? 'Location set from the address you picked. Drag the pin onto the exact building if needed, then save.'
-            : f.verifiedAt && f.latitude ? `Location verified from its address on ${formatDate(f.verifiedAt)}.`
-            : f.latitude ? 'This location came from the old map pin. Search the address to confirm it.'
-            : 'No location yet. Search the address to place this site.'}
+    <div>
+      <label style={FL} id="loc-companies-label">COMPANIES</label>
+      <button ref={btnRef} type="button" aria-haspopup="listbox" aria-expanded={open} aria-labelledby="loc-companies-label"
+        onClick={() => { setOpen(o => !o); setQ(''); }} className="form-input"
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+          color: value.length ? 'var(--ink)' : 'var(--muted)' }}>
+        <Building2 size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</span>
+        <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+      </button>
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="start"
+        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.14)',
+          padding: 6, minWidth: Math.max(240, btnRef.current?.offsetWidth || 0), maxHeight: 360, overflowY: 'auto' }}>
+        <div role="listbox" aria-multiselectable="true" aria-label="Companies">
+          {entities.length > 8 && (
+            <input className="form-input" autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search companies"
+              style={{ width: '100%', fontSize: 12.5, marginBottom: 6 }} />
+          )}
+          {!needle && (
+            <>
+              <button type="button" role="option" aria-selected={isAll} onClick={() => onChange(isAll ? [] : ids)} style={{ ...row, fontWeight: 700 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
+                {box(isAll, some)} All
+              </button>
+              <div style={{ height: 1, background: 'var(--line)', margin: '4px 2px' }} />
+            </>
+          )}
+          {shown.map(e => (
+            <button key={e.id} type="button" role="option" aria-selected={picked.has(e.id)} onClick={() => toggle(e.id)} style={row}
+              onMouseEnter={ev => { ev.currentTarget.style.background = 'var(--mist)'; }} onMouseLeave={ev => { ev.currentTarget.style.background = 'none'; }}>
+              {box(picked.has(e.id))} {e.name}
+            </button>
+          ))}
+          {shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--muted)' }}>No companies match.</div>}
         </div>
-        {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
-        <div style={{ gridColumn: '1 / -1' }}>
+      </AnchoredMenu>
+      <p style={{ fontSize: 11.5, color: value.length ? 'var(--muted)' : '#b45309', margin: '6px 0 0' }}>
+        {isAll ? 'People at every company can punch in here. A company added later picks it from its own Locations tab.'
+          : value.length ? `${value.length} of ${entities.length} compan${entities.length === 1 ? 'y' : 'ies'} - their people can punch in here.`
+          : 'No company yet - it stays in the library until one is picked.'}
+      </p>
+    </div>
+  );
+}
+
+function WorkSiteForm({ f, set, busy, onBack, onSave, hint, siteId = '', entities = null }) {
+  const [checkPoints, setCheckPoints] = useState(null);
+  const [focus, setFocus] = useState(null);
+  // Off by default (Neil); remembered per viewer once turned on.
+  const [showPunches, setShowPunches] = useState(() => { try { return localStorage.getItem(PUNCHES_PREF) === '1'; } catch { return false; } });
+  const togglePunches = () => {
+    const next = !showPunches;
+    setShowPunches(next);
+    if (!next) setCheckPoints(null);
+    try { localStorage.setItem(PUNCHES_PREF, next ? '1' : '0'); } catch { /* storage blocked - just this visit */ }
+  };
+  const r = Number(f.radius_m) || 0;          // meters, as stored
+  const [ftDraft, setFtDraft] = useState(null);   // the feet box while typing
+  const setFeet = (ft) => set('radius_m', feetToMeters(ft));
+  const hasPoint = f.latitude !== '' && f.longitude !== '' && Number.isFinite(Number(f.latitude)) && Number.isFinite(Number(f.longitude));
+  const status = f.loc_changed && f.location_source === 'google_link'
+    ? (f.pin_adjusted ? 'Pin fine-tuned from the Google Maps point. Save to keep it.' : 'Placed from the Google Maps link. Save to keep it.')
+    : f.loc_changed && f.pin_adjusted ? 'Pin fine-tuned on the map. Save to keep it.'
+    : f.location_source === 'google_link' && hasPoint ? `Placed from a Google Maps link${f.verifiedAt ? ` on ${formatDate(f.verifiedAt)}` : ''}${f.verifiedBy ? ` by ${f.verifiedBy}` : ''}.`
+    : f.verifiedAt && hasPoint ? `Placed from its address on ${formatDate(f.verifiedAt)}. Paste its Google Maps link to confirm it.`
+    : hasPoint ? 'Placed with the old map pin. Paste its Google Maps link to confirm where it is.'
+    : 'Not placed yet. Paste the Google Maps link of the building.';
+  const good = f.loc_changed || (f.location_source === 'google_link' && hasPoint);
+  const linkAddress = f.link_address || '';
+  return (
+    <div style={{ padding: '18px 4px', display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      {/* Left: every input, top to bottom in the order they are filled in. */}
+      <div style={{ flex: '1 1 380px', maxWidth: 500, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {hint && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>{hint}</p>}
+        <div>
+          <label style={FL}>NAME *</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.name} autoFocus placeholder="e.g. Green Storage Escondido"
+            onChange={e => set('name', e.target.value)} />
+        </div>
+
+        <div>
+          <label style={FL}>GOOGLE MAPS LINK</label>
+          <WorkSiteLinkPanel link={f.map_link} point={f.link_point} savedPoint={siteId ? f.saved_point : null}
+            onResolved={({ link, point }) => {
+              set('latitude', point.lat.toFixed(6)); set('longitude', point.lng.toFixed(6));
+              set('location_source', 'google_link'); set('map_link', link); set('link_point', point);
+              set('loc_changed', true); set('address_verified', false); set('pin_adjusted', false);
+              // The link's address replaces whatever was there - it is the
+              // source of truth. None in the link: HR types it.
+              set('link_address', point.address || '');
+              if (point.address) { set('address', point.address); set('addr_manual', false); } else set('addr_manual', true);
+              if (!f.name.trim() && point.placeName) set('name', point.placeName);
+              setFocus({ lat: point.lat, lng: point.lng, key: Date.now() });
+            }} />
+        </div>
+
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <label style={FL} htmlFor="loc-address">ADDRESS</label>
+            {(f.addr_manual || hasPoint || f.address) && (
+              <button type="button" onClick={() => {
+                  if (f.addr_manual && linkAddress) set('address', linkAddress);
+                  set('addr_manual', !f.addr_manual);
+                }}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
+                {f.addr_manual ? (linkAddress ? "Use the Link's Address" : 'Done') : 'Enter Manually'}
+              </button>
+            )}
+          </div>
+          <input id="loc-address" className="form-input" value={f.address} readOnly={!f.addr_manual}
+            onChange={e => set('address', e.target.value)}
+            placeholder={f.addr_manual ? 'e.g. 25260 N Centre City Pkwy, Escondido, CA 92026' : 'Filled in from the Google Maps link'}
+            style={{ width: '100%', ...(f.addr_manual ? null : { background: 'var(--mist)' }) }} />
+          {f.addr_manual && f.loc_changed && !linkAddress && (
+            <p style={{ fontSize: 11.5, color: '#b45309', margin: '5px 0 0' }}>The link does not include an address - type it in.</p>
+          )}
+          <div style={{ fontSize: 11.5, marginTop: 6, color: good ? 'hsl(var(--color-green))' : '#b45309', lineHeight: 1.45 }}>
+            {status}
+            {/* The link's result card shows the point while it is fresh. */}
+            {hasPoint && !f.link_point && (
+              <span style={{ color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}> {Number(f.latitude).toFixed(6)}, {Number(f.longitude).toFixed(6)}</span>
+            )}
+            {hasPoint && (
+              <> <a href={f.location_source === 'google_link' && /^https?:/i.test(f.map_link || '') ? f.map_link : googleMapsUrl(f.latitude, f.longitude)}
+                target="_blank" rel="noreferrer" style={{ color: 'var(--wk-brand, #2b45e1)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                Open in Google Maps <ExternalLink size={10} /></a></>
+            )}
+          </div>
+        </div>
+
+        {entities && (
+          <LocationCompanyPicker entities={entities} value={f.company_ids || []} onChange={ids => set('company_ids', ids)} />
+        )}
+
+        <div>
           <label style={FL}>NOTES</label>
-          <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+          <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+            value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="e.g. Punch in at the office by the front gate" />
+        </div>
+
+        {hasPoint && (
+          <div>
+            <SwitchRow on={showPunches} onChange={togglePunches} label="Show Punches Here"
+              hint="The last 30 days of punches near this location, and which fall inside the circle - dots on the map." />
+            {showPunches && (
+              <WorkSiteFenceCheck lat={f.latitude} lng={f.longitude} radiusM={f.radius_m} siteId={siteId}
+                moved={!!siteId} onPoints={setCheckPoints} />
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
+          <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
+          </button>
         </div>
       </div>
-      <div style={{ flex: '1 1 360px', minWidth: 300 }}>
-        <label style={FL}>FIND THE ADDRESS</label>
-        {/* Fine-tuning the pin (Sep 30) is open once an address is chosen -
-            picked now, or already verified - never on an old map-pin site. */}
+
+      {/* Right: the map, kept in view while the inputs scroll. */}
+      <div style={{ flex: '1 1 380px', minWidth: 300, position: 'sticky', top: 12, alignSelf: 'flex-start' }}>
         <WorkSiteAddressMap lat={f.latitude} lng={f.longitude} radiusM={f.radius_m}
-          adjustable={!!(f.address_verified || (f.verifiedAt && f.latitude))}
-          onPick={({ address, lat, lng }) => {
-            set('address', address); set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
-            set('address_verified', true); set('pin_adjusted', false);
-          }}
+          showSearch={false} focus={focus} checkPoints={showPunches ? checkPoints : null}
+          anchorLabel={f.location_source === 'google_link' ? 'the Google Maps point' : 'the saved point'}
+          adjustable={!!(f.loc_changed || (f.verifiedAt && hasPoint))}
           onAdjust={({ lat, lng }) => {
             set('latitude', lat.toFixed(6)); set('longitude', lng.toFixed(6));
-            set('address_verified', true); set('pin_adjusted', true);
+            set('pin_adjusted', true); set('loc_changed', true);
+            if (!f.location_source) set('location_source', 'address');
           }} />
-      </div>
-      <div style={{ flex: '1 1 100%', display: 'flex', gap: 10, marginTop: 4 }}>
-        <button className="secondary-btn" onClick={onBack} disabled={busy}>Back</button>
-        <button className="primary-btn" onClick={onSave} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
-          {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save
-        </button>
+        {/* The circle's size sits with the circle (Neil, Oct 2). */}
+        <div style={{ marginTop: 14 }}>
+          <label style={FL}>GEOFENCE RADIUS</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="range" min={165} max={3300} step={25} value={Math.min(3300, Math.max(165, ftOf(r || 150)))} aria-label="Geofence radius slider"
+              onChange={e => { setFtDraft(null); setFeet(Number(e.target.value)); }} style={{ flex: 1, accentColor: 'hsl(217,91%,50%)' }} />
+            <input className="form-input" type="number" min={80} max={16400} value={ftDraft ?? (f.radius_m === '' ? '' : ftOf(r))} aria-label="Geofence radius in feet"
+              onChange={e => { setFtDraft(e.target.value); setFeet(e.target.value); }} onBlur={() => setFtDraft(null)} style={{ width: 84 }} />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>ft</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+            {RADIUS_PRESETS_FT.map(v => {
+              const on = ftOf(r) === v;
+              return (
+                <button key={v} type="button" onClick={() => { setFtDraft(null); setFeet(v); }} aria-pressed={on}
+                  style={{ padding: '2px 9px', borderRadius: 999, border: `1px solid ${on ? 'hsl(217,91%,50%)' : 'var(--line)'}`, background: on ? 'rgba(37,99,235,0.1)' : 'var(--card)',
+                    color: on ? '#1d4ed8' : 'var(--ink)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>{v.toLocaleString('en-US')} ft</button>
+              );
+            })}
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r > 0 ? `= ${formatDistance(2 * r)} across` : ''}</span>
+          </div>
+          <p style={{ fontSize: 11.5, margin: '6px 0 0', color: r > 0 && r < 100 ? '#b45309' : 'var(--muted)', display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+            {r > 0 && r < 100
+              ? <><AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 2 }} /> Under 330 ft, normal phone GPS drift will mark people who are on-site as Out of Location.</>
+              : 'Most locations work well at 330-1,000 ft. For a large property, put the pin in the middle of it and widen the circle to cover where people work.'}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -3778,15 +4154,15 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
     try {
-      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      const body = siteBody(f);
       // New from here = into the library AND onto this company's list.
       if (mode === 'new') await api.createWorkSite({ ...body, company: entity.id }); else await api.updateWorkSite(mode, body);
-      await onChanged(); toastOk('Work site saved.'); setMode(null);
-    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+      await onChanged(); toastOk('Location saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save location.'); }
     setBusy(false);
   }
   async function unlink(s) {
-    if (!await dialog.confirm(`Remove "${s.name}" from ${entity.name}? ${entity.name} employees will no longer punch at it. It stays in the Work Site Library for other companies.`, { title: 'Remove work site', confirmText: 'Remove', danger: true })) return;
+    if (!await dialog.confirm(`Remove "${s.name}" from ${entity.name}? ${entity.name} employees will no longer punch at it. It stays in the Location Library for other companies.`, { title: 'Remove location', confirmText: 'Remove', danger: true })) return;
     try { await api.removeCompanyWorkSite(entity.id, s.id); await onChanged(); toastOk(`Removed from ${entity.name}.`); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
@@ -3794,22 +4170,22 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
     if (!list.length || busy) return; setBusy(true);
     try {
       await api.addCompanyWorkSites(entity.id, list.map(s => s.id)); await onChanged();
-      toastOk(list.length === 1 ? `Added ${list[0].name}.` : `Added ${list.length} work sites.`);
+      toastOk(list.length === 1 ? `Added ${list[0].name}.` : `Added ${list.length} locations.`);
     } catch (e) { toastErr(e?.message || 'Could not add.'); }
     setBusy(false);
   }
 
   if (mode) {
     const shared = mode !== 'new' && (sites.find(s => s.id === mode)?.companies || []).length > 1;
-    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save}
-      hint={mode === 'new' ? `Saved to the Work Site Library and added to ${entity.name}.` : shared ? 'Other companies use this site too - changes apply to them as well.' : ''} />;
+    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save} siteId={mode === 'new' ? '' : mode}
+      hint={mode === 'new' ? `Saved to the Location Library and added to ${entity.name}.` : shared ? 'Other companies use this location too - changes apply to them as well.' : ''} />;
   }
 
   return (
     <div style={{ padding: '18px 4px' }}>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 12px' }}>{entity.name} employees can only punch at these geofenced sites.</p>
       {mySites.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No work sites for {entity.name} yet - add them from the library below.</div>
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>No locations for {entity.name} yet - add them from the library below.</div>
       ) : mySites.map(s => (
         <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -3821,19 +4197,19 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
         </div>
       ))}
       <div style={{ paddingTop: 14 }}>
-        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add New Work Site</button>
+        <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add New Location</button>
       </div>
 
       {library.length > 0 && (
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: '1px solid var(--line)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>Add From Work Site Library</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0' }}>Sites already in Nexus that {entity.name} doesn't use yet.</p>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>Add From Location Library</div>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0' }}>Locations already in Nexus that {entity.name} doesn't use yet.</p>
             </div>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+              <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
             </div>
             <button className="secondary-btn" onClick={() => add(libraryShown)} disabled={busy || !libraryShown.length} style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <Plus size={13} /> Add All ({libraryShown.length})
@@ -3841,7 +4217,7 @@ function CompanyWorkSitesTab({ entity, sites, onChanged, toastOk, toastErr }) {
           </div>
           <div style={{ marginTop: 8 }}>
             {libraryShown.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 10px' }}>No sites match "{q}".</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 10px' }}>No locations match "{q}".</div>
             ) : libraryShown.map(s => (
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderBottom: '1px solid var(--line)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -4461,6 +4837,16 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const [status, setStatus] = useState(employee.status || 'active');
   const [reason, setReason] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
+  // Leaving or going on leave is when the matching checklist matters most.
+  // null = still loading the person's checklists; then { offboarding, inactive }.
+  const [openKinds, setOpenKinds] = useState(null);
+  const [startChecklistToo, setStartChecklistToo] = useState(true);
+  const [exitType, setExitType] = useState('resignation');
+  useEffect(() => {
+    api.getEmployeeChecklists(employee.id)
+      .then(r => setOpenKinds(Object.fromEntries((r.checklists || []).filter(c => c.status === 'open').map(c => [c.kind, true]))))
+      .catch(() => setOpenKinds({}));
+  }, [employee.id]);
   const [leftChoice, setLeftChoice] = useState('remove');   // offboarded: 'remove' | 'share'
   const [exportRequested, setExportRequested] = useState(false);
   // Task handover: who inherits this person's work, and whether their
@@ -4474,6 +4860,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const isInactive = status === 'inactive';
   const isLeft = status === 'offboarded';
   const showOff = isInactive || isLeft;
+  const checklistKind = isLeft ? 'offboarding' : isInactive ? 'inactive' : '';
+  const offerChecklist = changed && !!checklistKind && openKinds !== null && !openKinds[checklistKind];
   const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
   const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
   // Allow Apply when the status changed OR - for someone already inactive/left -
@@ -4527,9 +4915,19 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
     try {
       const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
       onSaved(saved);
+      if (offerChecklist && startChecklistToo) {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        try {
+          const cl = await api.startChecklist(employee.id, {
+            kind: checklistKind, anchor_date: effectiveDate || todayIso, exit_type: isLeft ? exitType : '' });
+          toastOk(`${cl.kindLabel} checklist started - ${cl.total - cl.done} steps, ${cl.overdue} already due. Open the Checklist tab to work through them.`);
+        } catch (err) { toastErr(`Status saved, but the checklist did not start: ${err?.message || 'unknown error'}`); }
+      }
       const m = saved.m365;
       const bits = [];
       if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
+      if (m?.sessions) bits.push(`M365 sessions ${m.sessions}`);
+      if (m?.nexusSessions) bits.push(`logged out of Nexus on ${m.nexusSessions} device${m.nexusSessions === 1 ? '' : 's'}`);
       if (m?.licenses) bits.push(`license ${m.licenses}`);
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
@@ -4617,6 +5015,36 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
           </div>
           <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
           <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+
+          {offerChecklist && (
+            <div style={{ border: '1px solid var(--wk-brand)', borderRadius: 12, padding: '12px 14px', background: 'var(--wk-brand-tint)', display: 'grid', gap: 10 }}>
+              <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input type="checkbox" checked={startChecklistToo} onChange={e => setStartChecklistToo(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--wk-brand)' }} />
+                <span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>
+                    Also Start The {isLeft ? 'Offboarding' : 'Leave Or Suspension'} Checklist
+                  </span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.5, marginTop: 2 }}>
+                    {isLeft
+                      ? `${employee.firstName || 'This person'} has no offboarding checklist yet. It counts from the effective date (or today); steps already past are due now, so nothing like final pay or collecting the laptop gets missed.`
+                      : `Lists who blocks access, covers the inbox and re-routes approvals while ${employee.firstName || 'they'} are away.`}
+                  </span>
+                </span>
+              </label>
+              {isLeft && startChecklistToo && (
+                <div><label style={FL}>EXIT TYPE</label>
+                  <select className="form-input" style={{ width: '100%' }} value={exitType} onChange={e => setExitType(e.target.value)}>
+                    <option value="resignation">Resignation</option>
+                    <option value="resignation_no_notice">Resignation Without Notice</option>
+                    <option value="termination">Termination</option>
+                    <option value="end_of_contract">End Of Contract</option>
+                    <option value="retirement">Retirement</option>
+                    <option value="death">Death Of An Employee</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
 
           {showOff && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
@@ -4872,9 +5300,17 @@ const defaultPayFreq = (payBasis, currency) =>
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
 const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
 
+// The timecard-only fields live here too since Sep 30 (Charmi: "this should all
+// be linked into their individual people module") - Pay & Benefits is the one
+// writer of PayrollRate; the timecard only reads.
+const OT_RULES = [['ca', 'California (daily 8h / 12h, 7th day, weekly 40h)'], ['federal', 'Federal (weekly 40h only)'], ['none', 'None (no US overtime premium)']];
+const COMP_DEFAULTS = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [],
+  overtimeRule: '', fullDayHours: '8' };
+
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
-  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [] });
+  const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
+  const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
@@ -4887,9 +5323,14 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
     api.getCompensation(employee.id)
       .then(r => {
         if (!live) return;
-        const nextComp = { base: '', payBasis: 'salary', frequency: 'biweekly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) };
+        const pr = r.payroll || {};
+        const nextComp = { ...COMP_DEFAULTS, ...(r.compensation || {}) };
+        // A record saved before Sep 30 has no rule / hours of its own - start
+        // from what the timecard is using today.
+        if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
+        if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank);
+        setComp(nextComp); setBank(nextBank); setPayroll(pr);
         baselineRef.current = { comp: nextComp, bank: nextBank };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
@@ -4945,7 +5386,33 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
               <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}><option value="USD">USD</option><option value="INR">INR</option></select></div>
               <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => { const b = e.target.value; setComp(p => ({ ...p, payBasis: b, frequency: defaultPayFreq(b, p.currency) })); }}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
-              <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} /></div>
+              <div>
+                <label style={FL}>EFFECTIVE DATE</label>
+                <input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} />
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>A changed base applies from this date; days before it keep the old rate. Leave the date as it is to correct the current record.</div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px' }}>TIME CLOCK</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <label style={FL}>OVERTIME RULE</label>
+                <select className="form-input" style={{ width: '100%' }} value={comp.overtimeRule || ''} onChange={e => setC('overtimeRule', e.target.value)}>
+                  <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
+                  {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The timecard only reads this.</div>
+              </div>
+              <div>
+                <label style={FL}>FULL DAY HOURS</label>
+                <input className="form-input" type="number" min="1" max="24" step="0.5" style={{ width: '100%' }} value={comp.fullDayHours} onChange={e => setC('fullDayHours', e.target.value)} placeholder="8" />
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Salaried: a full day is this minus an hour, a half day is 4 hours; weekend pay is pro-rated against it. Hourly: the paid holiday credit.</div>
+              </div>
+              <div>
+                <label style={FL}>TIME TRACKING</label>
+                <div data-testid="comp-time-tracking" style={{ fontSize: 13, color: 'var(--ink)', padding: '8px 0' }}>{timeTrackingText(payroll)}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
+              </div>
             </div>
 
             {comp.history?.length > 0 && (
@@ -5023,50 +5490,58 @@ export function WorkSiteLibrary({ toastOk, toastErr }) {
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
     try {
-      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      const body = siteBody(f);
       if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
-      await load(); toastOk('Work site saved.'); setMode(null);
-    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+      await load(); toastOk('Location saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save the location.'); }
     setBusy(false);
   }
   async function remove(s) {
     const used = (s.companies || []).map(entityName).filter(Boolean);
     const msg = used.length ? `Delete "${s.name}"? It is removed from ${used.join(', ')} too.` : `Delete "${s.name}"?`;
-    if (!await dialog.confirm(msg, { title: 'Delete work site', confirmText: 'Delete', danger: true })) return;
-    try { await api.deleteWorkSite(s.id); await load(); toastOk('Work site deleted.'); }
+    if (!await dialog.confirm(msg, { title: 'Delete Location', confirmText: 'Delete', danger: true })) return;
+    try { await api.deleteWorkSite(s.id); await load(); toastOk('Location deleted.'); }
     catch (e) { toastErr(e?.message || 'Could not delete.'); }
   }
 
   if (sites === null) return <SkeletonBlocks count={3} height={48} borderRadius={10} />;
   if (mode) {
     const used = mode === 'new' ? [] : (sites.find(s => s.id === mode)?.companies || []);
-    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save}
-      hint={mode === 'new' ? 'Saved to the library - add it to companies from each company\'s Work Sites tab.' : used.length > 1 ? 'Several companies use this site - changes apply to all of them.' : ''} />;
+    return <WorkSiteForm f={f} set={set} busy={busy} onBack={() => setMode(null)} onSave={save} siteId={mode === 'new' ? '' : mode}
+      entities={entities}
+      hint={used.length > 1 ? 'Several companies use this location - changes apply to all of them.' : ''} />;
   }
   const needle = q.trim().toLowerCase();
   const shown = needle ? sites.filter(s => `${s.name} ${s.address || ''}`.toLowerCase().includes(needle)) : sites;
+  // Every company there is - read as "All Companies" rather than a long list.
+  const usedText = (s) => {
+    const ids = s.companies || [];
+    if (entities.length > 1 && entities.every(en => ids.includes(en.id))) return 'Used by All Companies';
+    const used = ids.map(entityName).filter(Boolean);
+    return used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet';
+  };
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Each company chooses which of these sites its employees can punch in at, from its Work Sites tab in Company Settings.</p>
+        <p style={{ flex: 1, minWidth: 200, fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Every location, entered once. Pick the companies whose people punch in at each one - here, or from a company's Locations tab in Company Settings.</p>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search sites" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
+          <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search locations" style={{ paddingLeft: 28, width: 200, fontSize: 12.5 }} />
         </div>
-        <button className="primary-btn" onClick={() => { setF(SITE_BLANK); setMode('new'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
+        <button className="primary-btn" onClick={() => { setF({ ...SITE_BLANK, company_ids: [] }); setMode('new'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Location</button>
       </div>
       {shown.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{sites.length ? `No sites match "${q}".` : 'No work sites yet.'}</div>
+        <div style={{ textAlign: 'center', padding: '20px 16px', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 10 }}>{sites.length ? `No locations match "${q}".` : 'No locations yet.'}</div>
       ) : shown.map(s => {
-        const used = (s.companies || []).map(entityName).filter(Boolean);
+        const usedLine = usedText(s);
         return (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name}<SiteVerifyBadge s={s} /></div>
               <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{siteLine(s)}</div>
-              <div style={{ fontSize: 11.5, color: used.length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{used.length ? `Used by ${used.join(', ')}` : 'Not used by any company yet'}</div>
+              <div style={{ fontSize: 11.5, color: (s.companies || []).length ? 'var(--ink)' : 'var(--muted)', marginTop: 2 }}>{usedLine}</div>
             </div>
-            <button className="secondary-btn" onClick={() => { setF(siteForm(s)); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+            <button className="secondary-btn" onClick={() => { setF({ ...siteForm(s), company_ids: [...(s.companies || [])] }); setMode(s.id); }} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
             <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
           </div>
         );
@@ -5307,9 +5782,12 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-attendance': 'attendance' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions' };
+  // The manager tier sees its own team in People (Oct 6): People and Time only.
+  const { hrTeam } = useRole();
+  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
-    : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
+    : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* - bounce them to Documents
@@ -5319,6 +5797,9 @@ export default function HR({ activeSub, onSubChange }) {
     if (String(activeSub || '').startsWith('hr-esign')) {
       const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    } else if (activeSub === 'hr-time-attendance') {
+      // Who is on / off moved to Shifts > Schedule (Neil, 10/06).
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'schedule' } }));
     } else if (activeSub === 'hr-access') {
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
     }
@@ -5356,19 +5837,35 @@ export default function HR({ activeSub, onSubChange }) {
   const [entities,  setEntities]  = useState([]);
   const [sites,     setSites]     = useState([]);
   const [toast,     setToast]     = useState(null);
+  // Open checklists per person ({employeeId: [progress]}) for the directory
+  // and profile chips; refreshed when People or Checklists is opened.
+  const [clProgress, setClProgress] = useState({});
+  const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
+  const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
   const { canAccessModule, can, hrScope } = useRole();
-  const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
+  const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
   // Company-scoped People admin (Neil, Aug 25): hrScope = list of HrEntity ids
   // this admin is limited to (server-enforced; the lists that arrive are
   // already filtered). Non-null hides company-wide actions and shows a chip.
-  const isScoped = Array.isArray(hrScope) && hrScope.length > 0;
+  const isScoped = !hrTeam && Array.isArray(hrScope) && hrScope.length > 0;
   const scopeNames = isScoped ? hrScope.map(id => entities.find(en => en.id === id)?.name || null).filter(Boolean) : [];
 
   // Stable across renders: children key their loaders on these, and a new
   // function per render made every toast reload the Time screens.
-  const toastErr = useCallback(msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); }, []);
-  const toastOk  = useCallback(msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); }, []);
+  // An error stays long enough to read (Neil, 10/06: the punch-sequence
+  // message "disappeared before I could read it"): 10s, plus time for a long
+  // message, paused while hovered, and closable. One timer - an older toast's
+  // timer can no longer cut a newer one short.
+  const toastTimer = useRef(null);
+  const showToast = useCallback((msg, kind, ms) => {
+    clearTimeout(toastTimer.current);
+    setToast({ msg, kind, ms });
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  }, []);
+  const toastErr = useCallback(msg => showToast(msg, 'error', Math.max(10000, String(msg || '').length * 70)), [showToast]);
+  const toastOk  = useCallback(msg => showToast(msg, 'ok', 4000), [showToast]);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   // Deep link from a person hover card anywhere in Nexus (openPersonProfile).
   // Two triggers, because this view may or may not be mounted when the jump
@@ -5420,6 +5917,11 @@ export default function HR({ activeSub, onSubChange }) {
   const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
   useEffect(() => { loadEntities(); loadSites(); }, []);
+  useEffect(() => {
+    if (hrTeam || (sub !== 'hr-people' && sub !== 'hr-checklists')) return;
+    api.getChecklistProgress().then(r => setClProgress(r.progress || {})).catch(() => {});
+  }, [sub, selectedId, hrTeam]);
+  const openChecklistOf = (id) => { setOpenTab('checklist'); setSelectedId(id); onSubChange?.('hr-people'); };
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   // Department filter choices are the departments actually in use, scoped to the
@@ -5518,12 +6020,13 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
+    { key: 'hr-checklists', label: 'Checklists', Icon: ListChecks },
     // The External tab is gone (Neil, Aug 24): external/guest people live in
     // the People directory with a worker-type filter, and their lifecycle
     // actions sit on their profile card.
     // Roles & Access moved to the Admin module in full (Pranshu, Sep 9) - no
     // longer a People tab.
-  ];
+  ].filter(t => SUBS.includes(t.key));
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -5542,6 +6045,12 @@ export default function HR({ activeSub, onSubChange }) {
         </div>
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+            {hrTeam && (
+              <span title="As a manager you see the people who report to you, directly or through your managers - hours and profiles, never pay."
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 700 }}>
+                <Users size={13} /> Showing: Your Team
+              </span>
+            )}
             {isScoped && (
               <span title="Your People access is limited to these companies - people, time and leave outside them are not shown."
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontSize: 12, fontWeight: 700 }}>
@@ -5552,7 +6061,7 @@ export default function HR({ activeSub, onSubChange }) {
                 module in full (Pranshu, Sep 9) - no longer buttons here. */}
             {/* One Add control (Neil, Aug 24): employee, independent contractor
                 or external partner - all into the same master list. */}
-            <div>
+            {!hrTeam && <div>
               <button ref={addMenuBtnRef} className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
                 onClick={() => setAddMenuOpen(o => !o)} aria-haspopup="menu" aria-expanded={addMenuOpen}>
                 <Plus size={15} /> Add Person <ChevronDown size={14} />
@@ -5573,7 +6082,7 @@ export default function HR({ activeSub, onSubChange }) {
                   </button>
                 ))}
               </AnchoredMenu>
-            </div>
+            </div>}
           </div>
         )}
       </div>
@@ -5598,9 +6107,25 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-checklists' && (
+        <>
+          <div role="tablist" aria-label="Checklists" style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', marginBottom: 16 }}>
+            {[['overview', 'Overview'], ['settings', 'Owners & Templates']].map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={clView === k} onClick={() => setClView(k)}
+                style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
+                  background: clView === k ? 'var(--wk-card)' : 'transparent', color: clView === k ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: clView === k ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {clView === 'overview'
+            ? <ChecklistBoard entities={entities} onOpen={openChecklistOf} />
+            : <ChecklistSettings entities={entities} toastOk={toastOk} toastErr={toastErr} />}
+        </>
+      )}
 
       {sub === 'hr-people' && (<>
-        <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
+        {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
         <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
@@ -5621,8 +6146,9 @@ export default function HR({ activeSub, onSubChange }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <ChevronLeft size={14} /> Back to directory
           </button>
-          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
+          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
+            initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
             onExternalChanged={load}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -5710,7 +6236,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {paged.map(e => {
                     const sm = STATUS_META[e.status] || STATUS_META.active;
                     return (
-                      <tr key={e.id} onClick={() => setSelectedId(e.id)}>
+                      <tr key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
                             <Avatar e={e} card={false} />
@@ -5728,6 +6254,7 @@ export default function HR({ activeSub, onSubChange }) {
                         <td className="ppl-col-secondary">{e.department || '-'}</td>
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact /></div>)}
                         </td>
                         <td><ChevronRight size={14} style={{ color: 'var(--wk-faint)' }} /></td>
                       </tr>
@@ -5756,7 +6283,7 @@ export default function HR({ activeSub, onSubChange }) {
                       const sm = STATUS_META[e.status] || STATUS_META.active;
                       const active = selectedId === e.id;
                       return (
-                        <button key={e.id} onClick={() => setSelectedId(e.id)}
+                        <button key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
                           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -5764,6 +6291,11 @@ export default function HR({ activeSub, onSubChange }) {
                               {fullName(e)}{isExtRow(e) && <ExternalBadge />}
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {(clProgress[e.id] || []).length > 0 && (
+                              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                {clProgress[e.id].map(p => <ChecklistChip key={p.checklistId} p={p} compact />)}
+                              </div>
+                            )}
                           </div>
                           <span title={sm.label} style={{ width: 8, height: 8, borderRadius: '50%', background: sm.fg, flexShrink: 0 }} />
                           <ChevronRight size={13} style={{ color: 'var(--wk-faint)', flexShrink: 0 }} />
@@ -5783,8 +6315,9 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 <div style={{ padding: '16px 18px', minWidth: 0 }}>
                   {selected ? (
-                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile}
+                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
+                      initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
                       onExternalChanged={load}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
@@ -5819,8 +6352,15 @@ export default function HR({ activeSub, onSubChange }) {
           }} />
       )}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
-          {toast.msg}
+        <div role={toast.kind === 'error' ? 'alert' : 'status'}
+          onMouseEnter={() => clearTimeout(toastTimer.current)}
+          onMouseLeave={() => { clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 4000); }}
+          style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 10px 10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: 'min(640px, 90vw)', display: 'flex', alignItems: 'flex-start', gap: 10, lineHeight: 1.45 }}>
+          <span style={{ flex: 1 }}>{toast.msg}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => { clearTimeout(toastTimer.current); setToast(null); }}
+            style={{ background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', borderRadius: 6, width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <X size={13} />
+          </button>
         </div>
       )}
     </div>

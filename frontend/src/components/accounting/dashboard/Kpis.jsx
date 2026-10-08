@@ -30,8 +30,16 @@ export function KpiCashWidget() {
   const { cashSplit, m, loading } = useDash();
   const trend = useTrend();
   if (loading) return <LoadingBox height={80} />;
-  const prev = trend.length > 1 ? trend[trend.length - 2].ctlCash : null;
-  return <Kpi value={m(cashSplit.ctl, { compact: true })} note={cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : `${cashSplit.ctlEntities.length} ${cashSplit.ctlEntities.length === 1 ? 'entity' : 'entities'}`} delta={<Delta v={prev ? change(cashSplit.ctl, prev) : null} suffix="vs last month" />} spark={trend.map((t) => t.ctlCash)} />;
+  // Oct 7 (Neil, comment 7): under Partner Entities Only (or one partner
+  // entity) the controllable figure is zero by definition - show the partner
+  // entities' own cash instead.
+  const { ncOnly, onHand, onHandEntities } = cashSplit;
+  const series = trend.map((t) => (ncOnly ? t.ncCash : t.ctlCash));
+  const prev = series.length > 1 ? series[series.length - 2] : null;
+  const k = onHandEntities.length;
+  const note = ncOnly ? `${k} partner ${k === 1 ? 'entity' : 'entities'} · non-controllable`
+    : cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : `${k} ${k === 1 ? 'entity' : 'entities'}`;
+  return <Kpi value={m(onHand, { compact: true })} note={note} delta={<Delta v={prev ? change(onHand, prev) : null} suffix="vs last month" />} spark={series} />;
 }
 
 export function KpiCashNcWidget() {

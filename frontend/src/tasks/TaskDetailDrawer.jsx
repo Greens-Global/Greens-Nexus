@@ -3,13 +3,13 @@
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
 // the real TasksContext store + api.js instead of the export's mocked Zustand store.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
+  ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -17,7 +17,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
-import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
+import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
@@ -182,6 +182,10 @@ function MenuItem({ icon, onClick, danger, children }) {
 // Defaults to Overview, so every existing caller behaves exactly as before.
 // `zIndex`: the drawer normally sits at 3500, under Modal (4000). A caller that
 // opens it FROM a modal (the ticket drawer's linked tasks) raises it above.
+// Convert to Ticket (Neil, 10/05) reuses the ticket intake form itself, loaded
+// only when someone converts - the Tickets module is a large chunk.
+const CreateTicketModal = lazy(() => import('../tickets/TicketsView').then((m) => ({ default: m.CreateTicketModal })));
+
 export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500 }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
@@ -194,6 +198,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const [tab, setTab] = useState(initialTab);
   useEffect(() => setTab(initialTab), [activeId, initialTab]);
   const [shareOpen, setShareOpen] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   const task = taskById[activeId];
 
@@ -360,10 +365,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* On a phone this collapses to its circle-check icon - the label is
                 the widest thing in the header and crowds out the actions. */}
-            <button onClick={markComplete} title={task.completed ? 'Completed' : 'Mark Complete'}
-              style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
-              {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
-              {!isMobile && (task.completed ? 'Completed' : 'Mark Complete')}
+            <button onClick={markComplete} title={isMissed(task) ? MISSED_TITLE : task.completed ? 'Completed' : 'Mark Complete'}
+              style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: isMissed(task) ? NX.dim : task.completed ? NX.green : NX.dim }}>
+              {isMissed(task) ? <XCircle size={15} /> : task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
+              {!isMobile && (isMissed(task) ? 'Missed' : task.completed ? 'Completed' : 'Mark Complete')}
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -390,6 +395,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
               {(close) => (
                 <>
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
+                  {/* Filed as a task when it is really a request for a team
+                      (Neil, 10/05: "employees ... may still do it as a task"). */}
+                  <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
@@ -458,6 +466,13 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           ) : paneFor(tab)}
         </div>
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
+        {converting && (
+          <Suspense fallback={null}>
+            <CreateTicketModal onClose={() => setConverting(false)} onCreated={() => store.refresh?.()}
+              fromTask={{ id: task.id, title: task.title, description: task.description, priority: task.priority,
+                ownerId: task.ownerId, fileCount: (task.attachmentIds || []).length }} />
+          </Suspense>
+        )}
       </aside>
     </div>,
     document.body,
@@ -978,29 +993,16 @@ function useCommentAttachments(taskId) {
   return [byComment, reload];
 }
 
-// Paperclip button + hidden file input + staged-file chips, shown above a
-// composer's Send button. Files aren't uploaded here - a comment_id is
-// required to link them (see uploadPendingAttachments), and the comment
-// doesn't exist yet while its composer is still open.
+// Staged-file chips under a comment composer (the paperclip that adds them
+// is in the editor toolbar - RichDescription's onStageFiles). Files aren't
+// uploaded here - a comment_id is required to link them (see
+// uploadPendingAttachments), and the comment doesn't exist yet while its
+// composer is still open.
 function PendingAttachments({ files, setFiles }) {
-  const fileRef = useRef(null);
-  // Several at once - a photo dump is one pick, not one trip per picture.
-  const onFile = (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) setFiles((p) => [...p, ...fs]); };
   const remove = (i) => setFiles((p) => p.filter((_, j) => j !== i));
-  if (!files.length) {
-    return (
-      <>
-        <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
-        <button type="button" onClick={() => fileRef.current?.click()} title="Attach Files"
-          style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
-      </>
-    );
-  }
+  if (!files.length) return null;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
-      <button type="button" onClick={() => fileRef.current?.click()} title="Attach More Files"
-        style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Paperclip size={13} /></button>
+    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
       {files.map((f, i) => (
         <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
           {f.type.startsWith('image/')
@@ -1110,17 +1112,18 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
           onSubmit={submit}
           mentionPeople={people}
           minHeight={64}
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])}
         />
       </div>
+      <PendingAttachments files={pending} setFiles={setPending} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
-        <PendingAttachments files={pending} setFiles={setPending} />
+        <span style={{ fontSize: 11, color: NX.faint }}>
+          Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
+        </span>
         <button onClick={submit} disabled={isEmptyDoc(body) || busy}
           style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
           {busy ? 'Posting…' : 'Comment'}
         </button>
-      </div>
-      <div style={{ fontSize: 11, color: NX.faint, marginTop: 4 }}>
-        Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
       </div>
     </div>
   );
@@ -1250,12 +1253,13 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div onPaste={(e) => onPasteStage(e, setPending)}>
         <RichDescription value={body} onChange={setBody} onSubmit={submit}
-          mentionPeople={people} minHeight={64} />
+          mentionPeople={people} minHeight={64}
+          onStageFiles={(fs) => setPending((p) => [...p, ...fs])} />
+        <PendingAttachments files={pending} setFiles={setPending} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
-          <PendingAttachments files={pending} setFiles={setPending} />
           <button onClick={submit} disabled={isEmptyDoc(body)}
             style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
         </div>

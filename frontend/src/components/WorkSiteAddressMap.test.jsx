@@ -58,9 +58,9 @@ describe('WorkSiteAddressMap', () => {
     const WorkSiteAddressMap = (await import('./WorkSiteAddressMap')).default;
     const onPick = vi.fn();
     const { container } = render(<WorkSiteAddressMap lat="" lng="" radiusM={500} onPick={onPick} />);
-    expect(screen.getByText('Search the address to place this site.')).toBeTruthy();
+    expect(screen.getByText('Search the address to place this location.')).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Search the site's address"), { target: { value: '40940 County Center Dr, Temecula' } });
+    fireEvent.change(screen.getByLabelText("Search the location's address"), { target: { value: '40940 County Center Dr, Temecula' } });
     fireEvent.click(screen.getByRole('button', { name: /Search/ }));
     const option = await waitFor(() => screen.getByRole('option'), { timeout: 8000 });
     fireEvent.click(option);
@@ -68,7 +68,7 @@ describe('WorkSiteAddressMap', () => {
 
     // Clicking the map picks nothing - there is no pin to place any more.
     onPick.mockClear();
-    fireEvent.click(container.querySelector('[aria-label="Map of the work site and its geofence"]'));
+    fireEvent.click(container.querySelector('[aria-label="Map of the location and its geofence"]'));
     expect(onPick).not.toHaveBeenCalled();
   });
 
@@ -76,10 +76,10 @@ describe('WorkSiteAddressMap', () => {
     const WorkSiteAddressMap = (await import('./WorkSiteAddressMap')).default;
     const onAdjust = vi.fn();
     const { container, rerender } = render(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable={false} onPick={() => {}} onAdjust={onAdjust} />);
-    const mapEl = container.querySelector('[aria-label="Map of the work site and its geofence"]');
+    const mapEl = container.querySelector('[aria-label="Map of the location and its geofence"]');
     fireEvent.click(mapEl, { clientX: 120, clientY: 90 });
     expect(onAdjust).not.toHaveBeenCalled();          // an old map-pin site: search the address first
-    expect(screen.getByText(/Search the address to confirm this site/)).toBeTruthy();
+    expect(screen.getByText(/Search the address to confirm this location/)).toBeTruthy();
 
     rerender(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={onAdjust} />);
     fireEvent.click(mapEl, { clientX: 120, clientY: 90 });
@@ -93,14 +93,14 @@ describe('WorkSiteAddressMap', () => {
     const { rerender } = render(<WorkSiteAddressMap lat="33.5186" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={() => {}} />);
     expect(screen.getByText(/Drag the pin \(or click the map\) onto the exact building/)).toBeTruthy();
     rerender(<WorkSiteAddressMap lat="33.5286" lng="-117.155" radiusM={500} adjustable onPick={() => {}} onAdjust={() => {}} />);
-    expect(screen.getByText(/The pin is 1\.1 km from the address/)).toBeTruthy();
+    expect(screen.getByText(/The pin is 0\.7 mi from the address/)).toBeTruthy();   // ~1.1 km, in US units
   });
 
   it('says so when nothing matches, and when the search is unreachable', { timeout: 30000 }, async () => {
     const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(nominatim([]));
     const WorkSiteAddressMap = (await import('./WorkSiteAddressMap')).default;
     render(<WorkSiteAddressMap lat="" lng="" radiusM={150} onPick={() => {}} />);
-    const box = screen.getByLabelText("Search the site's address");
+    const box = screen.getByLabelText("Search the location's address");
     fireEvent.change(box, { target: { value: 'nowhere at all' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => screen.getByText(/No address found/), { timeout: 8000 });

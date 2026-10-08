@@ -568,8 +568,7 @@ function TemplateList({ rows, isMobile, nameOf, recapturing, onRecapture, onEdit
                 padding: isMobile ? '11px 12px' : '10px 16px', borderBottom: `1px solid ${NX.border2}`,
                 background: rowBg, opacity: t.archived ? 0.62 : 1,
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = rowBg; }}>
+              className="nx-row-hover">
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
                 <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${dcolor}1f`, color: dcolor }}>

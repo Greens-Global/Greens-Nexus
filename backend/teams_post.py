@@ -35,13 +35,48 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Every message Nexus posts to Teams goes out AS a person (a delegated token),
+# so in the chat it looked exactly like something they typed (Neil, 10/07: "a
+# very SUBTLE way of differentiating Teams messages vs other standard
+# messages"). One quiet grey line at the bottom says where it came from. It is
+# added here, at delivery, so every sender - BOD / EOD / break posts, ticket
+# DMs, anything later - carries it the same way and none can forget it. The
+# marker attribute keeps a retry, or a body that already has it, from signing
+# twice. Plain <em> underneath, so a client that drops the color still shows
+# a small italic line rather than a styled one.
+SIGNATURE_MARK = "data-nexus-sig"
+SIGNATURE_HTML = (f'<p {SIGNATURE_MARK}="1"><span style="color:#8a8886;font-size:12px">'
+                  '<em>Sent by Nexus</em></span></p>')
+
+
+def with_signature(html: str) -> str:
+    html = html or ""
+    if SIGNATURE_MARK in html:
+        return html
+    return f"{html}{SIGNATURE_HTML}"
+
+
 def send_chat_message(token: str, chat_id: str, html: str) -> None:
     """POST one message into a Teams chat as the token's user. Raises on failure
     so the caller records the reason. Mirrors the frontend's postChatMessage."""
     r = httpx.post(
         f"{GRAPH}/chats/{chat_id}/messages",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"body": {"contentType": "html", "content": html}},
+        json={"body": {"contentType": "html", "content": with_signature(html)}},
+        timeout=15,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
+
+
+def send_channel_message(token: str, team_id: str, channel_id: str, html: str) -> None:
+    """POST one message into a Teams channel as the token's user (a new post
+    in the channel). Needs ChannelMessage.Send; the user must be a member of
+    the team - and of the channel, if it is private. Raises on failure."""
+    r = httpx.post(
+        f"{GRAPH}/teams/{team_id}/channels/{channel_id}/messages",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"body": {"contentType": "html", "content": with_signature(html)}},
         timeout=15,
     )
     if r.status_code >= 400:
@@ -81,10 +116,19 @@ def deliver_row(db, row) -> bool:
     if not _claim(db, TimeBod, row):
         return False   # already sent, or another deliverer holds it
     try:
-        tok = bff_session.graph_token_for_email(db, row.employee_email)
+        channel = (getattr(row, "target_type", "") or "chat") == "channel"
+        tok = bff_session.graph_token_for_email(
+            db, row.employee_email,
+            bff_session.GRAPH_CHANNEL_SCOPES if channel else bff_session.GRAPH_CHAT_SCOPES)
         if not tok:
-            raise RuntimeError("no usable session token (signed out everywhere, or Teams consent missing)")
-        send_chat_message(tok, row.channel_id, row.html)
+            raise RuntimeError("no usable session token (signed out everywhere, or Teams "
+                               + ("channel consent missing)" if channel else "consent missing)"))
+        if channel:
+            if not row.team_id:
+                raise RuntimeError("channel post has no team")
+            send_channel_message(tok, row.team_id, row.channel_id, row.html)
+        else:
+            send_chat_message(tok, row.channel_id, row.html)
         row.sent = 1
         row.send_error = ""
         db.commit()

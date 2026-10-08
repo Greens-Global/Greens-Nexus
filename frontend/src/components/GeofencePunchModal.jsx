@@ -6,6 +6,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { formatTimeTz, useDisplayTz } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
+import { formatDistance, formatAccuracy } from '../lib/distance';
 
 // Geofence Punch view (Charmi, Sep 25 - SwipeClock's "Geofence Punch For
 // <name>" screen): one person's In and Out punches for a period on a map,
@@ -16,6 +17,12 @@ import { Spinner } from './AsyncState';
 // Punch Type, Punch Location, Latitude, Longitude, Accuracy. An outside punch
 // shows the street address (looked up once, from OpenStreetMap) with the
 // nearest site and distance.
+//
+// Opened from a timecard Loc chip (Sep 30: "still not able to click on
+// locations") it is focused on that shift: `focusIds` are the shift's In/Out
+// punch ids - only those pins start selected and the map frames them and the
+// site they were judged against. `onEditSite` (managers only) hands off to the
+// punch editor, whose work-site picker reassigns the punch's location.
 
 const COLORS = { in_fence: '#15803d', out_of_fence: '#dc2626', remote: '#6b7280', low_accuracy: '#6b7280', gps_only: '#6b7280', no_location: '#9ca3af', no_site: '#6b7280' };
 const LABEL = { in_fence: 'Inside geofence', out_of_fence: 'Out of Location', remote: 'Remote', low_accuracy: 'Low accuracy', no_location: 'No GPS captured', no_site: 'No site mapped' };
@@ -30,6 +37,7 @@ function Pin({ status, size = 14 }) {
 }
 
 const KIND = { in: 'In', out: 'Out' };
+const distText = (m) => formatDistance(m || 0);   // miles / feet (lib/distance.js)
 const geoCache = new Map();
 async function reverseGeocode(lat, lng) {
   const key = `${Number(lat).toFixed(4)},${Number(lng).toFixed(4)}`;
@@ -45,13 +53,15 @@ async function reverseGeocode(lat, lng) {
   } catch { geoCache.set(key, ''); return ''; }
 }
 
-export default function GeofencePunchModal({ email, name, start, end, onClose }) {
+export default function GeofencePunchModal({ email, name, start, end, onClose, focusIds = null, focusLabel = '', onEditSite = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [onlyOut, setOnlyOut] = useState(false);
   const [siteId, setSiteId] = useState('');
   const [addresses, setAddresses] = useState({});
   const [selected, setSelected] = useState(() => new Set());
+  const [focused, setFocused] = useState(false);   // true while framed on one shift's punches
+  const focusKey = (focusIds || []).filter(Boolean).join(',');
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
@@ -60,10 +70,18 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
   useEffect(() => {
     let alive = true;
     api.timeGeofencePunches(email, start, end)
-      .then((d) => { if (!alive) return; setData(d); setSelected(new Set((d.punches || []).map((p) => p.id))); })
+      .then((d) => {
+        if (!alive) return;
+        setData(d);
+        const all = (d.punches || []).map((p) => p.id);
+        const want = new Set(focusKey ? focusKey.split(',') : []);
+        const hit = all.filter((id) => want.has(id));
+        setFocused(hit.length > 0);
+        setSelected(new Set(hit.length ? hit : all));
+      })
       .catch((e) => { if (alive) setError(e?.message || 'Could not load the punches.'); });
     return () => { alive = false; };
-  }, [email, start, end]);
+  }, [email, start, end, focusKey]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -108,10 +126,12 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
     const group = L.featureGroup().addTo(map);
     layerRef.current = group;
     const bounds = [];
+    // Framed on one shift: its pins plus the site(s) they were judged against.
+    const focusSites = new Set(focused ? (data.punches || []).filter((p) => selected.has(p.id)).map((p) => p.workSiteId).filter(Boolean) : []);
     for (const s of sites) {
       L.circle([s.lat, s.lng], { radius: s.radiusM, color: '#2563eb', weight: 1.5, fillColor: '#3b82f6', fillOpacity: 0.18 }).bindTooltip(`${s.name} · ${s.radiusM} m fence`).addTo(group);
       L.circleMarker([s.lat, s.lng], { radius: 3, color: '#1d4ed8', fillColor: '#1d4ed8', fillOpacity: 1 }).addTo(group);
-      if (!siteId || siteId === s.id) bounds.push([s.lat, s.lng]);
+      if (siteId ? siteId === s.id : (!focused || focusSites.has(s.id))) bounds.push([s.lat, s.lng]);
     }
     for (const p of punches) {
       if (!p.lat || !p.lng || !selected.has(p.id)) continue;
@@ -119,10 +139,12 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       const m = L.marker([lat, lng], { icon: iconFor(p.geoStatus) }).addTo(group);
       const status = p.geoStatus === 'in_fence' ? 'In Fence' : p.geoStatus === 'out_of_fence' ? 'Out of Location' : LABEL[p.geoStatus] || p.geoStatus;
-      m.bindPopup(`<div style="font:12px/1.5 Inter,system-ui"><b>Employee:</b> ${data.name}<br/>${p.geoStatus === 'out_of_fence' ? `<b>Status:</b> ${status}${p.workSiteName ? ` - nearest ${p.workSiteName} (${(p.distanceM || 0).toLocaleString('en-US')} m)` : ''}` : `<b>${p.workSiteName || 'Site'}:</b> ${status}`}<br/><b>Time:</b> ${formatDate(p.localDate)} ${KIND[p.kind] || p.kind} @ ${formatTimeTz(p.at)}<br/><b>GPS:</b> ${p.lat}, ${p.lng}<br/><b>Accuracy:</b> <span style="color:#2563eb;font-weight:700">${p.accuracyM} m</span></div>`);
+      m.bindPopup(`<div style="font:12px/1.5 Inter,system-ui"><b>Employee:</b> ${data.name}<br/>${p.geoStatus === 'out_of_fence' ? `<b>Status:</b> ${status}${p.workSiteName ? ` - nearest ${p.workSiteName} (${distText(p.distanceM)})` : ''}` : `<b>${p.workSiteName || 'Site'}:</b> ${status}`}<br/><b>Time:</b> ${formatDate(p.localDate)} ${KIND[p.kind] || p.kind} @ ${formatTimeTz(p.at)}<br/><b>GPS:</b> ${p.lat}, ${p.lng}<br/><b>Accuracy:</b> <span style="color:#2563eb;font-weight:700">${p.accuracyM} m</span></div>`);
       if (p.accuracyM > 0) L.circle([lat, lng], { radius: p.accuracyM, color: COLORS[p.geoStatus] || '#6b7280', weight: 1, fillOpacity: 0.08 }).addTo(group);
       if (!siteId) bounds.push([lat, lng]);
     }
+    // A focused shift with no GPS and no judged site: frame every site instead.
+    if (!siteId && focused && !bounds.length) sites.forEach((s) => bounds.push([s.lat, s.lng]));
     if (siteId) {
       const s = sites.find((x) => x.id === siteId);
       if (s) map.setView([s.lat, s.lng], 16);
@@ -131,12 +153,15 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
     }
     setTimeout(() => map.invalidateSize(), 50);
     return undefined;
-  }, [data, punches, sites, siteId, selected, tz]);
+  }, [data, punches, sites, siteId, selected, focused, tz]);
 
   useEffect(() => () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } }, []);
 
   const toggle = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const outCount = (data?.punches || []).filter((p) => p.geoStatus === 'out_of_fence').length;
+  const focusPunches = focused ? (data?.punches || []).filter((p) => selected.has(p.id)) : [];
+  const focusNoGps = focused && focusPunches.every((p) => !p.lat || !p.lng);
+  const showAll = () => { setFocused(false); setSelected(new Set((data?.punches || []).map((p) => p.id))); };
   const th = { textAlign: 'left', fontSize: 11, fontWeight: 700, padding: '8px 10px', background: 'var(--bg-secondary, #f3f4f6)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
   const td = { padding: '8px 10px', borderBottom: '1px solid var(--line)', fontSize: 12.5, verticalAlign: 'middle' };
   const btn = (on) => ({ padding: '6px 14px', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--line)'}`, background: on ? 'var(--wk-brand, #2b45e1)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)', borderRadius: 8, fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: '.03em', textTransform: 'uppercase' });
@@ -154,8 +179,8 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" style={btn(!onlyOut)} onClick={() => setOnlyOut(false)}>All Punches</button>
             <button type="button" style={btn(onlyOut)} onClick={() => setOnlyOut(true)}>Out of Fence{outCount ? ` (${outCount})` : ''}</button>
-            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Work site" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
-              <option value="">All work sites</option>
+            <select value={siteId} onChange={(e) => setSiteId(e.target.value)} aria-label="Location" style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'inherit', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', minWidth: 200 }}>
+              <option value="">All locations</option>
               {sites.map((s) => <option key={s.id} value={s.id}>{s.name}{s.assigned ? ' (assigned)' : ''}</option>)}
             </select>
             <button type="button" onClick={() => window.print()} aria-label="Print" title="Print" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><Printer size={16} /></button>
@@ -166,6 +191,16 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
           {error && <div style={{ color: '#dc2626', fontSize: 13, padding: '10px 0' }}>{error}</div>}
           {!data && !error && <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>}
           <div ref={mapEl} style={{ height: 'min(480px, 48vh)', borderRadius: 10, border: '1px solid var(--line)', display: data ? 'block' : 'none' }} />
+          {data && (focused || onEditSite) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: 12.5, padding: '8px 12px', marginBottom: 10, borderRadius: 10, background: 'var(--wk-brand-tint, rgba(43,69,225,0.08))', color: 'var(--ink)' }}>
+              <span style={{ flex: 1, minWidth: 200 }}>
+                {focused ? <>Showing {focusLabel || 'this shift'}.</> : <>Showing every punch in the period.</>}
+                {focusNoGps && <span style={{ color: '#b91c1c', fontWeight: 600 }}> No GPS was captured for this punch, so there is no pin to show.</span>}
+              </span>
+              {focused && <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={showAll}>Show All Punches</button>}
+              {onEditSite && <button type="button" className="primary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onEditSite}>Change Location</button>}
+            </div>
+          )}
           {data && (
             <>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', fontSize: 11.5, color: 'var(--muted)', padding: '10px 0' }}>
@@ -187,20 +222,21 @@ export default function GeofencePunchModal({ email, name, start, end, onClose })
                     {punches.map((p) => {
                       const out = p.geoStatus === 'out_of_fence';
                       const rowBg = out ? 'rgba(220,38,38,0.08)' : p.geoStatus === 'in_fence' ? 'rgba(21,128,61,0.08)' : undefined;
-                      const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Work site')
-                        : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${p.distanceM.toLocaleString('en-US')} m from ${p.workSiteName || 'the nearest site'}` : 'Looking up address...'))
+                      const isFocus = focused && selected.has(p.id);
+                      const where = p.geoStatus === 'in_fence' ? (p.workSiteName || 'Location')
+                        : out ? (addresses[p.id] || (addresses[p.id] === '' ? `${distText(p.distanceM)} from ${p.workSiteName || 'the nearest location'}` : 'Looking up address...'))
                         : p.geoStatus === 'remote' ? 'Remote' : p.geoStatus === 'no_location' ? 'No GPS captured' : (p.workSiteName ? `Near ${p.workSiteName}` : 'GPS only');
                       return (
-                        <tr key={p.id} style={{ background: rowBg }}>
+                        <tr key={p.id} data-focus={isFocus || undefined} style={{ background: rowBg, boxShadow: isFocus ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : undefined, fontWeight: isFocus ? 600 : undefined }}>
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(`${p.localDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td>
                           <td style={td}><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} aria-label="Show on map" /></td>
                           <td style={td}><Pin status={p.geoStatus} /></td>
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{formatTimeTz(p.at)}</td>
                           <td style={td}>{KIND[p.kind] || p.kind}</td>
-                          <td style={{ ...td, maxWidth: 320 }}>{where}{out && addresses[p.id] ? <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.distanceM.toLocaleString('en-US')} m from {p.workSiteName || 'the nearest site'}</div> : null}</td>
+                          <td style={{ ...td, maxWidth: 320 }}>{where}{out && addresses[p.id] ? <div style={{ fontSize: 11, color: 'var(--muted)' }}>{distText(p.distanceM)} from {p.workSiteName || 'the nearest site'}</div> : null}</td>
                           <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{p.lat ? Number(p.lat).toFixed(5) : '-'}</td>
                           <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>{p.lng ? Number(p.lng).toFixed(5) : '-'}</td>
-                          <td style={{ ...td, color: '#2563eb', fontWeight: 700 }}>{p.lat ? `${p.accuracyM}m` : '-'}</td>
+                          <td style={{ ...td, color: '#2563eb', fontWeight: 700 }}>{p.lat ? formatAccuracy(p.accuracyM) : '-'}</td>
                         </tr>
                       );
                     })}

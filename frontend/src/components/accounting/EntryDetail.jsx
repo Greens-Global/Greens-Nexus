@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
+import { Maximize2, Minimize2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
+import Amount, { formatAmount } from './Amount';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
@@ -16,14 +17,9 @@ import { useAccountingPrefs } from './prefs';
 // number, the Intacct batch and the posted date have no value to a reader and
 // sit in one quiet line under the title. The window takes most of the screen,
 // can fill it, and can be dragged larger from its corner.
-// "Open in Nexus Accounting" deep-links the same entry in the accounting app
-// through the one-time sign-in.
+// The "Open in Nexus Accounting" button that used to sit here came off on
+// 09/30 (Charmi, call of 09/29: remove it everywhere).
 
-const money = (n) => {
-  const v = Number(n) || 0;
-  if (Math.abs(v) < 0.005) return '';
-  return Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
 const BOOK_LABEL = { both: 'Both books', actual_only: 'Accrual only', tax_only: 'Cash only' };
 const named = (name, id) => name || id || '';
 
@@ -45,7 +41,6 @@ const COLUMNS = [
 export default function EntryDetail({ entryId, entryNo, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
-  const [opening, setOpening] = useState(false);
   const [prefs, setPrefs] = useAccountingPrefs();
   const full = !!prefs.entryFull;
 
@@ -54,7 +49,14 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     setData(null);
     setError('');
     api.getAccountingEntry(entryId)
-      .then((d) => { if (alive) setData(d); })
+      // An answer without totals (an older app, or a partial read) adds its
+      // own lines up rather than crashing the panel.
+      .then((d) => {
+        if (!alive) return;
+        const ls = d?.lines || [];
+        const totals = d?.totals || { debit: ls.reduce((t, l) => t + (Number(l.debit) || 0), 0), credit: ls.reduce((t, l) => t + (Number(l.credit) || 0), 0) };
+        setData({ ...(d || {}), lines: ls, totals });
+      })
       .catch((e) => { if (alive) setError(e?.message || 'Could not load the entry.'); });
     return () => { alive = false; };
   }, [entryId]);
@@ -64,19 +66,6 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  // Same pattern as the Accounting tab's "Open Nexus Accounting": the tab is
-  // opened on the click (popup blockers allow it) and pointed at the one-time
-  // URL once it arrives.
-  const openInApp = () => {
-    if (opening || !data?.path) return;
-    setOpening(true);
-    const tab = window.open('', '_blank');
-    api.launchAccounting(data.path)
-      .then(({ url }) => { if (tab) tab.location = url; else window.location.assign(url); })
-      .catch((e) => { if (tab) tab.close(); setError(e?.message || 'Could not open Nexus Accounting.'); })
-      .finally(() => setOpening(false));
-  };
 
   const entry = data?.entry;
   const lines = data?.lines || [];
@@ -97,8 +86,8 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   const cell = (l, g, key) => {
     switch (key) {
       case 'account': return <><span className="acct-code">{l.gl_code}</span>{l.account_name}</>;
-      case 'debit': return money(l.debit);
-      case 'credit': return money(l.credit);
+      case 'debit': return <Amount value={l.debit} zero="blank" />;
+      case 'credit': return <Amount value={l.credit} zero="blank" />;
       case 'department': return named(l.department_name, l.department);
       case 'location': return named(l.location_name, l.location);
       case 'memo': return l.description || g?.memo || '';
@@ -123,9 +112,6 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>{entry ? quiet : 'Loading the entry...'}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <button type="button" className="secondary-btn" onClick={openInApp} disabled={!data?.path || opening} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '5px 10px' }}>
-              <ExternalLink size={14} /> {opening ? 'Opening...' : 'Open in Nexus Accounting'}
-            </button>
             <button type="button" onClick={() => setPrefs({ entryFull: !full })} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 5 }}>
               {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
@@ -157,15 +143,15 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                     })}
                     <tr className="acct-grand">
                       <td>Total</td>
-                      <td className="acct-num">{money(data.totals.debit)}</td>
-                      <td className="acct-num">{money(data.totals.credit)}</td>
+                      <td className="acct-num"><Amount value={data.totals.debit} /></td>
+                      <td className="acct-num"><Amount value={data.totals.credit} /></td>
                       <td colSpan={COLUMNS.length - 3} />
                     </tr>
                   </tbody>
                 </table>
               </div>
               {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
-                <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {money(data.totals.debit - data.totals.credit)}.</div>
+                <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
               )}
               {books.length > 1 && (
                 <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>

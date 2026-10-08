@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { fmtLong, fmtMD, mEnd, monthLong, MONTH_SHORT, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
-import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, input, mono, num, toneColor } from './Bits';
+import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, mono, num, toneColor } from './Bits';
 import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
 import { TaskViewSwitch, useCloseViews } from './closeViews';
@@ -62,33 +62,17 @@ export function CloseWidget({ onOpenClose }) {
 
 // The bookkeeper's reconciliation list (Charmi, Sep 23): per entity, every
 // bank and card account with its last reconciled date, the statement
-// (reconciled) balance recorded then, and the current book balance. Marking
-// an account asks for the statement date and balance so "last reconciled"
-// means something next month too.
+// (reconciled) balance recorded then, and the current book balance.
+// Oct 7 (Neil, comment 5): reconciling is an Intacct function only, so there
+// is no way to mark an account reconciled from Nexus. Marks recorded here
+// before that still show read-only (who and when) under Last Reconciled.
 export function ReconWidget({ compact }) {
-  const { period, act, m, ix } = useDash();
+  const { period, m, ix } = useDash();
   const { rows, reconciled, remaining, isLoading } = useRecon();
-  const [busy, setBusy] = useState(null);
-  const [marking, setMarking] = useState(null);   // { key, thru, stmt }
-  const [error, setError] = useState('');
   if (isLoading) return <LoadingBox />;
   if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from the Data tab." />;
-  const mark = async (r, extra) => {
-    setBusy(r.key);
-    setError('');
-    try {
-      await act('recon-mark', { period, key: r.key, ...extra, detail: `${r.name}${r.ref ? ` (${r.ref})` : ''} · ${monthLong(period)}${extra?.thru ? ` · through ${fmtLong(extra.thru)}` : ''}` });
-      setMarking(null);
-    } catch (e) { setError(e?.message || 'Could not mark the account.'); } finally { setBusy(null); }
-  };
-  const submitMark = (r) => {
-    if (!marking || marking.key !== r.key) return;
-    const stmt = marking.stmt.trim() === '' ? null : Number(marking.stmt.replace(/[,$\s]/g, ''));
-    if (stmt != null && !Number.isFinite(stmt)) { setError('Statement balance must be a number.'); return; }
-    mark(r, { thru: marking.thru || null, stmt_balance: stmt });
-  };
   const byType = RECON_TYPES.map((t) => ({ t, rows: rows.filter((r) => r.type === t) })).filter((g) => g.rows.length);
-  const cols = compact ? 7 : 8;
+  const cols = compact ? 6 : 7;
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
@@ -96,45 +80,29 @@ export function ReconWidget({ compact }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
-      {error && <div style={{ fontSize: '0.8rem', color: BAD }}>{error}</div>}
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Account</th>{!compact ? <th>Entity</th> : null}<th>Last Reconciled</th><th style={num}>Reconciled Balance</th><th style={num}>Current Balance</th><th style={num}>Difference</th><th>Status</th><th /></tr></thead>
+          <thead><tr><th>Account</th>{!compact ? <th>Entity</th> : null}<th>Last Reconciled</th><th style={num}>Reconciled Balance</th><th style={num}>Current Balance</th><th style={num}>Difference</th><th>Status</th></tr></thead>
           <tbody>
             {byType.map((g) => (
               <GroupRows key={g.t} title={`${g.t} Accounts`} cols={cols}>
-                {g.rows.map((r) => {
-                  const editing = marking?.key === r.key;
-                  return (
-                    <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
-                      <td><div>{r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
-                      {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
-                      <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.source === 'intacct' ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title={r.intacctAsOf ? `Read from Intacct ${whenTxt(r.intacctAsOf)}` : 'Read from Intacct'}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div> : r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
-                      <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
-                      <td style={num}>{r.gl ? (
-                        <button type="button" title="See the ledger lines behind this balance (Reports tab)"
-                          onClick={() => requestReportDrill({ account: r.gl, accountName: r.name, from: '', to: mEnd(period), entity: r.entityCode || '' })}
-                          style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
-                          {m(r.book, { cents: true })}
-                        </button>
-                      ) : m(r.book, { cents: true })}</td>
-                      <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
-                      <td>{r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        {r.status === 'Reconciled' || r.source === 'intacct' ? null : editing ? (
-                          <form style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onSubmit={(e) => { e.preventDefault(); submitMark(r); }}>
-                            <input type="date" value={marking.thru} max={mEnd(period)} onChange={(e) => setMarking({ ...marking, thru: e.target.value })} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="Statement date" />
-                            <input inputMode="decimal" value={marking.stmt} onChange={(e) => setMarking({ ...marking, stmt: e.target.value })} placeholder="Statement balance" style={{ ...input, padding: '3px 6px', fontSize: '0.74rem', width: 120, textAlign: 'right' }} aria-label="Statement balance" />
-                            <button type="submit" className="primary-btn" style={{ fontSize: '0.7rem', padding: '3px 8px' }} disabled={busy === r.key}>Save</button>
-                            <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '3px 8px' }} onClick={() => setMarking(null)}>Cancel</button>
-                          </form>
-                        ) : (
-                          <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }} disabled={busy === r.key} onClick={() => setMarking({ key: r.key, thru: mEnd(period), stmt: r.book ? r.book.toFixed(2) : '' })}>Mark reconciled</button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {g.rows.map((r) => (
+                  <tr key={r.key} style={r.nc ? { color: 'var(--text-muted)' } : undefined}>
+                    <td><div>{r.name}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
+                    {!compact ? <td style={{ fontSize: '0.78rem' }}>{r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '-'}</td> : null}
+                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{r.thru ? fmtLong(r.thru) : 'Never'}{r.source === 'intacct' ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }} title={r.intacctAsOf ? `Read from Intacct ${whenTxt(r.intacctAsOf)}` : 'Read from Intacct'}>Intacct{r.intacctRef ? ` · ${r.intacctRef}` : ''}</div> : r.mark ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.mark.marked_by} · {whenTxt(r.mark.marked_at)}</div> : null}</td>
+                    <td style={num}>{r.thru ? m(r.stmt, { cents: true }) : '-'}</td>
+                    <td style={num}>{r.gl ? (
+                      <button type="button" title="See the ledger lines behind this balance (Reports tab)"
+                        onClick={() => requestReportDrill({ account: r.gl, accountName: r.name, from: '', to: mEnd(period), entity: r.entityCode || '' })}
+                        style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 }}>
+                        {m(r.book, { cents: true })}
+                      </button>
+                    ) : m(r.book, { cents: true })}</td>
+                    <td style={{ ...num, color: Math.abs(r.diff) >= 0.005 ? (r.source === 'intacct' ? 'var(--text-muted)' : BAD) : undefined }} title={r.source === 'intacct' && Math.abs(r.diff) >= 0.005 ? 'Book balance less the statement balance Intacct reconciled to - outstanding items' : undefined}>{Math.abs(r.diff) >= 0.005 ? m(r.diff, { cents: true }) : '-'}</td>
+                    <td>{r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}</td>
+                  </tr>
+                ))}
               </GroupRows>
             ))}
           </tbody>
@@ -151,7 +119,7 @@ function GroupRows({ title, cols, children }) {
 export function ActivityWidget() {
   const { rows, isLoading } = useActivity(10);
   if (isLoading) return <LoadingBox />;
-  if (!rows.length) return <EmptyBox title="No activity yet" body="Tick a close step or mark an account reconciled and it shows up here for the team." />;
+  if (!rows.length) return <EmptyBox title="No activity yet" body="Tick a close step or leave a note and it shows up here for the team." />;
   return (
     <div>
       {rows.map((r, i) => (
@@ -187,8 +155,10 @@ export function IcWidget() {
 }
 
 export function FluxWidget() {
-  const { m, period } = useDash();
+  const { m, period, loading } = useDash();
   const { rows, hasPrior } = useFlux();
+  // Oct 6 (Neil: a loading animation everywhere): not "No prior month" while the ledger is still on its way.
+  if (loading) return <LoadingBox />;
   if (!hasPrior) return <EmptyBox title="No prior month to compare." />;
   if (!rows.length) return <EmptyBox title="No changes above the review threshold" body="Balances that moved more than $25K or 10% month over month appear here." />;
   const pk = shiftKey(period, 1);

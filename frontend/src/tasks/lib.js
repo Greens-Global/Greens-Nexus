@@ -514,7 +514,10 @@ export function groupTasks(list, group, ctx = {}) {
   // hashes the key into an avatar palette, which made "Completed" orange. Groupings
   // with no inherent color (assignee/project/team/date) still use that hash.
   if (group === 'status') {
-    arr.sort((a, b) => statusOrder.indexOf(a.key) - statusOrder.indexOf(b.key));
+    // A status outside the order (Missed - system-only, never in a picker)
+    // groups after everything else rather than first (indexOf -1).
+    const rank = (k) => { const n = statusOrder.indexOf(k); return n < 0 ? statusOrder.length : n; };
+    arr.sort((a, b) => rank(a.key) - rank(b.key));
     for (const g of arr) g.color = statusMeta[g.key]?.color;
   }
   if (group === 'priority') {

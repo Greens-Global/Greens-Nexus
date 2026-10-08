@@ -10,12 +10,19 @@ const apiMock = vi.hoisted(() => ({
   timeOffList: vi.fn(), getPurchaseRequests: vi.fn(),
 }));
 vi.mock('../api', () => ({ api: apiMock }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com' }) }));
+// `role` is mutable per test: an administrator by default (opens the Tickets
+// desk); the Support-redirect case swaps it for a plain supervisor.
+const role = vi.hoisted(() => ({ admin: true, granted: new Set() }));
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({
+  myEmail: 'neil@greensglobal.com',
+  can: (r) => (r === 'administrator' ? role.admin : true),
+  myGrantedModules: role.granted,
+}) }));
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
 import { WIDGETS } from './widgets.jsx';
-import { TicketQueueWidget, TimeExceptionsWidget, OutTodayWidget, PendingPurchasesWidget, ticketQueueRows, exceptionRows, outRows, purchaseRows } from './teamWidgets.jsx';
+import { TicketQueueWidget, TimeExceptionsWidget, OutTodayWidget, PendingPurchasesWidget, ticketQueueRows, ticketViewFor, exceptionRows, outRows, purchaseRows } from './teamWidgets.jsx';
 import { takePendingOpen, __clearPendingOpen } from '../lib/pendingOpen';
 
 // Fixed "now": Friday 09/25/2026 10:00 local.
@@ -26,6 +33,7 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
   __clearPendingOpen();
+  role.admin = true; role.granted = new Set();
   apiMock.getTaskTickets.mockResolvedValue([]);
   apiMock.getMyTicketAccess.mockResolvedValue({ onDesk: false, canAct: false });
   apiMock.timeExceptions.mockResolvedValue([]);
@@ -46,11 +54,11 @@ const tickets = [
 describe('My Ticket Queue', () => {
   it('lists open tickets assigned to me, SLA breaches first, and unassigned only for desk members', () => {
     const off = ticketQueueRows(tickets, 'neil@greensglobal.com', false);
-    expect(off.mine.map(r => r.title)).toEqual(['TK-102 · VPN down', 'TK-101 · Printer jam']);
+    expect(off.mine.map(r => r.title)).toEqual(['#102 · VPN down', '#101 · Printer jam']);
     expect(off.mine[0].statusLabel).toBe('SLA breached');
     expect(off.unassigned).toEqual([]);
     const desk = ticketQueueRows(tickets, 'neil@greensglobal.com', true);
-    expect(desk.unassigned.map(r => r.title)).toEqual(['TK-104 · New laptop']);
+    expect(desk.unassigned.map(r => r.title)).toEqual(['#104 · New laptop']);
   });
 
   it('renders sections for desk members and opens a ticket in place', async () => {
@@ -62,16 +70,43 @@ describe('My Ticket Queue', () => {
     window.addEventListener('nexus:navigate', onNav);
     window.addEventListener('nexus:open-ticket', onOpen);
     render(<TicketQueueWidget />);
-    expect(await screen.findByText('TK-104 · New laptop')).toBeTruthy();
+    expect(await screen.findByText('#104 · New laptop')).toBeTruthy();
     expect(screen.getByText('Assigned to me')).toBeTruthy();
     expect(screen.getByText('Unassigned')).toBeTruthy();
     expect(screen.getByText('2 assigned to you, 1 unassigned')).toBeTruthy();
-    fireEvent.click(screen.getByText('TK-102 · VPN down'));
+    fireEvent.click(screen.getByText('#102 · VPN down'));
     await vi.advanceTimersByTimeAsync(5);
     expect(seen).toEqual([['nav', 'tickets'], ['open', 't2']]);
     expect(takePendingOpen('ticket')).toBe('t2');
     window.removeEventListener('nexus:navigate', onNav);
     window.removeEventListener('nexus:open-ticket', onOpen);
+  });
+
+  it('opens the ticket on the Support screen for someone without the Tickets module', async () => {
+    role.admin = false;
+    apiMock.getTaskTickets.mockResolvedValue(tickets);
+    const seen = [];
+    const onNav = (e) => seen.push(['nav', e.detail.view]);
+    const onOpen = (e) => seen.push(['open', e.detail.ticketId]);
+    window.addEventListener('nexus:navigate', onNav);
+    window.addEventListener('nexus:open-ticket', onOpen);
+    render(<TicketQueueWidget />);
+    fireEvent.click(await screen.findByText('#101 · Printer jam'));
+    await vi.advanceTimersByTimeAsync(5);
+    expect(seen).toEqual([['nav', 'support'], ['open', 't1']]);
+    expect(takePendingOpen('ticket')).toBe('t1');
+    window.removeEventListener('nexus:navigate', onNav);
+    window.removeEventListener('nexus:open-ticket', onOpen);
+  });
+
+  it('picks the destination the way the notification bell does', () => {
+    const admin = (r) => r === 'administrator';
+    const plain = () => false;
+    expect(ticketViewFor(admin, new Set())).toBe('tickets');
+    expect(ticketViewFor(plain, new Set(['tickets']))).toBe('tickets');
+    expect(ticketViewFor(plain, new Map([['tickets', 'full']]))).toBe('tickets');
+    expect(ticketViewFor(plain, new Set(['tasks']))).toBe('support');
+    expect(ticketViewFor(undefined, undefined)).toBe('support');
   });
 
   it('shows the empty state for a non-desk supervisor', async () => {
