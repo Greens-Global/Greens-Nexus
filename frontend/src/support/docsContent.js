@@ -1146,7 +1146,7 @@ export const DOCS = [
     tips: [
       'People pickers across Nexus use this directory, so keep names and emails correct here.',
       'Approving a punch fix while that timesheet is out for signature recalls it: signing is cancelled, the fix applies, and the timesheet comes back to the manager to agree again. Nobody has to decline it in Nexus Sign first.',
-      'The out-of-fence punch email's Review the Punch in Nexus button opens that person's timecard on the period of the punch.',
+      'The out-of-fence punch email\'s Review the Punch in Nexus button opens that person\'s timecard on the period of the punch.',
     ],
   },
   {
