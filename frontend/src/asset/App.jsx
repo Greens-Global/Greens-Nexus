@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import { Settings2, ArrowLeft, Pencil, Search } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
@@ -784,10 +785,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       )}
 
       {view === 'portfolio' && !active && loading && !visibleProperties.length && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, minHeight: 320, color: 'var(--text-secondary)' }}>
-          <div style={{ width: 30, height: 30, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--pine)', animation: 'spin 0.8s linear infinite' }} />
-          <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>Loading assets…</div>
-        </div>
+        <LoadingState label="Loading assets…" minHeight={320} />
       )}
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} />}

@@ -5,11 +5,11 @@ import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   Ticket,
-  ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer, Megaphone, Sun, Briefcase, Hourglass,
+  ClipboardList, HandCoins, CalendarDays, Timer, Megaphone, Sun, Briefcase, Hourglass,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
-  Ticket as TicketIcon, CloudSun,
+  Ticket as TicketIcon, CloudSun, Search,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
@@ -56,6 +56,9 @@ const MyWorkWidget        = lazy(() => import('./essentials/MyWork.jsx'));
 const MyTimeWidget        = lazy(() => import('./essentials/MyTime.jsx'));
 const AnnouncementsWidget = lazy(() => import('./essentials/Announcements.jsx'));
 const MyTeamWidget        = lazy(() => import('./essentials/MyTeam.jsx'));
+// Accounting tiles (Oct 1) - the ledger search, for people with the grant.
+const lazyAccounting = (name) => lazy(() => import('./accountingWidgets.jsx').then(m => ({ default: m[name] })));
+const FindTransactionWidget = lazyAccounting('FindTransactionWidget');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
@@ -842,7 +845,20 @@ export const WIDGETS = {
   'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 6, maxH: 8 },  render: MyTimeWidget },
   announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget },
   'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor' },
+  // Oct 1: a module-gated tile - `module` names the Access Group grant that
+  // opens it (administrators bypass, same rule as the Accounting screen and
+  // the backend's require_module_grant). No minRole: a Viewer-level grant is enough.
+  'find-transaction': { title: 'Find a Transaction', cat: 'Accounting', icon: Search, size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: FindTransactionWidget, module: 'accounting', moduleLabel: 'Accounting' },
 };
+
+// May this person see (render, or pick from the gallery) a widget? Role level
+// (can(minRole)) OR the 'manager-dashboard' grant for role-tiered tiles; a
+// `module` tile asks the module grant instead (`moduleLevel`, default viewer).
+// CustomDashboard.jsx reads this for both the grid and the Add Widget gallery.
+export function widgetAllowed(def, { can, myGrantedModules, canAccessModule }) {
+  if (def.module && !canAccessModule?.(def.module, 'administrator', def.moduleLevel || 'viewer')) return false;
+  return !def.minRole || can(def.minRole) || !!myGrantedModules?.has('manager-dashboard');
+}
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).
 export function clampToLimits(it) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { headerClocks, tzOffsetMinutes, CALIFORNIA_TZ, ALL_ZONES } from './worldClockZones';
+import { headerClocks, tzOffsetMinutes, zoneLabel, CALIFORNIA_TZ, ALL_ZONES } from './worldClockZones';
 import { formatTimeIn, greetingFor } from './datetime';
 
 // Dashboard greeting clocks (Neil, Sep 28): the viewer's own time bare, and
@@ -43,8 +43,38 @@ describe('headerClocks', () => {
     const shown = view(clocks, SUMMER);
     expect(shown.slice(0, 2)).toEqual(['7:42 PM', 'California 4:42 PM PDT']);
     expect(shown).toHaveLength(3);
-    expect(shown[2]).toMatch(/^India - \w+ 5:12 AM$/);
+    expect(shown[2]).toBe('India 5:12 AM');
     expect(clocks[2].home).toBe(false);
+  });
+
+  // The point of the row (Neil, Oct 7): a clock never repeats the viewer's
+  // own time under a country name.
+  it('in India with India picked: one bare time plus California, no "India" repeat', () => {
+    const india = ALL_ZONES.find((tz) => /Kolkata|Calcutta/.test(tz));
+    expect(view(headerClocks([india], SUMMER, 'Asia/Kolkata'), SUMMER))
+      .toEqual(['5:12 AM', 'California 4:42 PM PDT']);
+  });
+
+  it('in California with California and India picked: no California repeat', () => {
+    const india = ALL_ZONES.find((tz) => /Kolkata|Calcutta/.test(tz));
+    expect(view(headerClocks(['America/Los_Angeles', india], SUMMER, 'America/Los_Angeles'), SUMMER))
+      .toEqual(['4:42 PM', 'India 5:12 AM']);
+  });
+});
+
+describe('zoneLabel', () => {
+  const find = (re) => ALL_ZONES.find((tz) => re.test(tz));
+  it('drops the city for a country that runs one clock', () => {
+    expect(zoneLabel(find(/Kolkata|Calcutta/))).toBe('India');
+    expect(zoneLabel(find(/Tokyo/))).toBe('Japan');
+    expect(zoneLabel(find(/London/))).toBe('United Kingdom');
+    expect(zoneLabel(find(/Singapore/))).toBe('Singapore');
+    expect(zoneLabel('UTC')).toBe('UTC');
+  });
+  it('keeps the city where the country has several zones', () => {
+    expect(zoneLabel(find(/Denver/))).toBe('United States - Denver');
+    expect(zoneLabel(find(/Sydney/))).toBe('Australia - Sydney');
+    expect(zoneLabel(find(/Azores/))).toBe('Portugal - Azores');
   });
 
   it('never shows a Local label', () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { monthLabel, monthLong, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pct, pctTxt } from '../../../accounting/dashboard/model/money';
 import { Chip, Dot, EmptyBox, Footnote, GroupRow, LoadingBox, Panel, SectionTabs, Tile, mono, num, toneColor } from './Bits';
@@ -38,7 +39,8 @@ export default function PerformanceTab({ canEdit }) {
   const material = perf?.variances.filter((v) => v.material && v.budget).slice(0, 6) ?? [];
   const hasBudget = !!perf?.variances.some((v) => v.budget);
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 14 };
-  const halfWide = typeof window !== 'undefined' && window.innerWidth >= 1000 ? { gridColumn: 'span 6' } : { gridColumn: 'span 12' };
+  const wide = useMedia('(min-width: 1000px)');   // follows the viewport, so a phone turned sideways re-lays out
+  const halfWide = wide ? { gridColumn: 'span 6' } : { gridColumn: 'span 12' };
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -125,7 +127,7 @@ function BvaTable({ rows }) {
     );
   };
   return (
-    <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
+    <div className="req-table-wrapper"><table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
       <thead><tr><th>Line</th><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Var $</th><th style={num}>Var %</th><th style={num}>Last year</th><th style={num}>YoY</th></tr></thead>
       <tbody>
         {sections.map(([g, label]) => {
@@ -148,7 +150,7 @@ function BvaTable({ rows }) {
         {totals('Net income', rows, true)}
       </tbody>
       <tfoot><tr><td colSpan={7}><Footnote style={{ padding: '0 10px 10px' }}>Rows in grey are within threshold. Groups follow the chart of accounts sections.</Footnote></td></tr></tfoot>
-    </table>
+    </table></div>
   );
 }
 

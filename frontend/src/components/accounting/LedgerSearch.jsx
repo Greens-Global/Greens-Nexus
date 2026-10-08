@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Columns3, X } from 'lucide-react'
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { useIsMobile } from '../../lib/useIsMobile';
 import EntryDetail from './EntryDetail';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
@@ -93,6 +94,32 @@ function ActiveChip({ label, onClear }) {
   );
 }
 
+// On a phone (Oct 1) the 1,600 px grid gives way to one card per line: what
+// it was and how much on the first line, the account and entity on the
+// second, the date, entry number and other party on the third. Tapping the
+// card opens the journal entry. The desktop grid is untouched.
+function LineCard({ r, onOpen }) {
+  const amount = Number(r.debit) > 0 ? money(r.debit) : Number(r.credit) > 0 ? `(${money(r.credit)})` : '0.00';
+  const party = named(r.vendor_name, r.vendor_id) || named(r.customer_name, r.customer_id) || named(r.employee_name, r.employee_id);
+  const Tag = r.entry_id ? 'button' : 'div';
+  return (
+    <Tag type={r.entry_id ? 'button' : undefined} onClick={r.entry_id ? onOpen : undefined} className="acct-line-card"
+      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', border: 'none', borderBottom: '1px solid var(--border-color)', background: 'none', fontFamily: 'inherit', color: 'var(--text-primary)', cursor: r.entry_id ? 'pointer' : 'default' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.memo || r.entry_no || 'Ledger line'}</span>
+        <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{amount}</span>
+      </div>
+      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span className="acct-code">{r.gl_code}</span>{r.account_name}{r.location_name || r.location ? ` · ${r.location_name || r.location}` : ''}
+      </div>
+      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ whiteSpace: 'nowrap' }}>{[r.entry_date ? formatDate(r.entry_date) : '', r.entry_no].filter(Boolean).join(' · ')}</span>
+        {party && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{party}</span>}
+      </div>
+    </Tag>
+  );
+}
+
 // A dropdown only earns its place when picking from it narrows the result:
 // one vendor behind EVERY matching line is not a choice, one vendor behind
 // some of them is (Neil: "as a vendor, not as an employee"). Dropdowns, not
@@ -155,7 +182,11 @@ function opQuery(key, f) {
 }
 const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '...'} and ${f.b || '...'}` : `${label} ${f.op} ${f.a}`);
 
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false }) {
+// `initialEntry` ({ id, no }) opens that journal entry on top of the lines
+// as soon as the grid mounts - the dashboard's Find a Transaction tile hands
+// it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
+// it, so closing the modal does not reopen it on the next render.
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
   const entitiesKey = entities.join(',');
   // The report's filters, plus any a drill from another tab brought with it
   // (requestReportDrill's `dims`), less the ones lifted here with a chip's x.
@@ -177,7 +208,10 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const isPhone = useIsMobile('(max-width: 640px)');
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
+  useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
   const seq = useRef(0);
 
   // The person's own layout: which columns show and how wide.
@@ -364,7 +398,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             <option value="accrual">Accrual Book</option>
             <option value="cash">Cash Book</option>
           </select>
-          <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />
+          {!isPhone && <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />}
         </div>
       </div>
 
@@ -423,7 +457,13 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             )}
           </div>
 
-          {/* No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02). */}
+          {isPhone ? (
+            <div className="acct-lines-wrap" style={{ maxHeight: 'none', opacity: loading ? 0.6 : 1 }}>
+              {rows.map((r) => <LineCard key={r.line_id} r={r} onOpen={() => setOpenEntry({ id: r.entry_id, no: r.entry_no })} />)}
+              {rows.length === 0 && <div style={{ padding: 16, fontSize: '0.84rem', color: 'var(--text-secondary)', textAlign: 'center' }}>No lines on this page.</div>}
+            </div>
+          ) : (
+          // No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02).
           <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
             <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
               <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
@@ -483,6 +523,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               </tbody>
             </table>
           </div>
+          )}
           {(opFilters.length > 0 || dimsMissed) && (
             <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
               {opFilters.length > 0 && `${opFilters.map(({ c, f }) => opText(c.label, f)).join(', ')} ${total > PAGE ? `is checked on the ${loaded.length.toLocaleString('en-US')} lines loaded on this page, not the whole search` : 'is checked on the lines loaded here'}: ${rows.length.toLocaleString('en-US')} of ${loaded.length.toLocaleString('en-US')} pass. `}
@@ -497,7 +538,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
         </>
       ) : null}
-      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={() => setOpenEntry(null)} />}
+      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
     </div>
   );
 }

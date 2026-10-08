@@ -87,11 +87,11 @@ const LINES_TABLE = {
 };
 vi.mock('./LedgerSearch', async () => {
   const { useEffect } = await import('react');
-  function LedgerSearchMock({ drill, term, onBusy, onExport }) {
+  function LedgerSearchMock({ drill, term, onBusy, onExport, initialEntry }) {
     onBusy?.(false);
     // The real grid hands the report's Export menu a builder for its lines.
     useEffect(() => { onExport?.({ build: async () => LINES_TABLE, lines: 1, name: 'Ledger Lines - 61000 Repairs', title: 'Ledger Lines - 61000 Repairs' }); return () => onExport?.(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
+    return <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''} data-entry={initialEntry?.id || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
   }
   return { default: LedgerSearchMock };
 });
@@ -106,7 +106,7 @@ vi.mock('../../egnyte/EgnyteFolderPick', () => ({
 
 import ReportsTab from './ReportsTab';
 import { api } from '../../api';
-import { requestReportDrill } from './drill';
+import { requestReportDrill, requestLedgerSearch } from './drill';
 import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMocks(); window.scrollTo = vi.fn(); });
@@ -160,6 +160,19 @@ describe('ReportsTab statement table', () => {
     requestReportDrill({ account: '11452', accountName: 'GC Chase Chkg', from: '', to: '2026-08-31', entity: '32000' });
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11452:2026-08-31:accrual'));
+  });
+
+  it('opens the search the dashboard\'s Find a Transaction tile handed over, with the tapped entry on top', async () => {
+    // Parked before Reports mounts (the tile lives on the dashboard).
+    requestLedgerSearch({ q: 'sunbelt 2840', entryId: 'e1', entryNo: 'IA-1293173' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:sunbelt 2840'));
+    expect(screen.getByTestId('ledger-search').dataset.entry).toBe('e1');
+    expect(screen.getByLabelText('Search the ledger').value).toBe('sunbelt 2840');
+    // Already on screen: the event alone carries the next one, words only.
+    requestLedgerSearch({ q: 'amazon' });
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:amazon'));
+    expect(screen.getByTestId('ledger-search').dataset.entry).toBe('');
   });
 });
 
