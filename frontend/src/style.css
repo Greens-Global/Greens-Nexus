@@ -4623,12 +4623,20 @@ body.links-dragging .app-tile-tooltip { opacity: 0 !important; visibility: hidde
 /* The tile the ghost is resting on: its icon swells and a soft ring appears
    behind it - "let go and these two become a folder" (or "…join this
    folder"). */
-.app-tile-fold-target .app-tile-icon-wrap { transform: scale(1.14); }
+.app-tile-fold-target .app-tile-icon-wrap { transform: scale(1.2); }
 .app-tile-fold-target .app-tile-body::before {
-  content: ''; position: absolute; left: 50%; top: 30px; width: 86px; height: 86px; margin: -43px 0 0 -43px;
-  border-radius: 26px; background: var(--wk-brand-tint); box-shadow: inset 0 0 0 2px var(--wk-brand);
+  content: ''; position: absolute; left: 50%; top: 30px; width: 104px; height: 104px; margin: -52px 0 0 -52px;
+  border-radius: 30px; background: var(--wk-brand-tint);
+  box-shadow: inset 0 0 0 2.5px var(--wk-brand), 0 0 0 6px color-mix(in srgb, var(--wk-brand) 18%, transparent);
   animation: fold-ring .22s cubic-bezier(.2,.8,.2,1) both; z-index: -1;
 }
+/* The opened tile stands above its neighbors so the ring is never clipped
+   by the tile sliding in beside it (Oct 8: the ring is wider than the
+   carried tile, so it shows past the ghost's edges). */
+.app-tile-fold-target { z-index: 2; }
+/* The carried tile thins out over an opened target so the ring reads
+   through it. */
+.app-tile-ghost.over-target { opacity: .82; }
 @keyframes fold-ring { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (hover: none) {
   /* The always-visible action row sits above the icon here (24px + 2px),
