@@ -302,6 +302,13 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
     _cand_scoped(cand, user, db)
     if cand.stage in ("hired", "rejected"):
         raise HTTPException(400, f"{cand.first_name} is already {cand.stage} - no interviews to schedule")
+    if cand.stage == "offer":
+        # Another round pulls them back to Interview - not while their offer
+        # is out for signature, which would hire them from Interview.
+        import hr_life_events as hle
+        if hle.active_hire_event(db, cand.id):
+            raise HTTPException(409, "Their hiring packet is out for signature - void it first (on the "
+                                     "packet card) before scheduling another round.")
     if not cand.email:
         raise HTTPException(400, "Add the candidate's email first - the invite goes there")
     try:

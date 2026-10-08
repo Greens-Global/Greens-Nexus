@@ -270,7 +270,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
             background: immediate ? 'hsla(var(--color-red),0.08)' : 'hsla(var(--color-blue),0.08)' }}>
             {immediate
               ? <>Today: their access ends as soon as you confirm, and the paperwork goes to their <b>personal email</b>{e.personalEmail ? ` (${e.personalEmail})` : ' - none on file yet'}.</>
-              : <>On {usDay(f.last_day)} Nexus marks them Left by itself. Until then the paperwork goes to their <b>work email</b>{e.workEmail ? ` (${e.workEmail})` : ''}.</>}
+              : <>They keep their access through {usDay(f.last_day)}; the morning after, Nexus marks them Left by itself. The paperwork goes to their <b>work email</b>{e.workEmail ? ` (${e.workEmail})` : ''} - if it is still unsigned when their account closes, it moves to their personal email.</>}
           </div>
           <label style={lbl}>Reason (kept on the record)</label>
           <input className="form-input" style={{ width: '100%' }} value={f.reason} onChange={ev => set('reason', ev.target.value)} placeholder="e.g. Moving out of state" />

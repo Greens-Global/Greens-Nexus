@@ -22,6 +22,7 @@ _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
+os.environ["NEXUS_DEV_EMAIL"] = "hana.hr@greensglobal.com"   # the signed-in HR user for the HTTP calls
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -75,6 +76,8 @@ class LifeEventCase(unittest.TestCase):
                   models.PayrollRate, models.PayrollRateHistory):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test Co", legal_name="Greens Test Co, LLC"))
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == HR).delete()
+        self.db.add(models.NexusRole(email=HR, role="administrator"))
         for email, first in ((HR, "Hana"), (MGR, "Max")):
             self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=email, first_name=first,
                                              last_name="Test", company=ENTITY, status="active"))
@@ -330,7 +333,65 @@ class HiringPacketTests(LifeEventCase):
         self.db.expire_all()
         req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
         self.assertEqual(req.status, "completed")
-        self.assertEqual(self._ev(ev.id).status, "sent")      # the hook's writes rolled back alone
+        ev = self._ev(ev.id)
+        self.assertEqual(ev.status, "sent")                   # the hook's writes rolled back alone
+        # ...but not quietly: flagged on the event, HR told with priority, and Retry works.
+        self.assertEqual(ev.flags[0]["code"], hle.APPLY_FAILED)
+        self.assertIn("RuntimeError: boom", ev.apply_note)
+        bells = [n for n in self.db.query(models.NexusNotification).filter_by(recipient=HR).all()
+                 if n.title.startswith("Needs attention")]
+        self.assertEqual(bells[0].priority, 1)
+        r = self.client.post(f"/hr/life-events/{ev.id}/retry-apply")
+        self.assertEqual(r.status_code, 200, r.text)
+        ev = self._ev(ev.id)
+        self.assertEqual((ev.status, ev.flags), ("completed", []))
+        cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
+        self.assertEqual(cand.stage, "hired")
+        self.assertTrue(self.db.query(models.HrDocument).filter_by(employee_id=cand.employee_id).first())
+        self.assertEqual(self.client.post(f"/hr/life-events/{ev.id}/retry-apply").status_code, 409)
+
+    def test_a_candidate_with_a_packet_out_cannot_be_rejected_or_pulled_back(self):
+        ev = self._send()
+        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "rejected"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("void it first", r.json()["detail"])
+        r = self.client.post("/hr/candidates/cand-1/interviews", json={"at": "2099-01-01T10:00:00Z"})
+        self.assertEqual(r.status_code, 409, r.text)
+        esign.void_request(ev.sign_request_id, user=HR_USER, db=self.db)
+        self.assertEqual(self.client.patch("/hr/candidates/cand-1", json={"stage": "rejected"}).status_code, 200)
+
+    def test_correcting_the_candidate_email_moves_the_packet(self):
+        ev = self._send()
+        self._sign(self._party(ev.sign_request_id, HR))          # the candidate's turn now
+        old_token = self._party(ev.sign_request_id, CAND_EMAIL).token
+        self.assertEqual(self.invited.count(CAND_EMAIL), 1)
+        r = self.client.patch("/hr/candidates/cand-1", json={"email": "Jane.Right@gmail.com"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.db.expire_all()
+        new = self._party(ev.sign_request_id, "jane.right@gmail.com")
+        self.assertIsNotNone(new)
+        self.assertNotEqual(new.token, old_token)                # the old link is dead
+        self.assertEqual(self._ev(ev.id).subject_email, "jane.right@gmail.com")
+        self.assertIn("jane.right@gmail.com", self.mails)        # re-invited, with the welcome email
+        self.assertEqual(self.client.get(f"/esign/public/{old_token}").status_code, 404)
+
+    def test_an_expired_envelope_moves_the_event_and_tells_hr(self):
+        ev = self._send()
+        self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).update({"expires_on": "2000-01-01"})
+        self.db.commit()
+        req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
+        esign._check_expiry(self.db, req)
+        self.assertEqual(self._ev(ev.id).status, "expired")
+        self.assertTrue(any("expired" in n.title for n in
+                            self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
+        self.assertEqual(self._send().status, "awaiting_sender")  # a new one can go out
+
+    def test_old_pay_is_only_shown_to_pay_holders(self):
+        ev = self._send()
+        ev.inputs = dict(ev.inputs) | {"old_pay": {"base": 1}}
+        self.db.commit()
+        self.assertNotIn("old_pay", hle.ser_event(self.db, ev, show_pay=False)["inputs"])
+        self.assertIn("old_pay", hle.ser_event(self.db, ev, show_pay=True)["inputs"])
 
 
 PROMO_BODY = [
@@ -488,18 +549,64 @@ class OffboardTests(LifeEventCase):
         self._run_filing_now()
         self.assertIn("/Separation Documents/", self.uploads[0][0])
 
-    def test_future_last_day_goes_to_work_email_and_applies_on_the_day(self):
+    def test_future_last_day_goes_to_work_email_and_applies_the_morning_after(self):
         ev, _r = self._off("2099-01-31")
         self.assertEqual(ev.subject_email, ERIN)
         self.assertEqual(self._party(ev.sign_request_id, ERIN).kind, "internal")
         self.assertEqual(self._emp().status, "active")
         self.assertEqual(hle.apply_due_separations(), 0)       # not yet
+        # They work their last day with everything intact.
+        self.db.query(models.HrLifeEvent).filter_by(id=ev.id).update({"effective_date": hle._today()})
+        self.db.commit()
+        self.assertEqual(hle.apply_due_separations(), 0)
         self.db.query(models.HrLifeEvent).filter_by(id=ev.id).update({"effective_date": "2026-01-01"})
         self.db.commit()
         self.assertEqual(hle.apply_due_separations(), 1)
         self.assertEqual(self._emp().status, "offboarded")
-        self.assertEqual(self._ev(ev.id).apply_status, "applied")
+        ev = self._ev(ev.id)
+        self.assertEqual(ev.apply_status, "applied")
         self.assertTrue(any("is now Left" in n.title for n in self.db.query(models.NexusNotification).all()))
+        # The package was still unsigned at the work email when the account
+        # closed: it now goes to the personal email, as an external signer.
+        self.assertIn("re-sent to erin@gmail.com", ev.apply_note)
+        self.assertEqual(ev.subject_email, "erin@gmail.com")
+        party = self._party(ev.sign_request_id, "erin@gmail.com")
+        self.assertEqual(party.kind, "external")
+        self._sign(self._party(ev.sign_request_id, HR))
+        self.assertIn("erin@gmail.com", self.mails)             # invited on the new link
+        self._sign(party)
+        self.assertEqual(self._ev(ev.id).status, "completed")
+
+    def test_the_morning_after_without_a_personal_email_tells_hr(self):
+        self.db.query(models.NexusEmployee).filter_by(id="id-erin").update({"personal_email": ""})
+        self.db.commit()
+        ev, _r = self._off("2099-01-31")
+        self.db.query(models.HrLifeEvent).filter_by(id=ev.id).update({"effective_date": "2026-01-01"})
+        self.db.commit()
+        self.assertEqual(hle.apply_due_separations(), 1)
+        ev = self._ev(ev.id)
+        self.assertIn("no personal email", ev.apply_note)
+        self.assertTrue(any(n.title.startswith("Separation package stuck") and n.priority == 1
+                            for n in self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
+
+    def test_today_is_the_business_day_not_utc(self):
+        from zoneinfo import ZoneInfo
+        self.assertEqual(hle._today(), datetime.now(ZoneInfo(hle.BUSINESS_TZ)).strftime("%Y-%m-%d"))
+
+    def test_a_declined_package_can_be_replaced_without_canceling(self):
+        ev, _r = self._off("2099-01-31")
+        self._sign(self._party(ev.sign_request_id, HR))
+        esign.void_request(ev.sign_request_id, user=HR_USER, db=self.db)      # paperwork dead, offboarding stands
+        ev = self._ev(ev.id)
+        self.assertEqual((ev.status, ev.apply_status), ("voided", "scheduled"))
+        self.assertTrue(any("still scheduled" in n.body for n in
+                            self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
+        ev2, _r = self._off("2099-02-28")                      # a fresh package replaces it
+        self.assertEqual(self._ev(ev.id).apply_status, "canceled")
+        self.assertIn("Replaced", self._ev(ev.id).apply_note)
+        self.assertEqual(self._ev(ev2.id).apply_status, "scheduled")
+        with self.assertRaises(hle.PacketError):               # but a live one still blocks
+            self._off("2099-03-31")
 
     def test_cancel_stops_a_scheduled_offboarding(self):
         ev, _r = self._off("2099-01-31")
@@ -562,6 +669,8 @@ class EmailAndRoleTests(LifeEventCase):
         self.assertIn(f"/sign/{token}", html)                       # click and sign
         self.assertIn("Review &amp; Sign Your Offer", html)
         self.assertIn("What happens next", html)
+        self.assertIn("Already signed for Greens Test Co, LLC by Hana Test", html)   # arrives countersigned
+        self.assertIn("This link is unique to you", html)                          # external: it is a link
         self.assertNotIn(HR, self.mails)                            # HR signing for the company: Nexus Sign's own email
         # Everyone signed -> "it's official", signed PDF attached by Nexus Sign
         self._sign(self._party(ev.sign_request_id, CAND_EMAIL))

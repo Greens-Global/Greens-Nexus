@@ -34,7 +34,7 @@ describe('OffboardModal', () => {
     const onSent = vi.fn();
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
     fireEvent.change(screen.getByDisplayValue(new Date().toISOString().slice(0, 10)), { target: { value: '2099-01-31' } });
-    expect(screen.getByText(/On 01\/31\/2099 Nexus marks them Left by itself/)).toBeTruthy();
+    expect(screen.getByText(/through 01\/31\/2099; the morning after, Nexus marks them Left by itself/)).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
     fireEvent.click(screen.getByText('Review'));
     await waitFor(() => expect(screen.getByText('Schedule Offboarding')).toBeTruthy());

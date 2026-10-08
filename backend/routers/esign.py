@@ -667,6 +667,7 @@ def _check_expiry(db: Session, req: HrSignRequest) -> None:
         if today > exp:
             req.status = "expired"
             _log(db, req.id, "expired", f"expired on {exp}")
+            _link_hook("expired", db, req)
             db.commit()
 
 
@@ -1110,9 +1111,11 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
 def _sign_link(party: HrSignParty) -> str:
     # Straight to THIS request's signing page - never to a list the signer then
     # has to search. The token identifies the envelope, so there is no "which
-    # document was I asked about?" step.
+    # document was I asked about?" step. A teammate signs behind their Nexus
+    # login; ?sign=<party> opens their signing screen as soon as they are in
+    # (ESign.jsx reads it once), so the inbox is not a list to search either.
     return (f"{_app_url_fn()}/sign/{party.token}" if party.kind == "external"
-            else f"{_app_url_fn()}/documents/documents-esign")
+            else f"{_app_url_fn()}/documents/documents-esign?sign={party.id}")
 
 
 def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custom: Optional[tuple] = None) -> tuple:
@@ -2226,6 +2229,44 @@ class PartyFix(BaseModel):
     access_code: Optional[str] = None
 
 
+def reroute_party(db: Session, req: HrSignRequest, party: HrSignParty, *, email: str, by: str,
+                  kind: str = "", why: str = "", ip: str = "", user_agent: str = "") -> bool:
+    """Send a live envelope's party to a different address: the old link dies
+    (fresh token), their status goes back to not-yet-seen, and if it is their
+    turn they are invited again at the new address. `kind` may switch the
+    party between 'internal' (signs behind the Nexus login) and 'external'
+    (signs on the tokenized link) - what an offboarding needs the day the
+    person's work account closes with the package still unsigned. The one
+    engine behind the party-fix screen and the HR life events, so the
+    audit trail reads the same whichever asked. False = nothing to do."""
+    new_email = (email or "").strip().lower()
+    if "@" not in new_email:
+        raise HTTPException(400, "A valid email is required")
+    if req.status != "pending":
+        raise HTTPException(409, f"Request is {req.status}")
+    if party.status in ("signed", "declined"):
+        raise HTTPException(409, f"{party.name} has already {party.status} - correction is impossible")
+    new_kind = kind if kind in ("internal", "external") else (party.kind or "internal")
+    if new_email == party.email and new_kind == (party.kind or "internal"):
+        return False
+    changes = []
+    if new_email != party.email:
+        changes.append(f"email {party.email} → {new_email}")
+    if new_kind != (party.kind or "internal"):
+        changes.append(f"signs {'on their own link' if new_kind == 'external' else 'inside Nexus'} now")
+    party.email, party.kind = new_email, new_kind
+    party.token = secrets.token_urlsafe(32)   # old link must stop working
+    party.viewed_at = ""
+    if party.status == "viewed":
+        party.status = "notified"
+    _log(db, req.id, "corrected", f"{'; '.join(changes)}" + (f" ({why})" if why else "") + f" - by {by}",
+         party_id=party.id, ip=ip, user_agent=user_agent)
+    _log(db, req.id, "code_reset", "credential changed - access-code lockout reset", party_id=party.id)
+    if _its_their_turn(req, party):
+        _notify_party(db, party, req, (by or "").split("@")[0].replace(".", " ").title())
+    return True
+
+
 @router.patch("/requests/{rid}/parties/{pid}")
 def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
@@ -2243,40 +2284,27 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
     if party.status in ("signed", "declined"):
         raise HTTPException(409, f"{party.name} has already {party.status} - correction is impossible")
     changes = []
-    credential_changed = False   # token rotation or new code → resets brute-force lockout
+    credential_changed = False   # a new code resets the brute-force lockout
+    ip, ua = _client_meta(request)
     if body.name is not None and body.name.strip() and body.name.strip() != party.name:
         changes.append(f"name '{party.name}' → '{body.name.strip()}'")
         party.name = body.name.strip()
-    email_changed = False
     if body.email is not None:
-        new_email = body.email.strip().lower()
-        if "@" not in new_email:
-            raise HTTPException(400, "A valid email is required")
-        if new_email != party.email:
-            changes.append(f"email {party.email} → {new_email}")
-            party.email = new_email
-            party.token = secrets.token_urlsafe(32)   # old link must stop working
-            party.viewed_at = ""
-            email_changed = credential_changed = True
-            if party.status == "viewed":
-                party.status = "notified"
+        # Rotates the token, resets the lockout and re-invites if it is their
+        # turn - all logged by reroute_party itself.
+        reroute_party(db, req, party, email=body.email, by=user["email"], ip=ip, user_agent=ua)
     if body.access_code is not None and body.access_code.strip() != (party.access_code or ""):
         if len(body.access_code.strip()) > 40:
             raise HTTPException(400, "Access codes are limited to 40 characters")
         party.access_code = body.access_code.strip()
         changes.append("access code changed")
         credential_changed = True
-    if not changes:
-        return _ser_request(req, parties=_parties(db, rid))
-    ip, ua = _client_meta(request)
-    _log(db, rid, "corrected", f"{'; '.join(changes)} - by {user['email']}",
-         party_id=party.id, ip=ip, user_agent=ua)
+    if changes:
+        _log(db, rid, "corrected", f"{'; '.join(changes)} - by {user['email']}",
+             party_id=party.id, ip=ip, user_agent=ua)
     if credential_changed:   # only a fresh credential clears the lockout, not a name typo fix
         _log(db, rid, "code_reset", "credential changed - access-code lockout reset",
              party_id=party.id)
-    if email_changed and _its_their_turn(req, party):
-        sender_name = user["email"].split("@")[0].replace(".", " ").title()
-        _notify_party(db, party, req, sender_name)
     db.commit()
     return _ser_request(req, parties=_parties(db, rid))
 
@@ -2766,13 +2794,15 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
     if kind == "timesheet":
         import timesheet_review as tsr
         fn = {"progress": tsr.on_progress, "declined": tsr.on_declined,
-              "voided": tsr.on_voided, "completed": tsr.on_completed}[event]
-        tsr.safe(fn, db, req, *args)
+              "voided": tsr.on_voided, "completed": tsr.on_completed}.get(event)
+        if fn:
+            tsr.safe(fn, db, req, *args)
     elif kind == "life_event":
         import hr_life_events as hle
-        fn = {"progress": hle.on_progress, "declined": hle.on_declined,
-              "voided": hle.on_voided, "completed": hle.on_completed}[event]
-        hle.safe(fn, db, req, *args)
+        fn = {"progress": hle.on_progress, "declined": hle.on_declined, "voided": hle.on_voided,
+              "completed": hle.on_completed, "expired": hle.on_expired}.get(event)
+        if fn:
+            hle.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:

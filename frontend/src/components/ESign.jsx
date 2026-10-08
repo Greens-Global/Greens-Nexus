@@ -3611,11 +3611,17 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   // section 16). The param is consumed once and stripped, so a refresh or a
   // Back doesn't keep reopening the same modal.
   useEffect(() => {
-    const rid = new URLSearchParams(window.location.search).get('request');
-    if (!rid) return;
-    setDetailId(rid);
+    const params = new URLSearchParams(window.location.search);
+    const rid = params.get('request');
+    // ?sign=<party> is a signer's own invite (an HR letter emailed to a
+    // teammate): straight into their signing screen, not the inbox list.
+    const pid = params.get('sign');
+    if (!rid && !pid) return;
+    if (rid) setDetailId(rid);
+    if (pid) setSignParty(pid);
     const url = new URL(window.location.href);
     url.searchParams.delete('request');
+    url.searchParams.delete('sign');
     window.history.replaceState(window.history.state, '', url.pathname + url.search);
   }, []);
   useEffect(() => { if (prefill) setSendOpen(true); }, [prefill]);

@@ -761,6 +761,12 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         if body.stage not in _STAGE_MOVES.get(row.stage, set()):
             raise HTTPException(409, _STAGE_HINTS.get(body.stage)
                                 or f"A candidate in {row.stage} can't move to {body.stage}.")
+        if body.stage == "rejected":
+            # A hiring packet still out would hire them the moment they sign.
+            import hr_life_events as hle
+            if hle.active_hire_event(db, row.id):
+                raise HTTPException(409, "Their hiring packet is still out for signature - void it first "
+                                         "(on the packet card), then reject.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))
@@ -797,6 +803,10 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
 
     if body.email is not None:
         body.email = _check_candidate_email(body.email)
+        if body.email and body.email != (row.email or "").lower():
+            # The packet out for signature follows the corrected address.
+            import hr_life_events as hle
+            hle.reroute_hire_packet(db, row, body.email, user["email"])
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "First name can't be empty.")
     if body.role_id is not None:

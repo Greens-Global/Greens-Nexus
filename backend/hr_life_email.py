@@ -25,6 +25,7 @@ Preview Email).
 """
 from datetime import datetime, timezone
 from html import escape
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -309,10 +310,18 @@ def _shell(*, preheader: str, company: str, accent: str, hero_bg: str, hero_emoj
                  f'max-width:640px">{hero_sub}</div>',
                  bg=hero_bg, pad="52px 40px 48px")
     body = "".join(f'<div style="margin:0 0 36px">{s}</div>' for s in sections if s)
+    who = escape(sender.get("name") or "the sender")
+    # An external signer holds a tokenized link - the warning is about the
+    # link. A teammate signs behind their Nexus login, so there is no link to
+    # protect; what they need to know is what will be asked of them.
+    external = (getattr(party, "kind", "") or "external") == "external"
+    sec_text = (f"&#128274; This link is unique to you - please do not forward this email. You will confirm a "
+                f"one-time code before signing. Not expecting it? Contact {who} directly before opening the link."
+                if external else
+                f"&#128274; The button opens Nexus; you sign in as usual and confirm a one-time code before "
+                f"signing. Not expecting this? Contact {who} directly before signing.")
     sec = (f'<div style="font-family:{FONT};font-size:12.5px;line-height:1.6;color:{MUTED};border-top:1px solid {LINE};'
-           f'padding-top:18px">&#128274; This link is unique to you - please do not forward this email. You will '
-           f'confirm a one-time code before signing. Not expecting it? Contact '
-           f'{escape(sender.get("name") or "the sender")} directly before opening the link.</div>') if security else ""
+           f'padding-top:18px">{sec_text}</div>') if security else ""
     footer = (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f9fafb" '
               f'style="background:#f9fafb;border-top:1px solid {LINE}"><tr><td align="center" style="padding:0 16px">'
               f'<table role="presentation" width="{WIDTH}" cellpadding="0" cellspacing="0" border="0" '
@@ -332,12 +341,36 @@ def _p(text: str) -> str:
     return f'<div style="font-family:{FONT};font-size:15.5px;line-height:1.7;color:#374151">{text}</div>'
 
 
+def _signed_line(signed_by: list, company: str, accent: str) -> str:
+    """'Already signed for {company} by X on {date}' - the packet arrives
+    countersigned, and saying so is what makes it an offer, not a form."""
+    if not signed_by:
+        return ""
+    parts = []
+    for name, at in signed_by:
+        day = _short(at) if at else ""
+        parts.append(escape(name) + (f" on {escape(day)}" if day else ""))
+    return (f'<div style="font-family:{FONT};font-size:13.5px;color:{INK};margin-top:12px">'
+            f'<span style="color:{accent};font-weight:700">&#10003;</span>&nbsp; Already signed for '
+            f'{escape(company)} by {", ".join(parts)}.</div>')
+
+
+def _after_me(after_me: list, fallback: str) -> str:
+    names = [escape(n) for n in (after_me or []) if n]
+    if not names:
+        return "You are the last to sign - then it is official."
+    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    return f"{joined} sign{'s' if len(names) == 1 else ''} after you - then it is official."
+
+
 # ── the emails ───────────────────────────────────────────────────────────────
 
 def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, location: str, inputs: dict,
             pay: dict, manager: str, note: str, docs: list, link: str, sender: dict, party, req,
-            subject_name: str = "") -> tuple:
-    """(subject, html). stage: 'invite' (sign now) or 'completed' (all signed)."""
+            subject_name: str = "", signed_by: Optional[list] = None, after_me: Optional[list] = None) -> tuple:
+    """(subject, html). stage: 'invite' (sign now) or 'completed' (all signed).
+    signed_by: [(name, signed_at)] who signed before this person; after_me:
+    names still to sign after them."""
     import email_theme
     th = email_theme.current()
     green = th.color("#15803d")
@@ -390,14 +423,15 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                               f"are below, and your offer letter and onboarding documents are ready for your signature."),
                            offer,
                            _note(note, sender, green),
-                           _docs(docs, green),
+                           _docs(docs, green) + _signed_line(signed_by or [], company, green),
                            _button("Review &amp; Sign Your Offer", link, green)
                            + f'<div style="font-family:{FONT};font-size:13px;color:{MUTED};margin-top:10px">'
                              f'Takes about 10 minutes and works on your phone. Signing is how you accept the offer.</div>',
                            _steps("What happens next", [
                                ("Sign your offer", "Open the link, confirm the one-time code we email you, and sign each document."),
                                ("We get you set up", "Your work email and accounts are created before your first day."),
-                               ("Day one", f"{start or 'Your start date'} - we'll have everything ready for you."),
+                               ("Day one", f"{start or 'Your start date'} - bring a government-issued photo ID for your "
+                                           "employment paperwork; we'll have everything else ready."),
                            ], green),
                            _contact(sender, green)],
                        party=party, req=req, sender=sender))
@@ -461,10 +495,11 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                               "Thank you for everything you bring to the team - your work has made a real difference, "
                               "and we're delighted to recognize it. ")
                               + "The details are below. Please review and sign your letter to make it official."),
-                           move, pay_card, _note(note, sender, green), resp, _docs(docs, green),
+                           move, pay_card, _note(note, sender, green), resp,
+                           _docs(docs, green) + _signed_line(signed_by or [], company, green),
                            _button("Review &amp; Sign Your Letter", link, green)
                            + f'<div style="font-family:{FONT};font-size:13px;color:{MUTED};margin-top:10px">'
-                             f'{escape(manager) if manager else "Your manager"} signs after you - then it is official.</div>',
+                             f'{_after_me(after_me if after_me is not None else ([manager] if manager else []), "")}</div>',
                            _contact(sender, green)],
                        party=party, req=req, sender=sender))
 
@@ -480,7 +515,10 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
             ("Final pay", "Your final paycheck includes pay through your last day, as required by law."),
             ("Benefits", "Information on continuing your benefits will be sent to you separately."),
             ("Company property", "Please return your laptop, badge, keys and any other company property by your last day."),
-            ("Your records", "A copy of every signed document is emailed to you for your records."),
+            ("Your access", ("Your work email and Nexus access have ended; this message and your signed copies "
+                             "come to your personal email." if d.get("immediate") else
+                             "Your work email and Nexus access end after your last day - save anything personal "
+                             "before then. Your signed copies are emailed to you.")),
         ], slate)
         if stage == "completed":
             return (f"Your separation documents from {company} are complete",
@@ -496,7 +534,8 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                        hero_title="Your separation documents",
                        hero_sub=(f"Thank you for your contributions to {escape(company)}. Here is what you need "
                                  "to know before your last day."),
-                       sections=[facts, _note(note, sender, slate), after, _docs(docs, slate),
+                       sections=[facts, _note(note, sender, slate), after,
+                                 _docs(docs, slate) + _signed_line(signed_by or [], company, slate),
                                  _button("Review &amp; Sign Your Documents", link, slate),
                                  _p("If anything is unclear, contact us below before you sign."),
                                  _contact(sender, slate)],
@@ -536,10 +575,23 @@ def _event_email(db: Session, req: HrSignRequest, party, sender: dict, link: str
     if not is_subject and not (ev.kind == "promotion" and role == "manager" and stage == "invite"):
         return None
     company, location, manager = _context(db, ev)
+    # Who signed before this person (the packet arrives countersigned) and
+    # who still signs after them - read from the envelope, never assumed.
+    signed_by, after_me = [], []
+    if stage == "invite" and req.id:
+        mine = getattr(party, "ordinal", None) or 0
+        for p in (db.query(HrSignParty).filter(HrSignParty.request_id == req.id)
+                  .order_by(HrSignParty.ordinal).all()):
+            if p.id == getattr(party, "id", "") or (p.party_role or "signer") != "signer":
+                continue
+            if p.status == "signed" and p.ordinal < mine:
+                signed_by.append((p.name, p.signed_at or ""))
+            elif p.ordinal > mine:
+                after_me.append(p.name)
     return compose(ev.kind, stage=stage, role=role, first_name=(getattr(party, "name", "") or "").split(" ")[0],
                    company=company, location=location, inputs=ev.inputs or {}, pay=ev.pay or {}, manager=manager,
                    note=(req.message or "") if is_subject else "", docs=_docs_of(req), link=link, sender=sender,
-                   party=party, req=req, subject_name=ev.subject_name)
+                   party=party, req=req, subject_name=ev.subject_name, signed_by=signed_by, after_me=after_me)
 
 
 def invite_email(db: Session, req: HrSignRequest, party: HrSignParty, sender: dict, link: str):
@@ -590,7 +642,13 @@ def preview(db: Session, user: dict, event: str, entity_id: str, template_name: 
     company = (e.legal_name or e.name) if e else "Greens"
     location = (e.physical_address or e.registered_address or "") if e else ""
     inputs, pay = SAMPLE.get(event, ({}, {}))
+    if event == "promotion" and role == "subject":
+        fake_party.kind = "internal"          # an employee signs behind their Nexus login
+    # The sample envelope: the company (the sender) has signed a hire or
+    # separation before the person sees it; a promotion goes to the manager next.
+    signed_by = [(sender.get("name") or "HR", now)] if event in ("hire", "separation") else []
+    after_me = ["Max Manager"] if event == "promotion" else []
     return compose(event, stage=stage, role=role, first_name="Jane" if role == "subject" else "Max", company=company,
                    location=location, inputs=inputs, pay=pay, manager="Max Manager", note=note,
                    docs=_docs_of(fake_req), link="#", sender=sender, party=fake_party, req=fake_req,
-                   subject_name="Jane Doe")
+                   subject_name="Jane Doe", signed_by=signed_by, after_me=after_me)

@@ -514,12 +514,16 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
     try {
       if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
       else if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
+      else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
     setBusy('');
   }
   const flagged = (ev.flags || []).find(f => f.code === 'signed_timesheets');
+  // Signed in Nexus Sign, but Nexus could not apply it (the hire that never
+  // became an employee) - the one state that must never sit quietly.
+  const failed = (ev.flags || []).find(f => f.code === 'apply_failed');
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -530,7 +534,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
       </div>
       {ev.kind === 'separation' && ev.applyStatus === 'scheduled' && (
         <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Clock size={13} style={{ color: 'hsl(var(--color-blue))' }} /> Leaves on {usDay(ev.effectiveDate)} - Nexus marks them Left that day.
+          <Clock size={13} style={{ color: 'hsl(var(--color-blue))' }} /> Last day {usDay(ev.effectiveDate)} - Nexus marks them Left the morning after.
           <button className="secondary-btn" onClick={() => act('cancel')} disabled={!!busy} style={{ fontSize: 11.5, padding: '3px 10px' }}>
             {busy === 'cancel' ? <Spinner size={12} /> : 'Cancel Offboarding'}
           </button>
@@ -547,6 +551,9 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
         ))}
       </div>
       {ev.status === 'declined' && ev.declineReason && <Problem>Declined: {ev.declineReason}</Problem>}
+      {failed && ev.status !== 'completed' && (
+        <Problem>Signed, but not applied: {failed.message}. The signatures are safe - use Retry; if it keeps failing, send this message to support.</Problem>
+      )}
       {flagged && (ev.status === 'completed'
         ? <Problem>Signed timesheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>
         : <Problem>The new pay starts {usDay(ev.effectiveDate)}, inside timesheets already signed ({flagged.periods.map(x => x.label).join(', ')}). They will not be repriced - review them once this is signed.</Problem>)}
@@ -568,6 +575,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
         {['awaiting_sender', 'sent'].includes(ev.status) && (
           <button className="secondary-btn" onClick={() => act('void')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy === 'void' ? <Spinner size={12} /> : <Ban size={12} />} Void
+          </button>
+        )}
+        {failed && ev.status !== 'completed' && (
+          <button className="primary-btn" onClick={() => act('apply')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {busy === 'apply' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry
           </button>
         )}
         {ev.status === 'completed' && ev.filingStatus !== 'filed' && (
@@ -602,7 +614,8 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
   const recent = Date.now() - 14 * 86400000;
   const shown = events.filter(e => ['awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
     || (e.status === 'completed' && (e.filingStatus !== 'filed' || new Date(e.completedAt).getTime() > recent))
-    || (e.status === 'declined' && new Date(e.createdAt).getTime() > recent));
+    || (e.flags || []).some(f => f.code === 'apply_failed')
+    || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
   if (!shown.length) return null;
   return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={load} toastOk={toastOk} toastErr={toastErr} />)}</div>;
 }

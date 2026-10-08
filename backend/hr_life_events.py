@@ -30,6 +30,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
@@ -50,6 +51,11 @@ CURRENCIES = ("USD", "INR")
 # failed and HR is told (a missing entity folder needs a person, not a retry).
 FILING_BACKOFF_MIN = (1, 5, 15, 60, 180, 360)
 LOOP_EVERY_SEC = 60
+# "Last day" and "today" are calendar days where the company works, not UTC:
+# at 6 PM in California it is already tomorrow in UTC, and an offboarding
+# dated tomorrow must not become "immediate" at dinner time.
+BUSINESS_TZ = "America/Los_Angeles"
+APPLY_FAILED = "apply_failed"      # flags[].code when a signed packet could not be applied
 
 
 def _now() -> str:
@@ -58,15 +64,42 @@ def _now() -> str:
 
 def safe(fn, *a, **kw) -> None:
     """Run a Nexus Sign callback in a SAVEPOINT. An error rolls back only what
-    the callback wrote and is logged - the signature it rides on stands."""
-    db = a[0]
+    the callback wrote and is logged - the signature it rides on stands.
+
+    It is NOT silent about it: a failure is written onto the event (flag
+    `apply_failed`, the reason in apply_note) and the sender gets a priority
+    notification with a Retry. A packet that was signed but never applied
+    - the hire that never became an employee - is exactly the broken piece
+    nobody would notice otherwise."""
+    db, req = a[0], a[1]
     sp = db.begin_nested()
     try:
         fn(*a, **kw)
         sp.commit()
-    except Exception as e:   # pragma: no cover - logged, never raised
+        return
+    except Exception as e:   # logged, never raised
         sp.rollback()
-        print(f"[life-events] {getattr(fn, '__name__', fn)} failed: {type(e).__name__}: {e}")
+        msg = f"{type(e).__name__}: {str(e)[:300]}"
+        print(f"[life-events] {getattr(fn, '__name__', fn)} failed: {msg}")
+    try:
+        sp = db.begin_nested()
+        ev = _for(db, req)
+        if ev is not None:
+            what = {"on_completed": "apply the signed packet", "on_progress": "record the signature",
+                    "on_declined": "record the decline", "on_voided": "record the void",
+                    "on_expired": "record the expiry"}.get(getattr(fn, "__name__", ""), "update the record")
+            ev.flags = [f for f in (ev.flags or []) if f.get("code") != APPLY_FAILED] + [
+                {"code": APPLY_FAILED, "event": getattr(fn, "__name__", "")[3:], "message": msg, "at": _now()}]
+            ev.apply_note = f"Nexus could not {what}: {msg}"
+            ev.updated_at = _now()
+            _notify(db, ev.created_by, f"Needs attention - {EVENT_TITLES.get(ev.kind, 'packet')} for {ev.subject_name}",
+                    f"The signatures are safe in Nexus Sign, but Nexus could not {what} ({msg}). "
+                    f"Open the person and use Retry; if it keeps failing, send this message to support.",
+                    ev, priority=1)
+        sp.commit()
+    except Exception as e2:   # pragma: no cover - the record of the failure failed too
+        sp.rollback()
+        print(f"[life-events] could not record the failure: {type(e2).__name__}: {e2}")
 
 
 # ── small helpers ────────────────────────────────────────────────────────────
@@ -228,12 +261,15 @@ def ser_event(db: Session, ev: HrLifeEvent, *, show_pay: bool) -> dict:
             parties.append({"id": p.id, "name": p.name, "email": p.email, "status": p.status, "role": p.role_key,
                             "order": p.ordinal, "signedAt": p.signed_at or "",
                             "isSubject": p.email == (ev.subject_email or "").lower()})
+    # A promotion carries the pay BEFORE the change in inputs (old_pay) so its
+    # email can say what it went up by - salary data, hr_comp holders only.
+    inputs = {k: v for k, v in (ev.inputs or {}).items() if show_pay or k != "old_pay"}
     out = {
         "id": ev.id, "kind": ev.kind, "title": EVENT_TITLES.get(ev.kind, ev.kind),
         "status": ev.status, "entityId": ev.entity_id, "candidateId": ev.candidate_id,
         "employeeId": ev.employee_id, "subjectName": ev.subject_name, "subjectEmail": ev.subject_email,
         "templateId": ev.template_id, "signRequestId": ev.sign_request_id,
-        "inputs": ev.inputs or {}, "effectiveDate": ev.effective_date or "",
+        "inputs": inputs, "effectiveDate": ev.effective_date or "",
         "appliedAt": ev.applied_at or "", "applyNote": ev.apply_note or "", "flags": ev.flags or [],
         "filingStatus": ev.filing_status or "", "filingPath": ev.filing_path or "",
         "filingError": ev.filing_error or "", "filingAttempts": ev.filing_attempts or 0,
@@ -395,6 +431,44 @@ def _load_candidate(db: Session, cid: str, scope, lock: bool = False) -> HrCandi
     return cand
 
 
+def active_hire_event(db: Session, cid: str) -> Optional[HrLifeEvent]:
+    """The hiring packet still out for this candidate, if any. The pipeline
+    checks it before moving the candidate away from Offer: a packet that is
+    signable while the candidate is Rejected (or back in Interview) would
+    hire someone HR had decided against."""
+    if not cid:
+        return None
+    return (db.query(HrLifeEvent)
+            .filter(HrLifeEvent.candidate_id == cid, HrLifeEvent.kind == "hire",
+                    HrLifeEvent.status.in_(ACTIVE)).first())
+
+
+def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str) -> bool:
+    """HR corrected the candidate's email while their packet is out: the
+    packet follows the correction (fresh link, old one dead, re-invited if it
+    is their turn). Without this the offer keeps going to the typo."""
+    ev = active_hire_event(db, cand.id)
+    if not ev or not ev.sign_request_id:
+        return False
+    from routers import esign
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
+    party = (db.query(HrSignParty)
+             .filter(HrSignParty.request_id == ev.sign_request_id,
+                     HrSignParty.email == (ev.subject_email or "").lower()).first())
+    if not req or not party or req.status != "pending":
+        return False
+    was = ev.subject_email
+    ev.subject_email = new_email.strip().lower()     # before the re-invite: the email is built for the subject
+    moved = esign.reroute_party(db, req, party, email=new_email, by=by, kind="external",
+                                why="candidate email corrected in Hiring")
+    if not moved:
+        ev.subject_email = was
+        return False
+    ev.updated_at = _now()
+    _stage_note(db, ev, f"Hiring packet now goes to {ev.subject_email}", by=by)
+    return True
+
+
 def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], scope,
               lock: bool = False) -> dict:
     """Everything a hiring-packet send would do, without doing it - the
@@ -543,11 +617,11 @@ def _stage_note(db: Session, ev: HrLifeEvent, note: str, by: str = "") -> None:
                             created_at=_now()))
 
 
-def _notify(db: Session, to: str, title: str, body: str, ev: HrLifeEvent) -> None:
+def _notify(db: Session, to: str, title: str, body: str, ev: HrLifeEvent, priority: int = 0) -> None:
     from routers.hr import _hr_notify
     sub = "hr-hiring" if ev.kind == "hire" and not ev.employee_id else "hr-people"
     _hr_notify(db, to, title, body, ref_id=ev.id, requested_by="nexus-sign",
-               action={"view": "hr", "sub": sub})
+               action={"view": "hr", "sub": sub}, priority=priority)
 
 
 def on_progress(db: Session, req: HrSignRequest) -> None:
@@ -590,6 +664,27 @@ def on_voided(db: Session, req: HrSignRequest, actor: str = "") -> None:
     ev.status = "voided"
     ev.updated_at = _now()
     _stage_note(db, ev, f"Hiring packet voided by {actor or 'HR'}", by=actor)
+    if ev.kind == "separation" and ev.apply_status == "scheduled":
+        # Voiding the paperwork in Nexus Sign is not canceling the offboarding
+        # - the person is still leaving on the day. Say so, in case it was.
+        _notify(db, ev.created_by, f"Separation package voided - {ev.subject_name}",
+                f"The package was voided by {actor or 'HR'}, but the offboarding is still scheduled: "
+                f"{ev.subject_name} is marked Left after {us_date(ev.effective_date)}. If they are staying, "
+                f"use Cancel Offboarding on their profile; to send new paperwork, run Offboard again.", ev)
+
+
+def on_expired(db: Session, req: HrSignRequest) -> None:
+    """The envelope passed its date unsigned. The event follows it, and the
+    sender is told - an offer that quietly expired is a candidate nobody
+    calls back."""
+    ev = _for(db, req)
+    if not ev or ev.status not in ACTIVE:
+        return
+    ev.status = "expired"
+    ev.updated_at = _now()
+    _stage_note(db, ev, "Hiring packet expired unsigned")
+    _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} expired - {ev.subject_name}",
+            f"\"{req.title}\" passed its signing date without every signature. Send it again if it still stands.", ev)
 
 
 def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
@@ -600,6 +695,15 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
             .with_for_update().first())
     if not cand:
         ev.apply_note = "The candidate was deleted before the packet was signed - nobody was hired."
+        return
+    if cand.stage == "rejected":
+        # The pipeline refuses to reject a candidate while their packet is
+        # out (routers/hr.py), so this is a belt for a changed record: a
+        # signature must never hire someone HR closed. HR decides.
+        ev.apply_note = "Signed after the candidate was rejected - NOT hired. Reopen them and Mark Hired By Hand if the offer stands."
+        _notify(db, ev.created_by, f"{ev.subject_name} signed a packet after being rejected",
+                "The signed packet is in Nexus Sign, but they were not hired because the candidate is Rejected. "
+                "Reopen them and Mark Hired By Hand if the offer still stands.", ev, priority=1)
         return
     emp = (db.query(NexusEmployee).filter(NexusEmployee.id == cand.employee_id).first()
            if cand.employee_id else None)
@@ -650,9 +754,35 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     if ev.kind != "separation":           # a separation is applied by its last day, not the signature
         ev.applied_at = now
     ev.updated_at = now
+    ev.flags = [f for f in (ev.flags or []) if f.get("code") != APPLY_FAILED]
     ev.filing_status = "pending"
     ev.filing_next_at = now
     ev.filing_attempts = 0
+
+
+def retry_apply(db: Session, ev: HrLifeEvent) -> None:
+    """HR's Retry after safe() recorded a failure: the envelope is sealed,
+    the event is not - run the completion again, and this time let the
+    error reach the screen. Commits."""
+    req = (db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
+           if ev.sign_request_id else None)
+    if not req or req.status != "completed":
+        raise PacketError("Nothing to apply - the packet is not fully signed.", 409)
+    if ev.status == "completed":
+        raise PacketError("Already applied.", 409)
+    on_completed(db, req)
+    if ev.kind == "hire" and ev.employee_id and req.final_pdf_path:
+        # What _finalize does for an envelope that already knows its employee:
+        # the sealed packet on the profile's Documents tab. The first run
+        # never got there, because the employee did not exist yet.
+        from models import HrDocument
+        req.employee_id = req.employee_id or ev.employee_id
+        if not db.query(HrDocument).filter(HrDocument.employee_id == ev.employee_id,
+                                           HrDocument.storage_path == req.final_pdf_path).first():
+            db.add(HrDocument(id=str(uuid.uuid4()), employee_id=ev.employee_id, kind="contract",
+                              file_name=f"{req.title}.pdf", storage_path=req.final_pdf_path,
+                              size_bytes=0, uploaded_by="e-sign", created_at=req.completed_at or _now()))
+    db.commit()
 
 
 # ── Promotion / role change (Neil, Oct 8: 27:13 - 35:20) ─────────────────────
@@ -945,7 +1075,8 @@ SEPARATION_TYPES = {
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    """Today where the company works (BUSINESS_TZ), as YYYY-MM-DD."""
+    return datetime.now(ZoneInfo(BUSINESS_TZ)).strftime("%Y-%m-%d")
 
 
 def _separation_details(inputs: dict) -> dict:
@@ -1084,10 +1215,43 @@ def apply_separation_now(db: Session, ev: HrLifeEvent) -> dict:
     m = (out or {}).get("m365") or {}
     if m.get("error"):
         bits.append(f"M365: {m['error']}")
+    rerouted = _package_follows_the_leaver(db, ev, emp)
+    if rerouted:
+        bits.append(rerouted)
     ev.apply_note = "; ".join(bits)
     ev.updated_at = _now()
     db.commit()
     return out
+
+
+def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> str:
+    """The person is Left now - their Nexus login and work mailbox are gone.
+    A separation package that went to the WORK email (a future last day,
+    Neil's rule) and is still unsigned can no longer be signed there, so it
+    moves to their personal email as an external signer, the way an
+    immediate offboarding sends it in the first place. Returns the note for
+    the record ('' when there was nothing to move)."""
+    if not ev.sign_request_id or ev.status not in ACTIVE:
+        return ""
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
+    party = (db.query(HrSignParty)
+             .filter(HrSignParty.request_id == ev.sign_request_id,
+                     HrSignParty.email == (ev.subject_email or "").lower()).first())
+    if not req or not party or req.status != "pending" or party.kind != "internal" \
+            or party.status in ("signed", "declined"):
+        return ""
+    personal = (emp.personal_email or "").strip().lower()
+    if not personal:
+        _notify(db, ev.created_by, f"Separation package stuck - {ev.subject_name}",
+                f"{ev.subject_name} is Left and can no longer sign in, and the separation package is still "
+                f"unsigned. Add their personal email on People, then correct the recipient in Nexus Sign "
+                f"(or void the package).", ev, priority=1)
+        return "package still unsigned - no personal email to send it to"
+    from routers import esign
+    ev.subject_email = personal                      # before the re-invite: the email is built for the subject
+    esign.reroute_party(db, req, party, email=personal, by=ev.created_by, kind="external",
+                        why="work account closed on the last day")
+    return f"unsigned package re-sent to {personal}"
 
 
 def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, excluded_ack: bool,
@@ -1098,9 +1262,16 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
         raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
     busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
                                          HrLifeEvent.apply_status == "scheduled").first())
-    if busy:
+    if busy and busy.status in ACTIVE:
         raise PacketError("An offboarding is already scheduled for them - cancel it first.", 409)
     now = _now()
+    if busy:
+        # Scheduled, but its paperwork was declined, voided or expired: this
+        # send replaces it (same person, fresh package, new details) instead
+        # of forcing HR to cancel and re-enter everything.
+        busy.apply_status = "canceled"
+        busy.apply_note = f"Replaced by a new offboarding on {us_date(now)}"
+        busy.updated_at = now
     ev = HrLifeEvent(id=str(uuid.uuid4()), kind="separation", status="completed",
                      entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
                      subject_email=plan["to"] or "", setting_id=plan["setting"].id if plan["setting"] else "",
@@ -1133,8 +1304,8 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
     else:
         for to in {ev.created_by, (emp.manager_email or "").lower()} - {""}:
             _notify(db, to, f"Offboarding scheduled - {ev.subject_name}",
-                    f"{ev.subject_name}'s last day is {us_date(d['last_day'])}. Nexus marks them Left that day "
-                    f"(items, tasks, Microsoft 365) by itself.", ev)
+                    f"{ev.subject_name}'s last day is {us_date(d['last_day'])}. Nexus marks them Left the morning "
+                    f"after (items, tasks, Microsoft 365) by itself.", ev)
         db.commit()
     return ev, result
 
@@ -1154,7 +1325,10 @@ def cancel_separation(db: Session, ev: HrLifeEvent, actor: str) -> None:
 
 
 def apply_due_separations(limit: int = 20) -> int:
-    """The last day has come: mark them Left (point 5, Pranshu Oct 8)."""
+    """The last day is over: mark them Left (point 5, Pranshu Oct 8). Runs
+    the morning AFTER the last day in BUSINESS_TZ - the person works their
+    last day with their email and Nexus intact; cutting them off at midnight
+    UTC would be mid-afternoon the day before in California."""
     from database import SessionLocal
     db = SessionLocal()
     n = 0
@@ -1162,7 +1336,7 @@ def apply_due_separations(limit: int = 20) -> int:
         today = _today()
         ids = [r.id for r in db.query(HrLifeEvent).filter(HrLifeEvent.kind == "separation",
                                                            HrLifeEvent.apply_status == "scheduled",
-                                                           HrLifeEvent.effective_date <= today)
+                                                           HrLifeEvent.effective_date < today)
                .limit(limit).all()]
         for eid in ids:
             ev = (db.query(HrLifeEvent).filter(HrLifeEvent.id == eid, HrLifeEvent.apply_status == "scheduled")

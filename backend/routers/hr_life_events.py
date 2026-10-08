@@ -300,6 +300,27 @@ def retry_filing(eid: str, user: dict = Depends(require_hr_write), db: Session =
     return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
 
 
+@router.post("/life-events/{eid}/retry-apply")
+def retry_apply(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """The packet is fully signed but Nexus could not apply it (safe() flagged
+    `apply_failed`): run the completion again, and show the error if it
+    still fails."""
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).with_for_update().first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    try:
+        hle.retry_apply(db, ev)
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Still failing: {type(e).__name__}: {str(e)[:300]}")
+    db.refresh(ev)
+    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+
+
 @router.post("/life-events/{eid}/void")
 def void_event(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()

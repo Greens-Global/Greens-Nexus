@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
-import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents } from '../components/HiringPacket';
+import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
 import { PromoteModal, OffboardModal } from '../components/HrPersonActions';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
@@ -1871,7 +1871,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
-            : `Offboarding scheduled for ${ev.effectiveDate} - Nexus marks them Left that day.`);
+            : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
           if (ev.senderPartyId) setSignParty(ev.senderPartyId);
         }} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
