@@ -49,7 +49,9 @@ describe('PacketsModal', () => {
     render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
     await waitFor(() => expect(screen.getByText('Hiring Packet')).toBeTruthy());
     expect(screen.getByText('Promotion Letter')).toBeTruthy();
-    expect(screen.getAllByText(/No default hiring packet yet|No default promotion letter yet/)).toHaveLength(2);
+    expect(screen.getByText('No hiring packet for Every company yet')).toBeTruthy();
+    fireEvent.click(screen.getByText('Promotion Letter'));
+    expect(screen.getByText('No promotion letter for Every company yet')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Add Packet')[0]);
     expect(screen.getByText('For Which Role')).toBeTruthy();
     expect(screen.getByText('Packet Name')).toBeTruthy();

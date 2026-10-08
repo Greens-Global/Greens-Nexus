@@ -128,36 +128,52 @@ export function PacketSigner({ partyId, onClose, onDone, toastOk, toastErr }) {
 }
 
 // ── Hiring > Packets ─────────────────────────────────────────────────────────
-// One packet = one card: who it is for (job roles), its documents, its signers,
-// the welcome note and the Egnyte subfolder. Edited whole in PacketEditor.
-function PacketCard({ row, onEdit, onRemoved, toastErr }) {
+// One event at a time, one table: each row is a packet - the role it is for,
+// its documents, its signers, where it is filed. Edited whole in PacketEditor.
+const TH = { fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '8px 12px', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+const TD = { fontSize: 12.5, padding: '11px 12px', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
+const IconBtn = ({ title, onClick, disabled, danger, children }) => (
+  <button type="button" title={title} aria-label={title} onClick={onClick} disabled={disabled}
+    style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: disabled ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: danger ? 'hsl(var(--color-red))' : 'var(--ink)', opacity: disabled ? 0.5 : 1 }}>
+    {children}
+  </button>
+);
+
+function PacketRow({ row, onEdit, onRemoved, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [mail, setMail] = useState(null);
+  const docs = [...(row.documents || []), ...(row.hasLetter ? ['Typed letter'] : [])];
   async function remove() {
-    if (!await dialog.confirm(`Remove "${row.templateName}"? ${row.roleNames?.length ? `${describeRoles(row.roleNames)} will use the every-role packet instead.` : 'Roles without a packet of their own cannot be sent one until a new every-role packet is saved.'} Packets already sent are not affected.`, { title: 'Remove Packet', confirmText: 'Remove' })) return;
+    const after = row.roleNames?.length ? `${describeRoles(row.roleNames)} will use the Every role packet instead.` : 'Roles without a packet of their own cannot be sent one until a new Every role packet is saved.';
+    if (!await dialog.confirm(`Remove "${row.templateName}"? ${after} Packets already sent are not affected.`, { title: 'Remove Packet', confirmText: 'Remove' })) return;
     setBusy(true);
     try { await api.deletePacket(row.id); onRemoved(row); }
     catch (e) { toastErr(e?.message || 'Could not remove it.'); setBusy(false); }
   }
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 800 }}>{row.templateName || 'Unnamed packet'}</div>
-          <div style={{ fontSize: 12, marginTop: 3 }}><b>For:</b> {describeRoles(row.roleNames)}{row.workerType && row.workerType !== 'any' ? ` (${WORKER_LABEL[row.workerType]})` : ''}</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-            {(row.documents || []).length ? row.documents.join(', ') : ''}{row.hasLetter ? `${(row.documents || []).length ? ' + ' : ''}typed letter` : ''}
-            {' · signs: '}{(row.signers || []).join(' → ') || '-'}
-            {' · filed in '}{row.effectiveSubfolder || row.egnyteSubfolder || 'Hiring Documents'}
-          </div>
-        </div>
-        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setMail({ event: row.event, entityId: row.entityId, templateId: row.templateId, note: row.emailMessage })}>Preview Email</button>
-        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={onEdit}>Edit</button>
-        <button type="button" className="secondary-btn" onClick={remove} disabled={busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
-      </div>
-      {(row.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
+    <>
+      <tr>
+        <td style={TD}>
+          <div style={{ fontWeight: 700 }}>{row.templateName || 'Unnamed packet'}</div>
+          {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
+        </td>
+        <td style={TD}>
+          <StatusChip label={describeRoles(row.roleNames)} tone={row.roleNames?.length ? 'green' : 'gray'} />
+          {row.workerType && row.workerType !== 'any' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{WORKER_LABEL[row.workerType]}</div>}
+        </td>
+        <td style={TD}>{docs.length ? docs.map(d => <div key={d}>{d}</div>) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+        <td style={TD}>{(row.signers || []).map((x, i) => <div key={i}>{i + 1}. {x}</div>)}</td>
+        <td style={{ ...TD, color: 'var(--muted)' }}>{row.effectiveSubfolder || row.egnyteSubfolder || '-'}</td>
+        <td style={{ ...TD, whiteSpace: 'nowrap', textAlign: 'right' }}>
+          <span style={{ display: 'inline-flex', gap: 6 }}>
+            <IconBtn title="Preview Email" onClick={() => setMail({ event: row.event, entityId: row.entityId, templateId: row.templateId, note: row.emailMessage })}><Send size={13} /></IconBtn>
+            <IconBtn title="Edit" onClick={onEdit}><FileSignature size={13} /></IconBtn>
+            <IconBtn title="Remove" onClick={remove} disabled={busy} danger><Trash2 size={13} /></IconBtn>
+          </span>
+        </td>
+      </tr>
       {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
-    </div>
+    </>
   );
 }
 
@@ -165,61 +181,90 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
   const [companyId, setCompanyId] = useState('');
+  const [tab, setTab] = useState('hire');
   const [editing, setEditing] = useState(null);     // { event, row | null }
   const load = () => api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
-  const rowsFor = (ev) => (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === ev.key)
-    .sort((a, b) => (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || ''));
-  const inherited = (ev) => companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
+  const ev = events.find(e => e.key === tab) || events[0];
+  const rows = ev ? (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === ev.key)
+    .sort((a, b) => (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || '')) : [];
+  const inherited = ev && companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
+  const hasGeneral = rows.some(r => !(r.roleIds || []).length);
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
+  const countFor = (key) => (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === key).length;
 
   return (
     <Overlay onClose={onClose} wide>
-      <Head title="Packets" sub="What each company sends through Nexus Sign - a packet per job role, or one packet for every role" onClose={onClose} />
+      <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 15.5 }}>Packets</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
+        </div>
+        <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+          <option value="">Default (Every Company)</option>
+          {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+      </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
-            <label style={{ ...lbl, marginTop: 0 }}>Company</label>
-            <select className="form-input" style={{ width: '100%', maxWidth: 360 }} value={companyId} onChange={e => setCompanyId(e.target.value)}>
-              <option value="">Default (Every Company)</option>
-              {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-            <div style={hint}>A company without its own packet uses the default. Within a company, a role with its own packet gets that one; every other role gets the "Every role" packet.</div>
-            {events.map(ev => {
-              const rows = rowsFor(ev);
-              const inh = inherited(ev);
-              const hasGeneral = rows.some(r => !(r.roleIds || []).length);
-              return (
-                <div key={ev.key} style={{ marginTop: 18 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <FileSignature size={15} style={{ color: 'var(--muted)' }} />
-                    <b style={{ fontSize: 14 }}>{ev.label}</b>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>- {company}</span>
-                    <span style={{ flex: 1 }} />
-                    <button type="button" className="secondary-btn" onClick={() => setEditing({ event: ev, row: null })}
-                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Plus size={12} /> {hasGeneral ? 'Add Packet For A Role' : 'Add Packet'}
-                    </button>
-                  </div>
-                  {rows.length === 0 && (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
-                      {inh.length ? `Uses the default: ${inh.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet here to give ${company} its own.`
-                        : companyId ? `No packet yet - ${company} cannot send a ${ev.label.toLowerCase()} until one is added here or as the default.`
-                          : `No default ${ev.label.toLowerCase()} yet. Click Add Packet, upload your PDF, place the signature boxes and an Offer Field for the salary, and save.`}
-                    </div>
-                  )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3 }}>
+                {events.map(e => (
+                  <button key={e.key} type="button" onClick={() => setTab(e.key)}
+                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                      background: ev?.key === e.key ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: ev?.key === e.key ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
+                    {e.label}{countFor(e.key) ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{countFor(e.key)}</span> : null}
+                  </button>
+                ))}
+              </div>
+              <span style={{ flex: 1 }} />
+              {ev && (
+                <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })}
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Plus size={13} /> Add Packet
+                </button>
+              )}
+            </div>
+            {ev && rows.length === 0 && (
+              <div style={{ textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 12, padding: '36px 20px' }}>
+                <FileSignature size={26} style={{ color: 'var(--muted)' }} />
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8 }}>No {ev.label.toLowerCase()} for {company} yet</div>
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, maxWidth: 520, margin: '4px auto 0', lineHeight: 1.5 }}>
+                  {inherited.length
+                    ? `${company} uses the default: ${inherited.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet to give it its own.`
+                    : companyId ? `${company} cannot send one until a packet is added here or as the default.`
+                      : 'Add a packet: upload the PDF, place the signature boxes and an Offer Field for the salary, and save.'}
+                </div>
+                <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })} style={{ fontSize: 12.5, marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Plus size={13} /> Add Packet
+                </button>
+              </div>
+            )}
+            {ev && rows.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={TH}>Packet</th><th style={TH}>For Role</th><th style={TH}>Documents</th><th style={TH}>Signs</th><th style={TH}>Filed In</th><th style={TH} />
+                  </tr>
+                </thead>
+                <tbody>
                   {rows.map(r => (
-                    <PacketCard key={r.id} row={r} toastErr={toastErr} onEdit={() => setEditing({ event: ev, row: r })}
+                    <PacketRow key={r.id} row={r} toastErr={toastErr} onEdit={() => setEditing({ event: ev, row: r })}
                       onRemoved={() => { load(); toastOk('Packet removed.'); }} />
                   ))}
-                  {rows.length > 0 && !hasGeneral && (
-                    <div style={hint}>Only some roles have a packet. Roles without one {inh.length ? 'use the default' : `cannot be sent a ${ev.label.toLowerCase()}`} - add a packet for Every role to cover the rest.</div>
-                  )}
-                </div>
-              );
-            })}
+                </tbody>
+              </table>
+            )}
+            {ev && rows.length > 0 && (
+              <div style={hint}>
+                A role with its own packet gets that one; every other role gets the Every role packet{companyId ? ', or the default when this company has none' : ''}.
+                {!hasGeneral && ` Only some roles are covered here - add a packet for Every role to cover the rest.`}
+              </div>
+            )}
           </>
         )}
       </div>
