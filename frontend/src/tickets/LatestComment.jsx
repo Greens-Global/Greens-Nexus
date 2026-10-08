@@ -6,6 +6,7 @@
 // its Conversation tab.
 import { Lock, MessageSquare } from 'lucide-react';
 import { NX, FONT } from '../tasks/theme';
+import { Avatar } from '../tasks/components';
 import { formatDate, formatDateTime } from '../lib/datetime';
 
 // The backend stamps times without a zone - they are UTC.
@@ -35,14 +36,40 @@ export function latestCommentText(c, nameOf) {
   return `${who}${when ? ` (${when})` : ''}${who || when ? ': ' : ''}${c.preview || ''}${c.internal ? ' [Internal]' : ''}`;
 }
 
-/** The cell itself. `compact` is the two-line version the phone card uses. */
-export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false }) {
+/** The cell itself. `compact` is the two-line version the phone card uses.
+ *  `stacked` is the Support list's cell (Neil, 10/08): the author's picture
+ *  instead of their name, then the comment wrapping onto two lines, the age
+ *  underneath - the name is still in the tooltip and the aria label. */
+export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false, stacked = false }) {
   if (!comment) {
     return <span style={{ fontSize: 12, color: NX.faint }}>{compact ? '' : 'No comments yet'}</span>;
   }
   const who = comment.authorId ? (nameOf?.(comment.authorId) || comment.authorId) : 'Someone';
   const when = commentAgo(comment.createdAt);
   const full = `${who}${comment.internal ? ' (internal note)' : ''} - ${formatDateTime(asUtc(comment.createdAt))}\n${comment.preview || ''}`;
+  if (stacked) {
+    return (
+      <button type="button" className="nx-latest-comment" title={full}
+        aria-label={`Latest comment by ${who}, ${when}. Open the conversation`}
+        onClick={(e) => { e.stopPropagation(); onOpen?.(); }}
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', minWidth: 0, padding: '4px 6px',
+          margin: '0 -6px', border: 'none', borderRadius: 6, cursor: 'pointer', textAlign: 'left',
+          fontFamily: FONT, color: NX.ink, background: 'transparent',
+        }}>
+        <span style={{ position: 'relative', flexShrink: 0, marginTop: 1 }}>
+          <Avatar email={comment.authorId} name={who} size={24} />
+          {comment.internal && (
+            <Lock size={10} aria-label="Internal note" style={{ position: 'absolute', right: -4, bottom: -3, color: NX.amber, background: NX.surface, borderRadius: '50%', padding: 1 }} />
+          )}
+        </span>
+        <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <span className="nx-clamp-2" style={{ fontSize: 12.5, lineHeight: 1.35, color: NX.ink, overflowWrap: 'anywhere' }}>{comment.preview}</span>
+          {when && <span style={{ fontSize: 11, color: NX.faint }}>{when}</span>}
+        </span>
+      </button>
+    );
+  }
   return (
     <button type="button" className="nx-latest-comment" title={full}
       aria-label={`Latest comment by ${who}, ${when}. Open the conversation`}

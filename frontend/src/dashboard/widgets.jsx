@@ -4,7 +4,8 @@ import { useMsal } from '@azure/msal-react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
-  ClipboardList, HandCoins, CalendarDays, Timer, Megaphone, Sun, Briefcase, Hourglass,
+  Ticket,
+  ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer, Megaphone, Sun, Briefcase, Hourglass,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
@@ -611,12 +612,14 @@ function PersonalLinksWidget() {
 // screen the way this widget always has. Order here is the display order.
 // A tile's config (`actions`: array of keys, picked in the gallery / pencil
 // checklist - Sep 24, configurable like the KPI tile) chooses which ones it
-// shows; tiles saved before that carry no config and keep the original six
-// (DEFAULT_QUICK_ACTIONS), so nothing already placed changes.
+// shows; tiles saved before that carry no config and show the default set
+// (DEFAULT_QUICK_ACTIONS).
 export const QUICK_ACTIONS = [
   { key: 'task',          label: 'New Task',          act: 'task',          color: 'blue',   Icon: CheckSquare },
   { key: 'event',         label: 'New Event',         act: 'event',         color: 'purple', Icon: CalendarPlus },
   { key: 'email',         label: 'New Email',         act: 'email',         color: 'brand',  Icon: Mail },
+  // The Ticket module's own create form, in place (Neil, 10/08: "Add + Ticket").
+  { key: 'ticket',        label: 'New Ticket',        act: 'ticket',        color: 'red',    Icon: Ticket },
   { key: 'personal-link', label: 'Add Personal Link', act: 'personal-link', color: 'purple', Icon: Link2 },
   { key: 'request-item',  label: 'Request an Item',   view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
   { key: 'time-off',      label: 'Request Time Off',  view: 'timeclock', sub: 'timeoff',   color: 'orange', Icon: CalendarClock },
@@ -626,7 +629,9 @@ export const QUICK_ACTIONS = [
   { key: 'timeclock',     label: 'Time Clock',        view: 'timeclock',    color: 'green',  Icon: Clock },
   { key: 'kb',            label: 'Knowledge Base',    view: 'sop',          color: 'brand',  Icon: BookOpen },
 ];
-export const DEFAULT_QUICK_ACTIONS = ['task', 'event', 'email', 'request-item', 'timeclock', 'kb'];
+// Time Clock and Knowledge Base left the default set for New Ticket (Neil,
+// 10/08); both stay in the catalog for a tile that picks them.
+export const DEFAULT_QUICK_ACTIONS = ['task', 'event', 'email', 'request-item', 'ticket'];
 export function resolveQuickActions(config) {
   const keys = Array.isArray(config?.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS;
   const picked = new Set(keys);
