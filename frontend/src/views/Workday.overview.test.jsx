@@ -27,7 +27,7 @@ const SLOW = 20000;
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
-  try { localStorage.removeItem('nx-wd-hours-view'); } catch { /* ignore */ }
+  try { localStorage.removeItem('nx-wd-hours-view'); localStorage.removeItem('nexus.timeExempt.'); } catch { /* ignore */ }
   globalThis.__answers = {
     timeStatus: { allowed: ['in'], days: {}, lastPunch: null },
     myHrProfile: PROFILE,
@@ -160,5 +160,32 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText('Time Tracking Is Off for You')).toBeNull();
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
     expect(screen.queryByRole('tab', { name: /Time Sheet/ })).toBeNull();
+    // The answer is remembered for the next visit (per person - the role
+    // mock has no email, so the key is the bare prefix).
+    expect(localStorage.getItem('nexus.timeExempt.')).toBe('1');
+  }, SLOW);
+
+  it('shows a remembered-exempt person no clock skeleton or Hours tile while the status is still loading', async () => {
+    // Neil, 10/08: swapping Dashboard > Workday as a salaried person showed
+    // the time section loading, then took it away. Nothing answers here, so
+    // only the memory can decide - and it does.
+    localStorage.setItem('nexus.timeExempt.', '1');
+    globalThis.__answers.timeStatus = new Promise(() => {});
+    globalThis.__answers.timeMy = new Promise(() => {});
+    await renderWorkday('overview');
+    await screen.findByText('Amy Test');
+    expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
+    expect(screen.queryByText('Hours · This Week')).toBeNull();
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off']);
+    expect(screen.getByText('Time Off This Year')).toBeTruthy();   // the rest of Overview is there
+  }, SLOW);
+
+  it('holds the clock with a skeleton while the status loads for a tracked person', async () => {
+    localStorage.setItem('nexus.timeExempt.', '0');
+    globalThis.__answers.timeStatus = new Promise(() => {});
+    await renderWorkday('overview');
+    await screen.findByText('Amy Test');
+    expect(screen.getByRole('region', { name: 'Time Clock' })).toBeTruthy();
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toContain('Time Sheet');
   }, SLOW);
 });

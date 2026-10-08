@@ -378,6 +378,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const clockParts = typeof clock === 'function' ? clock(profile?.firstName || '') : null;
   // undefined = no clock handed in (no shift data at all); null = loading.
   const shiftInfo = clockParts ? clockParts.shift : undefined;
+  // Time-tracking exempt: Workday hands in what it already knows (the
+  // remembered answer, then /time/status), so the Hours tile never shows for
+  // a salaried person while /time/me is still on its way (Neil, 10/08).
+  const hoursExempt = clockParts?.exempt ?? !!sheet?.timeTrackingExempt;
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
@@ -399,7 +403,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
             {/* Hours this week beside today's shift - the two things someone
                 opening Workday wants first (Oct 2). Exempt people have no hours
                 tile, so their shift gets a tile of its own. */}
-            {!sheet?.timeTrackingExempt ? (
+            {!hoursExempt ? (
               /* Two targets in one tile (Oct 2): the hours open the Time
                  Sheet, today's shift opens Shifts > My Shifts. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>

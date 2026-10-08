@@ -8,6 +8,8 @@ import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
 import { Spinner } from './AsyncState';
+import { useRole } from '../contexts/RoleContext';
+import { rememberTimeExempt } from '../lib/timeTracking';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -52,6 +54,14 @@ const fmtHMS = (sec) => {
 
 export default function TimeclockWidget() {
   const [status, setStatus] = useState(null);
+  // `|| {}`: null outside RoleProvider (render tests).
+  const { myEmail = '' } = useRole() || {};
+  // This widget is mounted app-wide and asks /time/status first, so it is the
+  // one that usually teaches the browser whether this person is time-tracking
+  // exempt - Workday then opens without a clock skeleton (Neil, 10/08).
+  useEffect(() => {
+    if (status && typeof status.timeTrackingExempt === 'boolean') rememberTimeExempt(myEmail, status.timeTrackingExempt);
+  }, [status, myEmail]);
   const [capturing, setCapturing] = useState(0);   // number of screens being captured
   const [busy, setBusy] = useState(false);
   const [eodOpen, setEodOpen] = useState(false);   // end-of-day message after punch-out
