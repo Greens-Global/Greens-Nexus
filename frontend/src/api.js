@@ -2047,6 +2047,20 @@ export const api = {
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
+  //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
+  //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
+  //    timeStatus / timeMy / timeMySchedule / timesheetReviewWaiting. ──
+  getMyWork:            ()         => req(`/me/work?tz_offset_min=${new Date().getTimezoneOffset()}`),
+  getMyTeamToday:       ()         => req(`/me/team/today?tz_offset_min=${new Date().getTimezoneOffset()}`),
+  getMyTeamOverdue:     ()         => req('/me/team/overdue'),
+  getAnnouncements:     ()         => req('/announcements'),
+  createAnnouncement:   (body)     => req('/announcements', { method: 'POST', body: JSON.stringify(body) }),
+  updateAnnouncement:   (id, body) => req(`/announcements/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteAnnouncement:   (id)       => req(`/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  markAnnouncementRead: (id)       => req(`/announcements/${encodeURIComponent(id)}/read`, { method: 'POST', body: '{}' }),
+  ackAnnouncement:      (id)       => req(`/announcements/${encodeURIComponent(id)}/ack`, { method: 'POST', body: '{}' }),
+  getAnnouncementReads: (id)       => req(`/announcements/${encodeURIComponent(id)}/reads`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

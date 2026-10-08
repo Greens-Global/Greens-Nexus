@@ -12,9 +12,9 @@ import ModuleTabs from '../components/ModuleTabs';
 const ExternalLinks = lazy(() => import('./ExternalLinks'));
 
 // The dashboard IS the customizable widget grid now. The old "Portfolio at a
-// glance" overview lives on as widgets: Occupancy trend, Facilities and Tasks
-// overview are in the Add-widget gallery (Portfolio section) - see
-// dashboard/panels.jsx.
+// glance" overview (Occupancy trend, Facilities, Tasks overview) ran on sample
+// data and was removed from the gallery on Oct 7 - the real panels live in
+// dashboard/panels.jsx, the Essentials tiles in dashboard/essentials/.
 //
 // Manager Dashboard USED to be a second tab here, backed by a second, fully
 // separate <CustomDashboard target="manager-dashboard"> board (Aug 31). Neil,

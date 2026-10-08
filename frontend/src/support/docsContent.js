@@ -162,7 +162,7 @@ export const DOCS = [
       { name: 'View Picker', desc: 'Switch between Home, your own saved views and department views.' },
       { name: 'Customize', desc: 'Edit mode: Add Widget, drag to arrange, resize, Auto-fit, Save and Done.' },
       { name: '"..." View Menu', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
-      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat, KPI Bar Chart), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar), Utility (Clock, Notes), plus Team and Portfolio widgets.' },
+      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat, KPI Bar Chart), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
       { name: 'Links Tab', desc: 'Every company and personal web link. Search, filter by category, department or company, pin, favorite, sort into folders, and switch between tile and list view.' },
       { name: 'Personal Links', desc: 'A link you add is visible only to you. Company-wide links are managed by admins through Manage Links.' },
     ],
