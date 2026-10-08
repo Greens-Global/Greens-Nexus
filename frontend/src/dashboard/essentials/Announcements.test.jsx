@@ -95,6 +95,12 @@ describe('Announcements tile', () => {
     await screen.findByText('Policy update');
     expect(screen.getAllByText('Acknowledge')).toHaveLength(1);
     expect(screen.getAllByText('Acknowledged')).toHaveLength(1);
+    // The refetch after the ack lands returns the server's view: acknowledged, with counts moved.
+    apiMock.getAnnouncements.mockResolvedValue([
+      ann({ id: 'need', title: 'Policy update', requires_ack: true, read_at: 'y', acknowledged_at: '2026-10-08T16:00:00+00:00', read_count: 1, ack_count: 1 }),
+      ann({ id: 'done', title: 'Already done', requires_ack: true, read_at: 'x', acknowledged_at: '2026-10-07T16:00:00+00:00' }),
+      ann({ id: 'plain', title: 'Plain note' }),
+    ]);
     fireEvent.click(screen.getByText('Acknowledge'));
     expect(apiMock.ackAnnouncement).toHaveBeenCalledWith('need');
     expect(apiMock.markAnnouncementRead).not.toHaveBeenCalled();   // the ack button does not toggle the row

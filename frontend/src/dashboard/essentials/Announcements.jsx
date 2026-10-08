@@ -80,14 +80,15 @@ export default function Announcements() {
     if (!a.read_at) {
       const now = new Date().toISOString();
       patchItem(a.id, { read_at: now });
-      api.markAnnouncementRead(a.id).catch(() => {});
+      // Refetch after the mark lands so an administrator's read counts move too.
+      api.markAnnouncementRead(a.id).then(() => load()).catch(() => {});
     }
   };
 
   const ack = (a) => {
     const now = new Date().toISOString();
     patchItem(a.id, { acknowledged_at: now, read_at: a.read_at || now });
-    api.ackAnnouncement(a.id).catch(() => { patchItem(a.id, { acknowledged_at: '' }); });
+    api.ackAnnouncement(a.id).then(() => load()).catch(() => { patchItem(a.id, { acknowledged_at: '' }); });
   };
 
   const remove = async (a) => {
