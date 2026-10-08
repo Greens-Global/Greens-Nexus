@@ -723,10 +723,7 @@ export const DOCS = [
         'Signed documents are filed to Egnyte automatically.',
       ],
     },
-    tips: [
-      'Signers outside the company do not need a Nexus account. The emailed link is enough.',
-      'When you sign while signed in to Nexus, the verification code can be delivered inside Nexus (your bell, and a pop-up on the signing screen) - pick Nexus Notification, or Email it instead if you prefer.',
-    ],
+    tips: ['Signers outside the company do not need a Nexus account. The emailed link is enough.'],
   },
 
   // ───────────────────────────── Modules ─────────────────────────────

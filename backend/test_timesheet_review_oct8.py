@@ -1,5 +1,5 @@
 """
-Neil, 10/08 - two timesheet-signing fixes, on top of test_timesheet_review's
+Neil, 10/08 - a timesheet-signing fix, on top of test_timesheet_review's
 real-engine fixture (same throwaway database):
 
   * A punch fix the employee asked for, approved while the agreed timesheet is
@@ -7,20 +7,16 @@ real-engine fixture (same throwaway database):
     the manager for another round) instead of refusing the approver with
     "decline it in Nexus Sign". A rejection changes no hours and never touches
     the envelope.
-  * A signer who is signed in to Nexus can take the one-time code INSIDE Nexus
-    (bell + toast), listed before email; an emailed-link signer never sees it.
 
     python -m unittest test_timesheet_review_oct8
 """
-import os
 import unittest
 
 from test_timesheet_review import ReviewCase, EMP, MGR, _tmp_db  # noqa: F401  (sets DATABASE_URL first)
 
-import auth  # noqa: E402
 import models  # noqa: E402
 import timesheet_review as tsr  # noqa: E402
-from routers import esign, timeclock  # noqa: E402
+from routers import timeclock  # noqa: E402
 
 
 class Oct8FixTests(ReviewCase):
@@ -61,39 +57,6 @@ class Oct8FixTests(ReviewCase):
         self.db.expire_all()
         self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "pending")
         self.assertEqual(self._r().status, "signing")
-
-    def test_a_signed_in_signer_can_take_the_code_in_nexus(self):
-        r = self._to_signing()
-        p = self._parties(r.sign_request_id)["employee"]
-        auth.SKIP_AUTH, os.environ["NEXUS_DEV_EMAIL"] = True, EMP
-        self.db.query(models.NexusNotification).delete()
-        self.db.commit()
-        try:
-            c = self.client
-            me = c.get(f"/esign/mine/{p.id}")
-            self.assertEqual(me.status_code, 200, me.text)
-            self.assertEqual(c.post(f"/esign/mine/{p.id}/consent", json={"agreed": True}).status_code, 200)
-            chans = [x["channel"] for x in c.get(f"/esign/mine/{p.id}").json()["otpChannels"]]
-            self.assertEqual(chans, ["nexus", "email"])          # in-Nexus first, email still there
-            # The emailed link (a public signer) never sees the in-Nexus channel.
-            pub = [x["channel"] for x in c.get(f"/esign/public/{p.token}").json()["otpChannels"]]
-            self.assertEqual(pub, ["email"])
-            self.assertEqual(c.post(f"/esign/public/{p.token}/otp/request", json={"channel": "nexus"}).status_code, 400)
-            out = c.post(f"/esign/mine/{p.id}/otp/request", json={"channel": "nexus"})
-            self.assertEqual(out.status_code, 200, out.text)
-            self.assertEqual(out.json()["channel"], "nexus")
-            self.db.expire_all()
-            notes = (self.db.query(models.NexusNotification)
-                     .filter(models.NexusNotification.recipient == EMP).all())
-            self.assertEqual(len(notes), 1)
-            code = notes[0].title.rsplit(" ", 1)[1]
-            self.assertRegex(code, r"^\d{6}$")
-            self.assertNotIn(EMP, self.codes)                   # nothing was emailed
-            v = c.post(f"/esign/mine/{p.id}/otp/verify", json={"code": code})
-            self.assertEqual(v.status_code, 200, v.text)
-            self.assertEqual(esign.sign_otp.summary_for_certificate(self.db, p)["channel"], "nexus")
-        finally:
-            os.environ.pop("NEXUS_DEV_EMAIL", None)
 
 
 if __name__ == "__main__":

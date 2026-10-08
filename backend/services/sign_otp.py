@@ -90,25 +90,12 @@ def mask_phone(phone: str) -> str:
     return "•••• " + digits[-4:] if len(digits) >= 4 else "••••"
 
 
-NEXUS_CHANNEL_LABEL = "your Nexus notifications (the bell, and a pop-up on this screen)"
-
-
-def channels_for(party, *, signed_in: bool = False) -> list[dict]:
+def channels_for(party) -> list[dict]:
     """What this signer may choose between. Email is always present - it is the
     address the envelope was sent to. SMS appears only when the SENDER supplied
     a number: Nexus never looks one up, because a guessed number would deliver
-    a signing credential to a stranger.
-
-    `signed_in` (the /mine/ routes only): the signer is in Nexus under their
-    own Microsoft Entra session, so the code can be delivered INSIDE Nexus -
-    their bell and a toast - listed first. Oct 8: a manager signing a
-    timesheet never received the emailed code (mail delay, a rule, Junk) and
-    was stuck; the signed-in account is the same identity the mailbox proves,
-    and it cannot be lost on the way. Never offered to a public (emailed-link)
-    signer, who has no Nexus session to deliver into."""
+    a signing credential to a stranger."""
     out = []
-    if signed_in and (party.email or "").strip():
-        out.append({"channel": "nexus", "masked": NEXUS_CHANNEL_LABEL})
     if (party.email or "").strip():
         out.append({"channel": "email", "masked": mask_email(party.email)})
     if sentdm.normalize_phone(party.phone or ""):
@@ -286,23 +273,12 @@ def _send_sms(phone: str, code: str) -> str:
 
 # ── challenge lifecycle ──────────────────────────────────────────────────────
 
-def _send_nexus(db: Session, to_email: str, code: str, title: str) -> str:
-    """The code as a bell notification to the signed-in signer. Nothing can
-    fail to deliver here: the row is written in the same transaction as the
-    challenge, and the bell / toast pick it up live."""
-    from routers.hr import _hr_notify
-    _hr_notify(db, to_email, f"Your Nexus Sign code: {code}",
-               f"Your verification code for \"{title}\" is {code}. It expires in 10 minutes. "
-               "Never share it - Nexus will never ask you for it.")
-    return ""
-
-
-def request_code(db: Session, req, party, channel: str, *, signed_in: bool = False) -> dict:
+def request_code(db: Session, req, party, channel: str) -> dict:
     """Mint and send a code. Raises rather than persisting anything when the
     send fails - a challenge nobody could receive is a lockout waiting to
     happen. Returns {channel, masked, expiresIn, devCode?}."""
     channel = (channel or "email").strip().lower()
-    allowed = {c["channel"]: c for c in channels_for(party, signed_in=signed_in)}
+    allowed = {c["channel"]: c for c in channels_for(party)}
     if channel not in allowed:
         raise HTTPException(400, "That verification method isn't available for this signer.")
 
@@ -319,14 +295,10 @@ def request_code(db: Session, req, party, channel: str, *, signed_in: bool = Fal
 
     cid = str(uuid.uuid4())
     code = _gen_code()
-    target = (party.email or "") if channel in ("email", "nexus") else sentdm.normalize_phone(party.phone or "")
+    target = (party.email or "") if channel == "email" else sentdm.normalize_phone(party.phone or "")
     sender_name = (req.created_by or "").split("@")[0].replace(".", " ").title()
-    if channel == "nexus":
-        dev = _send_nexus(db, target, code, req.title or "your document")
-    elif channel == "email":
-        dev = _send_email(target, code, req.title or "your document", sender_name)
-    else:
-        dev = _send_sms(target, code)
+    dev = (_send_email(target, code, req.title or "your document", sender_name)
+           if channel == "email" else _send_sms(target, code))
 
     # Any earlier unspent challenge for this party is void the moment a new one
     # is sent - otherwise a signer who requested three codes could sign with
@@ -401,7 +373,7 @@ def summary_for_certificate(db: Session, party) -> dict:
         return {}
     return {
         "channel": row.channel or "",
-        "target": mask_email(row.target) if row.channel in ("email", "nexus") else mask_phone(row.target),
+        "target": mask_email(row.target) if row.channel == "email" else mask_phone(row.target),
         "verified_at": row.consumed_at or "",
         "attempts": int(row.attempts or 0),
     }

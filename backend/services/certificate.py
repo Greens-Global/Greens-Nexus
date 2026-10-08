@@ -378,10 +378,7 @@ _AUTH_LABELS = {
                                       "out-of-band access code + one-time code"),
 }
 
-_OTP_CHANNEL_LABELS = {"email": "email", "sms": "text",
-                       # Delivered inside Nexus to the signer's own signed-in
-                       # (Microsoft Entra ID) account - internal signers only.
-                       "nexus": "Nexus notification to the signed-in account"}
+_OTP_CHANNEL_LABELS = {"email": "email", "sms": "text"}
 
 
 def _auth_method(p) -> str:
