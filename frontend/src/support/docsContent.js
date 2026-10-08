@@ -1119,6 +1119,18 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Offboard Someone',
+        steps: [
+          "Set up the separation package once: build it in Documents > Nexus Sign > Templates (your company role first, the employee last), then pick it in People > Hiring > Packets under Separation Package.",
+          'Open the person in People and click Offboard.',
+          'Enter their last day and why they are leaving. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist.',
+          'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email and Nexus marks them Left on that day by itself.',
+          'Tick the confirmation and click Offboard Now (or Schedule Offboarding). You sign the package first; they sign last. Untick the package to offboard without documents.',
+          'Leaving does what changing their status to Left always did: items returned, tasks handed over, Microsoft 365 sign-in blocked and sessions ended. The signed package is filed in their Egnyte folder under Separation Documents.',
+          'A scheduled offboarding shows on their profile until the day - Cancel Offboarding keeps them active and voids any paperwork still out.',
+        ],
+      },
+      {
         title: 'Approve Leave',
         steps: [
           'Click the Leave tab (or the bell alert).',

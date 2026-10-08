@@ -2,12 +2,12 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents } from '../components/HiringPacket';
-import { PromoteModal } from '../components/HrPersonActions';
+import { PromoteModal, OffboardModal } from '../components/HrPersonActions';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp, LogOut,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
@@ -1649,6 +1649,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [statusOpen, setStatusOpen] = useState(false);
   // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
   const [roleAction, setRoleAction] = useState(null);      // 'promotion' | 'role_change'
+  const [offboardOpen, setOffboardOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [eventsKey, setEventsKey] = useState(0);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
@@ -1791,6 +1792,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <Shield size={13} /> Change Role
             </button>
+            <button className="secondary-btn" onClick={() => setOffboardOpen(true)}
+              title="Last day, the separation package through Nexus Sign, and everything that happens when they leave"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
+              <LogOut size={13} /> Offboard
+            </button>
           </>
         )}
         {isAdmin && (
@@ -1852,6 +1858,18 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           setRoleAction(null); setEventsKey(n => n + 1);
           if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
+        }} />}
+      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
+        onClose={() => setOffboardOpen(false)}
+        onSent={ev => {
+          setOffboardOpen(false); setEventsKey(n => n + 1);
+          if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
+          const m = ev.result?.m365 || {};
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          toastOk(ev.applyStatus === 'applied'
+            ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
+            : `Offboarding scheduled for ${ev.effectiveDate} - Nexus marks them Left that day.`);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
         }} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}

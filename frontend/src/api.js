@@ -1218,6 +1218,9 @@ export const api = {
   retryLifeEventFiling: (id)      => req(`/hr/life-events/${id}/retry-filing`, { method: 'POST' }),
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
+  previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
+  cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),
   voidLifeEvent:       (id)       => req(`/hr/life-events/${id}/void`, { method: 'POST' }),
 
   // HR - AI-assisted interviews (Teams invite + questionnaire + scoring)

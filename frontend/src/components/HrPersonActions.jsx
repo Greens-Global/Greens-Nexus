@@ -9,10 +9,12 @@
 //                  signed the role, access and pay change, and the letter is
 //                  filed in their Egnyte folder (My HR > My Documents).
 import { useEffect, useState } from 'react';
-import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle } from 'lucide-react';
+import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle, LogOut } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
 import { usDay } from './HiringPacket';
+import { usePeopleDirectory } from '../lib/queries';
+import PersonSearchSelect from './PersonSearchSelect';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
@@ -173,6 +175,180 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           ) : (
             <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send For Signature
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Offboard (Neil, Oct 8: 28:19 - 30:04) ────────────────────────────────────
+// "it should very clearly say what company are they with, what is the
+// off-boarding package". The last day decides where the paperwork goes
+// (today = personal email, their access ends now; later = work email) and
+// when they become Left (today = now; later = Nexus does it on the day).
+const EXIT_TYPES = [['resignation', 'Resignation'], ['resignation_no_notice', 'Resignation Without Notice'],
+  ['termination', 'Termination'], ['end_of_contract', 'End Of Contract'], ['retirement', 'Retirement'], ['death', 'Death']];
+
+export function OffboardModal({ employee: e, companyName, onClose, onSent, toastErr }) {
+  const { data: people = [] } = usePeopleDirectory();
+  const [f, setF] = useState({ last_day: todayIso(), exit_type: '', reason: '', send_package: true, start_checklist: true });
+  const [mailbox, setMailbox] = useState('remove');
+  const [trustees, setTrustees] = useState(() => (e.managerEmail ? [e.managerEmail.toLowerCase()] : []));
+  const [handoverTo, setHandoverTo] = useState('');
+  const [exportRequested, setExportRequested] = useState(false);
+  const [extra, setExtra] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [ack, setAck] = useState(false);
+  const [busy, setBusy] = useState('');
+  const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
+  const name = [e.firstName, e.lastName].filter(Boolean).join(' ');
+  const nameOf = em => people.find(p => p.email === em)?.name || em;
+  const immediate = f.last_day && f.last_day <= todayIso();
+  const body = () => ({
+    inputs: { ...f, merge: extra, offboarding: { mailboxAction: mailbox, delegateTo: mailbox === 'share' ? trustees : [],
+      exportRequested, handoverTo } },
+    excluded_ack: ack,
+  });
+  const missing = (preview?.unresolved || []).filter(k => !(extra[k] || '').trim());
+
+  async function review() {
+    setBusy('preview');
+    try {
+      const p = await api.previewOffboard(e.id, body());
+      setPreview(p);
+      setExtra(prev => Object.fromEntries((p.unresolved || []).map(k => [k, prev[k] || ''])));
+    } catch (err) { toastErr(err?.message || 'Could not prepare the offboarding.'); }
+    setBusy('');
+  }
+  async function go() {
+    setBusy('send');
+    try { onSent(await api.offboard(e.id, body())); }
+    catch (err) { toastErr(err?.message || 'Could not offboard.'); setBusy(''); }
+  }
+  const radio = (val, label, sub) => (
+    <label style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, border: `1px solid ${mailbox === val ? 'var(--pine)' : 'var(--line)'}`, background: mailbox === val ? 'hsla(var(--color-green),0.06)' : 'transparent', cursor: 'pointer', marginBottom: 8 }}>
+      <input type="radio" name="offMailbox" checked={mailbox === val} onChange={() => { setMailbox(val); setPreview(null); }} style={{ marginTop: 2 }} />
+      <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{sub}</div></div>
+    </label>
+  );
+  return (
+    <div onClick={ev => ev.target === ev.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 62vw, 960px)', maxHeight: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <LogOut size={17} style={{ color: 'hsl(var(--color-red))' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 15.5 }}>Offboard - {name}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{companyName || 'Their company'} · {e.jobTitle || 'No title'}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
+            <div><label style={lbl}>Last Day *</label>
+              <input type="date" className="form-input" style={{ width: '100%' }} value={f.last_day} onChange={ev => set('last_day', ev.target.value)} /></div>
+            <div><label style={lbl}>Why They Are Leaving *</label>
+              <select className="form-input" style={{ width: '100%' }} value={f.exit_type} onChange={ev => set('exit_type', ev.target.value)}>
+                <option value="">- pick one -</option>
+                {EXIT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select></div>
+          </div>
+          <div style={{ marginTop: 10, borderRadius: 10, padding: '9px 12px', fontSize: 12.5,
+            background: immediate ? 'hsla(var(--color-red),0.08)' : 'hsla(var(--color-blue),0.08)' }}>
+            {immediate
+              ? <>Today: their access ends as soon as you confirm, and the paperwork goes to their <b>personal email</b>{e.personalEmail ? ` (${e.personalEmail})` : ' - none on file yet'}.</>
+              : <>On {usDay(f.last_day)} Nexus marks them Left by itself. Until then the paperwork goes to their <b>work email</b>{e.workEmail ? ` (${e.workEmail})` : ''}.</>}
+          </div>
+          <label style={lbl}>Reason (kept on the record)</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.reason} onChange={ev => set('reason', ev.target.value)} placeholder="e.g. Moving out of state" />
+
+          <label style={lbl}>Their Mailbox</label>
+          {radio('remove', 'Block sign-in and release the license', 'Mail stops; the license goes back to the pool.')}
+          {radio('share', 'Keep it as a shared mailbox', 'Someone keeps reading their mail - pick who below.')}
+          {mailbox === 'share' && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                {trustees.map(t => (
+                  <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, background: 'var(--mist)', border: '1px solid var(--line)', fontSize: 12 }}>
+                    {nameOf(t)}<button type="button" onClick={() => setTrustees(x => x.filter(y => y !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={12} /></button>
+                  </span>
+                ))}
+              </div>
+              <PersonSearchSelect placeholder="+ who gets their mail" groups={[{ label: 'Nexus People', people: people.filter(p => !trustees.includes(p.email)) }]}
+                onPick={em => em && setTrustees(x => [...x, em])} />
+            </div>
+          )}
+          <label style={lbl}>Their Tasks Go To</label>
+          {handoverTo ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>{nameOf(handoverTo)}
+              <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => setHandoverTo('')}>Change</button></div>
+          ) : (
+            <PersonSearchSelect placeholder="Blank = their supervisor" groups={[{ label: 'Nexus People', people: people.filter(p => p.email !== (e.workEmail || '').toLowerCase()) }]}
+              onPick={em => setHandoverTo(em || '')} />
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={exportRequested} onChange={ev => setExportRequested(ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Export their mailbox first
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={f.start_checklist} onChange={ev => set('start_checklist', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Start the offboarding checklist
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={f.send_package} onChange={ev => set('send_package', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Send the separation package through Nexus Sign
+            </label>
+          </div>
+
+          {preview && (
+            <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
+              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.immediate ? `${name} leaves today` : `${name} leaves on ${usDay(preview.lastDay)}`}</div>
+              {preview.package ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
+                  <div>
+                    <div style={{ ...lbl, marginTop: 0 }}>Package</div>
+                    {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                    <div style={hint}>Goes to {preview.sendTo} - {preview.why}.</div>
+                  </div>
+                  <div>
+                    <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
+                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - sign now`}</div>)}
+                  </div>
+                  <div>
+                    <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>
+                    <div style={{ fontSize: 12.5, display: 'flex', gap: 6 }}><FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />{name} &gt; {preview.egnyteSubfolder}</div>
+                  </div>
+                </div>
+              ) : <div style={{ fontSize: 12.5, marginTop: 6 }}>No paperwork - only the offboarding itself.</div>}
+              {(preview.unresolved || []).length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
+                  {preview.unresolved.map(k => (
+                    <div key={k}><label style={lbl}>{k.replace(/_/g, ' ')}</label>
+                      <input className="form-input" style={{ width: '100%' }} value={extra[k] || ''} onChange={ev => setExtra(p => ({ ...p, [k]: ev.target.value }))} /></div>
+                  ))}
+                </div>
+              )}
+              {preview.package && (
+                <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer', marginTop: 14 }}>
+                  <input type="checkbox" checked={ack} onChange={ev => setAck(ev.target.checked)} style={{ width: 15, height: 15, marginTop: 1, flexShrink: 0, accentColor: 'var(--pine)' }} />
+                  <span style={{ fontSize: 12, lineHeight: 1.5 }}>I confirm this is not a record that cannot be signed electronically.</span>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
+          {!preview ? (
+            <button className="primary-btn" onClick={review} disabled={!!busy || !f.last_day || !f.exit_type || (mailbox === 'share' && !trustees.length)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review
+            </button>
+          ) : (
+            <button className="primary-btn" onClick={go} disabled={!!busy || (preview.package && !ack) || missing.length > 0}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: preview.immediate ? 'hsl(var(--color-red))' : undefined }}>
+              {busy === 'send' ? <Spinner size={14} /> : <LogOut size={14} />} {preview.immediate ? 'Offboard Now' : 'Schedule Offboarding'}
             </button>
           )}
         </div>

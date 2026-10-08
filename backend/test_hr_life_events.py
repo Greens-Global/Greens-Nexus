@@ -427,6 +427,99 @@ class PromotionTests(LifeEventCase):
         self.assertEqual(ev.flags, [])
 
 
+SEP_BODY = ["{{full_name}}: your last day is {{last_day}} ({{separation_type}}).",
+            "For the company:", "[[sign:company]]", "Acknowledged:", "[[sign:employee]]"]
+
+
+class OffboardTests(LifeEventCase):
+    """Neil: an Offboard option per employee, the company's package through
+    Nexus Sign; immediate -> personal email, still active -> company email.
+    Pranshu: a future last day switches them to Left on that day."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.add(models.NexusEmployee(id="id-erin", work_email=ERIN, personal_email="erin@gmail.com",
+                                         first_name="Erin", last_name="Lee", company=ENTITY, status="active",
+                                         manager_email=MGR, job_title="Analyst"))
+        self.db.add(models.HrSignTemplate(id="tpl-sep", name="Separation Package", kind="custom", entity_id=ENTITY,
+                                          body=SEP_BODY, status="active",
+                                          roles=[{"key": "company", "label": "Company", "order": 1},
+                                                 {"key": "employee", "label": "Employee", "order": 2}]))
+        self.db.add(models.HrPacketSetting(id="set-sep", entity_id=ENTITY, event="separation", worker_type="any",
+                                           template_id="tpl-sep", subject_role="employee"))
+        self.db.commit()
+
+    def _off(self, last_day, **kw):
+        inputs = {"last_day": last_day, "exit_type": "resignation", "reason": "Moving cities",
+                  "offboarding": {"mailboxAction": "remove"}}
+        inputs.update(kw)
+        return hle.send_separation(self.db, HR_USER, "id-erin", inputs, None, excluded_ack=True)
+
+    def _emp(self):
+        self.db.expire_all()
+        return self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+
+    def test_immediate_goes_to_the_personal_email_and_applies_now(self):
+        ev, _result = self._off(hle._today())
+        self.assertEqual(ev.subject_email, "erin@gmail.com")
+        self.assertEqual(self._emp().status, "offboarded")
+        ev = self._ev(ev.id)
+        self.assertEqual(ev.apply_status, "applied")
+        self.assertIn("Marked Left", ev.apply_note)
+        party = self._party(ev.sign_request_id, "erin@gmail.com")
+        self.assertEqual(party.kind, "external")              # no login needed - their account is closed
+        self._sign(self._party(ev.sign_request_id, HR))
+        self._sign(party)
+        ev = self._ev(ev.id)
+        self.assertEqual((ev.status, ev.apply_status), ("completed", "applied"))
+        self._run_filing_now()
+        self.assertIn("/Separation Documents/", self.uploads[0][0])
+
+    def test_future_last_day_goes_to_work_email_and_applies_on_the_day(self):
+        ev, _r = self._off("2099-01-31")
+        self.assertEqual(ev.subject_email, ERIN)
+        self.assertEqual(self._party(ev.sign_request_id, ERIN).kind, "internal")
+        self.assertEqual(self._emp().status, "active")
+        self.assertEqual(hle.apply_due_separations(), 0)       # not yet
+        self.db.query(models.HrLifeEvent).filter_by(id=ev.id).update({"effective_date": "2026-01-01"})
+        self.db.commit()
+        self.assertEqual(hle.apply_due_separations(), 1)
+        self.assertEqual(self._emp().status, "offboarded")
+        self.assertEqual(self._ev(ev.id).apply_status, "applied")
+        self.assertTrue(any("is now Left" in n.title for n in self.db.query(models.NexusNotification).all()))
+
+    def test_cancel_stops_a_scheduled_offboarding(self):
+        ev, _r = self._off("2099-01-31")
+        hle.cancel_separation(self.db, self._ev(ev.id), HR)
+        ev = self._ev(ev.id)
+        self.assertEqual((ev.apply_status, ev.status), ("canceled", "voided"))
+        self.db.query(models.HrLifeEvent).filter_by(id=ev.id).update({"effective_date": "2026-01-01"})
+        self.db.commit()
+        self.assertEqual(hle.apply_due_separations(), 0)
+        self.assertEqual(self._emp().status, "active")
+
+    def test_offboard_without_documents(self):
+        self.db.query(models.HrPacketSetting).filter_by(event="separation").delete()
+        self.db.commit()
+        with self.assertRaises(hle.PacketError) as e:
+            self._off(hle._today())
+        self.assertIn("No separation package", str(e.exception))
+        ev, _r = self._off(hle._today(), send_package=False)
+        self.assertEqual((ev.sign_request_id, self._emp().status), ("", "offboarded"))
+
+    def test_immediate_needs_a_personal_email(self):
+        self.db.query(models.NexusEmployee).filter_by(id="id-erin").update({"personal_email": ""})
+        self.db.commit()
+        with self.assertRaises(hle.PacketError) as e:
+            self._off(hle._today())
+        self.assertIn("personal email", str(e.exception))
+
+    def test_one_scheduled_offboarding_at_a_time(self):
+        self._off("2099-01-31")
+        with self.assertRaises(hle.PacketError):
+            self._off("2099-02-28")
+
+
 class SharedHireAndPayTests(LifeEventCase):
     def test_mark_hired_still_builds_the_employee(self):
         out = hr_router.update_candidate("cand-1", hr_router.CandidateUpdate(stage="hired"),

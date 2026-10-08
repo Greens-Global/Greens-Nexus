@@ -5634,6 +5634,7 @@ class HrLifeEvent(Base):
     pay             = Column(JSON, default=dict)                  # RESTRICTED: {base, payBasis, frequency, currency}
     effective_date  = Column(String, default="")                  # YYYY-MM-DD (start date / promotion date / last day)
     applied_at      = Column(String, default="")
+    apply_status    = Column(String, default="", index=True)  # separation: scheduled | applied | canceled
     apply_note      = Column(String, default="")
     flags           = Column(JSON, default=list)                  # [{code, message}] for HR to review (e.g. signed timesheet periods)
     filing_status   = Column(String, default="")                  # '' | pending | filed | failed

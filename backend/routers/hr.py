@@ -4102,6 +4102,15 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     _assert_scope(row, hr_scope(user, db))
     if body.status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
+    return apply_status_change(db, row, body, user["email"])
+
+
+def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
+    """The whole status change - the log entry, and for a leaver: items
+    force-returned, tasks handed over, M365 sign-in blocked / sessions ended /
+    licenses freed / mailbox export, Nexus sessions ended. Commits. The
+    endpoint above and Offboard (hr_life_events.py - now, or on the last day)
+    both come here, so an offboarding is the same whichever way it runs."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
     log = list(row.status_log or [])
@@ -4128,7 +4137,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     if did_change:
         entry = {
             "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
-            "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
+            "effectiveDate": (body.effectiveDate or "").strip(), "by": actor, "at": now,
         }
         if off_block:
             entry["offboarding"] = off_block
@@ -4139,7 +4148,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     handover = None
     if did_change and body.status == "offboarded" and row.work_email:
         from routers.items import force_return_person
-        items_returned = force_return_person(db, row.work_email, user["email"])
+        items_returned = force_return_person(db, row.work_email, actor)
         if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
             entry["itemsReturned"] = items_returned
         # Task work moves at the same moment equipment does, in this same
@@ -4156,7 +4165,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         if to_email:
             handover = handover_person(db, row.work_email, to_email,
                                        include_completed=bool((off_block or {}).get("handoverIncludeCompleted")),
-                                       actor=user["email"])
+                                       actor=actor)
             if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
                 entry["taskHandover"] = handover
     row.status = body.status
@@ -4190,7 +4199,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
             if off_block.get("freeUpLicense"):
                 m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
-                job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=user["email"],
+                job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=actor,
                                       status="pending", created_at=now, updated_at=now)
                 db.add(job); db.commit()
                 threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id), daemon=True).start()

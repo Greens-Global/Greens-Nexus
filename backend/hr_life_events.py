@@ -239,7 +239,7 @@ def ser_event(db: Session, ev: HrLifeEvent, *, show_pay: bool) -> dict:
         "filingError": ev.filing_error or "", "filingAttempts": ev.filing_attempts or 0,
         "declineReason": ev.decline_reason or "", "createdBy": ev.created_by,
         "createdAt": ev.created_at, "completedAt": ev.completed_at or "", "parties": parties,
-        "hasPay": bool(ev.pay),
+        "hasPay": bool(ev.pay), "applyStatus": ev.apply_status or "",
     }
     if show_pay:
         out["pay"] = ev.pay or {}
@@ -564,7 +564,8 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
         apply(db, ev, req)
     ev.status = "completed"
     ev.completed_at = now
-    ev.applied_at = now
+    if ev.kind != "separation":           # a separation is applied by its last day, not the signature
+        ev.applied_at = now
     ev.updated_at = now
     ev.filing_status = "pending"
     ev.filing_next_at = now
@@ -831,6 +832,272 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
 _APPLY["promotion"] = _apply_promotion
 
 
+# ── Offboarding (Neil, Oct 8: 28:19 - 30:04) ─────────────────────────────────
+# "There needs to be an option for each employee to do an off-boarding ... it
+# should very clearly say what company are they with, what is the off-boarding
+# package ... process through Nexus Sign". The LAST DAY decides two things:
+#   - where the paperwork goes: "If the last day is immediate ... the
+#     termination paperwork needs to be sent to their personal e-mail. If they
+#     still have an active e-mail, it needs to go to their company e-mail."
+#   - when they become Left: today or earlier = now; a future last day = Nexus
+#     switches them on that day by itself (Pranshu, Oct 8).
+# The status change is the SAME one People's status pill runs
+# (hr.apply_status_change): items returned, tasks handed over, M365 blocked,
+# sessions ended. The paperwork is optional (a company may not have a
+# separation package yet); the offboarding itself never waits on a signature.
+
+SEPARATION_TYPES = {
+    "resignation": "Resignation", "resignation_no_notice": "Resignation Without Notice",
+    "termination": "Termination", "end_of_contract": "End Of Contract", "retirement": "Retirement",
+    "death": "Death",
+}
+
+
+def _today() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _separation_details(inputs: dict) -> dict:
+    last = (inputs.get("last_day") or "").strip()[:10]
+    try:
+        datetime.strptime(last, "%Y-%m-%d")
+    except ValueError:
+        raise PacketError("Enter their last day.")
+    kind = (inputs.get("exit_type") or "").strip()
+    if kind not in SEPARATION_TYPES:
+        raise PacketError("Pick why they are leaving.")
+    off = inputs.get("offboarding") or {}
+    action = (off.get("mailboxAction") or "remove").strip()
+    if action not in ("remove", "share"):
+        raise PacketError("Pick what happens to their mailbox.")
+    return {
+        "last_day": last, "exit_type": kind, "reason": (inputs.get("reason") or "").strip()[:1000],
+        "immediate": last <= _today(),
+        "send_package": bool(inputs.get("send_package", True)),
+        "start_checklist": bool(inputs.get("start_checklist", True)),
+        "offboarding": {
+            "mailboxAction": action,
+            "delegateTo": [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+            "exportRequested": bool(off.get("exportRequested")),
+            "freeUpLicense": action == "remove",
+            "handoverTo": (off.get("handoverTo") or "").strip().lower(),
+            "handoverIncludeCompleted": bool(off.get("handoverIncludeCompleted")),
+        },
+        "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
+                  if re.fullmatch(r"[a-z0-9_]+", str(k)) and str(v).strip()},
+    }
+
+
+def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock: bool = False) -> dict:
+    emp = _load_employee(db, eid, scope, lock=lock)
+    if emp.status == "offboarded":
+        raise PacketError(f"{emp.first_name} has already left.", 409)
+    d = _separation_details(inputs or {})
+    if d["offboarding"]["mailboxAction"] == "share" and not d["offboarding"]["delegateTo"]:
+        raise PacketError("Pick who gets access to their mailbox.")
+    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
+    company = entity.name if entity else "their company"
+    # Where the paperwork goes (Neil): cut off now -> personal; still here -> work.
+    personal, work = (emp.personal_email or "").strip().lower(), (emp.work_email or "").strip().lower()
+    if d["immediate"]:
+        to, kind_of, why = personal, "external", "their access ends today, so it goes to their personal email"
+    elif work:
+        to, kind_of, why = work, "internal", "they still have their work email until their last day"
+    else:
+        to, kind_of, why = personal, "external", "they have no work email, so it goes to their personal email"
+    setting = resolve_setting(db, emp.company or "", "separation", worker_type_of(emp.employment_type))
+    tpl = (db.query(HrSignTemplate).filter(HrSignTemplate.id == setting.template_id).first()
+           if setting else None)
+    problems = setting_problems(db, setting) if setting else []
+    package = d["send_package"] and bool(setting) and not problems
+    merge, unresolved, parties = {}, [], []
+    if d["send_package"]:
+        if not setting:
+            raise PacketError(f"No separation package is set up for {company} - add one under People > "
+                              f"Hiring > Packets, or offboard without documents.", 409)
+        if problems:
+            raise PacketError(f"The {company} separation package needs fixing: {problems[0]}", 409)
+        if not to:
+            raise PacketError(f"Add {emp.first_name}'s personal email first - {why}.", 409)
+        merge = {"last_day": us_long_date(d["last_day"]), "separation_type": SEPARATION_TYPES[d["exit_type"]],
+                 "job_title": emp.job_title or "", "department": emp.department or ""}
+        merge.update(d["merge"])
+        from routers.esign import resolve_template
+        _snap, unresolved = resolve_template(db, tpl, employee_id=emp.id, entity_id=emp.company or "",
+                                             overrides=merge)
+        sender = {"name": person_name(db, user["email"]), "email": user["email"].lower()}
+        mgr = (emp.manager_email or "").strip().lower()
+        manager = {"name": person_name(db, mgr), "email": mgr} if mgr and mgr != work else None
+        parties = _parties_for(tpl, setting.subject_role or "employee", name, to, kind_of, sender, manager=manager)
+    return {"employee": emp, "details": d, "setting": setting, "template": tpl, "package": package,
+            "merge": merge, "unresolved": unresolved, "parties": parties, "subjectName": name,
+            "to": to, "why": why, "company": company,
+            "title": f"{EVENT_TITLES['separation']} - {name}",
+            "subfolder": ((setting.egnyte_subfolder if setting else "") or "").strip() or DEFAULT_SUBFOLDERS["separation"]}
+
+
+def separation_preview_out(plan: dict) -> dict:
+    d, tpl = plan["details"], plan["template"]
+    return {
+        "title": plan["title"], "company": plan["company"], "lastDay": d["last_day"],
+        "immediate": d["immediate"], "sendTo": plan["to"], "why": plan["why"],
+        "package": plan["package"], "templateName": tpl.name if tpl else "",
+        "documents": ([tpl.name] + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")])
+        if tpl and plan["package"] else [],
+        "recipients": [{"order": p.ordinal, "role": p.role_key, "name": p.name, "email": p.email,
+                        "isSubject": p.email == plan["to"]} for p in plan["parties"]],
+        "unresolved": plan["unresolved"], "egnyteSubfolder": plan["subfolder"],
+    }
+
+
+def _separation_status_body(ev: HrLifeEvent):
+    from routers.hr import StatusChangeIn
+    d = ev.inputs or {}
+    reason = f"{SEPARATION_TYPES.get(d.get('exit_type'), 'Left')}" + (f" - {d['reason']}" if d.get("reason") else "")
+    return StatusChangeIn(status="offboarded", reason=reason, effectiveDate=d.get("last_day", ""),
+                          offboarding=d.get("offboarding") or None)
+
+
+def apply_separation_now(db: Session, ev: HrLifeEvent) -> dict:
+    """Run the status change (Left) for an offboarding. Commits."""
+    from routers.hr import apply_status_change
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).first()
+    if not emp:
+        ev.apply_status, ev.apply_note = "canceled", "The employee record is gone."
+        db.commit()
+        return {}
+    if emp.status == "offboarded":
+        ev.apply_status, ev.applied_at, ev.apply_note = "applied", _now(), "Already marked Left."
+        db.commit()
+        return {}
+    out = apply_status_change(db, emp, _separation_status_body(ev), ev.created_by)
+    d = ev.inputs or {}
+    if d.get("start_checklist"):
+        import hr_checklists
+        try:
+            if not hr_checklists.open_checklist(db, emp.id, "offboarding"):
+                hr_checklists.start(db, emp, "offboarding", anchor_date=d.get("last_day", ""),
+                                    exit_type=d.get("exit_type", ""), by=ev.created_by)
+        except ValueError as e:
+            print(f"[life-events] offboarding checklist not started for {emp.id}: {e}")
+    ev.apply_status, ev.applied_at = "applied", _now()
+    ho = (out or {}).get("handover") or {}
+    it = (out or {}).get("items") or {}
+    bits = ["Marked Left"]
+    if it.get("checkouts") or it.get("assignments"):
+        bits.append(f"{(it.get('checkouts') or 0) + (it.get('assignments') or 0)} item(s) returned")
+    if ho.get("reassigned"):
+        bits.append(f"{ho['reassigned']} task(s) handed over")
+    m = (out or {}).get("m365") or {}
+    if m.get("error"):
+        bits.append(f"M365: {m['error']}")
+    ev.apply_note = "; ".join(bits)
+    ev.updated_at = _now()
+    db.commit()
+    return out
+
+
+def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, excluded_ack: bool,
+                    ip: str = "", user_agent: str = "") -> tuple:
+    plan = plan_separation(db, user, eid, inputs, scope, lock=True)
+    emp, d = plan["employee"], plan["details"]
+    if plan["unresolved"]:
+        raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
+    busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
+                                         HrLifeEvent.apply_status == "scheduled").first())
+    if busy:
+        raise PacketError("An offboarding is already scheduled for them - cancel it first.", 409)
+    now = _now()
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="separation", status="completed",
+                     entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
+                     subject_email=plan["to"] or "", setting_id=plan["setting"].id if plan["setting"] else "",
+                     template_id=plan["template"].id if plan["template"] else "", inputs=dict(d),
+                     effective_date=d["last_day"], apply_status="scheduled",
+                     created_by=user["email"].lower(), created_at=now, updated_at=now, completed_at=now)
+    db.add(ev)
+    if plan["package"]:
+        ev.status, ev.completed_at = "awaiting_sender", ""
+        first = plan["parties"][0] if plan["parties"] else None
+        sender_first = bool(first and first.email == user["email"].lower() and first.email != ev.subject_email)
+        from fastapi import HTTPException
+        from routers.esign import envelope_from_template
+        try:
+            out = envelope_from_template(
+                db, user, plan["template"], parties=plan["parties"], title=plan["title"],
+                employee_id=emp.id, entity_id=emp.company or "", merge=plan["merge"],
+                message=plan["setting"].email_message or "", ip=ip, user_agent=user_agent,
+                excluded_ack=excluded_ack, link_kind="life_event", link_id=ev.id,
+                sender_signs_first=sender_first)
+        except HTTPException as e:
+            raise PacketError(str(e.detail), e.status_code)
+        ev.sign_request_id = out["id"]
+        if not sender_first:
+            ev.status = "sent"
+    db.commit()
+    result = {}
+    if d["immediate"]:
+        result = apply_separation_now(db, ev)
+    else:
+        for to in {ev.created_by, (emp.manager_email or "").lower()} - {""}:
+            _notify(db, to, f"Offboarding scheduled - {ev.subject_name}",
+                    f"{ev.subject_name}'s last day is {us_date(d['last_day'])}. Nexus marks them Left that day "
+                    f"(items, tasks, Microsoft 365) by itself.", ev)
+        db.commit()
+    return ev, result
+
+
+def cancel_separation(db: Session, ev: HrLifeEvent, actor: str) -> None:
+    if ev.kind != "separation" or ev.apply_status != "scheduled":
+        raise PacketError("Only an offboarding that hasn't happened yet can be canceled.", 409)
+    ev.apply_status = "canceled"
+    ev.apply_note = f"Canceled by {actor}"
+    ev.updated_at = _now()
+    if ev.sign_request_id and ev.status in ACTIVE:
+        from routers.esign import void_request
+        db.commit()
+        void_request(ev.sign_request_id, user={"email": actor}, db=db)
+        return
+    db.commit()
+
+
+def apply_due_separations(limit: int = 20) -> int:
+    """The last day has come: mark them Left (point 5, Pranshu Oct 8)."""
+    from database import SessionLocal
+    db = SessionLocal()
+    n = 0
+    try:
+        today = _today()
+        ids = [r.id for r in db.query(HrLifeEvent).filter(HrLifeEvent.kind == "separation",
+                                                           HrLifeEvent.apply_status == "scheduled",
+                                                           HrLifeEvent.effective_date <= today)
+               .limit(limit).all()]
+        for eid in ids:
+            ev = (db.query(HrLifeEvent).filter(HrLifeEvent.id == eid, HrLifeEvent.apply_status == "scheduled")
+                  .with_for_update().first())
+            if not ev:
+                continue
+            try:
+                apply_separation_now(db, ev)
+                _notify(db, ev.created_by, f"{ev.subject_name} is now Left",
+                        f"Their last day was {us_date(ev.effective_date)}. {ev.apply_note}.", ev)
+                db.commit()
+                n += 1
+            except Exception as e:      # retried on the next pass
+                db.rollback()
+                print(f"[life-events] offboarding {eid} not applied: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+    return n
+
+
+def _apply_separation_signed(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
+    ev.apply_note = (ev.apply_note + "; " if ev.apply_note else "") + "Separation package signed"
+
+
+_APPLY["separation"] = _apply_separation_signed
+
+
 # ── Egnyte filing ────────────────────────────────────────────────────────────
 
 def file_one(db: Session, ev: HrLifeEvent) -> tuple:
@@ -926,4 +1193,8 @@ async def life_events_loop():
             await asyncio.to_thread(process_due)
         except Exception as e:
             print(f"[life-events] filing pass failed: {e}")
+        try:
+            await asyncio.to_thread(apply_due_separations)
+        except Exception as e:
+            print(f"[life-events] offboarding pass failed: {e}")
         await asyncio.sleep(LOOP_EVERY_SEC)

@@ -23,7 +23,7 @@ import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 
-const ENABLED_EVENTS = ['hire', 'promotion'];   // separation arrives with Offboard
+const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
 const WORKER_LABEL = { any: 'Everyone', employee: 'Employees Only', contractor: 'Contractors Only' };
 const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -412,9 +412,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
   const what = ev.title || 'Packet';
   async function act(kind) {
     if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed.`, { title: 'Void', confirmText: 'Void' })) return;
+    if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding' })) return;
     setBusy(kind);
     try {
       if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
+      else if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
@@ -429,7 +431,15 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
         <StatusChip label={label} tone={tone} />
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>Sent {formatDateTime(ev.createdAt)}</span>
       </div>
-      {ev.applyNote && ev.status === 'completed' && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}
+      {ev.kind === 'separation' && ev.applyStatus === 'scheduled' && (
+        <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Clock size={13} style={{ color: 'hsl(var(--color-blue))' }} /> Leaves on {usDay(ev.effectiveDate)} - Nexus marks them Left that day.
+          <button className="secondary-btn" onClick={() => act('cancel')} disabled={!!busy} style={{ fontSize: 11.5, padding: '3px 10px' }}>
+            {busy === 'cancel' ? <Spinner size={12} /> : 'Cancel Offboarding'}
+          </button>
+        </div>
+      )}
+      {ev.applyNote && (ev.status === 'completed' || ev.applyStatus) && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}
       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {ev.parties.map(p => (
           <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
@@ -491,7 +501,7 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
   const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
   useEffect(() => { load(); }, [employeeId, refreshKey]);
   const recent = Date.now() - 14 * 86400000;
-  const shown = events.filter(e => ['awaiting_sender', 'sent'].includes(e.status)
+  const shown = events.filter(e => ['awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
     || (e.status === 'completed' && (e.filingStatus !== 'filed' || new Date(e.completedAt).getTime() > recent))
     || (e.status === 'declined' && new Date(e.createdAt).getTime() > recent));
   if (!shown.length) return null;

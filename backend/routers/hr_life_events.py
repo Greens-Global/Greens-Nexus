@@ -188,6 +188,55 @@ def send_promotion(eid: str, body: HirePacketIn, request: Request,
     return out
 
 
+# ── offboarding ──────────────────────────────────────────────────────────────
+
+class SeparationIn(BaseModel):
+    inputs:       Optional[dict] = None   # last_day, exit_type, reason, send_package, start_checklist, offboarding{}, merge{}
+    excluded_ack: Optional[bool] = False
+
+
+@router.post("/employees/{eid}/offboard/preview")
+def preview_offboard(eid: str, body: SeparationIn, user: dict = Depends(require_hr_write),
+                     db: Session = Depends(get_db)):
+    try:
+        plan = hle.plan_separation(db, user, eid, body.inputs or {}, hr_scope(user, db))
+    except hle.PacketError as e:
+        _raise(e)
+    return hle.separation_preview_out(plan)
+
+
+@router.post("/employees/{eid}/offboard")
+def offboard(eid: str, body: SeparationIn, request: Request,
+             user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if (body.inputs or {}).get("send_package", True) and not body.excluded_ack:
+        raise HTTPException(422, "Confirm the package is not a record excluded from electronic signature.")
+    ip, ua = _client_meta(request)
+    try:
+        ev, result = hle.send_separation(db, user, eid, body.inputs or {}, hr_scope(user, db),
+                                         excluded_ack=bool(body.excluded_ack), ip=ip, user_agent=ua)
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    out = hle.ser_event(db, ev, show_pay=False)
+    out["senderPartyId"] = hle.sender_party_id(db, ev, user["email"])
+    out["result"] = {k: v for k, v in (result or {}).items() if k in ("m365", "items", "handover")}
+    return out
+
+
+@router.post("/life-events/{eid}/cancel-offboarding")
+def cancel_offboarding(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).with_for_update().first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    try:
+        hle.cancel_separation(db, ev, user["email"])
+    except hle.PacketError as e:
+        _raise(e)
+    db.refresh(ev)
+    return hle.ser_event(db, ev, show_pay=False)
+
+
 # ── events ───────────────────────────────────────────────────────────────────
 
 def _event_in_scope(db: Session, ev: HrLifeEvent, scope) -> None:
