@@ -4,7 +4,7 @@ import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, C
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
-import { WIDGETS } from './widgets.jsx';
+import { WIDGETS, widgetAllowed } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import DeskHome, { DeskGreeting } from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
@@ -66,9 +66,11 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
 // tier widgets today (see jobroles.py) without requiring the Manager role
 // itself. A widget with no minRole is open to everyone.
 export default function CustomDashboard() {
-  const { can, myEmail, myGrantedModules } = useRole();
+  const { can, myEmail, myGrantedModules, canAccessModule } = useRole();
   const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
-  const canSeeWidget = (def) => !def.minRole || can(def.minRole) || myGrantedModules.has('manager-dashboard');
+  // Module-gated tiles (Find a Transaction needs the Accounting grant) go
+  // through the same helper - see widgetAllowed in widgets.jsx.
+  const canSeeWidget = (def) => widgetAllowed(def, { can, myGrantedModules, canAccessModule });
   // 'manager' | 'supervisor' | 'employee' - same access layer as canSeeWidget
   // above, just collapsed to one tier label. Drives which role-tiered widgets
   // seed a pristine board and whether team-wide KPIs get fetched (see
@@ -119,7 +121,7 @@ export default function CustomDashboard() {
     if (!canSeeWidget(def)) {
       return (
         <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center', padding: 16 }}>
-          "{def.title}" needs {def.minRole} access
+          "{def.title}" needs {def.module ? (def.moduleLabel || def.module) : def.minRole} access
         </div>
       );
     }

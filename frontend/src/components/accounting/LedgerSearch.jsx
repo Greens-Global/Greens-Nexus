@@ -155,7 +155,11 @@ function opQuery(key, f) {
 }
 const opText = (label, f) => (f.op === 'between' ? `${label} between ${f.a || '...'} and ${f.b || '...'}` : `${label} ${f.op} ${f.a}`);
 
-export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false }) {
+// `initialEntry` ({ id, no }) opens that journal entry on top of the lines
+// as soon as the grid mounts - the dashboard's Find a Transaction tile hands
+// it over with the words typed (Oct 1). `onEntryClosed` lets the owner forget
+// it, so closing the modal does not reopen it on the next render.
+export default function LedgerSearch({ term, entities = [], entityName, drill, onClearDrill, onClose, onBusy, onExport, dims = null, dimNames = null, full = false, initialEntry = null, onEntryClosed }) {
   const entitiesKey = entities.join(',');
   // The report's filters, plus any a drill from another tab brought with it
   // (requestReportDrill's `dims`), less the ones lifted here with a chip's x.
@@ -178,6 +182,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
+  useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
   const seq = useRef(0);
 
   // The person's own layout: which columns show and how wide.
@@ -497,7 +503,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
         </>
       ) : null}
-      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={() => setOpenEntry(null)} />}
+      {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
     </div>
   );
 }

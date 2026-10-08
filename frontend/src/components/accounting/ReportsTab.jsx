@@ -164,13 +164,27 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  // A drill-down asked for from another tab (see drill.js) lands here.
+  // A drill-down asked for from another tab (see drill.js) lands here. So
+  // does a search handed over by the dashboard's Find a Transaction tile:
+  // the words go in the box and, when a row was tapped there, that entry
+  // opens on top of the lines.
+  const [initialEntry, setInitialEntry] = useState(null);   // { id, no }
   useEffect(() => {
     const take = (d) => {
+      if (!d) return;
       // Oct 7: a drill may carry a party ({ kind, code, name }) and report
       // filters (`dims`: vendor, customer, departments, journals ...) - they
-      // follow into the lines like the report's own.
-      if (!d || !(d.account || d.party || d.dims)) return;
+      // follow into the lines like the report's own. A drill with none of
+      // those is the Find a Transaction tile's search (`q`, Oct 1).
+      if (!(d.account || d.party || d.dims)) {
+        if (!d.q) return;
+        setDrill(null);
+        setSearchText(d.q);
+        setTerm(d.q);
+        setInitialEntry(d.entryId ? { id: d.entryId, no: d.entryNo || '' } : null);
+        toTop();
+        return;
+      }
       if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
         ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}) });
@@ -568,7 +582,8 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport} />
+          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport}
+          initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 
       {!searching && error && <div role="alert" style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{plainError(error)}</div>}
