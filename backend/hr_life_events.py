@@ -571,6 +571,266 @@ def on_completed(db: Session, req: HrSignRequest) -> None:
     ev.filing_attempts = 0
 
 
+# ── Promotion / role change (Neil, Oct 8: 27:13 - 35:20) ─────────────────────
+# "What are HR's actions? After an employee is in, they're either moving up,
+# they're changing a role, or they're leaving." A promotion sends a letter -
+# role X -> Y, the new responsibilities, the new pay - the EMPLOYEE signs, then
+# the MANAGER, and it is filed where the employee can see it. HR enters the new
+# pay and the effective date, which can be in the past ("I actually started it
+# at the start of last month"); a past date that reaches into timesheets
+# already signed is FLAGGED for HR, not silently repriced (Pranshu, Oct 8).
+# The role (and so the access) changes when the letter is fully signed; the
+# pay is dated from the effective date in the pay history.
+
+CHANGE_TYPES = {"promotion": "Promotion", "role_change": "Role Change"}
+
+
+def _load_employee(db: Session, eid: str, scope, lock: bool = False) -> NexusEmployee:
+    q = db.query(NexusEmployee).filter(NexusEmployee.id == eid)
+    emp = q.with_for_update().first() if lock else q.first()
+    if not emp or (scope is not None and (emp.company or "") not in scope):
+        raise PacketError("Employee not found", 404)
+    return emp
+
+
+def current_job_role(db: Session, email: str):
+    from models import NexusGroup, NexusGroupMember
+    if not email:
+        return None
+    return (db.query(NexusGroup)
+            .join(NexusGroupMember, NexusGroupMember.group_id == NexusGroup.id)
+            .filter(NexusGroupMember.email == email.lower(), NexusGroup.is_job_role == 1)
+            .first())
+
+
+def signed_periods_from(db: Session, email: str, effective: str) -> list:
+    """Timesheet periods ending on/after `effective` that someone has already
+    signed or HR has finalized - repricing them silently would change pay
+    people agreed to, so they are flagged for HR instead."""
+    from models import TimeApproval
+    if not email or not effective:
+        return []
+    rows = (db.query(TimeApproval)
+            .filter(TimeApproval.employee_email == email.lower(), TimeApproval.revoked == 0,
+                    TimeApproval.kind.in_(("final", "employee_sign", "manager")),
+                    TimeApproval.period_end >= effective)
+            .all())
+    periods = sorted({(r.period_start, r.period_end) for r in rows})
+    return [{"start": a, "end": b, "label": f"{us_date(a)} - {us_date(b)}"} for a, b in periods]
+
+
+def _promotion_details(db: Session, user: dict, emp: NexusEmployee, inputs: dict) -> dict:
+    from models import NexusGroup
+    from fastapi import HTTPException
+    from routers.jobroles import check_can_assign
+    change = (inputs.get("change_type") or "promotion").strip()
+    if change not in CHANGE_TYPES:
+        raise PacketError("Pick Promotion or Role Change.")
+    role_id = (inputs.get("role_id") or "").strip()
+    jr = (db.query(NexusGroup).filter(NexusGroup.id == role_id, NexusGroup.is_job_role == 1).first()
+          if role_id else None)
+    if not jr:
+        raise PacketError("Pick the new role.")
+    try:
+        check_can_assign(db, user, jr, emp.work_email, hr_path=True)
+    except HTTPException as e:
+        raise PacketError(str(e.detail), e.status_code)
+    eff = (inputs.get("effective_date") or "").strip()[:10]
+    try:
+        datetime.strptime(eff, "%Y-%m-%d")
+    except ValueError:
+        raise PacketError("Enter the date the change takes effect.")
+    cur = current_job_role(db, emp.work_email)
+    return {
+        "change_type": change, "role_id": jr.id, "role_name": jr.name,
+        "department": jr.department or emp.department or "",
+        "job_title": (inputs.get("job_title") or jr.name).strip(),
+        "old_role_id": cur.id if cur else "", "old_role_name": cur.name if cur else "",
+        "old_title": emp.job_title or (cur.name if cur else ""),
+        "effective_date": eff,
+        "responsibilities": (inputs.get("responsibilities") or "").strip()[:4000],
+        "reason": (inputs.get("reason") or "").strip()[:1000],
+        "salary_text": (inputs.get("salary_text") or "").strip(),
+        "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
+                  if re.fullmatch(r"[a-z0-9_]+", str(k)) and str(v).strip()},
+    }
+
+
+def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optional[dict], scope,
+                   lock: bool = False) -> dict:
+    emp = _load_employee(db, eid, scope, lock=lock)
+    if emp.status not in ("active", "onboarding"):
+        raise PacketError(f"{emp.first_name} is {emp.status} - only current employees can be promoted.", 409)
+    if not (emp.work_email or "").strip():
+        raise PacketError("They need a work email first - the letter is signed in Nexus.", 409)
+    details = _promotion_details(db, user, emp, inputs or {})
+    try:
+        clean = clean_pay(pay)
+    except ValueError as e:
+        raise PacketError(str(e))
+    if details["role_id"] == details["old_role_id"] and not clean and details["job_title"] == details["old_title"]:
+        raise PacketError("Nothing changes - pick a new role, title or pay.")
+    entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
+    company = entity.name if entity else "this company"
+    setting = resolve_setting(db, emp.company or "", "promotion", worker_type_of(emp.employment_type))
+    if not setting:
+        raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
+                          f"People > Hiring > Packets.", 409)
+    problems = setting_problems(db, setting)
+    if problems:
+        raise PacketError(f"The {company} promotion letter needs fixing: {problems[0]}", 409)
+    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == setting.template_id).first()
+    roles = [r["key"] for r in template_roles(tpl)]
+    manager = None
+    if "manager" in roles:
+        mgr_email = (emp.manager_email or "").strip().lower()
+        if not mgr_email or mgr_email == emp.work_email.lower():
+            raise PacketError(f"Set {emp.first_name}'s manager first - the manager signs the letter after them.", 409)
+        manager = {"name": person_name(db, mgr_email), "email": mgr_email}
+    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    merge = {
+        "change_type": CHANGE_TYPES[details["change_type"]].lower(),
+        "old_title": details["old_title"], "new_title": details["job_title"], "job_title": details["job_title"],
+        "old_role": details["old_role_name"] or details["old_title"], "new_role": details["role_name"],
+        "department": details["department"], "effective_date": us_long_date(details["effective_date"]),
+        "responsibilities": details["responsibilities"],
+    }
+    if manager:
+        merge["manager"] = manager["name"]
+    salary = details["salary_text"] or pay_text(clean)
+    if salary:
+        merge["salary"] = salary
+    merge.update(details["merge"])
+    from routers.esign import resolve_template
+    _snap, unresolved = resolve_template(db, tpl, employee_id=emp.id, entity_id=emp.company or "", overrides=merge)
+    sender = {"name": person_name(db, user["email"]), "email": user["email"].lower()}
+    parties = _parties_for(tpl, setting.subject_role or "employee", name, emp.work_email.lower(),
+                           "internal", sender, manager=manager)
+    return {"employee": emp, "details": details, "pay": clean, "setting": setting, "template": tpl,
+            "merge": merge, "unresolved": unresolved, "parties": parties, "subjectName": name,
+            "title": f"{CHANGE_TYPES[details['change_type']]} Letter - {name}", "company": company,
+            "subfolder": (setting.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS["promotion"],
+            "flags": signed_periods_from(db, emp.work_email, details["effective_date"]) if clean else []}
+
+
+def promotion_preview_out(plan: dict) -> dict:
+    tpl, d = plan["template"], plan["details"]
+    return {
+        "title": plan["title"], "company": plan["company"], "templateName": tpl.name,
+        "documents": [tpl.name] + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")],
+        "recipients": [{"order": p.ordinal, "role": p.role_key, "name": p.name, "email": p.email,
+                        "who": "employee" if p.email == plan["employee"].work_email.lower()
+                        else ("you" if p.role_key not in ("manager",) else "manager")} for p in plan["parties"]],
+        "unresolved": plan["unresolved"], "emailMessage": plan["setting"].email_message or "",
+        "egnyteSubfolder": plan["subfolder"], "effectiveDate": d["effective_date"],
+        "fromTitle": d["old_title"], "toTitle": d["job_title"], "fromRole": d["old_role_name"], "toRole": d["role_name"],
+        "salaryText": plan["merge"].get("salary", ""), "signedPeriods": plan["flags"],
+    }
+
+
+def send_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optional[dict], scope, *,
+                   excluded_ack: bool, ip: str = "", user_agent: str = "") -> HrLifeEvent:
+    plan = plan_promotion(db, user, eid, inputs, pay, scope, lock=True)
+    emp = plan["employee"]
+    if plan["unresolved"]:
+        raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
+    busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "promotion",
+                                         HrLifeEvent.status.in_(ACTIVE)).first())
+    if busy:
+        raise PacketError("A promotion letter is already out for them - void it first to send a new one.", 409)
+    now = _now()
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="promotion", status="awaiting_sender",
+                     entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
+                     subject_email=emp.work_email.lower(), setting_id=plan["setting"].id,
+                     template_id=plan["template"].id, inputs=dict(plan["details"]), pay=plan["pay"],
+                     effective_date=plan["details"]["effective_date"],
+                     flags=[{"code": "signed_timesheets", "periods": plan["flags"]}] if plan["flags"] else [],
+                     created_by=user["email"].lower(), created_at=now, updated_at=now)
+    db.add(ev)
+    first = plan["parties"][0] if plan["parties"] else None
+    sender_first = bool(first and first.email == user["email"].lower() and first.email != ev.subject_email)
+    from fastapi import HTTPException
+    from routers.esign import envelope_from_template
+    try:
+        out = envelope_from_template(
+            db, user, plan["template"], parties=plan["parties"], title=plan["title"],
+            employee_id=emp.id, entity_id=emp.company or "", merge=plan["merge"],
+            message=plan["setting"].email_message or "", ip=ip, user_agent=user_agent,
+            excluded_ack=excluded_ack, link_kind="life_event", link_id=ev.id,
+            sender_signs_first=sender_first)
+    except HTTPException as e:
+        raise PacketError(str(e.detail), e.status_code)
+    ev.sign_request_id = out["id"]
+    if not sender_first:
+        ev.status = "sent"
+    db.commit()
+    return ev
+
+
+def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
+    """Fully signed: the new role (and with it the access and tier), the title,
+    and the new pay dated from the effective date. Signed timesheets on/after
+    that date are flagged for HR. Everyone who needs to know is told."""
+    from models import NexusGroup
+    from routers.jobroles import apply_job_role
+    from routers import hr as hr_router
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).with_for_update().first()
+    d = ev.inputs or {}
+    if not emp or not emp.work_email:
+        ev.apply_note = "The employee record is gone - nothing was changed."
+        return
+    jr = db.query(NexusGroup).filter(NexusGroup.id == d.get("role_id"), NexusGroup.is_job_role == 1).first()
+    if not jr:
+        ev.apply_note = "The new role was deleted before the letter was signed - role not changed."
+    else:
+        apply_job_role(db, jr, emp.work_email.lower(), ev.created_by)
+    if d.get("job_title"):
+        emp.job_title = d["job_title"]
+    if d.get("department"):
+        emp.department = d["department"]
+    eff = ev.effective_date or ""
+    if ev.pay:
+        current = dict(emp.compensation or {})
+        history = list(current.get("history") or [])
+        if str(current.get("base") or ""):
+            history.insert(0, {"base": current.get("base", ""), "currency": current.get("currency", ""),
+                               "payBasis": current.get("payBasis", ""), "effectiveDate": current.get("effectiveDate", ""),
+                               "changedAt": _now(), "changedBy": ev.created_by})
+        comp = compensation_from_pay(ev.pay, eff)
+        comp["history"] = history
+        emp.compensation = comp
+        hr_router.ensure_rate_history(db, emp.work_email, by=ev.created_by)
+        hr_router.sync_rate_from_comp(db, emp)
+        db.flush()
+        hr_router.append_rate_history(db, emp, eff, by=ev.created_by)
+    emp.updated_at = _now()
+    periods = signed_periods_from(db, emp.work_email, eff) if ev.pay else []
+    ev.flags = [{"code": "signed_timesheets", "periods": periods}] if periods else []
+    title = CHANGE_TYPES.get(d.get("change_type"), "Role Change")
+    ev.apply_note = (f"{title}: {d.get('old_title') or '-'} -> {d.get('job_title')} from {us_date(eff)}"
+                     + ("; new pay recorded" if ev.pay else ""))
+    entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
+    hr_contact = (entity.hr_contact_email or "").lower() if entity else ""
+    body = (f"{ev.subject_name}: {d.get('old_title') or '-'} -> {d.get('job_title')}, effective {us_date(eff)}."
+            + (" The new pay is on Pay & Benefits from that date." if ev.pay else ""))
+    for to in {ev.created_by, (emp.manager_email or "").lower(), hr_contact} - {"", emp.work_email.lower()}:
+        _notify(db, to, f"{title} signed - {ev.subject_name}", body, ev)
+    _notify(db, emp.work_email.lower(), f"Your {title.lower()} is official",
+            f"Your new role, {d.get('job_title')}, takes effect {us_date(eff)}. The signed letter is in "
+            f"My HR > My Documents.", ev)
+    if periods:
+        labels = ", ".join(p["label"] for p in periods)
+        for to in {ev.created_by, hr_contact} - {""}:
+            from routers.hr import _hr_notify
+            _hr_notify(db, to, f"Review signed timesheets - {ev.subject_name}",
+                       f"The new pay starts {us_date(eff)}, inside timesheets already signed or finalized "
+                       f"({labels}). They were NOT repriced - review and adjust them if needed.",
+                       ref_id=ev.id, requested_by="nexus-sign", action={"view": "hr", "sub": "hr-time"}, priority=1)
+
+
+_APPLY["promotion"] = _apply_promotion
+
+
 # ── Egnyte filing ────────────────────────────────────────────────────────────
 
 def file_one(db: Session, ev: HrLifeEvent) -> tuple:

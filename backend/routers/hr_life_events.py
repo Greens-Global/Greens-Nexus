@@ -158,6 +158,36 @@ def send_hiring_packet(cid: str, body: HirePacketIn, request: Request,
     return out
 
 
+# ── promotion / role change ──────────────────────────────────────────────────
+
+@router.post("/employees/{eid}/promotion/preview")
+def preview_promotion(eid: str, body: HirePacketIn, user: dict = Depends(require_hr_write),
+                      db: Session = Depends(get_db)):
+    try:
+        plan = hle.plan_promotion(db, user, eid, body.inputs or {}, _pay_allowed(body, user, db),
+                                  hr_scope(user, db))
+    except hle.PacketError as e:
+        _raise(e)
+    return hle.promotion_preview_out(plan)
+
+
+@router.post("/employees/{eid}/promotion")
+def send_promotion(eid: str, body: HirePacketIn, request: Request,
+                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.excluded_ack:
+        raise HTTPException(422, "Confirm the letter is not a record excluded from electronic signature.")
+    ip, ua = _client_meta(request)
+    try:
+        ev = hle.send_promotion(db, user, eid, body.inputs or {}, _pay_allowed(body, user, db),
+                                hr_scope(user, db), excluded_ack=True, ip=ip, user_agent=ua)
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+    out["senderPartyId"] = hle.sender_party_id(db, ev, user["email"])
+    return out
+
+
 # ── events ───────────────────────────────────────────────────────────────────
 
 def _event_in_scope(db: Session, ev: HrLifeEvent, scope) -> None:

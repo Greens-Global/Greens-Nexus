@@ -1107,6 +1107,18 @@ export const DOCS = [
         ],
       },
       {
+        title: "Promote or Change Someone's Role",
+        steps: [
+          'Set up the letter once: build it in Documents > Nexus Sign > Templates with an employee role and a manager role (employee first), then pick it in People > Hiring > Packets under Promotion Letter.',
+          'Open the person in People and click Promote (or Change Role).',
+          "Pick the new role, the title in the letter, the effective date (it can be in the past), their new responsibilities and their new pay, then click Review Letter.",
+          'Check the change, the signing order and the Egnyte folder. Any timesheet already signed from that date is listed - it is flagged for review, not repriced.',
+          'Tick the confirmation and click Send For Signature. The employee signs first, then their manager.',
+          "When both have signed, the new role (and its access), the title and the pay take effect - the pay dated from the effective date - and the letter is filed in their Egnyte folder, where they see it in My HR > My Documents. The employee, their manager and the company's HR contact get a bell.",
+          'Settings > Access no longer changes an employee\'s role - it sends you to their People profile. The roles themselves are still set up in Settings.',
+        ],
+      },
+      {
         title: 'Approve Leave',
         steps: [
           'Click the Leave tab (or the bell alert).',

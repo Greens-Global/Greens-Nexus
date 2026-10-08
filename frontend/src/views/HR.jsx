@@ -1,12 +1,13 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
-import { PacketsModal, SendHiringPacketModal, PacketSigner } from '../components/HiringPacket';
+import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents } from '../components/HiringPacket';
+import { PromoteModal } from '../components/HrPersonActions';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
@@ -1349,7 +1350,7 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged }) {
+function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged, onChangeRole }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1394,9 +1395,18 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
             </div>
           ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
           {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
-          <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
-            <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
-          </button>
+          {/* Neil, Oct 8: changing someone's role is an HR action with a
+              letter (Promote / Change Role), not a silent switch. Setting the
+              FIRST role on a new record stays a direct pick. */}
+          {data.job_role && onChangeRole ? (
+            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={onChangeRole}>
+              <Shield size={13} /> Change Role
+            </button>
+          ) : (
+            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
+              <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
+            </button>
+          )}
         </div>
         <div style={_accBox}>
           <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
@@ -1637,6 +1647,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [personalOpen, setPersonalOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
+  const [roleAction, setRoleAction] = useState(null);      // 'promotion' | 'role_change'
+  const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
+  const [eventsKey, setEventsKey] = useState(0);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState(initialTab);
@@ -1765,6 +1779,20 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
+          <>
+            <button className="secondary-btn" onClick={() => setRoleAction('promotion')}
+              title="Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <TrendingUp size={13} /> Promote
+            </button>
+            <button className="secondary-btn" onClick={() => setRoleAction('role_change')}
+              title="Move them to a different role, with a letter they and their manager sign"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <Shield size={13} /> Change Role
+            </button>
+          </>
+        )}
         {isAdmin && (
           <button className="secondary-btn" onClick={removeFromNexus}
             title="Remove this person's Nexus record only - does not touch Microsoft 365"
@@ -1817,6 +1845,17 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
+      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
+      {roleAction && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
+        onClose={() => setRoleAction(null)}
+        onSent={ev => {
+          setRoleAction(null); setEventsKey(n => n + 1);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
+        }} />}
+      <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
+        onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
@@ -1927,7 +1966,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('role_change') : undefined} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 

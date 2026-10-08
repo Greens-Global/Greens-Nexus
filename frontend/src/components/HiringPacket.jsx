@@ -23,7 +23,7 @@ import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 
-const ENABLED_EVENTS = ['hire'];      // promotion / separation arrive with their screens
+const ENABLED_EVENTS = ['hire', 'promotion'];   // separation arrives with Offboard
 const WORKER_LABEL = { any: 'Everyone', employee: 'Employees Only', contractor: 'Contractors Only' };
 const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -404,46 +404,43 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
 }
 
 // ── The packet on a candidate ────────────────────────────────────────────────
-export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChanged, onEvents, toastOk, toastErr }) {
-  const [events, setEvents] = useState(null);
+// One life event (hiring packet, promotion letter, separation package): who
+// has signed, Sign Now for HR's own turn, Void, and where it was filed.
+export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
   const [busy, setBusy] = useState('');
-  const load = () => api.getLifeEvents({ candidateId })
-    .then(rows => { setEvents(rows); onEvents?.(rows); })
-    .catch(() => { setEvents([]); onEvents?.([]); });
-  useEffect(() => { load(); }, [candidateId, refreshKey]);
-  const ev = useMemo(() => (events || []).find(e => e.kind === 'hire') || null, [events]);
-  if (events === null) return <div style={{ padding: '8px 0' }}><Spinner size={16} /></div>;
-  if (!ev) return null;
-
-  const [label, tone] = EVENT_STATUS[ev.status] || [ev.status, 'gray'];
+  const [label, tone] = ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue'] : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
+  const what = ev.title || 'Packet';
   async function act(kind) {
-    if (kind === 'void' && !await dialog.confirm('Void this hiring packet? The new hire can no longer sign it.', { title: 'Void Packet', confirmText: 'Void' })) return;
+    if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed.`, { title: 'Void', confirmText: 'Void' })) return;
     setBusy(kind);
     try {
-      if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk('Packet voided.'); }
-      else { const out = await api.retryLifeEventFiling(ev.id); toastOk(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
-      await load(); onChanged?.();
-    } catch (e) { toastErr(e?.message || 'That did not work.'); }
+      if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
+      else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
+      onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
     setBusy('');
   }
+  const flagged = (ev.flags || []).find(f => f.code === 'signed_timesheets');
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <FileSignature size={14} style={{ color: 'var(--muted)' }} />
-        <b style={{ fontSize: 13 }}>Hiring Packet</b>
+        <b style={{ fontSize: 13 }}>{what}</b>
         <StatusChip label={label} tone={tone} />
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>Sent {formatDateTime(ev.createdAt)}</span>
       </div>
+      {ev.applyNote && ev.status === 'completed' && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}
       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {ev.parties.map(p => (
           <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
             {p.status === 'signed' ? <CheckCircle size={13} style={{ color: 'hsl(var(--color-green))' }} /> : <Clock size={13} style={{ color: 'var(--muted)' }} />}
-            <span style={{ flex: 1 }}>{p.order}. {p.name}{p.isSubject ? '' : ' (company)'}</span>
+            <span style={{ flex: 1 }}>{p.order}. {p.name}{p.isSubject ? '' : ` (${p.role === 'manager' ? 'manager' : 'company'})`}</span>
             <span style={{ color: 'var(--muted)' }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatDateTime(p.signedAt)}` : (PARTY_STATUS[p.status] || p.status)}</span>
           </div>
         ))}
       </div>
       {ev.status === 'declined' && ev.declineReason && <Problem>Declined: {ev.declineReason}</Problem>}
+      {flagged && <Problem>Signed timesheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>}
       {ev.status === 'completed' && (
         <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start',
           color: ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
@@ -454,7 +451,7 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
         </div>
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-        {ev.senderPartyId && (
+        {ev.senderPartyId && onSignNow && (
           <button className="primary-btn" onClick={() => onSignNow(ev.senderPartyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileSignature size={12} /> Sign Now
           </button>
@@ -472,6 +469,33 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
       </div>
     </div>
   );
+}
+
+export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChanged, onEvents, toastOk, toastErr }) {
+  const [events, setEvents] = useState(null);
+  const load = () => api.getLifeEvents({ candidateId })
+    .then(rows => { setEvents(rows); onEvents?.(rows); })
+    .catch(() => { setEvents([]); onEvents?.([]); });
+  useEffect(() => { load(); }, [candidateId, refreshKey]);
+  const ev = useMemo(() => (events || []).find(e => e.kind === 'hire') || null, [events]);
+  if (events === null) return <div style={{ padding: '8px 0' }}><Spinner size={16} /></div>;
+  if (!ev) return null;
+  return <LifeEventCard ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr}
+    onChanged={() => { load(); onChanged?.(); }} />;
+}
+
+// The letters on a person (People > profile): anything still out for
+// signature, plus the latest finished one while it is recent or not filed.
+export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, toastErr }) {
+  const [events, setEvents] = useState([]);
+  const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
+  useEffect(() => { load(); }, [employeeId, refreshKey]);
+  const recent = Date.now() - 14 * 86400000;
+  const shown = events.filter(e => ['awaiting_sender', 'sent'].includes(e.status)
+    || (e.status === 'completed' && (e.filingStatus !== 'filed' || new Date(e.completedAt).getTime() > recent))
+    || (e.status === 'declined' && new Date(e.createdAt).getTime() > recent));
+  if (!shown.length) return null;
+  return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={load} toastOk={toastOk} toastErr={toastErr} />)}</div>;
 }
 
 // Whether a packet is out (so the Offer stage hides "Send" and shows the status).

@@ -1216,6 +1216,8 @@ export const api = {
   getLifeEvents:       ({ candidateId = '', employeeId = '' } = {}) =>
     req(`/hr/life-events?candidate_id=${encodeURIComponent(candidateId)}&employee_id=${encodeURIComponent(employeeId)}`),
   retryLifeEventFiling: (id)      => req(`/hr/life-events/${id}/retry-filing`, { method: 'POST' }),
+  previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
   voidLifeEvent:       (id)       => req(`/hr/life-events/${id}/void`, { method: 'POST' }),
 
   // HR - AI-assisted interviews (Teams invite + questionnaire + scoring)

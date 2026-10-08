@@ -43,12 +43,12 @@ const { PacketsModal, SendHiringPacketModal, HiringPacketStatus } = await import
 const noop = () => {};
 
 describe('PacketsModal', () => {
-  it('shows only the hiring packet for now and starts empty', async () => {
+  it('sets up the hiring packet and the promotion letter, starting empty', async () => {
     render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
     await waitFor(() => expect(screen.getByText('Hiring Packet')).toBeTruthy());
-    expect(screen.queryByText('Promotion Letter')).toBeNull();
-    expect(screen.getByText('No default packet yet.')).toBeTruthy();
-    fireEvent.click(screen.getByText('Packet For Everyone'));
+    expect(screen.getByText('Promotion Letter')).toBeTruthy();
+    expect(screen.getAllByText('No default packet yet.')).toHaveLength(2);
+    fireEvent.click(screen.getAllByText('Packet For Everyone')[0]);
     expect(screen.getByText('Nexus Sign Template')).toBeTruthy();
   });
 });

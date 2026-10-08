@@ -320,6 +320,113 @@ class HiringPacketTests(LifeEventCase):
         self.assertEqual(self._ev(ev.id).status, "sent")      # the hook's writes rolled back alone
 
 
+PROMO_BODY = [
+    "Dear {{first_name}}, your role changes from {{old_title}} to {{new_title}} effective {{effective_date}}.",
+    "Your new responsibilities: {{responsibilities}}. New pay: {{salary}}.",
+    "[[sign:employee]]", "Approved by {{manager}}:", "[[sign:manager]]",
+]
+ERIN = "erin.emp@greensglobal.com"
+HR_ONLY = {"email": HR, "level": 2, "role": "employee"}    # a People editor who is not an IT/Global Admin
+
+
+class PromotionTests(LifeEventCase):
+    """Neil: the letter goes to the employee, then the manager, then it is
+    filed; HR enters the new pay and a date that can be in the past."""
+
+    def setUp(self):
+        super().setUp()
+        for m in (models.NexusGroup, models.NexusGroupMember, models.NexusRole, models.TimeApproval):
+            self.db.query(m).delete()
+        self.db.add(models.HrEntity(id="ent-x", name="Elsewhere"))
+        self.db.query(models.HrEntity).filter_by(id=ENTITY).update({"hr_contact_email": HR})
+        self.db.add(models.NexusEmployee(id="id-erin", work_email=ERIN, first_name="Erin", last_name="Lee",
+                                         company=ENTITY, status="active", manager_email=MGR, job_title="IT Dev Associate I"))
+        self.db.add(models.NexusGroup(id="jr-1", name="IT Dev Associate I", department="IT", is_job_role=1,
+                                      tier="employee", company_id=ENTITY))
+        self.db.add(models.NexusGroup(id="jr-2", name="IT Dev Associate II", department="IT", is_job_role=1,
+                                      tier="employee", company_id=ENTITY))
+        self.db.add(models.NexusGroup(id="jr-admin", name="IT Administrator", department="IT", is_job_role=1,
+                                      tier="administrator", company_id=ENTITY))
+        self.db.add(models.NexusGroupMember(group_id="jr-1", email=ERIN))
+        self.db.add(models.HrSignTemplate(id="tpl-promo", name="Promotion Letter", kind="custom", entity_id=ENTITY,
+                                          body=PROMO_BODY, status="active",
+                                          roles=[{"key": "employee", "label": "Employee", "order": 1},
+                                                 {"key": "manager", "label": "Manager", "order": 2}]))
+        self.db.add(models.HrPacketSetting(id="set-promo", entity_id=ENTITY, event="promotion", worker_type="any",
+                                           template_id="tpl-promo", subject_role="employee"))
+        # Erin already signed the timesheet for 09/06 - 09/19.
+        self.db.add(models.TimeApproval(id="ta-1", employee_email=ERIN, period_start="2026-09-06",
+                                        period_end="2026-09-19", kind="employee_sign", approved_by=ERIN,
+                                        approved_at="2026-09-20T00:00:00", revoked=0, worked_min=4800))
+        self.db.commit()
+
+    def _promote(self, user=HR_ONLY, **kw):
+        inputs = {"change_type": "promotion", "role_id": "jr-2", "effective_date": "2026-09-01",
+                  "responsibilities": "Own the release pipeline"}
+        inputs.update(kw.pop("inputs", {}))
+        pay = kw.pop("pay", {"base": 40, "payBasis": "hourly", "currency": "USD"})
+        return hle.send_promotion(self.db, user, "id-erin", inputs, pay, None, excluded_ack=True)
+
+    def test_employee_then_manager_sign_then_role_pay_and_flags_apply(self):
+        plan = hle.plan_promotion(self.db, HR_ONLY, "id-erin",
+                                  {"role_id": "jr-2", "effective_date": "2026-09-01"},
+                                  {"base": 40, "payBasis": "hourly"}, None)
+        self.assertEqual([p.email for p in plan["parties"]], [ERIN, MGR])
+        self.assertEqual(plan["flags"][0]["label"], "09/06/2026 - 09/19/2026")      # previewed before sending
+        ev = self._promote()
+        self.assertEqual(ev.status, "sent")                                         # employee is first - no HR signature
+        req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
+        self.assertIn("from IT Dev Associate I to IT Dev Associate II", " ".join(req.body_snapshot))
+        self.assertIn("$40.00 per hour", " ".join(req.body_snapshot))
+        self._sign(self._party(req.id, ERIN))
+        self.assertEqual(self._ev(ev.id).status, "sent")
+        self._sign(self._party(req.id, MGR))
+        ev = self._ev(ev.id)
+        self.assertEqual(ev.status, "completed")
+        member = self.db.query(models.NexusGroupMember).filter_by(email=ERIN).all()
+        self.assertEqual([m.group_id for m in member], ["jr-2"])                     # one job role: the new one
+        emp = self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+        self.assertEqual(emp.job_title, "IT Dev Associate II")
+        self.assertEqual((emp.compensation["base"], emp.compensation["effectiveDate"]), (40.0, "2026-09-01"))
+        hist = self.db.query(models.PayrollRateHistory).filter_by(employee_email=ERIN).all()
+        self.assertEqual([h.effective_date for h in hist], ["2026-09-01"])
+        self.assertEqual(ev.flags[0]["periods"][0]["start"], "2026-09-06")           # signed period flagged
+        bells = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).all()}
+        self.assertIn((HR, "Review signed timesheets - Erin Lee"), bells)
+        self.assertIn((ERIN, "Your promotion is official"), bells)
+        self.assertIn((MGR, "Promotion signed - Erin Lee"), bells)
+        # Filed in Erin's folder under Promotion Documents
+        self._run_filing_now()
+        self.assertIn("/Promotion Documents/", self.uploads[0][0])
+
+    def test_hr_cannot_hand_out_an_administrator_role(self):
+        with self.assertRaises(hle.PacketError) as e:
+            self._promote(inputs={"role_id": "jr-admin"})
+        self.assertEqual(e.exception.status, 403)
+
+    def test_a_manager_is_needed_when_the_letter_has_a_manager_signature(self):
+        self.db.query(models.NexusEmployee).filter_by(id="id-erin").update({"manager_email": ""})
+        self.db.commit()
+        with self.assertRaises(hle.PacketError) as e:
+            self._promote()
+        self.assertIn("manager", str(e.exception))
+
+    def test_nothing_changing_is_refused(self):
+        with self.assertRaises(hle.PacketError):
+            self._promote(inputs={"role_id": "jr-1", "job_title": "IT Dev Associate I"}, pay=None)
+
+    def test_no_promotion_letter_set_up(self):
+        self.db.query(models.HrPacketSetting).filter_by(event="promotion").delete()
+        self.db.commit()
+        with self.assertRaises(hle.PacketError) as e:
+            self._promote()
+        self.assertIn("No promotion letter", str(e.exception))
+
+    def test_role_change_without_pay_flags_nothing(self):
+        ev = self._promote(inputs={"change_type": "role_change", "salary_text": "unchanged"}, pay=None)
+        self.assertEqual(ev.flags, [])
+
+
 class SharedHireAndPayTests(LifeEventCase):
     def test_mark_hired_still_builds_the_employee(self):
         out = hr_router.update_candidate("cand-1", hr_router.CandidateUpdate(stage="hired"),
