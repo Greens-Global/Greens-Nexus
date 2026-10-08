@@ -162,7 +162,8 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByRole('tab', { name: /Time Sheet/ })).toBeNull();
     // The answer is remembered for the next visit (per person - the role
     // mock has no email, so the key is the bare prefix).
-    expect(localStorage.getItem('nexus.timeExempt.')).toBe('1');
+    // Written by an effect after the status lands - wait for it (CI once read it before the write).
+    await waitFor(() => expect(localStorage.getItem('nexus.timeExempt.')).toBe('1'));
   }, SLOW);
 
   it('shows a remembered-exempt person no clock skeleton or Hours tile while the status is still loading', async () => {
