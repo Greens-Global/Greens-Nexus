@@ -143,15 +143,25 @@ const TZ_COUNTRY = (() => {
   return out;
 })();
 
-// "Country - City" - for the Dashboard greeting's inline chip. City stays on
-// as the disambiguator for the four US zones (all "United States" alone would
-// be indistinguishable); country is looked up by TZ_COUNTRY rather than
-// derived from the tz string.
+// Countries in TZ_COUNTRY that run more than one clock, so the city has to
+// stay on as the disambiguator ("United States - Denver"). Everything else
+// keeps a single time nationwide and the city is just noise - India is one
+// zone, so "India - Kolkata" reads as if there were an India - Mumbai
+// (Neil, Oct 7). Portugal (Azores vs the mainland), New Zealand (Chatham),
+// Kiribati and the big federations count as multi-zone.
+const MULTI_ZONE_COUNTRIES = new Set([
+  'United States', 'Canada', 'Brazil', 'Portugal', 'Russia', 'Australia',
+  'New Zealand', 'Kiribati',
+]);
+
+// "Country" for a single-zone country, "Country - City" where the country
+// runs several clocks - for the Dashboard greeting's inline chip. Country is
+// looked up by TZ_COUNTRY rather than derived from the tz string.
 export function zoneLabel(tz) {
   const country = TZ_COUNTRY[tz];
   const city = cityOf(tz);
   if (!country) return city;             // zone not in the curated table
-  if (country === city || country === 'UTC') return country;
+  if (country === city || !MULTI_ZONE_COUNTRIES.has(country)) return country;
   return `${country} - ${city}`;
 }
 

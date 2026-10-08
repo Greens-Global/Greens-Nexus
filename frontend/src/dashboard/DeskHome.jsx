@@ -63,7 +63,7 @@ function useCountUp(target, ms = 650) {
 }
 
 // One clock from headerClocks: "7:42 PM" for the viewer's own time,
-// "California 4:42 PM PDT" / "India - Kolkata 8:12 AM" for the others.
+// "California 4:42 PM PDT" / "India 8:12 AM" for the others.
 const ZoneClock = ({ clock, now }) => (
   <>{clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b></>
 );
@@ -147,12 +147,30 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
         </div>
       </div>
       <div className="dk-head-right">
+        {/* The viewer's own time, as big as the greeting, on the row ABOVE the
+            controls - the 12px zones line under the toolbar was too small to
+            read (Neil, Oct 7). The other clocks (California when it differs,
+            the My Profile picks) sit small on the same baseline, before it,
+            so the right side is two rows like the left. On a phone this row
+            is hidden and the time rides in the greeting's sub line instead. */}
+        <div className="dk-clock-row">
+          {clocks.length > 1 && (
+            <div className="dk-zones">
+              {clocks.slice(1).map((c, i) => (
+                <Fragment key={c.tz}>
+                  {i > 0 && <span className="dk-zone-sep" />}
+                  <span><ZoneClock clock={c} now={now} /></span>
+                </Fragment>
+              ))}
+            </div>
+          )}
+          <div className="dk-clock">{formatTimeIn(now, clocks[0].tz)}</div>
+        </div>
         {/* View picker + Customize, moved up here from their own title band
             (Neil, Sep 15) - repeating "Dashboard" under the tab strip plus a
             whole separate control row was pure clutter, stealing real estate
             the greeting/stats should get instead. Session chip sits on the
-            same row as those controls, with the local-time zones line below
-            it (Neil, Sep 15 follow-up). */}
+            same row as those controls (Neil, Sep 15 follow-up). */}
         <div className="dk-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
           <button
@@ -170,14 +188,6 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
               wanted two separate ones, positioned like the old title-band
               layout where "…" was the rightmost element). */}
           {menu}
-        </div>
-        <div className="dk-zones">
-          {clocks.map((c, i) => (
-            <Fragment key={c.tz}>
-              {i > 0 && <span className="dk-zone-sep" />}
-              <span><ZoneClock clock={c} now={now} /></span>
-            </Fragment>
-          ))}
         </div>
       </div>
     </div>

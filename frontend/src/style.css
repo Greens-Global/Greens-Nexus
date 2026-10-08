@@ -3775,6 +3775,17 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
 
 .dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+/* The viewer's own time at the greeting's own size (same clamp, weight and
+   tracking as .dk-head h1, Neil, Oct 7), with the other zones small on its
+   baseline. Tabular digits so the row doesn't jiggle as the seconds tick. */
+.dk-clock-row { display: flex; align-items: baseline; gap: 14px; }
+.dk-clock {
+  font-family: var(--wk-font);
+  font-size: clamp(22px, 2.4vw, 28px); font-weight: 800;
+  letter-spacing: -.015em; line-height: 1.15;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dk-clock-row .dk-zones { font-size: 13px; }
 .dk-zones { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--wk-faint); }
 .dk-zones b { color: var(--wk-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
 .dk-zones .dk-zone-sep { width: 1px; height: 12px; background: var(--wk-line); }
@@ -4008,6 +4019,7 @@ button, [role="button"], select { touch-action: manipulation; }
 @media (max-width: 640px) {
   .dk-head h1 { font-size: 24px; }
   .dk-head-right { width: 100%; align-items: stretch; gap: 0; }
+  .dk-clock-row { display: none; }   /* the time rides in .dk-sub-local on a phone */
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
   .dk-toolbar > * { flex-shrink: 0; }
