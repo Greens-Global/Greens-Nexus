@@ -1205,6 +1205,7 @@ export const api = {
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
   hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
+  hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
 
   // HR - life events through Nexus Sign (hiring packet, Oct 2026)
   getPackets:          ()         => req('/hr/packets'),
@@ -1225,6 +1226,7 @@ export const api = {
   ivSchedule:        (cid, data)  => req(`/hr/candidates/${cid}/interviews`, { method: 'POST', body: JSON.stringify(data) }),
   ivList:            (cid)        => req(`/hr/candidates/${cid}/interviews`),
   ivPatch:           (iid, data)  => req(`/hr/interviews/${iid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  ivCancel:          (iid)        => req(`/hr/interviews/${iid}/cancel`, { method: 'POST' }),
   ivPullTranscript:  (iid)        => req(`/hr/interviews/${iid}/pull-transcript`, { method: 'POST' }),
   ivAutofill:        (iid)        => req(`/hr/interviews/${iid}/autofill`, { method: 'POST' }),
   ivCalibrate:       (iid)        => req(`/hr/interviews/${iid}/calibrate`, { method: 'POST' }),

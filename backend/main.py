@@ -899,6 +899,11 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN m365_sync JSON",
             # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
             "ALTER TABLE hr_candidates ADD COLUMN role_id VARCHAR DEFAULT ''",
+            # Interview scheduling (Neil, Oct 8): who the interview is with. models.HrInterview.
+            "ALTER TABLE hr_interviews ADD COLUMN interviewer_emails JSON",
+            # Questionnaire tied to the role (Neil, Oct 8), plus the General fallback. models.HrInterviewTemplate.
+            "ALTER TABLE hr_interview_templates ADD COLUMN role_ids JSON",
+            "ALTER TABLE hr_interview_templates ADD COLUMN is_general BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2021,6 +2026,11 @@ def _run_migrations():
         "ALTER TABLE hr_life_events ENABLE ROW LEVEL SECURITY",
         # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
+        # Interview scheduling (Neil, Oct 8): who the interview is with. models.HrInterview.
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS interviewer_emails JSON",
+        # Questionnaire tied to the role (Neil, Oct 8), plus the General fallback. models.HrInterviewTemplate.
+        "ALTER TABLE hr_interview_templates ADD COLUMN IF NOT EXISTS role_ids JSON",
+        "ALTER TABLE hr_interview_templates ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -42,19 +42,23 @@ const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.schedul
 // ── Questionnaire templates ───────────────────────────────────────────────────
 export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
   const [tpls, setTpls] = useState(null);
-  const [editing, setEditing] = useState(null);   // {id?, name, text}
+  const [editing, setEditing] = useState(null);   // {id?, name, text, roleIds, isGeneral}
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api.ivTemplates().then(setTpls).catch(() => setTpls([])); }, []);
+  const [roles, setRoles] = useState([]);
+  const loadTpls = () => api.ivTemplates().then(setTpls).catch(() => setTpls([]));
+  useEffect(() => { loadTpls(); api.hiringAllRoles().then(o => setRoles(o.roles || [])).catch(() => {}); }, []);
+  const roleName = id => { const r = roles.find(x => x.id === id); return r ? r.name + (r.companyName ? ` (${r.companyName})` : '') : 'A removed role'; };
 
   const save = async () => {
     const questions = editing.text.split('\n').map(s => s.trim()).filter(Boolean);
     if (!editing.name.trim() || !questions.length) return;
     setBusy(true);
     try {
-      const saved = editing.id
-        ? await api.ivTemplateUpdate(editing.id, { name: editing.name, questions })
-        : await api.ivTemplateCreate({ name: editing.name, questions });
-      setTpls(ts => editing.id ? ts.map(t => t.id === saved.id ? saved : t) : [...ts, saved]);
+      const body = { name: editing.name, questions, role_ids: editing.roleIds || [], is_general: !!editing.isGeneral };
+      editing.id ? await api.ivTemplateUpdate(editing.id, body) : await api.ivTemplateCreate(body);
+      // A role belongs to one questionnaire and there is one General - the
+      // server may have moved links off another one, so reload them all.
+      await loadTpls();
       setEditing(null);
       toastOk?.('Questionnaire saved');
     } catch (e) { toastErr?.(e?.message || 'Could not save'); }
@@ -66,19 +70,39 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={guard.requestClose}>
-      <Head title="Interview Questionnaires" sub="One per role - the questions you ask in the call; AI fills the answers from the transcript" onClose={guard.requestClose} />
+      <Head title="Interview Questionnaires" sub="Linked to roles - an interview uses its role's questionnaire, or the General one, automatically" onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         {editing ? (
           <div>
-            <label style={lbl}>Role name</label>
-            <input className="form-input" style={{ width: '100%' }} value={editing.name} onChange={e => setEditing(ed => ({ ...ed, name: e.target.value }))} placeholder='e.g. "Site Manager"' />
+            <label style={lbl}>Name</label>
+            <input className="form-input" style={{ width: '100%' }} value={editing.name} onChange={e => setEditing(ed => ({ ...ed, name: e.target.value }))} placeholder='e.g. "Site Manager" or "General"' />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '12px 0 2px', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!editing.isGeneral} onChange={e => setEditing(ed => ({ ...ed, isGeneral: e.target.checked }))} style={{ accentColor: 'var(--pine)' }} />
+              General - used for any role that has no questionnaire of its own
+            </label>
+            <label style={lbl}>Used For These Roles</label>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 180, overflowY: 'auto', padding: '6px 10px' }}>
+              {roles.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)', padding: 4 }}>No job roles yet - they are set up in Settings &gt; Access.</div>
+                : roles.map(r => {
+                  const on = (editing.roleIds || []).includes(r.id);
+                  const other = (tpls || []).find(t => t.id !== editing.id && (t.roleIds || []).includes(r.id));
+                  return (
+                    <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', fontSize: 12.5, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} style={{ accentColor: 'var(--pine)' }}
+                        onChange={e => setEditing(ed => ({ ...ed, roleIds: e.target.checked ? [...(ed.roleIds || []), r.id] : (ed.roleIds || []).filter(x => x !== r.id) }))} />
+                      <span style={{ flex: 1 }}>{r.name}{r.companyName ? <span style={{ color: 'var(--muted)' }}> - {r.companyName}</span> : null}</span>
+                      {other && !on && <span style={{ fontSize: 11, color: 'var(--muted)' }}>now: {other.name}</span>}
+                    </label>
+                  );
+                })}
+            </div>
             <label style={lbl}>Questions - one per line</label>
             <textarea className="form-input" rows={10} style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
               value={editing.text} onChange={e => setEditing(ed => ({ ...ed, text: e.target.value }))}
               placeholder={'Walk me through your last role.\nHow would you handle an overdue vendor?\n…'} />
             <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save questionnaire'}</button>
+              <button className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save Questionnaire'}</button>
             </div>
           </div>
         ) : (
@@ -90,10 +114,14 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                   <ClipboardList size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{t.questions.length} question{t.questions.length !== 1 ? 's' : ''}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {t.questions.length} question{t.questions.length !== 1 ? 's' : ''}
+                      {' · '}{t.isGeneral ? 'General' : ''}{t.isGeneral && (t.roleIds || []).length ? ' + ' : ''}
+                      {(t.roleIds || []).length ? (t.roleIds || []).map(roleName).join(', ') : t.isGeneral ? '' : 'Not linked to a role yet'}
+                    </div>
                   </div>
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 12px' }}
-                    onClick={() => setEditing({ id: t.id, name: t.name, text: t.questions.map(q => q.q).join('\n') })}>Edit</button>
+                    onClick={() => setEditing({ id: t.id, name: t.name, text: t.questions.map(q => q.q).join('\n'), roleIds: t.roleIds || [], isGeneral: !!t.isGeneral })}>Edit</button>
                   <button onClick={async () => {
                       if (!await dialog.confirm(`Delete "${t.name}"?`, { title: 'Delete template', confirmText: 'Delete', danger: true })) return;
                       try { await api.ivTemplateDelete(t.id); setTpls(ts => ts.filter(x => x.id !== t.id)); toastOk?.('Template deleted.'); }
@@ -103,8 +131,8 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                 </div>
               ))}
             <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
-              onClick={() => setEditing({ name: '', text: '' })}>
-              <Plus size={14} /> New questionnaire
+              onClick={() => setEditing({ name: '', text: '', roleIds: [], isGeneral: false })}>
+              <Plus size={14} /> New Questionnaire
             </button>
           </>
         )}
@@ -123,17 +151,21 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 
 // ── Interview room for one candidate ──────────────────────────────────────────
 export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
-  const [tpls, setTpls] = useState([]);
   const [list, setList] = useState(null);
   const [sel, setSel] = useState(null);             // selected interview object
-  const [sched, setSched] = useState({ template_id: '', at: '', duration_min: 45 });
   const [busy, setBusy] = useState('');
   const [paste, setPaste] = useState('');
   const [showPaste, setShowPaste] = useState(false);
 
   useEffect(() => {
-    api.ivTemplates().then(setTpls).catch(() => {});
-    api.ivList(c.id).then(l => { setList(l); if (l.length) setSel(l[0]); }).catch(() => setList([]));
+    api.ivList(c.id).then(all => {
+      // Canceled rounds stay in the candidate's history, not in the room. Open
+      // on the round happening now, else the next one, else the latest.
+      const l = all.filter(x => x.status !== 'canceled');
+      setList(l);
+      const pick = l.find(x => x.status === 'live') || [...l].reverse().find(x => x.status === 'scheduled') || l[0];
+      if (pick) setSel(pick);
+    }).catch(() => setList([]));
   }, [c.id]);
 
   const run = (key, fn, okMsg) => async () => {
@@ -144,21 +176,12 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
   };
   const refreshSel = (updated) => { setSel(updated); setList(l => l.map(x => x.id === updated.id ? updated : x)); };
 
-  const schedule = run('sched', async () => {
-    if (!sched.at) return;
-    const created = await api.ivSchedule(c.id, { ...sched, at: new Date(sched.at).toISOString() });
-    setList(l => [created, ...(l || [])]);
-    setSel(created);
-    if (created.inviteSent) toastOk?.('Teams invite sent to the candidate ✓');
-    else toastErr?.(created.graphError || 'Interview saved, but the Teams invite could not be sent');
-  });
-
   const setAnswer = (qid, answer) => refreshSel({ ...sel, answers: sel.answers.map(a => a.qid === qid ? { ...a, answer } : a) });
 
   // A pending "schedule a round" draft or a pasted-but-unsaved transcript would
   // otherwise be silently lost on an overlay click - per-question answers are
   // excluded since those already auto-save onBlur (see onBlur below).
-  const dirty = !!(sched.at || paste.trim());
+  const dirty = !!paste.trim();
   const guard = useUnsavedGuard(dirty, onClose, undefined);
 
   return (
@@ -166,34 +189,10 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
       <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px', flex: 1 }}>
 
-        {/* Schedule a new round */}
-        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14, background: 'var(--mist)' }}>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <label style={lbl}>Questionnaire</label>
-              <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={sched.template_id} onChange={e => setSched(s => ({ ...s, template_id: e.target.value }))}>
-                <option value="">No Questionnaire</option>
-                {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>When</label>
-              <input type="datetime-local" className="form-input" style={{ fontSize: 12.5 }} value={sched.at} onChange={e => setSched(s => ({ ...s, at: e.target.value }))} />
-            </div>
-            <div>
-              <label style={lbl}>Minutes</label>
-              <input type="number" className="form-input" style={{ width: 76, fontSize: 12.5 }} min={15} max={240} value={sched.duration_min} onChange={e => setSched(s => ({ ...s, duration_min: +e.target.value || 45 }))} />
-            </div>
-            <button className="primary-btn" onClick={schedule} disabled={busy === 'sched' || !sched.at}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              {busy === 'sched' ? <Spinner size={13} /> : <Video size={14} />} Send Teams invite
-            </button>
-          </div>
-          <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>The candidate gets a calendar invite with the Teams link on {c.email || 'their email'}.</p>
-        </div>
-
         {/* Rounds */}
-        {list === null ? <Spinner size={16} /> : list.length > 0 && (
+        {list === null ? <Spinner size={16} /> : list.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No interview scheduled yet - schedule it from the candidate.</div>
+        ) : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {list.map(iv => (
               <button key={iv.id} onClick={() => setSel(iv)}
@@ -290,7 +289,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
       {guard.confirming && (
         <UnsavedChangesPrompt
           onKeepEditing={guard.keepEditing}
-          onDiscard={() => { setSched(s => ({ ...s, at: '' })); setPaste(''); onClose(); }}
+          onDiscard={() => { setPaste(''); onClose(); }}
         />
       )}
     </Overlay>

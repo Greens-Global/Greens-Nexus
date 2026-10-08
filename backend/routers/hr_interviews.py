@@ -57,14 +57,16 @@ def _iv_scoped(iv: Optional[HrInterview], user: dict, db: Session) -> HrIntervie
     return iv
 
 
-def _advance_to_interview(db: Session, cand: HrCandidate, by: str, note: str):
+def _advance_to_interview(db: Session, cand: HrCandidate, by: str, note: str, pull_back: bool = False):
     """Pipeline follows the interview lifecycle. Early-stage candidates get
     pulled into Interview; and EVERY milestone (scheduled/started/completed/
     scored) lands in the stage history - so the timeline reads the full story,
-    not just 'scheduled' forever."""
+    not just 'scheduled' forever. `pull_back` (scheduling another round from
+    Offer - Neil, Oct 8: "they've moved from offer back to interview") moves
+    an Offer candidate back to Interview too."""
     if not cand:
         return
-    if cand.stage in ("applied", "screening"):
+    if cand.stage in ("applied", "screening") or (pull_back and cand.stage == "offer"):
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id,
                             from_stage=cand.stage, to_stage="interview",
                             note=note, by_email=by, created_at=_now()))
@@ -111,7 +113,30 @@ def _json_block(text: str):
 
 def _ser_tpl(t: HrInterviewTemplate) -> dict:
     return {"id": t.id, "name": t.name, "questions": t.questions or [],
+            "roleIds": t.role_ids or [], "isGeneral": bool(t.is_general),
             "createdBy": t.created_by, "updatedAt": t.updated_at}
+
+
+def questionnaire_for(db: Session, cand: Optional[HrCandidate]) -> Optional[HrInterviewTemplate]:
+    """The questionnaire an interview uses (Neil, Oct 8: "it should not ask what
+    questionnaire. It should be the questionnaire tied to that role"): the one
+    linked to the candidate's job role, else the General one, else none."""
+    tpls = db.query(HrInterviewTemplate).order_by(HrInterviewTemplate.name).all()
+    role_id = (cand.role_id or "") if cand else ""
+    if role_id:
+        for t in tpls:
+            if role_id in (t.role_ids or []):
+                return t
+    return next((t for t in tpls if t.is_general), None)
+
+
+def _names(db: Session, emails: list) -> dict:
+    from models import NexusEmployee
+    emails = [e for e in (emails or []) if e]
+    if not emails:
+        return {}
+    rows = db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()
+    return {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip() for r in rows}
 
 
 def _ser_iv(i: HrInterview, cand: HrCandidate = None) -> dict:
@@ -119,6 +144,7 @@ def _ser_iv(i: HrInterview, cand: HrCandidate = None) -> dict:
             "candidateName": f"{cand.first_name} {cand.last_name}".strip() if cand else "",
             "templateId": i.template_id, "templateName": i.template_name,
             "status": i.status, "at": i.at, "durationMin": i.duration_min,
+            "organizerEmail": i.organizer_email or "", "interviewerEmails": i.interviewer_emails or [],
             "joinUrl": i.join_url, "hasTranscript": bool(i.transcript),
             "answers": i.answers or [], "totalScore": i.total_score or 0,
             "summary": i.summary or "", "createdAt": i.created_at}
@@ -129,6 +155,23 @@ def _ser_iv(i: HrInterview, cand: HrCandidate = None) -> dict:
 class TemplateIn(BaseModel):
     name: str
     questions: List[str] = []
+    role_ids: Optional[List[str]] = None     # job roles this questionnaire is for
+    is_general: Optional[bool] = None        # the fallback for roles without their own
+
+
+def _apply_template_links(db: Session, t: HrInterviewTemplate, body: TemplateIn) -> None:
+    """Role links + the General flag. A role belongs to ONE questionnaire (the
+    newest link wins, so scheduling is never ambiguous) and there is one General."""
+    if body.role_ids is not None:
+        wanted = [r for r in dict.fromkeys(body.role_ids) if r]
+        for other in db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id != t.id).all():
+            if set(other.role_ids or []) & set(wanted):
+                other.role_ids = [r for r in (other.role_ids or []) if r not in wanted]
+        t.role_ids = wanted
+    if body.is_general is not None:
+        if body.is_general:
+            db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id != t.id).update({"is_general": False})
+        t.is_general = bool(body.is_general)
 
 
 @router.get("/interview-templates")
@@ -145,6 +188,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
                                        for q in body.questions if q.strip()],
                             created_by=user["email"], created_at=_now(), updated_at=_now())
     db.add(t)
+    _apply_template_links(db, t, body)
     db.commit()
     return _ser_tpl(t)
 
@@ -156,6 +200,7 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
         raise HTTPException(404, "Template not found")
     t.name = body.name.strip()[:120] or t.name
     t.questions = [{"id": str(uuid.uuid4())[:8], "q": q.strip()[:500]} for q in body.questions if q.strip()]
+    _apply_template_links(db, t, body)
     t.updated_at = _now()
     db.commit()
     return _ser_tpl(t)
@@ -172,7 +217,7 @@ def delete_template(tid: str, user: dict = Depends(require_hr_write), db: Sessio
 
 def _graph_create_meeting(organizer: str, subject: str, body_text: str,
                           attendee_email: str, attendee_name: str,
-                          start_iso: str, minutes: int) -> dict:
+                          start_iso: str, minutes: int, extra_attendees: Optional[list] = None) -> dict:
     """Create a calendar event with a Teams link - Outlook emails the invite to
     the attendee automatically. Returns {eventId, joinUrl} or raises with a
     human explanation."""
@@ -186,7 +231,9 @@ def _graph_create_meeting(organizer: str, subject: str, body_text: str,
                        "start": {"dateTime": start_iso, "timeZone": "UTC"},
                        "end": {"dateTime": end, "timeZone": "UTC"},
                        "attendees": [{"emailAddress": {"address": attendee_email, "name": attendee_name},
-                                      "type": "required"}],
+                                      "type": "required"}]
+                                    + [{"emailAddress": {"address": a["email"], "name": a.get("name") or a["email"]},
+                                        "type": "required"} for a in (extra_attendees or [])],
                        "isOnlineMeeting": True,
                        "onlineMeetingProvider": "teamsForBusiness",
                    }, timeout=30)
@@ -201,31 +248,98 @@ def _graph_create_meeting(organizer: str, subject: str, body_text: str,
 
 
 class ScheduleIn(BaseModel):
-    template_id: str = ""
+    template_id: str = ""        # '' = the role's questionnaire (or General); 'none' = no questionnaire
     at: str                      # ISO datetime (UTC or with offset)
     duration_min: int = 45
     subject: Optional[str] = ""
+    interviewer_emails: List[str] = []   # who the interview is with - Nexus People; default = the scheduler
+    replace_interview_id: str = ""       # reschedule: cancel this scheduled round first
+
+
+def _graph_cancel_meeting(organizer: str, event_id: str) -> str:
+    """Delete the calendar event (Outlook sends the cancellation). '' = ok."""
+    if not (organizer and event_id):
+        return ""
+    try:
+        r = httpx.delete(f"{_GRAPH}/users/{organizer}/events/{event_id}",
+                         headers={"Authorization": f"Bearer {_graph_token()}"}, timeout=20)
+        return "" if r.status_code in (204, 404) else f"Teams invite not withdrawn ({r.status_code})"
+    except Exception as e:      # the round is canceled in Nexus either way
+        return f"Teams invite not withdrawn ({type(e).__name__})"
+
+
+def _cancel_round(db: Session, iv: HrInterview, cand: HrCandidate, by: str, note: str) -> str:
+    err = _graph_cancel_meeting(iv.organizer_email, iv.event_id)
+    iv.status = "canceled"
+    iv.updated_at = _now()
+    db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage,
+                        to_stage=cand.stage, note=note + (f" - {err}" if err else ""),
+                        by_email=by, created_at=_now()))
+    return err
+
+
+def _next_interview_at(db: Session, cand_id: str, skip_id: str = "") -> str:
+    rows = (db.query(HrInterview).filter(HrInterview.candidate_id == cand_id,
+                                         HrInterview.status.in_(("scheduled", "live")),
+                                         HrInterview.id != skip_id)
+            .order_by(HrInterview.at).all())
+    return rows[0].at if rows else ""
 
 
 @router.post("/candidates/{cid}/interviews")
 def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_hr_write),
                        db: Session = Depends(get_db)):
-    cand = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    """Schedule an interview: date, time, who it is with, and the role's
+    questionnaire. A Teams invite goes to the candidate AND the interviewers
+    (Neil, Oct 8), and the candidate moves to Interview - from Applied/Screening,
+    or back from Offer for another round."""
+    from models import NexusEmployee
+    cand = db.query(HrCandidate).filter(HrCandidate.id == cid).with_for_update().first()
     if not cand:
         raise HTTPException(404, "Candidate not found")
     _cand_scoped(cand, user, db)
     if cand.stage in ("hired", "rejected"):
         raise HTTPException(400, f"{cand.first_name} is already {cand.stage} - no interviews to schedule")
     if not cand.email:
-        raise HTTPException(400, "Candidate has no email - add one first")
-    tpl = db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == body.template_id).first()
+        raise HTTPException(400, "Add the candidate's email first - the invite goes there")
+    try:
+        when = datetime.fromisoformat(body.at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "Pick a valid date and time")
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    at_iso = when.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    me = user["email"].lower()
+    who = [e.strip().lower() for e in (body.interviewer_emails or []) if e and e.strip()] or [me]
+    who = list(dict.fromkeys(who))
+    known = {r.work_email for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(who)).all()}
+    unknown = [e for e in who if e not in known and e != me]
+    if unknown:
+        raise HTTPException(400, f"Interviewers must be in Nexus People: {', '.join(unknown)}")
+
+    replaced = None
+    if body.replace_interview_id:
+        replaced = (db.query(HrInterview).filter(HrInterview.id == body.replace_interview_id,
+                                                  HrInterview.candidate_id == cid).first())
+        if not replaced or replaced.status != "scheduled":
+            raise HTTPException(409, "Only a round that hasn't started can be rescheduled")
+
+    if body.template_id == "none":
+        tpl = None
+    elif body.template_id:
+        tpl = db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == body.template_id).first()
+    else:
+        tpl = questionnaire_for(db, cand)
     cand_name = f"{cand.first_name} {cand.last_name}".strip()
     subject = (body.subject or "").strip() or f"Interview - {cand_name} ({cand.role_title or 'Nexus'})"
+    names = _names(db, who)
+    with_whom = ", ".join(names.get(e, e) for e in who)
 
     iv = HrInterview(id=str(uuid.uuid4()), candidate_id=cid,
                      template_id=tpl.id if tpl else "", template_name=tpl.name if tpl else "",
-                     status="scheduled", at=body.at, duration_min=max(15, min(240, body.duration_min)),
-                     organizer_email=user["email"],
+                     status="scheduled", at=at_iso, duration_min=max(15, min(240, body.duration_min)),
+                     organizer_email=user["email"], interviewer_emails=who,
                      answers=[{"qid": q["id"], "q": q["q"], "answer": "", "score": None, "rationale": ""}
                               for q in (tpl.questions if tpl else [])],
                      created_by=user["email"], created_at=_now(), updated_at=_now())
@@ -235,16 +349,26 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
         meeting = _graph_create_meeting(
             user["email"], subject,
             f"Hi {cand.first_name},\n\nLooking forward to speaking with you. Join with the Teams "
-            f"link in this invite.\n\n- {user['email']}",
-            cand.email, cand_name, body.at.replace("Z", "+00:00"), iv.duration_min)
+            f"link in this invite.\n\nInterviewing: {with_whom}",
+            cand.email, cand_name, at_iso.replace("Z", "+00:00"), iv.duration_min,
+            extra_attendees=[{"email": e, "name": names.get(e, e)} for e in who if e != me])
         iv.event_id = meeting["eventId"]
         iv.join_url = meeting["joinUrl"]
     except HTTPException as e:
         graph_error = str(e.detail)
 
-    cand.interview_at = body.at
+    if replaced:
+        _cancel_round(db, replaced, cand, user["email"], "Interview rescheduled")
+    cand.interview_at = at_iso
     cand.updated_at = _now()
-    _advance_to_interview(db, cand, user["email"], "Interview scheduled - Teams invite sent")
+    _advance_to_interview(db, cand, user["email"],
+                          f"Interview {'rescheduled' if replaced else 'scheduled'} with {with_whom}"
+                          + (" - Teams invite sent" if iv.event_id else ""), pull_back=True)
+    for e in who:
+        if e != me:
+            _hr_notify(db, e, f"Interview - {cand_name}",
+                       f"You're interviewing {cand_name} ({cand.role_title or 'candidate'}) - see the Teams invite.",
+                       ref_id=cand.id, requested_by=user["email"], action={"view": "hr", "sub": "hr-hiring"})
     db.add(iv)
     db.commit()
     out = _ser_iv(iv, cand)
@@ -253,12 +377,29 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
     return out
 
 
+@router.post("/interviews/{iid}/cancel")
+def cancel_interview(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).with_for_update().first(), user, db)
+    if iv.status != "scheduled":
+        raise HTTPException(409, "Only a round that hasn't started can be canceled")
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    err = _cancel_round(db, iv, cand, user["email"], "Interview canceled")
+    cand.interview_at = _next_interview_at(db, cand.id, skip_id=iv.id)
+    cand.updated_at = _now()
+    db.commit()
+    out = _ser_iv(iv, cand)
+    out["graphError"] = err
+    return out
+
+
 @router.get("/candidates/{cid}/interviews")
 def candidate_interviews(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     _cand_scoped(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), user, db)
     rows = (db.query(HrInterview).filter(HrInterview.candidate_id == cid)
             .order_by(HrInterview.created_at.desc()).all())
-    return [_ser_iv(i) for i in rows]
+    names = _names(db, list({e for i in rows for e in (i.interviewer_emails or [])}))
+    return [_ser_iv(i) | {"interviewerNames": [names.get(e, e) for e in (i.interviewer_emails or [])]}
+            for i in rows]
 
 
 class InterviewPatch(BaseModel):

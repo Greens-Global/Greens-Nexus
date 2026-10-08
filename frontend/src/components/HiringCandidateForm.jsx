@@ -13,6 +13,8 @@ import { api } from '../api';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner } from './AsyncState';
+import { SchedulingFields, emptySchedule, scheduleBody, scheduleProblems } from './HiringSchedule';
+import { useRole } from '../contexts/RoleContext';
 
 const OTHER = '__other__';
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
@@ -34,8 +36,13 @@ function initialForm(c) {
   };
 }
 
-export default function CandidateFormModal({ candidate, onClose, onSaved, toastErr, extraSection }) {
+export default function CandidateFormModal({ candidate, onClose, onSaved, toastOk, toastErr }) {
   const editing = !!candidate;
+  const { myEmail } = useRole();
+  // Neil: "schedule interview and upload resume should be a part of the initial add candidate"
+  const [scheduleNow, setScheduleNow] = useState(false);
+  const [sched, setSched] = useState(() => emptySchedule(myEmail));
+  const [tpls, setTpls] = useState([]);
   const [f, setF] = useState(() => initialForm(candidate));
   const start = useRef(JSON.stringify(initialForm(candidate)));
   const [entities, setEntities] = useState([]);
@@ -50,6 +57,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastE
   // Companies come server-filtered: a company-scoped admin only sees (and can
   // only pick) their own, and the backend refuses anything else anyway.
   useEffect(() => { api.getEntities().then(setEntities).catch(() => {}); }, []);
+  useEffect(() => { if (scheduleNow && !tpls.length) api.ivTemplates().then(setTpls).catch(() => {}); }, [scheduleNow]);
   useEffect(() => {
     let live = true;
     setOptsBusy(true);
@@ -87,6 +95,8 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastE
     isOther && !f.department && 'Department',
     email && !EMAIL_RE.test(email) && 'A valid email',
     f.source === 'Other' && !f.source_other.trim() && 'Where they came from',
+    scheduleNow && !email && 'Email (the interview invite goes there)',
+    ...(scheduleNow ? scheduleProblems(sched).map(p => `Interview ${p.toLowerCase()}`) : []),
   ].filter(Boolean);
   const dirty = JSON.stringify(f) !== start.current || !!resume;
 
@@ -108,6 +118,16 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastE
         const form = new FormData(); form.append('file', resume);
         try { saved = await api.candidateResumeUpload(saved.id, form); }
         catch (e) { toastErr(`Saved, but the resume did not upload: ${e?.message || 'try again from the candidate'}`); }
+      }
+      if (!editing && scheduleNow) {
+        // Scheduling at intake means they were screened on the spot - the
+        // server moves them straight to Interview with the Teams invite.
+        try {
+          const iv = await api.ivSchedule(saved.id, scheduleBody(sched));
+          if (iv.inviteSent) toastOk?.('Interview scheduled - Teams invite sent.');
+          else toastErr(`Interview saved, but the Teams invite did not go out: ${iv.graphError || 'unknown error'}`);
+          saved = { ...saved, stage: 'interview' };
+        } catch (e) { toastErr(`Added, but the interview was not scheduled: ${e?.message || 'schedule it from the candidate'}`); }
       }
       onSaved(saved);
       onClose();
@@ -192,7 +212,16 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastE
 
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>Notes</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} /></div>
-          {extraSection}
+          {!editing && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: scheduleNow ? 'var(--mist)' : 'transparent' }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                <input type="checkbox" checked={scheduleNow} onChange={e => setScheduleNow(e.target.checked)} style={{ accentColor: 'var(--pine)' }} />
+                Schedule The Interview Now
+              </label>
+              <div style={hint}>Already screened? Book the interview with the Teams invite in one go - they go straight to Interview.</div>
+              {scheduleNow && <div style={{ marginTop: 12 }}><SchedulingFields value={sched} onChange={setSched} roleId={f.role_id === OTHER ? '' : f.role_id} tpls={tpls} /></div>}
+            </div>
+          )}
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, flexWrap: 'wrap' }}>
           {problems.length > 0 && dirty && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}

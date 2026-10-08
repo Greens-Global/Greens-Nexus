@@ -478,6 +478,23 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
 from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, NexusNotification
 
 _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
+# Moves HR makes by hand (Neil, Oct 8: each stage has its own action). Into
+# Interview only by SCHEDULING one (hr_interviews.schedule_interview) - "the
+# action should not be moved to interview. It should be schedule an interview"
+# - which is also how an Offer goes back for another round. Hired by hand only
+# from Offer (the hiring packet hires by itself when signed).
+_STAGE_MOVES = {
+    "applied":   {"screening", "rejected"},
+    "screening": {"applied", "rejected"},
+    "interview": {"offer", "screening", "rejected"},
+    "offer":     {"hired", "rejected"},
+    "rejected":  {"applied", "screening"},     # reopen
+    "hired":     set(),
+}
+_STAGE_HINTS = {
+    "interview": "Schedule the interview - that moves them to Interview.",
+    "hired": "Hire from Offer - send the hiring packet, or Mark Hired By Hand.",
+}
 
 
 def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
@@ -569,7 +586,8 @@ def _check_candidate_email(email: str) -> str:
 
 
 @router.get("/hiring/options")
-def hiring_options(company_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+def hiring_options(company_id: str = "", all_roles: bool = False,
+                   user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """What the Add Candidate form offers for a company: its job roles (and the
     shared ones) with their departments, its departments, and the sources.
     /jobroles is administrator-only; HR picks a role without that grant."""
@@ -580,7 +598,9 @@ def hiring_options(company_id: str = "", user: dict = Depends(require_hr_read), 
         raise HTTPException(404, "Company not found")
     q = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1)
     roles = [r for r in q.order_by(NexusGroup.name).all()
-             if not (r.company_id or "") or (r.company_id or "") == company_id]
+             if all_roles or not (r.company_id or "") or (r.company_id or "") == company_id]
+    if all_roles and scope is not None:        # questionnaire links: every role HR can see
+        roles = [r for r in roles if not (r.company_id or "") or r.company_id in scope]
     depts = []
     if company_id:
         entity = db.query(HrEntity).filter(HrEntity.id == company_id).first()
@@ -591,8 +611,10 @@ def hiring_options(company_id: str = "", user: dict = Depends(require_hr_read), 
     for r in roles:          # a role's department is always offered, even if the list lacks it
         if r.department and r.department not in depts:
             depts.append(r.department)
+    names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
     return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
-                       "companyId": r.company_id or ""} for r in roles],
+                       "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", "")}
+                      for r in roles],
             "departments": depts, "sources": list(HIRING_SOURCES)}
 
 
@@ -615,10 +637,35 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
     for iv in db.query(HrInterview).filter(HrInterview.status == "scored").all():
         if (iv.total_score or 0) >= best.get(iv.candidate_id, -1):
             best[iv.candidate_id] = iv.total_score or 0
+    # The round that matters on the card: the next one coming up (scheduled or
+    # live), else the latest - with who it is with (Neil, Oct 8: the Interview
+    # column is "the candidates that are up for interview. Here's date and time").
+    ids = [c.id for c in rows]
+    rounds: dict = {}
+    if ids:
+        for iv in (db.query(HrInterview).filter(HrInterview.candidate_id.in_(ids),
+                                                HrInterview.status != "canceled")
+                   .order_by(HrInterview.at).all()):
+            cur = rounds.get(iv.candidate_id)
+            cur_upcoming = cur is not None and cur.status in ("scheduled", "live")
+            if iv.status in ("scheduled", "live"):
+                if not cur_upcoming:          # rows are oldest first: the soonest upcoming wins
+                    rounds[iv.candidate_id] = iv
+            elif not cur_upcoming:            # no upcoming round: the latest one
+                rounds[iv.candidate_id] = iv
+    people = {}
+    emails = {e for iv in rounds.values() for e in (iv.interviewer_emails or [])}
+    if emails:
+        people = {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip()
+                  for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()}
     out = []
     for c in rows:
         d = _ser_candidate(c)
         d["interviewScore"] = round(best[c.id]) if c.id in best else None
+        iv = rounds.get(c.id)
+        d["interview"] = None if not iv else {
+            "id": iv.id, "at": iv.at, "status": iv.status, "templateName": iv.template_name or "",
+            "interviewers": [people.get(e, e) for e in (iv.interviewer_emails or [])]}
         out.append(d)
     return out
 
@@ -710,6 +757,9 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
             raise HTTPException(400, f"stage must be one of {_STAGES}")
+        if body.stage not in _STAGE_MOVES.get(row.stage, set()):
+            raise HTTPException(409, _STAGE_HINTS.get(body.stage)
+                                or f"A candidate in {row.stage} can't move to {body.stage}.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))

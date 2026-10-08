@@ -2637,6 +2637,8 @@ class HrInterviewTemplate(Base):
     id         = Column(String, primary_key=True)   # uuid
     name       = Column(String, nullable=False)     # role, e.g. "Site Manager"
     questions  = Column(JSON, default=list)         # [{id, q}]
+    role_ids   = Column(JSON, default=list)         # job roles (NexusGroup.id) this questionnaire is FOR - picked automatically at scheduling
+    is_general = Column(Boolean, default=False)     # the fallback for a role with no questionnaire of its own
     created_by = Column(String, default="")
     created_at = Column(String, default="")
     updated_at = Column(String, default="")
@@ -2654,6 +2656,7 @@ class HrInterview(Base):
     at              = Column(String, default="")          # ISO start
     duration_min    = Column(Integer, default=45)
     organizer_email = Column(String, default="")
+    interviewer_emails = Column(JSON, default=list)   # who the interview is with (Nexus People) - invited with the candidate
     event_id        = Column(String, default="")          # Graph calendar event
     join_url        = Column(String, default="")          # Teams join link
     answers         = Column(JSON, default=list)          # [{qid, q, answer, score, rationale}]
