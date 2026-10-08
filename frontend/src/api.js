@@ -2052,7 +2052,7 @@ export const api = {
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
   //    timeStatus / timeMy / timeMySchedule / timesheetReviewWaiting. ──
   getMyWork:            ()         => req(`/me/work?tz_offset_min=${new Date().getTimezoneOffset()}`),
-  getMyTeamToday:       ()         => req('/me/team/today'),
+  getMyTeamToday:       ()         => req(`/me/team/today?tz_offset_min=${new Date().getTimezoneOffset()}`),
   getMyTeamOverdue:     ()         => req('/me/team/overdue'),
   getAnnouncements:     ()         => req('/announcements'),
   createAnnouncement:   (body)     => req('/announcements', { method: 'POST', body: JSON.stringify(body) }),
