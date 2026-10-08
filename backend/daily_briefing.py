@@ -165,6 +165,17 @@ def _fmt_date(iso_str: str) -> str:
         return iso_str or ""
 
 
+def _since(*stamps) -> dict:
+    """The row's `since` key - when this item started waiting on the person -
+    from the first timestamp that exists, or no key at all when the source
+    row never recorded one (never an invented "now"). The page sends it on as
+    `createdAt`; the email templates read their own keys and never see it."""
+    for v in stamps:
+        if v:
+            return {"since": v}
+    return {}
+
+
 def _sentence(text: str) -> str:
     """First letter upper-cased, the rest left alone (so task codes and names
     inside the text keep their own casing)."""
@@ -320,25 +331,32 @@ def _item_action_rows(db: Session, email: str, is_manager: bool) -> list:
               .filter(models.ItemCheckout.status == "pending",
                       models.ItemCheckout.approver_email == email).all()):
         rows.append({"title": f"Approve checkout: {c.item_name}",
-                     "detail": f"Requested by {c.requested_by}", "url": items_url, "module": "items"})
+                     "detail": f"Requested by {c.requested_by}", "url": items_url, "module": "items",
+                     **_since(c.created_at)})
     for c in (db.query(models.ItemCheckout)
               .filter(models.ItemCheckout.status == "approved",
                       models.ItemCheckout.assigned_allocator_email == email).all()):
+        # Waiting on the allocator since the approval (resolved_at), not the ask.
         rows.append({"title": f"Hand over: {c.item_name}",
-                     "detail": f"Approved for {c.requested_by}", "url": items_url, "module": "items"})
+                     "detail": f"Approved for {c.requested_by}", "url": items_url, "module": "items",
+                     **_since(c.resolved_at, c.created_at)})
     for c in (db.query(models.ItemCheckout)
               .filter(models.ItemCheckout.status == "pending_receipt",
                       models.ItemCheckout.requested_by_email == email).all()):
         rows.append({"title": f"Confirm receipt: {c.item_name}",
-                     "detail": "Handed over - confirm you received it", "url": items_url, "module": "items"})
+                     "detail": "Handed over - confirm you received it", "url": items_url, "module": "items",
+                     **_since(c.handed_over_at, c.created_at)})
     for a in (db.query(models.ItemAssignment)
               .filter(models.ItemAssignment.status == "pending_acceptance",
                       models.ItemAssignment.assignee_email == email).all()):
         rows.append({"title": f"Accept assignment: {a.item_name}",
-                     "detail": f"Assigned by {a.assigned_by}", "url": items_url, "module": "items"})
+                     "detail": f"Assigned by {a.assigned_by}", "url": items_url, "module": "items",
+                     **_since(a.created_at)})
     if is_manager:
         for c in (db.query(models.ItemCheckout)
                   .filter(models.ItemCheckout.extension_status == "pending").all()):
+            # No `since`: the extension ask stamps no time of its own and the
+            # checkout's created_at is the original request, not this wait.
             rows.append({"title": f"Approve extension: {c.item_name}",
                          "detail": f"{c.requested_by} requested {c.extension_days} more day(s)",
                          "url": items_url, "module": "items"})
@@ -375,15 +393,19 @@ def _ticket_action_rows(db: Session, email: str) -> list:
             "url": _ticket_url(ticket_id=t.id, for_requester=False),
             "module": "tickets",
             "action_kind": "ticket_approval", "action_id": t.id, "action_email": email,
+            # The approver is named at intake, so the wait starts with the ticket.
+            **_since(t.created_at),
         })
     for t in (db.query(models.TaskTicket)
               .filter(models.TaskTicket.assignee_email == email,
                       models.TaskTicket.status.notin_(["resolved", "closed"])).all()):
         rows.append({
             "ref": _ticket_ref(t.code), "title": t.subject,
-            "detail": f"Assigned to you - {(t.status or 'new').replace('_', ' ').capitalize()}",
+            # Title Case status label, the same one the ticket emails use.
+            "detail": f"Assigned to you - {ticket_mail_templates.status_label(t.status or 'new')}",
             "url": _ticket_url(ticket_id=t.id, for_requester=False),
             "module": "tickets",
+            **_since(t.created_at),
         })
     return rows
 
@@ -453,6 +475,9 @@ def _esign_action_rows(db: Session, email: str) -> list:
             "detail": "Signature required",
             "url": f"{app_url()}{_ESIGN_URL}",
             "module": "documents",
+            # A party records no notified_at, so the envelope's send is the
+            # closest honest start of the wait.
+            **_since(req.created_at),
         })
     return rows
 
@@ -523,6 +548,9 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
             # from the email (via the confirm page, not a bare GET - see
             # briefing_mail_actions.py for why).
             "action_kind": "task_approval", "action_id": t.id, "action_email": email,
+            # Nothing records when approval was asked for, so the task's own
+            # creation is the start of the wait.
+            **_since(t.created_at),
         })
     if my_reports:
         # One card per employee, not one per request - a person with several
@@ -550,6 +578,7 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                     # decision - a bundled card (below) covers several requests
                     # at once and there is no single Approve to bind the link to.
                     "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
+                    **_since(r.created_at),
                 })
             else:
                 types = {leave(r) for r in reqs}
@@ -569,7 +598,10 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
                         "detail": f"{_fmt_date(r.start_date)} - {_fmt_date(r.end_date)}" +
                                   ("" if same_type else f" ({leave(r)})"),
                         "action_kind": "timeoff_approval", "action_id": r.id, "action_email": email,
+                        **_since(r.created_at),
                     } for r in reqs],
+                    # The card has waited as long as its oldest request.
+                    **_since(min((r.created_at for r in reqs if r.created_at), default="")),
                 })
     rows.extend(_timecard_rows(db, email))
     rows.extend(_timesheet_review_rows(db, email))
@@ -597,15 +629,17 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
               .filter(models.PunchRequest.status == "pending",
                       func.lower(models.PunchRequest.employee_email).in_(reports)).all()):
         what = (f"add a {_PUNCH_KIND.get(r.punch_kind, r.punch_kind)}" if r.action == "add" else "remove a punch")
-        by_person.setdefault((r.employee_email or "").lower(), {"req": [], "edit": []})["req"].append(
-            (r.local_date or "", f"{what} on {_fmt_date(r.local_date)}"))
+        got = by_person.setdefault((r.employee_email or "").lower(), {"req": [], "edit": [], "since": []})
+        got["req"].append((r.local_date or "", f"{what} on {_fmt_date(r.local_date)}"))
+        got["since"].append(r.created_at)
     for p in (db.query(models.TimePunch)
               .filter(models.TimePunch.edit_status == "pending",
                       func.lower(models.TimePunch.employee_email).in_(reports)).all()):
         if p.voided:
             continue
-        by_person.setdefault((p.employee_email or "").lower(), {"req": [], "edit": []})["edit"].append(
-            (p.local_date or "", f"a new {_PUNCH_KIND.get(p.kind, p.kind)} time on {_fmt_date(p.local_date)}"))
+        got = by_person.setdefault((p.employee_email or "").lower(), {"req": [], "edit": [], "since": []})
+        got["edit"].append((p.local_date or "", f"a new {_PUNCH_KIND.get(p.kind, p.kind)} time on {_fmt_date(p.local_date)}"))
+        got["since"].append(p.edited_at)
     rows = []
     for em, got in by_person.items():
         emp = my_reports.get(em)
@@ -620,6 +654,8 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
             # is a request; a proposed time sits on the person's time card.
             "url": f"{app_url()}/hr/{'hr-time-requests' if got['req'] else 'hr-time'}",
             "module": "timecard",
+            # One row per person: it has waited as long as the oldest fix.
+            **_since(min((x for x in got["since"] if x), default="")),
         })
     return rows
 
@@ -648,10 +684,13 @@ def _shift_request_rows(db: Session, email: str, my_reports: dict) -> list:
         label = sr._KIND_LABEL.get(r.kind, r.kind)
         if r.status == "pending_peer":
             rows.append({"title": f"Respond: shift {label} from {names.get(r.requester_email, r.requester_email)}",
-                         "detail": sr._describe(r, names), "url": f"{app_url()}/shifts/mine", "module": "shifts"})
+                         "detail": sr._describe(r, names), "url": f"{app_url()}/shifts/mine", "module": "shifts",
+                         **_since(r.created_at)})
         else:
+            # A swap/offer reaches the manager only once the peer accepted.
             rows.append({"title": f"Approve: {label} request", "detail": sr._describe(r, names),
-                         "url": f"{app_url()}/shifts/schedule", "module": "shifts"})
+                         "url": f"{app_url()}/shifts/schedule", "module": "shifts",
+                         **_since(r.peer_decided_at, r.created_at)})
     return rows
 
 
@@ -673,6 +712,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             # the same place the bell opens; no HR grant needed to reach it.
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
+            **_since(q.get("submittedAt")),
         })
     return rows
 
@@ -697,14 +737,19 @@ def _timecard_rows(db: Session, email: str) -> list:
     needs_action = signed is None or signed["stale"]
     if not needs_action:
         return []
+    # `since` is the moment the reminder started, not a stored stamp: the
+    # Confirm row first shows two days before the period closes, the Submit
+    # row the moment it has closed (midnight after the last day, local).
     if 0 <= days_to_close <= 2:
         return [{"title": "Confirm your time card",
                  "detail": f"Pay period closes {_fmt_date(end)} - review and sign off before it locks",
-                 "url": f"{app_url()}/timeclock", "module": "timecard"}]
+                 "url": f"{app_url()}/timeclock", "module": "timecard",
+                 **_since((end_d - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00"))}]
     if days_to_close == -1:
         return [{"title": "Submit your time card",
                  "detail": f"Pay period ending {_fmt_date(end)} is closed - sign off is still open",
-                 "url": f"{app_url()}/timeclock", "module": "timecard"}]
+                 "url": f"{app_url()}/timeclock", "module": "timecard",
+                 **_since((end_d + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00"))}]
     return []
 
 
@@ -1622,10 +1667,15 @@ def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
         "path": url[len(base):] if base and url.startswith(base) else url,
         "comments": row.get("comments") or [],
     }
+    if row.get("since"):
+        # When the item started waiting on this person - the My Day widget
+        # shows "3d" / "5h" from it and sorts oldest first.
+        out["createdAt"] = row["since"]
     if row.get("action_kind"):
         out["decision"] = {"kind": row["action_kind"], "id": row["action_id"]}
     if row.get("sub_actions"):
-        out["subDecisions"] = [{"detail": x["detail"], "kind": x["action_kind"], "id": x["action_id"]}
+        out["subDecisions"] = [{"detail": x["detail"], "kind": x["action_kind"], "id": x["action_id"],
+                                **({"createdAt": x["since"]} if x.get("since") else {})}
                                for x in row["sub_actions"]]
     if row.get("task_id"):
         out["taskId"] = row["task_id"]

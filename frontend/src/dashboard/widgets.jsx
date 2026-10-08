@@ -5,11 +5,11 @@ import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   Ticket,
-  ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
+  ClipboardList, HandCoins, CalendarDays, Timer, Megaphone, Sun, Briefcase, Hourglass,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
-  Ticket as TicketIcon, CloudSun,
+  Ticket as TicketIcon, CloudSun, Search,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
@@ -33,12 +33,6 @@ const WeatherWidget = lazy(() => import('./weatherWidget.jsx'));
 const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
 const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
 const TeamTimePanel     = lazyPanel('TeamTimePanel');
-const OccupancyPanel    = lazyPanel('OccupancyPanel');
-const FacilitiesPanel   = lazyPanel('FacilitiesPanel');
-const TasksPanel        = lazyPanel('TasksPanel');
-const WorkloadPanel     = lazyPanel('WorkloadPanel');
-const ProjectsPanel     = lazyPanel('ProjectsPanel');
-const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
 const CalendarPanel     = lazyPanel('CalendarPanel');
 
 // Workday tiles (phase 2, Sep 24) - own lazy chunk, same idea as panels.jsx.
@@ -54,6 +48,17 @@ const TicketQueueWidget      = lazyTeam('TicketQueueWidget');
 const TimeExceptionsWidget   = lazyTeam('TimeExceptionsWidget');
 const OutTodayWidget         = lazyTeam('OutTodayWidget');
 const PendingPurchasesWidget = lazyTeam('PendingPurchasesWidget');
+
+// Essentials (Oct 7) - one file per tile so each is its own chunk and loads
+// only when that tile is on the board.
+const MyDayWidget         = lazy(() => import('./essentials/MyDay.jsx'));
+const MyWorkWidget        = lazy(() => import('./essentials/MyWork.jsx'));
+const MyTimeWidget        = lazy(() => import('./essentials/MyTime.jsx'));
+const AnnouncementsWidget = lazy(() => import('./essentials/Announcements.jsx'));
+const MyTeamWidget        = lazy(() => import('./essentials/MyTeam.jsx'));
+// Accounting tiles (Oct 1) - the ledger search, for people with the grant.
+const lazyAccounting = (name) => lazy(() => import('./accountingWidgets.jsx').then(m => ({ default: m[name] })));
+const FindTransactionWidget = lazyAccounting('FindTransactionWidget');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
@@ -789,7 +794,10 @@ const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
-  'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 4 }, render: TimeClockWidget },
+  // A two-row stat tile since Sep 29 (was 3x3 with its own header + button):
+  // maxH 2 so every saved board shrinks with it on load, minW 3 so today
+  // and the week fit on one baseline.
+  'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 2 }, limits: { minW: 3, minH: 2, maxW: 4, maxH: 2 }, render: TimeClockWidget },
   'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget },
   'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget },
   'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget },
@@ -819,19 +827,38 @@ export const WIDGETS = {
   approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
   'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
   'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager' },
-  'team-workload': { title: 'Workload by Employee', cat: 'Team',    icon: Users,         size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 8, maxH: 8 },  render: WorkloadPanel,     minRole: 'supervisor' },
-  'team-projects': { title: 'Project-Wise Tasks', cat: 'Team',      icon: FolderKanban,  size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 8, maxH: 7 },  render: ProjectsPanel,     minRole: 'supervisor' },
-  'team-calendar': { title: 'Team Calendar',      cat: 'Team',      icon: CalendarDays,  size: { w: 6, h: 3 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 5 }, render: TeamCalendarPanel, minRole: 'supervisor' },
   // Phase 3 (Sep 25). Tickets is a supervisor module; the time-off list,
   // punch exceptions and purchases are manager-level on the server.
   'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor' },
   'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager' },
   'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager' },
   'pending-purchases': { title: 'Pending Purchases', cat: 'Team', icon: ShoppingCart, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: PendingPurchasesWidget, minRole: 'manager' },
-  occupancy:       { title: 'Occupancy Trend',    cat: 'Portfolio', icon: TrendingUp,    size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 9, maxH: 6 },  render: OccupancyPanel },
-  facilities:      { title: 'Facilities',         cat: 'Portfolio', icon: Building2,     size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 7 }, render: FacilitiesPanel },
-  'tasks-list':    { title: 'Tasks Overview',     cat: 'Portfolio', icon: ListTodo,      size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 },  render: TasksPanel },
+  // Essentials (Oct 7): the five tiles the dashboard plan calls the daily
+  // core. Not in DEFAULT_PERSONAL / ROLE_EXTRAS - people add them from the
+  // gallery. The sample-data Portfolio widgets (Occupancy Trend, Facilities,
+  // Tasks Overview) and the mocked Team analytics (Workload by Employee,
+  // Project-Wise Tasks, Team Calendar) were removed the same day; a saved
+  // layout that still carries one of those keys renders CustomDashboard's
+  // "Unknown widget" card, never a crash.
+  'my-day':        { title: 'My Day',        cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget },
+  'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget },
+  'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 6, maxH: 8 },  render: MyTimeWidget },
+  announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget },
+  'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor' },
+  // Oct 1: a module-gated tile - `module` names the Access Group grant that
+  // opens it (administrators bypass, same rule as the Accounting screen and
+  // the backend's require_module_grant). No minRole: a Viewer-level grant is enough.
+  'find-transaction': { title: 'Find a Transaction', cat: 'Accounting', icon: Search, size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: FindTransactionWidget, module: 'accounting', moduleLabel: 'Accounting' },
 };
+
+// May this person see (render, or pick from the gallery) a widget? Role level
+// (can(minRole)) OR the 'manager-dashboard' grant for role-tiered tiles; a
+// `module` tile asks the module grant instead (`moduleLevel`, default viewer).
+// CustomDashboard.jsx reads this for both the grid and the Add Widget gallery.
+export function widgetAllowed(def, { can, myGrantedModules, canAccessModule }) {
+  if (def.module && !canAccessModule?.(def.module, 'administrator', def.moduleLevel || 'viewer')) return false;
+  return !def.minRole || can(def.minRole) || !!myGrantedModules?.has('manager-dashboard');
+}
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).
 export function clampToLimits(it) {

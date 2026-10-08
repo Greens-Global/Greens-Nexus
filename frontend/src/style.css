@@ -1071,6 +1071,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 /* â”€â”€ Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* A wide table scrolls inside its panel instead of being clipped by the
+   panel's overflow: hidden (phones, Oct 1). */
+.req-table-wrapper { overflow-x: auto; max-width: 100%; }
 .req-table th {
   text-align: left;
   font-size: 10px;
@@ -3694,6 +3697,12 @@ button, [role="button"], select { touch-action: manipulation; }
     margin-bottom: 20px;
     border-bottom: 1px solid var(--line);
     padding-bottom: 1px;
+    /* Pinned while the page scrolls (Oct 1, Neil: Accounting on a phone) -
+       every tab stays one tap away however long the statement below is. */
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    background: var(--bg-primary);
   }
 }
 
@@ -3775,6 +3784,17 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
 
 .dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+/* The viewer's own time at the greeting's own size (same clamp, weight and
+   tracking as .dk-head h1, Neil, Oct 7), with the other zones small on its
+   baseline. Tabular digits so the row doesn't jiggle as the seconds tick. */
+.dk-clock-row { display: flex; align-items: baseline; gap: 14px; }
+.dk-clock {
+  font-family: var(--wk-font);
+  font-size: clamp(22px, 2.4vw, 28px); font-weight: 800;
+  letter-spacing: -.015em; line-height: 1.15;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.dk-clock-row .dk-zones { font-size: 13px; }
 .dk-zones { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--wk-faint); }
 .dk-zones b { color: var(--wk-dim); font-weight: 600; font-variant-numeric: tabular-nums; }
 .dk-zones .dk-zone-sep { width: 1px; height: 12px; background: var(--wk-line); }
@@ -3980,6 +4000,8 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-board { grid-template-columns: repeat(2, 1fr); }
   .dk-main { grid-template-columns: 1fr; }
   .dk-head-right { align-items: flex-start; }
+  /* Left-aligned here, so the big clock leads and the small zones follow. */
+  .dk-clock-row { flex-direction: row-reverse; justify-content: flex-end; }
 }
 @media (max-width: 560px) {
   .dk-board { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -4006,8 +4028,18 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-head { padding-top: 0; gap: 8px; }
 }
 @media (max-width: 640px) {
-  .dk-head h1 { font-size: 24px; }
-  .dk-head-right { width: 100%; align-items: stretch; gap: 0; }
+  /* Phone: the big clock keeps the top-right corner (Neil, Oct 7). The two
+     column wrappers dissolve (display: contents) so the header's own pieces
+     land on a grid - greeting | clock on the first row, the date line and
+     the scrolling toolbar full-width beneath. Only the small zones hide;
+     California rides in the date line (.dk-sub-local). */
+  .dk-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 0; align-items: start; }
+  .dk-head-left, .dk-head-right { display: contents; }
+  .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 1; }
+  .dk-clock-row { grid-column: 2; grid-row: 1; }
+  .dk-clock { font-size: 24px; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; }
+  .dk-toolbar { grid-column: 1 / -1; grid-row: 3; }
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
   .dk-toolbar > * { flex-shrink: 0; }
@@ -4623,12 +4655,20 @@ body.links-dragging .app-tile-tooltip { opacity: 0 !important; visibility: hidde
 /* The tile the ghost is resting on: its icon swells and a soft ring appears
    behind it - "let go and these two become a folder" (or "…join this
    folder"). */
-.app-tile-fold-target .app-tile-icon-wrap { transform: scale(1.14); }
+.app-tile-fold-target .app-tile-icon-wrap { transform: scale(1.2); }
 .app-tile-fold-target .app-tile-body::before {
-  content: ''; position: absolute; left: 50%; top: 30px; width: 86px; height: 86px; margin: -43px 0 0 -43px;
-  border-radius: 26px; background: var(--wk-brand-tint); box-shadow: inset 0 0 0 2px var(--wk-brand);
+  content: ''; position: absolute; left: 50%; top: 30px; width: 104px; height: 104px; margin: -52px 0 0 -52px;
+  border-radius: 30px; background: var(--wk-brand-tint);
+  box-shadow: inset 0 0 0 2.5px var(--wk-brand), 0 0 0 6px color-mix(in srgb, var(--wk-brand) 18%, transparent);
   animation: fold-ring .22s cubic-bezier(.2,.8,.2,1) both; z-index: -1;
 }
+/* The opened tile stands above its neighbors so the ring is never clipped
+   by the tile sliding in beside it (Oct 8: the ring is wider than the
+   carried tile, so it shows past the ghost's edges). */
+.app-tile-fold-target { z-index: 2; }
+/* The carried tile thins out over an opened target so the ring reads
+   through it. */
+.app-tile-ghost.over-target { opacity: .82; }
 @keyframes fold-ring { from { transform: scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (hover: none) {
   /* The always-visible action row sits above the icon here (24px + 2px),

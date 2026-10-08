@@ -4,13 +4,14 @@
    mirror it and poll. */
 import { useState, useEffect, useRef } from 'react';
 import { isBypassing } from '../lib/dialogGuard';
-import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
+import { Camera, CheckCircle, XCircle, RotateCcw, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
 import { api } from '../api';
 import { emailToName } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { usePeopleDirectory } from '../lib/queries';
 import { toViewUrl } from '../lib/storageView';
+import { Spinner } from './AsyncState';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -258,11 +259,11 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
         {tab === 'person' ? (
           <button className="primary-btn" disabled={!chosen || busy || sameAsCurrent} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submitPerson}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <User size={14} />} {reassign ? 'Start reassignment' : 'Assign'}
+            {busy ? <Spinner size={14} /> : <User size={14} />} {reassign ? 'Start reassignment' : 'Assign'}
           </button>
         ) : (
           <button className="primary-btn" disabled={busy || !locChanged} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submitLocation}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <MapPin size={14} />} Set location
+            {busy ? <Spinner size={14} /> : <MapPin size={14} />} Set location
           </button>
         )}
       </div>
@@ -376,7 +377,7 @@ function DeclineAssignmentModal({ a, onClose, onDone, toast }) {
               .then(() => { toast('Assignment declined.'); onDone(); })
               .catch(e => { setError(e?.message || 'Could not decline.'); setBusy(false); });
           }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={14} />} Decline
+          {busy ? <Spinner size={14} /> : <XCircle size={14} />} Decline
         </button>
       </div>
     </ModalShell>
@@ -410,7 +411,7 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
               toast(`${a.itemName} is now assigned to you.`); onDone();
             } catch (e) { setError(e?.message || 'Could not accept.'); setBusy(false); }
           }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Accept assignment
+          {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Accept assignment
         </button>
       </div>
     </ModalShell>
@@ -453,7 +454,7 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
               toast('Return submitted - a supervisor will verify and accept it.'); onDone();
             } catch (e) { setError(e?.message || 'Could not submit return.'); setBusy(false); }
           }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Submit return
+          {busy ? <Spinner size={14} /> : <RotateCcw size={14} />} Submit return
         </button>
       </div>
     </ModalShell>
@@ -600,7 +601,7 @@ function CancelAssignmentBody({ a, onClose, onDone, toast, onBusy }) {
       <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep Assigned</button>
       <button onClick={go} disabled={busy}
         style={{ background: 'hsl(var(--color-red))', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
-        {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={13} />}
+        {busy ? <Spinner size={13} /> : <XCircle size={13} />}
         {recover ? 'Force recover' : 'Cancel assignment'}
       </button>
     </div>
@@ -636,7 +637,7 @@ function AcceptReturnBody({ a, onClose, onDone, toast, onBusy }) {
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
         <button className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
           onClick={() => { setBusy(true); onBusy?.(true); api.acceptAssignmentReturn(a.id, { disposition: dispo }).then(() => { toast('Return accepted.'); onDone(); }).catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); onBusy?.(false); }); }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Confirm
+          {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Confirm
         </button>
       </div>
     </>

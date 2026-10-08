@@ -1385,9 +1385,9 @@ function AppTile({
   );
 }
 
-function AddAppTile({ label, onClick }) {
+function AddAppTile({ label, onClick, testId }) {
   return (
-    <button type="button" className="app-tile app-tile-add" onClick={onClick}>
+    <button type="button" className="app-tile app-tile-add" onClick={onClick} data-testid={testId}>
       <div className="app-tile-add-icon"><Plus size={22} /></div>
       <span className="app-tile-name">{label}</span>
     </button>
@@ -1564,8 +1564,10 @@ function FolderModal({
         )}
         <div style={{ padding: '20px 24px' }}>
           {memberEntries.length === 0 ? (
-            <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
-              Empty - drop an app onto this folder's tile to add it here.
+            <p data-testid="folder-empty-hint" style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
+              {folder.item_type === 'personal'
+                ? 'Empty - drag an app onto this folder\'s tile to add it here.'
+                : 'Empty - drag an app onto this folder\'s tile, or use Move to Folder on an app.'}
             </p>
           ) : (
             <AppGrid gridRef={gridRef} jiggle={jiggle}>
@@ -1635,7 +1637,9 @@ function FolderModal({
 // tile rendered at the end, after every folder/item (Personal Links' "Add
 // Link", which creates a brand-new PersonalLink row rather than organizing
 // existing ones - Company Links has no equivalent since new Company Links
-// are only ever added from Manage).
+// are only ever added from Manage). Both tabs start with a "New Folder"
+// tile (Neil, Oct 8) that makes an empty folder at the front of the folders
+// and opens it for naming - see createEmptyFolder.
 //
 // Drag-and-drop (Sep 22) is the phone home-screen model, run by
 // useTileDrag: tiles slide aside live, resting one on another folds them
@@ -1781,6 +1785,25 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
     });
     setTimeout(() => { setFreshFolderId(id); showFolder(id); }, 0);
   };
+  // The New Folder tile (Neil, Oct 8): an empty folder at the FRONT of the
+  // folders, opened straight into rename. It is a Customize edit like any
+  // other arrangement change (Save / Done decide its fate), so from browse
+  // mode the click enters Customize first. An empty folder is kept as long
+  // as the person keeps it - nothing here, in the layout hook or in the
+  // backend drops a folder for having no items; only dragging the LAST app
+  // out of a folder removes it (pruneEmptyFolder - the phone's rule).
+  const createEmptyFolder = () => {
+    const id = newFolderId();
+    if (!editable) onRequestEdit?.();
+    mutate(prev => ({
+      ...prev,
+      folders: [
+        ...prev.folders.map(f => ((f.item_type || 'external') === sourceType ? { ...f, position: f.position + 1 } : f)),
+        { id, name: 'New Folder', position: 0, item_type: sourceType },
+      ],
+    }));
+    setTimeout(() => { setFreshFolderId(id); showFolder(id); }, 0);
+  };
   const renameFolder = (folderId, name, mutateFn = mutate) => mutateFn(prev => ({ ...prev, folders: prev.folders.map(f => f.id === folderId ? { ...f, name } : f) }));
   const deleteFolder = (folderId, mutateFn = mutate) => mutateFn(prev => {
     const topPositions = prev.items.filter(i => i.folder_id === null).map(i => i.position);
@@ -1810,7 +1833,9 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
         drag.commitWithFlip('top', () => applyTopOrder(order, mutate));
       } else {
         const folderId = scope.slice(7);
-        drag.commitWithFlip(scope, () => reorderWithinFolder(folderId, order.map(k => parseKey(k).entry), immediateMutate));
+        // Live in browse mode, part of the draft while Customizing - see
+        // folderCommit below.
+        drag.commitWithFlip(scope, () => reorderWithinFolder(folderId, order.map(k => parseKey(k).entry), editable ? mutate : immediateMutate));
       }
     },
     onFold: (scope, dragKey, targetKey, fromFolderScope) => {
@@ -1837,13 +1862,17 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   });
 
   const openFolder = folders.find(f => f.id === openFolderId) || null;
+  // Always fully interactive regardless of the outer Customize mode (Aug
+  // 14) - organizing an already-open folder is lightweight and expected to
+  // just work, same posture as favoriting, so in browse mode every mutator
+  // here saves right away (`immediateMutate`). While Customize is on, the
+  // folder's changes join the draft instead (`mutate`, Save / Done decide) -
+  // the same rule the eject and fold paths below already follow. Saving
+  // live mid-Customize wrote the WHOLE unsaved draft to the server and, from
+  // Home, reloaded the views and closed the panel under the person - which
+  // is what renaming a folder made by the New Folder tile ran into (Oct 8).
+  const folderCommit = editable ? mutate : immediateMutate;
   const folderPanel = openFolder && (
-    // Always fully interactive regardless of the outer Customize mode
-    // (Aug 14) - organizing an already-open folder is lightweight and
-    // expected to just work, same posture as favoriting. Every mutator
-    // here goes through `immediateMutate` (saves right away) instead of
-    // `mutate` (the dirty-tracked draft that needs an explicit Save
-    // while Customizing the main screen).
     <FolderModal
       folder={openFolder}
       memberEntries={folderMembers(openFolder.id)}
@@ -1851,15 +1880,15 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
       actionCtx={actionCtx}
       editable={true} jiggle={editable && view !== 'list'}
       onClose={closeFolder}
-      onRename={(name) => renameFolder(openFolder.id, name, immediateMutate)}
+      onRename={(name) => renameFolder(openFolder.id, name, folderCommit)}
       onDeleteFolder={() => {
         if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
-        deleteFolder(openFolder.id, immediateMutate);
+        deleteFolder(openFolder.id, folderCommit);
         closeFolder();
       }}
-      onMoveOut={(entry, destId) => moveToFolder(entry, destId, immediateMutate)}
+      onMoveOut={(entry, destId) => moveToFolder(entry, destId, folderCommit)}
       allFolders={folders}
-      onCreateFolder={(entry) => createFolderWithItem(entry, immediateMutate)}
+      onCreateFolder={(entry) => createFolderWithItem(entry, folderCommit)}
       drag={drag} scope={`folder:${openFolder.id}`} scopesRef={scopesRef}
       ejecting={ejectingFolderId === openFolder.id}
       startRenaming={freshFolderId === openFolder.id}
@@ -1874,6 +1903,8 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
     return (
       <>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <LinksListRow icon={<Plus size={17} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
+            name="New Folder" onOpen={createEmptyFolder} />
           {folders.map((f) => {
             const members = folderMembers(f.id).map(e => resolveEntryLink(itemsById, e)).filter(Boolean);
             return (
@@ -1908,6 +1939,10 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   return (
     <>
       <AppGrid gridRef={gridRef} jiggle={editable}>
+        {/* First in the grid, before folders and apps (Neil, Oct 8). Not a
+            drag slot: the engine only measures registered tiles, so the
+            carried icon over this tile is "over nothing". */}
+        <AddAppTile label="New Folder" onClick={createEmptyFolder} testId="new-folder-tile" />
         {folders.map((f) => {
           const key = folderKeyOf(f);
           return (

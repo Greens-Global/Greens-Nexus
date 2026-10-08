@@ -1,9 +1,9 @@
-"""Automatic "What's New" drafting (Sept 2026).
+"""Automatic "What's New" publishing (Sept 2026, PR-based since Oct 2026).
 
-The changelog has had a "Generate from git" button in Manage since July: pull
-recent commits, let Claude fold them into plain-English, user-facing entries,
-file them as Pending Review for an admin to publish. Nothing ever pressed it
-on a schedule, so the review queue only filled when somebody remembered.
+The changelog has had a "Generate from git" button in Manage since July. Since
+Oct 2026 it publishes one entry per merged feature PR (changelog_prs.py) -
+no review queue, and Claude only polishes the wording when it can. Nothing
+ever pressed the button on a schedule, so this loop does.
 
 This loop presses it - on the deployed API only, dev and prod. It calls
 routers.task_config.generate_changelog_from_commits, the same function the
@@ -39,12 +39,13 @@ Gating, three layers, each answering a different question:
 Env:
   NEXUS_CHANGELOG_AUTO=false             turn the loop off (default on)
   NEXUS_CHANGELOG_INTERVAL_HOURS=24      backstop sweep interval (default 24)
-  NEXUS_CHANGELOG_AUTHOR=...             authorId stamped on generated drafts
-  NEXUS_CHANGELOG_MERGE_DELAY_MINUTES=5  wait after a merge before drafting
+  NEXUS_CHANGELOG_AUTHOR=...             authorId stamped on published entries
+  NEXUS_CHANGELOG_MERGE_DELAY_MINUTES=5  wait after a merge before publishing
   NEXUS_CHANGELOG_MAX_DEFER_MINUTES=30   cap on how far a merge burst defers
-Plus what the generation itself needs on the server: ANTHROPIC_API_KEY,
-GITHUB_TOKEN (Contents:Read), NEXUS_CHANGELOG_BRANCH=main on prod, and
-GITHUB_WEBHOOK_SECRET for the push webhook.
+Plus what the generation itself needs on the server: GITHUB_TOKEN (Contents:
+Read, and Pull requests: Read for the PR descriptions), GITHUB_WEBHOOK_SECRET
+for the push webhook, and optionally ANTHROPIC_API_KEY (+ NEXUS_CHANGELOG_MODEL)
+for the wording polish.
 """
 import asyncio
 import json
@@ -197,12 +198,14 @@ def mark_due_after_merge(reason: str = "merge") -> str:
 def status(db) -> dict:
     """The persisted schedule in plain fields, for What's New. Before this the
     only trace of a failing sweep was a log line nobody reads."""
-    from routers.task_config import _AI_MODEL, tracked_branch
+    from changelog_prs import polish_model
+    from routers.task_config import tracked_branch
     s = _read_state(db)
     return {
         "enabled": _enabled(),
         "branch": tracked_branch(),
-        "model": _AI_MODEL,
+        "model": polish_model(),
+        "polishNote": s.get("last_polish_error", ""),
         "nextRunAt": s.get("next_run_at", ""),
         "lastRunAt": s.get("last_run_at", ""),
         "lastCreated": s.get("last_created", 0),
@@ -225,6 +228,35 @@ def record_manual(db, result: dict) -> None:
                           "last_reason": "manual", "last_error": ""})
 
 
+# ── One runner at a time ───────────────────────────────────────────────────
+
+def try_lock(db):
+    """Postgres advisory lock shared by the sweep and the Check for Updates
+    button, so the two can never publish the same PR twice. Returns a handle
+    for unlock(), or None when someone else holds it; always granted off
+    Postgres (tests, a laptop). Held on a connection of its own: the run
+    commits along the way, and a Session hands its connection back to the
+    pool on commit, so an unlock through the Session could land on a
+    different connection and leave the lock stuck."""
+    if db.bind.dialect.name != "postgresql":
+        return True
+    conn = db.bind.connect()
+    if conn.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY}).scalar():
+        return conn
+    conn.close()
+    return None
+
+
+def unlock(lock) -> None:
+    if lock is None or lock is True:
+        return
+    try:
+        lock.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})
+        lock.commit()
+    finally:
+        lock.close()
+
+
 # ── One sweep (sync - always called via asyncio.to_thread) ─────────────────
 
 def _sweep() -> dict | None:
@@ -233,13 +265,11 @@ def _sweep() -> dict | None:
     from routers.task_config import generate_changelog_from_commits
 
     db = SessionLocal()
-    is_pg = db.bind.dialect.name == "postgresql"
-    locked = False
+    locked = None
     try:
-        if is_pg:
-            locked = bool(db.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": _LOCK_KEY}).scalar())
-            if not locked:
-                return None     # another worker is mid-sweep
+        locked = try_lock(db)
+        if not locked:
+            return None     # another worker is mid-sweep, or someone clicked Check for Updates
         state = _read_state(db)
         if not _due(state):
             return None
@@ -268,9 +298,7 @@ def _sweep() -> dict | None:
         result["reason"] = reason
         return result
     finally:
-        if is_pg and locked:
-            db.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})
-            db.commit()
+        unlock(locked)
         db.close()
 
 
@@ -292,12 +320,12 @@ async def changelog_generate_loop():
                     print(f"[changelog] auto-sweep ({trigger}) failed, retrying in "
                           f"{_RETRY_HOURS}h: {result['error']}")
                 elif created:
-                    print(f"[changelog] auto-drafted {created} update(s) from "
-                          f"{result.get('scanned', 0)} commit(s) via {result.get('source')} "
-                          f"({trigger}) - pending review")
+                    print(f"[changelog] published {created} update(s) from "
+                          f"{result.get('scanned', 0)} merged PR(s) ({trigger})"
+                          + (f" - without AI wording: {result['polishNote']}" if result.get("polishNote") else ""))
                 else:
-                    print(f"[changelog] auto-sweep ({trigger}) found nothing to draft "
-                          f"({result.get('message', 'no user-facing commits')})")
+                    print(f"[changelog] auto-sweep ({trigger}) found nothing to publish "
+                          f"({result.get('message', 'no user-facing pull requests')})")
         except Exception as e:      # noqa: BLE001
             print(f"[changelog] auto-sweep failed: {e}")
         await asyncio.sleep(_POLL_SECONDS)

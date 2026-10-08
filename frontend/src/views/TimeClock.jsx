@@ -24,6 +24,7 @@ import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
+import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -915,15 +916,17 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const showReview = tab === 'timesheet' && toReview > 0;
   // Whether this person is time-tracking exempt, before /time/status answers
   // (Neil, 10/06: the Time Sheet tab showed for a moment, then vanished, on
-  // every visit). The last answer is remembered per person; with none, the
-  // tab waits for the answer instead of guessing.
-  const exemptKey = `nexus.timeExempt.${(myEmail || '').toLowerCase()}`;
-  const [exemptGuess] = useState(() => { try { const v = localStorage.getItem(exemptKey); return v === null ? null : v === '1'; } catch { return null; } });
-  const exempt = status ? !!status.timeTrackingExempt : (exemptGuess ?? true);
+  // every visit; 10/08: so did the clock card's skeleton). The last answer is
+  // remembered per person (lib/timeTracking - the floating timer writes it
+  // too, so it is usually known before Workday is ever opened). `known` is
+  // null only when nothing has ever answered for this person on this browser:
+  // then the tab waits and the card holds its place with a skeleton.
+  const [exemptGuess] = useState(() => recallTimeExempt(myEmail));
+  const exemptKnown = status ? !!status.timeTrackingExempt : exemptGuess;
+  const exempt = exemptKnown ?? true;
   useEffect(() => {
-    if (!status) return;
-    try { localStorage.setItem(exemptKey, status.timeTrackingExempt ? '1' : '0'); } catch { /* private window */ }
-  }, [status, exemptKey]);
+    if (status) rememberTimeExempt(myEmail, status.timeTrackingExempt);
+  }, [status, myEmail]);
   const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Review opens that employee's full timecard in People > Time - only for
   // those who can open it (administrator, or the HR grant - App.jsx's gate).
@@ -1017,11 +1020,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       </div>
     </div>
   );
-  const clockWidget = (firstName) => ({ intro: clockIntro(firstName), card: clockCard(), shift: todayShift });
+  // `exempt` travels with the widget so Overview's Hours tile can hide itself
+  // on the remembered answer too, instead of waiting on /time/me.
+  const clockWidget = (firstName) => ({ intro: clockIntro(firstName), card: clockCard(), shift: todayShift, exempt: exemptKnown });
   // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
   // off, please take it off so the data that's coming in is relevant") - the
-  // old "Time Tracking Is Off for You" note was a card about nothing.
-  const clockCard = () => status?.timeTrackingExempt ? null : (
+  // old "Time Tracking Is Off for You" note was a card about nothing. Not
+  // even its loading skeleton (10/08): the remembered answer decides before
+  // the status comes back.
+  const clockCard = () => exemptKnown ? null : (
     <div style={{ marginBottom: 18 }}>
       {showLongBanner && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
@@ -1249,7 +1256,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
       {tab === 'overview' && (
-        <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={status?.timeTrackingExempt ? undefined : () => setTab('timesheet')} />
+        <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
