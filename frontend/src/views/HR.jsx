@@ -1736,7 +1736,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             <Camera size={11} />
           </span>
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* min width: with HR's actions in the header (Promote / Change Role /
+            Offboard) the buttons wrap to a second line instead of squeezing
+            the name into a one-word column. */}
+        <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
           <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {fullName(e)}
             {e.identityType && e.identityType !== 'internal' && (

@@ -412,7 +412,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
   const what = ev.title || 'Packet';
   async function act(kind) {
     if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed.`, { title: 'Void', confirmText: 'Void' })) return;
-    if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding' })) return;
+    if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding', cancelText: 'Keep It' })) return;
     setBusy(kind);
     try {
       if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
@@ -450,7 +450,9 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
         ))}
       </div>
       {ev.status === 'declined' && ev.declineReason && <Problem>Declined: {ev.declineReason}</Problem>}
-      {flagged && <Problem>Signed timesheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>}
+      {flagged && (ev.status === 'completed'
+        ? <Problem>Signed timesheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>
+        : <Problem>The new pay starts {usDay(ev.effectiveDate)}, inside timesheets already signed ({flagged.periods.map(x => x.label).join(', ')}). They will not be repriced - review them once this is signed.</Problem>)}
       {ev.status === 'completed' && (
         <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start',
           color: ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>

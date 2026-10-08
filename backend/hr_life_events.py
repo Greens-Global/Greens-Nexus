@@ -225,7 +225,7 @@ def ser_event(db: Session, ev: HrLifeEvent, *, show_pay: bool) -> dict:
     if req:
         for p in (db.query(HrSignParty).filter(HrSignParty.request_id == req.id)
                   .order_by(HrSignParty.ordinal).all()):
-            parties.append({"id": p.id, "name": p.name, "email": p.email, "status": p.status,
+            parties.append({"id": p.id, "name": p.name, "email": p.email, "status": p.status, "role": p.role_key,
                             "order": p.ordinal, "signedAt": p.signed_at or "",
                             "isSubject": p.email == (ev.subject_email or "").lower()})
     out = {
@@ -435,14 +435,23 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
 
 
 def sender_party_id(db: Session, ev: HrLifeEvent, email: str) -> str:
-    """The party the sender signs as right now, if it is their turn."""
-    if ev.status != "awaiting_sender" or not ev.sign_request_id:
+    """The party THIS viewer signs as right now, if it is their turn - HR's
+    own signature at send, or the manager's on a promotion letter - so Sign
+    Now is on the person's card instead of buried in Documents."""
+    if ev.status not in ACTIVE or not ev.sign_request_id:
+        return ""
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
+    if not req or req.status != "pending":
         return ""
     p = (db.query(HrSignParty)
          .filter(HrSignParty.request_id == ev.sign_request_id, HrSignParty.email == (email or "").lower(),
                  HrSignParty.status.in_(("waiting", "notified", "viewed")))
          .order_by(HrSignParty.ordinal).first())
-    return p.id if p else ""
+    if not p or p.kind != "internal":
+        return ""
+    if (req.routing or "sequential") == "sequential" and p.ordinal != (req.current_order or 1):
+        return ""
+    return p.id
 
 
 # ── Nexus Sign callbacks (routers/esign.py _link_hook) ───────────────────────

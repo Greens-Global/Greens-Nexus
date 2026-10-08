@@ -87,7 +87,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
             {[['promotion', 'Promotion'], ['role_change', 'Role Change']].map(([k, l]) => (
               <button key={k} type="button" onClick={() => { setChangeType(k); setPreview(null); }}
                 style={{ padding: '6px 14px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                  border: `1.5px solid ${changeType === k ? 'var(--pine)' : 'var(--line)'}`, background: changeType === k ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: 'var(--ink)' }}>{l}</button>
+                  border: `1.5px solid ${changeType === k ? 'var(--pine)' : 'var(--line)'}`, background: changeType === k ? 'var(--pine)' : 'var(--card)', color: changeType === k ? '#fff' : 'var(--ink)' }}>{l}</button>
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, flexWrap: 'wrap' }}>
