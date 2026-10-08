@@ -223,7 +223,7 @@ def _note(note: str, sender: dict, accent: str) -> str:
             + '</td></tr></table></td></tr></table>')
 
 
-def _docs(docs: list, accent: str = "#15803d", status: str = "Ready to sign") -> str:
+def _docs(docs: list, accent: str = "#15803d", status: str = "Ready to Sign") -> str:
     """Each document as its own row: a PDF badge, the name, and where it stands."""
     if not docs:
         return ""
