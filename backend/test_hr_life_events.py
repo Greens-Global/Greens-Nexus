@@ -254,6 +254,15 @@ class HiringPacketTests(LifeEventCase):
         with self.assertRaises(hle.PacketError):
             self._send()
 
+    def test_the_preview_says_when_the_letter_never_shows_pay(self):
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(salary_text="$40 per hour"), None, None)
+        self.assertTrue(hle.preview_out(plan)["payInLetter"])
+        self.db.query(models.HrSignTemplate).update({"body": [p.replace(" at {{salary}}", "") for p in BODY]})
+        self.db.commit()
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(salary_text="$40 per hour"), None, None)
+        out = hle.preview_out(plan)
+        self.assertEqual((out["payInLetter"], out["salaryText"], out["unresolved"]), (False, "$40 per hour", []))
+
     def test_one_packet_at_a_time(self):
         self._send()
         with self.assertRaises(hle.PacketError) as e:

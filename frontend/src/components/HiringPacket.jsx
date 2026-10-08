@@ -94,7 +94,7 @@ const Head = ({ title, sub, onClose }) => (
     <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
   </div>
 );
-const Problem = ({ children }) => (
+export const Problem = ({ children }) => (
   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '8px 12px', fontSize: 12, marginTop: 8 }}>
     <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>{children}</span>
   </div>
@@ -465,6 +465,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
                 <b>Rehire:</b> {preview.rehire.name} ({preview.rehire.employeeCode || 'no code'}) is already in People as {preview.rehire.status}. When they sign, that record is reactivated as Onboarding - no second record is created.
               </div>
             )}
+            {preview.salaryText && preview.payInLetter === false && <Problem>This packet's letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
             {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
               <span style={{ fontSize: 12.5 }}>{name} gets the welcome email with a link to sign.</span>
@@ -518,7 +519,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
   const [label, tone] = ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue'] : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
   const what = ev.title || 'Packet';
   async function act(kind) {
-    if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed.`, { title: 'Void', confirmText: 'Void' })) return;
+    if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed. To change the pay or any other detail, void it and send a new one with the new values - a letter that is out is never edited.`, { title: 'Void', confirmText: 'Void' })) return;
     if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding', cancelText: 'Keep It' })) return;
     setBusy(kind);
     try {

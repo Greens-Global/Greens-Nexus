@@ -141,6 +141,14 @@ def pay_text(pay: dict) -> str:
     return f"{amount} {per}".strip()
 
 
+def pay_in_letter(tpl) -> bool:
+    """Whether the template's letter prints the pay HR types ({{salary}} in
+    its body). Pay typed for a template that never shows it is stored and
+    applied but the person never reads it - the preview says so (Pranshu,
+    Oct 8)."""
+    return any("{{salary}}" in str(p) for p in (tpl.body or []))
+
+
 def _safe_name(s: str, limit: int = 80) -> str:
     return re.sub(r'[\\/:*?"<>|]+', " ", s or "").strip()[:limit] or "Document"
 
@@ -557,7 +565,7 @@ def preview_out(plan: dict) -> dict:
         "unresolved": plan["unresolved"], "emailMessage": plan["setting"].email_message or "",
         "egnyteSubfolder": plan["subfolder"], "startDate": plan["details"]["start_date"],
         "expiresOn": plan["details"]["offer_expires"],
-        "salaryText": plan["merge"].get("salary", ""),
+        "salaryText": plan["merge"].get("salary", ""), "payInLetter": pay_in_letter(tpl),
         "jobTitle": plan["details"]["job_title"], "newRole": plan["details"]["new_role_name"],
         "rehire": ({"employeeId": former.id, "employeeCode": former.employee_code or "",
                     "name": f"{former.first_name} {former.last_name}".strip(), "status": former.status or ""}
@@ -979,7 +987,8 @@ def promotion_preview_out(plan: dict) -> dict:
         "unresolved": plan["unresolved"], "emailMessage": plan["setting"].email_message or "",
         "egnyteSubfolder": plan["subfolder"], "effectiveDate": d["effective_date"],
         "fromTitle": d["old_title"], "toTitle": d["job_title"], "fromRole": d["old_role_name"], "toRole": d["role_name"],
-        "salaryText": plan["merge"].get("salary", ""), "signedPeriods": plan["flags"],
+        "salaryText": plan["merge"].get("salary", ""), "payInLetter": pay_in_letter(tpl),
+        "signedPeriods": plan["flags"],
     }
 
 

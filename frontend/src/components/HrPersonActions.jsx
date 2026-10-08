@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle, LogOut } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
-import { usDay, EmailPreviewModal } from './HiringPacket';
+import { usDay, EmailPreviewModal, Problem } from './HiringPacket';
 import { usePeopleDirectory } from '../lib/queries';
 import PersonSearchSelect from './PersonSearchSelect';
 
@@ -145,6 +145,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>The Change</div>
                   <div style={{ fontSize: 12.5 }}>{preview.fromTitle || '-'} to <b>{preview.toTitle}</b>, effective <b>{usDay(preview.effectiveDate)}</b>{preview.salaryText ? <> at <b>{preview.salaryText}</b></> : null}</div>
+                  {preview.salaryText && preview.payInLetter === false && <Problem>This letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>
