@@ -1,4 +1,4 @@
-// "Documentation & Changelog" - a company-wide feed of release notes, reached from
+// "What's New" (was "Documentation & Changelog") - a company-wide feed of release notes, reached from
 // the top-right profile dropdown (NOT the Tasks module). Standalone: it manages its
 // own state via api.js + useRole/useNameResolver, so it needs no TasksProvider.
 // Renders as a full-screen overlay.
@@ -218,7 +218,7 @@ export default function Changelog({ onClose }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Documentation &amp; Changelog</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>What&apos;s New</div>
           <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
         </div>
         <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
