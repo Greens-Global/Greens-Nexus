@@ -2051,7 +2051,7 @@ export const api = {
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
   //    timeStatus / timeMy / timeMySchedule / timesheetReviewWaiting. ──
-  getMyWork:            ()         => req('/me/work'),
+  getMyWork:            ()         => req(`/me/work?tz_offset_min=${new Date().getTimezoneOffset()}`),
   getMyTeamToday:       ()         => req('/me/team/today'),
   getMyTeamOverdue:     ()         => req('/me/team/overdue'),
   getAnnouncements:     ()         => req('/announcements'),
