@@ -1235,6 +1235,8 @@ export const api = {
   syncM365TwoWayStatus: () => req('/hr/employees/sync-m365-two-way/status'),
   pushToEntra:       (empId)        => req(`/hr/employees/${empId}/push-to-entra`, { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
+  // Office & contact both ways with Microsoft 365, for one person, now (Oct 7).
+  syncEmployeeM365:  (empId)        => req(`/hr/employees/${empId}/m365-sync`, { method: 'POST', timeoutMs: 30000 }),
 
   // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),

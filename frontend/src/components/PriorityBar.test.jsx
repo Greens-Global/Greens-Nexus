@@ -41,13 +41,15 @@ describe('PriorityBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     expect(onNavigate).toHaveBeenCalledWith('hr', 'hr-time');
     expect(markRead).toHaveBeenCalledWith('a');
-    // Opening does NOT click it off: the bar is still showing it.
-    expect(dismiss).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert', { name: 'Priority notice' }).textContent).toContain('Timesheet to review');
+    // Opening clears the notice (Neil, 10/08): it goes to the bell's Closed
+    // list the same way the X does. (The mock keeps it in the list, so the
+    // bar still shows it here - the dismiss call is what matters.)
+    expect(dismiss).toHaveBeenCalledWith('a');
     // The person the notice names is handed to the Time screen, so it opens on THEIR timecard.
     await waitFor(() => expect(opened).toHaveBeenCalledWith({ email: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' }));
     // The pending note waits for a Time screen that is still loading.
     expect(takePendingOpen('timecard')).toEqual({ email: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' });
+    dismiss.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Next notice' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close notice' }));
     expect(dismiss).toHaveBeenCalledWith('b');
