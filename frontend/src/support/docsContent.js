@@ -1101,7 +1101,7 @@ export const DOCS = [
         title: 'Set Up a Hiring Packet',
         steps: [
           'In People > Hiring, click Packets. Pick the company (or Default for every company without its own). Under Hiring Packet click Add Packet.',
-          'Name the packet and pick the job roles it is for - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own; a role can be in one packet only.',
+          'Name the packet and pick the job role it is for from the dropdown, which lists every role the company has - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own; a role can be in one packet only.',
           "Upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several. Click Place Fields: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so one packet serves every pay; Start Date, Job Title and the others work the same way.",
           'Check the signers (Company Representative, then Employee / Candidate - the new hire signs last), write the welcome note for the email, set the Egnyte subfolder (blank uses Hiring Documents), and click Save Packet.',
         ],

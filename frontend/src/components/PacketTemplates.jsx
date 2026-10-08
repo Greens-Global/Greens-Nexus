@@ -112,7 +112,6 @@ export function PacketEditor({ packet, event, eventLabel, companyId, companyName
     let key = slug(label); while (roles.some(r => r.key === key)) key += '_';
     set('roles', [...roles, { key, label, order: roles.length + 1 }]);
   };
-  const toggleRole = (id) => set('roleIds', t.roleIds.includes(id) ? t.roleIds.filter(x => x !== id) : [...t.roleIds, id]);
   async function save() {
     setBusy(true);
     try {
@@ -143,27 +142,15 @@ export function PacketEditor({ packet, event, eventLabel, companyId, companyName
           <label style={lbl}>Packet Name</label>
           <input className="form-input" style={{ width: '100%' }} value={t.name} onChange={e => set('name', e.target.value)} placeholder={`e.g. ${eventLabel} - IT`} autoFocus />
 
-          <label style={lbl}>For Which Roles</label>
+          <label style={lbl}>For Which Role</label>
           {companyRoles === null ? <Spinner size={14} /> : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button type="button" onClick={() => set('roleIds', [])}
-                style={{ borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                  border: `1.5px solid ${t.roleIds.length === 0 ? 'var(--pine)' : 'var(--line)'}`, background: t.roleIds.length === 0 ? 'var(--mist)' : 'var(--card)', color: 'var(--ink)' }}>
-                Every role
-              </button>
-              {companyRoles.map(r => {
-                const on = t.roleIds.includes(r.id);
-                return (
-                  <button key={r.id} type="button" onClick={() => toggleRole(r.id)}
-                    style={{ borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                      border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'var(--mist)' : 'var(--card)', color: 'var(--ink)' }}>
-                    {on ? '✓ ' : ''}{r.name}{r.department ? <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {r.department}</span> : null}
-                  </button>
-                );
-              })}
-            </div>
+            <select className="form-input" style={{ width: '100%', maxWidth: 420 }} value={t.roleIds[0] || ''}
+              onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
+              <option value="">Every role</option>
+              {companyRoles.map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+            </select>
           )}
-          <div style={hint}>Pick the job roles this packet is for - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own. A role can be in one packet only.</div>
+          <div style={hint}>Every role the company has is listed. Pick one to give that role its own packet - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own.</div>
 
           <label style={lbl}>Documents</label>
           {t.attachments.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your {eventLabel.toLowerCase()} - the offer letter, NDA and the rest can be one merged PDF or several.</div>}
