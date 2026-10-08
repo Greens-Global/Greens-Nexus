@@ -18,7 +18,7 @@ vi.mock('../api', () => ({
   },
 }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'max@x.com', name: 'Max' }] }) }));
-vi.mock('./ESign', () => ({ SignModal: () => null }));
+vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 
 const { OffboardModal } = await import('./HrPersonActions');
 const erin = { id: 'e1', firstName: 'Erin', lastName: 'Lee', jobTitle: 'Analyst', workEmail: 'erin@x.com', personalEmail: 'erin@gmail.com', managerEmail: 'max@x.com' };

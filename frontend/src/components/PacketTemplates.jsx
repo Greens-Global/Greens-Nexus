@@ -1,0 +1,246 @@
+// Packet templates - the documents a company sends through Nexus Sign for a
+// life event (hiring packet, promotion letter, separation package), built
+// where they are used: People > Hiring > Packets.
+//
+// A template is the packet with blanks in it: the company's own PDFs (the
+// merged hiring packet, an NDA...) with signature boxes placed once, Offer
+// Fields that print the offer HR types at send (pay, start date, title), the
+// signers in order, and an optional typed cover letter with {{tokens}}.
+// Nexus Sign itself only signs - it lost its Templates tab in September, so
+// without this screen there was nowhere to build a packet (Pranshu, Oct 8).
+import { useEffect, useRef, useState } from 'react';
+import { X, Plus, Trash2, FileText, UploadCloud, ChevronUp, ChevronDown, PenTool, CheckCircle, Pencil, Archive, AlertTriangle } from 'lucide-react';
+import { api } from '../api';
+import { dialog } from '../ui/dialog';
+import { Spinner } from './AsyncState';
+import { AttachmentPlacer, MERGE_FIELDS } from './ESign';
+
+const MERGE_LABEL = Object.fromEntries(MERGE_FIELDS);
+const DEFAULT_ROLES = [
+  { key: 'company', label: 'Company Representative', order: 1 },
+  { key: 'employee', label: 'Employee / Candidate', order: 2 },
+];
+const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
+const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
+const Problem = ({ children }) => (
+  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '8px 12px', fontSize: 12, marginTop: 8 }}>
+    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>{children}</span>
+  </div>
+);
+const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'signer';
+const toParagraphs = (text) => String(text || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+
+/** What a document's placed fields add up to, for the list ("2 signatures, Salary"). */
+export function describeFields(fields) {
+  const fs = fields || [];
+  const signs = fs.filter(f => f.type === 'sign').length;
+  const merges = fs.filter(f => f.type === 'merge').map(f => MERGE_LABEL[f.merge] || 'Offer Field');
+  const other = fs.length - signs - merges.length;
+  const parts = [];
+  if (signs) parts.push(`${signs} signature${signs === 1 ? '' : 's'}`);
+  if (merges.length) parts.push(merges.join(', '));
+  if (other) parts.push(`${other} other field${other === 1 ? '' : 's'}`);
+  return parts.length ? parts.join(' · ') : 'No fields placed yet';
+}
+
+/** Why a template cannot be saved as it stands, or [] when it can. */
+export function templateProblems(t) {
+  const out = [];
+  if (!String(t.name || '').trim()) out.push('Give the template a name.');
+  const roles = (t.roles || []).filter(r => r.key);
+  if (!roles.length) out.push('Add at least one signer.');
+  const docs = (t.attachments || []).filter(a => a.path);
+  const body = toParagraphs(t.bodyText);
+  if (!docs.length && !body.length) out.push('Upload a PDF or type the letter - the packet is empty.');
+  const signedRoles = new Set();
+  docs.forEach(a => (a.fields || []).forEach(f => { if (f.type === 'sign' && f.role) signedRoles.add(f.role); }));
+  body.forEach(p => { for (const m of p.matchAll(/\[\[sign:([a-z0-9_]+)\]\]/g)) signedRoles.add(m[1]); });
+  roles.filter(r => !signedRoles.has(r.key)).forEach(r => out.push(`${r.label || r.key} has nowhere to sign - place a Signature box for them on a document, or put [[sign:${r.key}]] in the letter.`));
+  return out;
+}
+
+function PacketTemplateEditor({ template, companyId, entities, onClose, onSaved, toastErr }) {
+  const [t, setT] = useState(() => ({
+    id: template?.id || '',
+    name: template?.name || '',
+    entityId: template ? (template.entityId || '') : (companyId || ''),
+    roles: template?.roles?.length ? template.roles.map((r, i) => ({ ...r, order: r.order || i + 1 })) : DEFAULT_ROLES,
+    attachments: template?.attachments || [],
+    bodyText: (template?.body || []).join('\n\n'),
+  }));
+  const [placing, setPlacing] = useState(null);     // attachment index whose fields are being placed
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const set = (k, v) => setT(p => ({ ...p, [k]: v }));
+  const problems = templateProblems(t);
+  const roles = t.roles;
+
+  async function upload(file) {
+    if (!file) return;
+    if (!/\.pdf$/i.test(file.name)) { toastErr('Only PDF files can be added to a packet.'); return; }
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const a = await api.uploadSignAttachment(form);
+      set('attachments', [...t.attachments, { ...a, fields: [] }]);
+    } catch (e) { toastErr(e?.message || 'Could not upload the PDF.'); }
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = '';
+  }
+  const move = (list, i, d) => { const n = [...list]; const j = i + d; if (j < 0 || j >= n.length) return list; [n[i], n[j]] = [n[j], n[i]]; return n; };
+  const setRole = (i, patch) => set('roles', roles.map((r, j) => j === i ? { ...r, ...patch } : r));
+  const addRole = () => {
+    const label = `Signer ${roles.length + 1}`;
+    let key = slug(label); while (roles.some(r => r.key === key)) key += '_';
+    set('roles', [...roles, { key, label, order: roles.length + 1 }]);
+  };
+  async function save() {
+    setBusy(true);
+    try {
+      const data = {
+        name: t.name.trim(), kind: template?.kind || 'offer', entity_id: t.entityId || '',
+        roles: roles.map((r, i) => ({ key: r.key, label: (r.label || r.key).trim(), order: i + 1 })),
+        attachments: t.attachments, body: toParagraphs(t.bodyText), status: 'active',
+      };
+      const saved = t.id ? await api.updateSignTemplate(t.id, data) : await api.createSignTemplate(data);
+      onSaved(saved);
+    } catch (e) { toastErr(e?.message || 'Could not save the template.'); }
+    setBusy(false);
+  }
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 64vw, 900px)', maxHeight: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{t.id ? 'Edit Packet Template' : 'New Packet Template'}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Your PDFs with the signature boxes placed once; Offer Fields print each offer's pay and dates at send.</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '4px 22px 18px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: 12 }}>
+            <div>
+              <label style={lbl}>Template Name</label>
+              <input className="form-input" style={{ width: '100%' }} value={t.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Hiring Packet - Full-Time" autoFocus />
+            </div>
+            <div>
+              <label style={lbl}>Company</label>
+              <select className="form-input" style={{ width: '100%' }} value={t.entityId} onChange={e => set('entityId', e.target.value)}>
+                <option value="">Every company</option>
+                {(entities || []).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <label style={lbl}>Signers, In Order</label>
+          {roles.map((r, i) => (
+            <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--mist)', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+              <input className="form-input" style={{ flex: 1 }} value={r.label} onChange={e => setRole(i, { label: e.target.value })} placeholder="Who signs here" />
+              <code style={{ fontSize: 11, color: 'var(--muted)', minWidth: 70 }}>{r.key}</code>
+              <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('roles', move(roles, i, -1))} style={{ padding: '4px 6px' }} aria-label="Move up"><ChevronUp size={13} /></button>
+              <button type="button" className="secondary-btn" disabled={i === roles.length - 1} onClick={() => set('roles', move(roles, i, 1))} style={{ padding: '4px 6px' }} aria-label="Move down"><ChevronDown size={13} /></button>
+              <button type="button" className="secondary-btn" disabled={roles.length <= 1} onClick={() => set('roles', roles.filter((_, j) => j !== i))} style={{ padding: '4px 6px' }} aria-label="Remove signer"><Trash2 size={13} /></button>
+            </div>
+          ))}
+          <button type="button" className="secondary-btn" onClick={addRole} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Signer</button>
+          <div style={hint}>The person being hired (or leaving) signs last; you sign every other role when you send. A promotion letter needs an employee role and a manager role, employee first.</div>
+
+          <label style={lbl}>Documents</label>
+          {t.attachments.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your hiring packet - the offer letter, NDA and the rest can be one merged PDF or several.</div>}
+          {t.attachments.map((a, i) => (
+            <div key={a.path} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{a.pages || '?'} page{a.pages === 1 ? '' : 's'} · {describeFields(a.fields)}</div>
+              </div>
+              <button type="button" className="secondary-btn" onClick={() => setPlacing(i)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PenTool size={12} /> Place Fields</button>
+              <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('attachments', move(t.attachments, i, -1))} style={{ padding: '4px 6px' }} aria-label="Move up"><ChevronUp size={13} /></button>
+              <button type="button" className="secondary-btn" disabled={i === t.attachments.length - 1} onClick={() => set('attachments', move(t.attachments, i, 1))} style={{ padding: '4px 6px' }} aria-label="Move down"><ChevronDown size={13} /></button>
+              <button type="button" className="secondary-btn" onClick={() => set('attachments', t.attachments.filter((_, j) => j !== i))} style={{ padding: '4px 6px' }} aria-label="Remove document"><Trash2 size={13} /></button>
+            </div>
+          ))}
+          <input ref={fileRef} type="file" accept=".pdf,application/pdf" style={{ display: 'none' }} onChange={e => upload(e.target.files?.[0])} />
+          <button type="button" className="secondary-btn" disabled={uploading} onClick={() => fileRef.current?.click()} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+            {uploading ? <Spinner size={12} /> : <UploadCloud size={12} />} Upload PDF
+          </button>
+          <div style={hint}>Place Fields opens the PDF: drop a Signature box for each signer where they sign, and an <b>Offer Field</b> on the blank salary line (or start date, job title) - it is printed from the offer every time this packet is sent, so one template serves every pay.</div>
+
+          <label style={lbl}>Letter Text (Optional)</label>
+          <textarea className="form-input" rows={5} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+            value={t.bodyText} onChange={e => set('bodyText', e.target.value)}
+            placeholder={'Dear {{first_name}},\n\nWe are pleased to offer you the position of {{job_title}} at {{company}}, starting {{start_date}} at {{salary}}.\n\n[[sign:company]]\n\n[[sign:employee]]'} />
+          <div style={hint}>Typed pages that go in front of the PDFs. Leave blank when the PDFs are the whole packet. Blank line = new paragraph; {'{{salary}}'}, {'{{start_date}}'}, {'{{job_title}}'}, {'{{first_name}}'}, {'{{company}}'} fill in at send; [[sign:company]] on its own line is a signature line.</div>
+
+          {problems.map(p => <Problem key={p}>{p}</Problem>)}
+        </div>
+        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary-btn" onClick={save} disabled={busy || problems.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: problems.length ? 0.6 : 1 }}>
+            {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Template
+          </button>
+        </div>
+      </div>
+      {placing !== null && t.attachments[placing] && (
+        <AttachmentPlacer attachment={t.attachments[placing]} roles={roles} toastErr={toastErr}
+          onClose={() => setPlacing(null)}
+          onSave={(fields) => set('attachments', t.attachments.map((a, j) => j === placing ? { ...a, fields } : a))} />
+      )}
+    </div>
+  );
+}
+
+/** The list of packet templates for the chosen company, with New / Edit / Archive. */
+export function PacketTemplatesSection({ companyId, entities, onChanged, toastOk, toastErr }) {
+  const [templates, setTemplates] = useState(null);
+  const [editing, setEditing] = useState(undefined);   // undefined = closed, null = new, object = edit
+  const load = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
+  useEffect(() => { load(); }, []);
+  const mine = (templates || []).filter(t => (t.status || 'active') === 'active' && (!t.entityId || t.entityId === companyId));
+
+  async function archive(t) {
+    if (!await dialog.confirm(`Archive "${t.name}"? Packets that use it stop working until another template is picked. Signed packets are not affected.`, { title: 'Archive Template', confirmText: 'Archive' })) return;
+    try { await api.updateSignTemplate(t.id, { name: t.name, status: 'archived' }); load(); onChanged?.(); toastOk?.('Template archived.'); }
+    catch (e) { toastErr(e?.message || 'Could not archive it.'); }
+  }
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <FileText size={15} style={{ color: 'var(--muted)' }} />
+        <b style={{ fontSize: 14 }}>Packet Templates</b>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>- the documents, signers and offer fields a packet sends</span>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="secondary-btn" onClick={() => setEditing(null)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> New Template</button>
+      </div>
+      {templates === null ? <div style={{ padding: 12 }}><Spinner size={16} /></div>
+        : mine.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>
+            No template yet. Click New Template, upload your hiring packet PDF, place the signature boxes and an Offer Field for the salary, and save - then pick it in the packet below.
+          </div>
+        ) : mine.map(t => (
+          <div key={t.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{t.name}{!t.entityId && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}> · every company</span>}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                {(t.roles || []).map(r => r.label || r.key).join(' → ') || 'no signers'} · {(t.attachments || []).length} PDF{(t.attachments || []).length === 1 ? '' : 's'}{(t.body || []).length ? ' + typed letter' : ''}
+                {' · '}{describeFields((t.attachments || []).flatMap(a => a.fields || []))}
+              </div>
+            </div>
+            <button type="button" className="secondary-btn" onClick={() => setEditing(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={12} /> Edit</button>
+            <button type="button" className="secondary-btn" onClick={() => archive(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Archive size={12} /> Archive</button>
+          </div>
+        ))}
+      {editing !== undefined && (
+        <PacketTemplateEditor template={editing} companyId={companyId} entities={entities} toastErr={toastErr}
+          onClose={() => setEditing(undefined)}
+          onSaved={() => { setEditing(undefined); load(); onChanged?.(); toastOk?.('Template saved - pick it in the packet below.'); }} />
+      )}
+    </div>
+  );
+}

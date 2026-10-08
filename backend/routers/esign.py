@@ -1285,16 +1285,41 @@ def _send_access_code_sms(db: Session, party: HrSignParty, req: HrSignRequest) -
 
 
 _FIELD_TYPES = ("sign", "initials", "date", "text", "check", "dropdown", "radio", "name",
-                "upload")
+                "upload", "merge")
+
+# An Offer Field: a box on an attached PDF that belongs to no signer and is
+# printed from the send's merge data - the pay HR typed on the offer, the
+# start date, the title. HR keeps its merged hiring-packet PDF with a blank
+# salary line, places a Salary box on it once, and every send prints that
+# offer's pay there (Pranshu, Oct 8). The keys are the {{tokens}} a typed
+# letter can use, so a PDF box and a typed paragraph show the same value.
+MERGE_FIELD_KEYS = {
+    "salary": "Salary", "start_date": "Start Date", "job_title": "Job Title",
+    "department": "Department", "employment_type": "Employment Type",
+    "supervisor": "Supervisor", "effective_date": "Effective Date",
+    "full_name": "Full Name", "first_name": "First Name", "last_name": "Last Name",
+    "email": "Email", "phone": "Phone", "employee_code": "Employee Code",
+    "company": "Company", "company_legal": "Company Legal Name",
+    "company_address": "Company Address", "today": "Date Sent",
+    "old_title": "Previous Title", "new_title": "New Title",
+}
 
 
-def _clean_fields(fields: list) -> list:
+def _clean_fields(fields: list, allow_merge: bool = False) -> list:
     """Normalize/validate placed field boxes - shared by PDF sends AND template
     attachments. _stamp_pdf at finalize must never meet garbage: a crash there
     permanently wedges a fully-signed envelope, so reject/coerce at save time."""
     for f in fields:
         if not isinstance(f, dict) or f.get("type") not in _FIELD_TYPES:
             raise HTTPException(400, f"Unknown field type: {f.get('type') if isinstance(f, dict) else f!r}")
+        if f.get("type") == "merge":
+            # Only a template attachment has merge data at send; a one-off PDF
+            # send has nothing to print in the box.
+            if not allow_merge:
+                raise HTTPException(400, "Offer fields can only be placed on a packet template's documents.")
+            if f.get("merge") not in MERGE_FIELD_KEYS:
+                raise HTTPException(400, f"Unknown offer field: {f.get('merge')!r}")
+            f["role"], f["required"] = "", False
         if f.get("type") in ("dropdown", "radio"):
             raw = f.get("options") if isinstance(f.get("options"), list) else []
             # Deduped: twin values make the chosen radio ambiguous at seal time
@@ -1326,7 +1351,7 @@ def _clean_attachments(attachments: Optional[list]) -> list:
     for a in attachments or []:
         if not isinstance(a, dict) or not a.get("path"):
             continue
-        a["fields"] = _clean_fields(a.get("fields") or [])
+        a["fields"] = _clean_fields(a.get("fields") or [], allow_merge=True)
         out.append(a)
     return out
 
@@ -1754,15 +1779,52 @@ def template_roles_needed(tpl: HrSignTemplate, snapshot: list) -> set:
     return needed
 
 
+def attachment_merge_keys(attachments: list) -> list:
+    """The offer-field keys placed on a template's attached PDFs, in order."""
+    out = []
+    for a in attachments or []:
+        for f in (a.get("fields") or []) if a.get("path") else []:
+            if f.get("type") == "merge" and f.get("merge") and f["merge"] not in out:
+                out.append(f["merge"])
+    return out
+
+
+def fill_attachment_fields(attachments: list, merge: dict) -> list:
+    """The template's attachments with every offer field carrying the value it
+    prints - frozen onto the envelope at send, like the typed letter."""
+    out = []
+    for a in attachments or []:
+        fields = []
+        for f in (a.get("fields") or []):
+            f = dict(f)
+            if f.get("type") == "merge":
+                f["value"] = str(merge.get(f.get("merge") or "", "") or "")
+            fields.append(f)
+        out.append({**a, "fields": fields})
+    return out
+
+
+def template_merge(db: Session, tpl: HrSignTemplate, *, employee_id: str = "",
+                   candidate_id: str = "", entity_id: str = "",
+                   overrides: Optional[dict] = None) -> dict:
+    return _merge_data(db, employee_id or "", candidate_id or "",
+                       entity_id or tpl.entity_id or "", overrides or {})
+
+
 def resolve_template(db: Session, tpl: HrSignTemplate, *, employee_id: str = "",
                      candidate_id: str = "", entity_id: str = "",
                      overrides: Optional[dict] = None) -> tuple:
     """(resolved body, unresolved merge-token names) - what a send would freeze.
     Shared by the send endpoint and HR life events' preview, so a preview can
-    never pass a packet the send then refuses."""
-    merge = _merge_data(db, employee_id or "", candidate_id or "",
-                        entity_id or tpl.entity_id or "", overrides or {})
-    return _resolve_body(tpl.body or [], merge)
+    never pass a packet the send then refuses. An offer field on an attached
+    PDF with nothing to print counts as unresolved, same as a {{token}}."""
+    merge = template_merge(db, tpl, employee_id=employee_id, candidate_id=candidate_id,
+                           entity_id=entity_id, overrides=overrides)
+    snapshot, unresolved = _resolve_body(tpl.body or [], merge)
+    for key in attachment_merge_keys(tpl.attachments or []):
+        if not merge.get(key) and key not in unresolved:
+            unresolved.append(key)
+    return snapshot, unresolved
 
 
 def envelope_from_template(db: Session, user: dict, tpl: HrSignTemplate, *, parties: List[PartyIn],
@@ -1782,10 +1844,13 @@ def envelope_from_template(db: Session, user: dict, tpl: HrSignTemplate, *, part
     if unresolved:
         raise HTTPException(400, f"Unresolved merge fields: {', '.join('{{' + u + '}}' for u in unresolved)}. "
                                  f"Fill them in the send form or pick a person with that data.")
-    # The whole packet travels as one envelope, frozen at send time.
+    # The whole packet travels as one envelope, frozen at send time - offer
+    # fields on the attached PDFs included, with their values.
+    merge_data = template_merge(db, tpl, employee_id=employee_id, candidate_id=candidate_id,
+                                entity_id=entity_id, overrides=merge)
     attachments = [{"name": a.get("name", "document.pdf"), "path": a.get("path", ""),
                     "fields": a.get("fields") or []}
-                   for a in (tpl.attachments or []) if a.get("path")]
+                   for a in fill_attachment_fields(tpl.attachments or [], merge_data) if a.get("path")]
     _validate_parties(parties, template_roles_needed(tpl, snapshot))
     routing = _validate_routing(routing)
     return _create_request(db, user, title=(title or tpl.name).strip(), source="template",
@@ -2693,7 +2758,8 @@ def _missing_required(req: HrSignRequest, party: HrSignParty,
 
 _FIELD_LABELS = {"sign": "Signature", "initials": "Initials", "check": "Checkbox",
                  "text": "Text field", "dropdown": "Selection", "radio": "Selection",
-                 "date": "Date", "name": "Name", "upload": "File upload"}
+                 "date": "Date", "name": "Name", "upload": "File upload",
+                 "merge": "Offer field"}
 
 
 def _validate_signature(body: SignIn) -> None:
@@ -4049,14 +4115,24 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty],
               # One malformed field (legacy template data predating _clean_fields)
               # must never sink sealing - a _finalize crash bricks the envelope.
               try:
-                p = by_role.get(f.get("role", ""))
-                if not p:
-                    continue
                 # normalized coords: x/y from top-left, w/h fractions of the page
                 x, w = float(f.get("x") or 0) * pw, max(0.02, float(f.get("w") or 0.2)) * pw
                 h = max(0.015, float(f.get("h") or 0.05)) * ph
                 y = ph - float(f.get("y") or 0) * ph - h
                 ftype = f.get("type")
+                if ftype == "merge":
+                    # Printed from the send's merge data, owned by no signer.
+                    val = str(f.get("value") or "")
+                    if val:
+                        fs = min(10, h * 0.6)
+                        c.setFont("Helvetica", fs)
+                        while val and c.stringWidth(val, "Helvetica", fs) > w - 2:
+                            val = val[:-1]
+                        c.drawString(x + 1, y + h * 0.25, val)
+                    continue
+                p = by_role.get(f.get("role", ""))
+                if not p:
+                    continue
                 if ftype == "sign" and p.signature_kind == "drawn" and \
                         p.signature_data.startswith("data:image/png;base64,"):
                     from reportlab.lib.utils import ImageReader

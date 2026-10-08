@@ -30,6 +30,7 @@ vi.mock('../api', () => ({
                { key: 'promotion', label: 'Promotion Letter', defaultSubfolder: 'Promotion Documents' }],
     }),
     getEntities: () => Promise.resolve([{ id: 'e1', name: 'Greens Test Co' }]),
+    getSignTemplates: () => Promise.resolve([{ id: 't1', name: 'Offer Packet', entityId: '', status: 'active', roles: [{ key: 'company', label: 'Company' }, { key: 'employee', label: 'Employee' }], attachments: [{ path: 'p', name: 'Packet.pdf', pages: 3, fields: [{ id: 'm', type: 'merge', merge: 'salary' }] }], body: [] }]),
     previewHiringPacket: (...a) => previewPacket(...a),
     sendHiringPacket: (...a) => sendPacket(...a),
     getLifeEvents: () => Promise.resolve(events),
@@ -38,7 +39,7 @@ vi.mock('../api', () => ({
   },
 }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'max@x.com', name: 'Max' }] }) }));
-vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
+vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div>, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 
 const { PacketsModal, SendHiringPacketModal, HiringPacketStatus } = await import('./HiringPacket');
 const noop = () => {};
@@ -74,7 +75,7 @@ describe('SendHiringPacketModal', () => {
     await waitFor(() => expect(screen.getByText('Hiring Packet - Jane Doe')).toBeTruthy());
     expect(screen.getByText(/11\/02\/2026/)).toBeTruthy();                       // US date, no timezone shift
     expect(screen.getByText(/Human Resources > Employees > Jane Doe > Hiring Documents/)).toBeTruthy();
-    const send = screen.getByText('Send And Sign').closest('button');
+    const send = screen.getByText('Review And Sign').closest('button');
     expect(send).toBeDisabled();                                                  // missing field + no confirmation
     fireEvent.change(screen.getByText('signing bonus').parentElement.querySelector('input'), { target: { value: '$2,000' } });
     fireEvent.click(screen.getByRole('checkbox'));

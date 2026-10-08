@@ -22,6 +22,7 @@ import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
+import { PacketTemplatesSection } from './PacketTemplates';
 
 const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
@@ -175,7 +176,7 @@ function PacketRow({ row, templates, companyId, onSaved, onRemoved, toastErr }) 
             <option value="">- pick a template -</option>
             {choices.map(t => <option key={t.id} value={t.id}>{t.name}{t.documents > 1 ? ` (${t.documents} documents)` : ''}</option>)}
           </select>
-          <div style={hint}>The template holds the merged PDFs and where each person signs - build it in Documents &gt; Nexus Sign &gt; Templates.</div>
+          <div style={hint}>The template holds your PDFs, where each person signs and the Offer Fields - build it under Packet Templates above.</div>
         </div>
         <div>
           <label style={lbl}>The New Hire Signs As</label>
@@ -247,6 +248,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
               {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
             <div style={hint}>A company without its own packet uses the default. Add a separate packet for contractors when they sign different documents.</div>
+            <PacketTemplatesSection companyId={companyId} entities={entities} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
             {events.map(ev => {
               const rows = rowsFor(ev);
               const inh = inherited(ev) || [];
@@ -467,8 +469,11 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             )}
             {preview.salaryText && preview.payInLetter === false && <Problem>This packet's letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
             {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
+            <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--mist)' }}>
+              <b>Nothing goes to {name} yet.</b> Review And Sign opens the finished packet - your PDFs with this offer's pay and dates printed in - for you to read and sign for the company. The welcome email goes out only after you sign; if something is wrong, decline on that screen and send a corrected packet.
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-              <span style={{ fontSize: 12.5 }}>{name} gets the welcome email with a link to sign.</span>
+              <span style={{ fontSize: 12.5 }}>{name} then gets the welcome email with a link to sign.</span>
               <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
                 onClick={() => setMail({ event: 'hire', entityId: c.company || '', templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
             </div>
@@ -503,7 +508,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
           <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0}
             title={missing.length ? 'Fill in the missing details first' : !ack ? 'Confirm the document type first' : ''}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Send And Sign
+            {busy === 'send' ? <Spinner size={14} /> : <Send size={14} />} Review And Sign
           </button>
         )}
       </div>

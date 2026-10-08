@@ -254,6 +254,36 @@ class HiringPacketTests(LifeEventCase):
         with self.assertRaises(hle.PacketError):
             self._send()
 
+    def test_an_offer_field_on_the_pdf_prints_this_offers_pay(self):
+        """HR's merged packet PDF has a blank salary line; a Salary offer field
+        placed on it once prints each offer's pay at send (Pranshu, Oct 8)."""
+        from routers import esign as es
+        box = {"id": "a1", "type": "merge", "merge": "salary", "page": 0, "x": 0.3, "y": 0.4, "w": 0.3, "h": 0.03}
+        att = [{"name": "Hiring Packet.pdf", "path": "esign/templates/x.pdf", "pages": 2,
+                "fields": [box, {"id": "a2", "type": "sign", "role": "employee", "page": 1, "x": 0.1, "y": 0.8, "w": 0.3, "h": 0.05}]}]
+        cleaned = es._clean_attachments([dict(a, fields=[dict(f) for f in a["fields"]]) for a in att])
+        self.assertEqual((cleaned[0]["fields"][0]["role"], cleaned[0]["fields"][0]["required"]), ("", False))
+        with self.assertRaises(Exception):      # a one-off PDF send has nothing to print in it
+            es._clean_fields([dict(box)])
+        with self.assertRaises(Exception):
+            es._clean_attachments([{"path": "p", "fields": [dict(box, merge="bogus")]}])
+        self.db.query(models.HrSignTemplate).update({"body": [p.replace(" at {{salary}}", "") for p in BODY], "attachments": cleaned})
+        self.db.commit()
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(), None, None)
+        out = hle.preview_out(plan)
+        self.assertEqual((out["payInLetter"], out["unresolved"]), (True, ["salary"]))      # no pay typed yet
+        ev = self._send(salary_text="$40 per hour")
+        req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
+        self.assertEqual(req.documents[0]["fields"][0]["value"], "$40 per hour")
+        # The sealed page carries the value, with no party owning the box.
+        from pypdf import PdfReader
+        from reportlab.pdfgen import canvas
+        import io
+        buf = io.BytesIO(); c = canvas.Canvas(buf, pagesize=(612, 792)); c.showPage(); c.showPage(); c.save()
+        parties = self.db.query(models.HrSignParty).filter_by(request_id=req.id).all()
+        stamped = es._stamp_pdf(buf.getvalue(), req.documents[0]["fields"], parties)
+        self.assertIn("$40 per hour", PdfReader(io.BytesIO(stamped)).pages[0].extract_text())
+
     def test_the_preview_says_when_the_letter_never_shows_pay(self):
         plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(salary_text="$40 per hour"), None, None)
         self.assertTrue(hle.preview_out(plan)["payInLetter"])

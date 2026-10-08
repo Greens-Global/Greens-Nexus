@@ -1100,8 +1100,9 @@ export const DOCS = [
       {
         title: 'Set Up a Hiring Packet',
         steps: [
-          "Build the packet in Documents > Nexus Sign > Templates: one template with the company's documents (offer letter, NDA and the rest) and where each person signs. Put the new hire's role last.",
           'In People > Hiring, click Packets. Pick the company (or Default for every company without its own).',
+          "Under Packet Templates click New Template: name it, list the signers in order (Company Representative, then Employee / Candidate - the new hire is last), and upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several.",
+          'Click Place Fields on the PDF: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so the same template serves every pay; Start Date, Job Title and the others work the same way. Save the fields, then Save Template.',
           'Click Packet For Everyone, pick the template, choose which role the new hire signs as, write the welcome note for the email, and click Save. Add a separate packet for contractors if they sign different documents.',
           "The Egnyte Subfolder is where the signed packet is filed inside the new hire's own folder. Blank uses Hiring Documents.",
         ],
@@ -1112,7 +1113,7 @@ export const DOCS = [
           'Move the candidate to Offer, open them and click Send Hiring Packet.',
           'Enter the job title, start date, the date the offer expires (they can review and sign through that day; after it the link stops working and the packet reads Expired), employment type, supervisor and pay, then click Review Packet. Check the documents, the signing order and the Egnyte folder; fill in anything the template still needs. Pay is typed per offer - two people hired for the same role on the same packet can be paid differently - and prints wherever the template says {{salary}}; the review warns if the letter never shows it. A packet that is already out is never edited: void it and send a new one with the new values.',
           'A former employee applying again with the same email is a rehire: the review says so, and when they sign their old People record is reactivated as Onboarding - no second record. Someone still active with that email cannot be hired again; edit their record instead.',
-          'Tick the confirmation and click Send And Sign. You sign for the company right away; the new hire is then emailed at their personal address and signs last.',
+          'Tick the confirmation and click Review And Sign. Nothing has gone to the candidate yet: the finished packet opens with this offer printed in, you read it and sign for the company, and only then is the new hire emailed at their personal address to sign last. If something is wrong, decline on that screen and send a corrected packet.',
           'The new hire needs no Nexus login: the email carries their own signing link, they confirm a one-time code sent to the same address, and sign. The email says who already signed for the company.',
           'The candidate card shows who has signed. Void stops a packet; after a decline, void or expiry you can send a new one. While a packet is out you cannot reject the candidate or schedule another interview round - void it first. Correcting the candidate\'s email re-sends the packet to the new address and kills the old link.',
           "When the new hire signs, Nexus adds them to People as Onboarding, sets their pay from the start date, starts the onboarding checklist and files the signed packet in their Egnyte folder (Human Resources > Employees > their name), which they see in My HR > My Documents. If Egnyte is down it retries; use Retry Filing on the candidate if it says Not Filed.",

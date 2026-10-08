@@ -142,11 +142,13 @@ def pay_text(pay: dict) -> str:
 
 
 def pay_in_letter(tpl) -> bool:
-    """Whether the template's letter prints the pay HR types ({{salary}} in
-    its body). Pay typed for a template that never shows it is stored and
-    applied but the person never reads it - the preview says so (Pranshu,
-    Oct 8)."""
-    return any("{{salary}}" in str(p) for p in (tpl.body or []))
+    """Whether the template prints the pay HR types - {{salary}} in its typed
+    letter, or a Salary offer field placed on one of its PDFs. Pay typed for a
+    template that never shows it is stored and applied but the person never
+    reads it - the preview says so (Pranshu, Oct 8)."""
+    from routers.esign import attachment_merge_keys
+    return (any("{{salary}}" in str(p) for p in (tpl.body or []))
+            or "salary" in attachment_merge_keys(tpl.attachments or []))
 
 
 def _safe_name(s: str, limit: int = 80) -> str:
