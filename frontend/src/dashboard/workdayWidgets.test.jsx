@@ -15,7 +15,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@gre
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
-import { WIDGETS, KPI_CATALOG, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS } from './widgets.jsx';
+import { WIDGETS, KPI_CATALOG, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS, widgetHidden } from './widgets.jsx';
 import { TimeClockWidget, MyRequestsWidget, DueBackWidget, ComingUpWidget, normalizeRequests, dueRows, comingUpRows } from './workdayWidgets.jsx';
 
 // Fixed "now": Tuesday 09/22/2026 10:30 local.
@@ -169,6 +169,18 @@ describe('registry, KPI catalog and quick actions', () => {
   it('registers the four Workday tiles and the Signatures Needed metric', () => {
     for (const k of ['time-clock', 'my-requests', 'due-back', 'coming-up']) expect(WIDGETS[k]?.cat).toBe('Workday');
     expect(KPI_CATALOG.signatures_needed.label).toBe('Signatures Needed');
+  });
+  it('the punch tiles are only for time-tracked people: hidden for a salaried (exempt) person, shown otherwise (Neil, Oct 8)', () => {
+    for (const k of ['time-clock', 'my-time']) {
+      expect(WIDGETS[k].timeTracked).toBe(true);
+      expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: true })).toBe(true);
+      expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: false })).toBe(false);
+      expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: null })).toBe(false);   // not known yet = tracked
+    }
+    // Everything else is for everyone, exempt or not.
+    for (const k of ['my-requests', 'due-back', 'coming-up', 'my-day', 'notes']) expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: true })).toBe(false);
+    // The simple tile is a small card, not a column.
+    expect(WIDGETS['my-time'].size).toEqual({ w: 3, h: 3 });
   });
   it('adds the workday deep links to the catalog without changing the default set', () => {
     const keys = QUICK_ACTIONS.map(a => a.key);
