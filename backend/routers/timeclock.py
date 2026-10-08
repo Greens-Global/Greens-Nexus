@@ -26,6 +26,7 @@ import os
 import secrets
 import re
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -430,12 +431,17 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     if not graph_configured():
         return
     lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
-    maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
+    # The link opens the punch on the person's timecard in Nexus - the map
+    # there shows it against the geofence (Neil, 10/08: "needs to link to her
+    # location punch page on Nexus rather than opening Google Maps").
+    link = _timecard_url(db, emp.work_email, row.local_date)
     html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
             f"<p>Nearest location: <b>{site}</b> - {_us_distance(dist)} away"
             f"{' (GPS accuracy ±' + _us_distance(row.accuracy_m) + ')' if row.accuracy_m else ''}.</p>"
-            + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
-            + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
+            + (f"<p>Location: {lat}, {lng}</p>" if lat and lng else "<p>No coordinates were captured.</p>")
+            + f"<p><a href='{link}' style='display:inline-block;padding:9px 16px;background:#166534;color:#fff;"
+              f"border-radius:8px;text-decoration:none;font-weight:600'>Review the Punch in Nexus</a></p>"
+            + f"<p style='color:#6b7280;font-size:12px'>Or open Nexus - People - Time - {who}'s timecard.</p>")
     subject = f"Out-of-fence punch: {who} {verb} at {when}"
     to = [emp.manager_email]
 
@@ -1846,6 +1852,19 @@ def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
     return action
 
 
+def _timecard_url(db: Session, employee_email: str, local_date: str) -> str:
+    """The email form of _timecard_action: People > Time with that person's
+    card open on the period holding the punch (TimeAdmin reads
+    ?timecard=<email>&start=<date>&type=<pay type> on mount)."""
+    from urllib.parse import urlencode
+    from app_url import app_url
+    a = _timecard_action(db, employee_email, local_date)
+    q = {"timecard": a.get("timecard", "")}
+    if a.get("start"):
+        q.update(start=a["start"], type=a.get("payType", ""))
+    return f"{app_url()}/hr/hr-time?{urlencode(q)}"
+
+
 def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
                             body: str, ref_id: str = "", local_date: str = "") -> None:
     """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
@@ -2257,6 +2276,19 @@ def _company_of(db: Session, email: str) -> str:
     return (row[0] if row else "") or ""
 
 
+def _ago_words(seconds) -> str:
+    """'12 min ago' / '3 hr 20 min ago' / '1 day 4 hr ago' - never '1637 min ago'."""
+    s = max(0, int(seconds or 0))
+    m = s // 60
+    if m < 60:
+        return f"{m} min ago"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h} hr {m} min ago" if m else f"{h} hr ago"
+    d, h = divmod(h, 24)
+    return f"{d} day{'s' if d != 1 else ''} {h} hr ago" if h else f"{d} day{'s' if d != 1 else ''} ago"
+
+
 def _policy_for_email(db: Session, email: str, cache: dict) -> MonitoringPolicy:
     """Per-request memo so a roster loop over many employees resolves each
     distinct COMPANY's policy once, not once per employee."""
@@ -2530,6 +2562,8 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
         pol = _policy_for_email(db, email, pol_cache)
         if not pol.enabled:
             continue   # this employee's company has monitoring off entirely
+        if _is_monitoring_exempt(db, email):
+            continue   # leadership: never captured, so never "not captured" (Neil, 10/08)
         interval_min = max(1, int(pol.interval_minutes or 5))
         # Heartbeat is ~1/min; treat an enrolled agent as "quiet" after 5 min or
         # two capture intervals, whichever is longer. Screenshot gap ~2.5 intervals.
@@ -2554,12 +2588,19 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
                 reason, severity = "No agent reporting", "high"
                 detail = "Clocked in with no enrolled agent and no recent capture."
         elif seen_age is None or seen_age > stale_sec:
-            reason, severity = "Agent stopped reporting", "high"
-            detail = (f"Last checked in {int(seen_age // 60)} min ago."
-                      if seen_age is not None else "Agent has never checked in.")
+            # A quiet agent whose person is being captured anyway (the
+            # in-browser share took over - the Coverage tab shows them as
+            # "browser") is not a gap. Neil, 10/08: Arnav sat in this list for
+            # a day with "last checked in 1637 min ago" while covered.
+            if pol.track_screens and shot_age is not None and shot_age <= shot_gap_sec:
+                pass
+            else:
+                reason, severity = "Agent stopped reporting", "high"
+                detail = (f"Last checked in {_ago_words(seen_age)}."
+                          if seen_age is not None else "Agent has never checked in.")
         elif pol.track_screens and (shot_age is None or shot_age > shot_gap_sec):
             reason, severity = "No recent screenshots", "warning"
-            detail = (f"Agent is reporting but last frame was {int(shot_age // 60)} min ago."
+            detail = (f"Agent is reporting but last frame was {_ago_words(shot_age)}."
                       if shot_age is not None else "Agent is reporting but no frames yet.")
 
         if reason:
@@ -3092,10 +3133,14 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
         if (r.decision_note or "").startswith("Duplicate of") or r.status == body.status:
             return _pr_dict(r)
         raise HTTPException(409, f"This request was already {r.status}.")
-    _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
+    if decision == "approved":
+        _recall_signing_for_fix(db, r.employee_email, r.local_date, user["email"],
+                                f"punch fix approved: {_kind_label(r.punch_kind)} punch "
+                                f"{'added' if r.action == 'add' else 'removed'} on {_us_day(r.local_date)}")
+        _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
     now = _now_iso()
     note = (body.note or "").strip()
     if decision == "approved" and r.action == "add":
@@ -3176,6 +3221,16 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
 #    approval). Separate from the manager's final `adjust_punch` (PATCH /punches)
 #    and from add/remove punch-requests. ────────────────────────────────────────
 
+def _recall_signing_for_fix(db: Session, email: str, local_date: str, actor: str, note: str) -> None:
+    """An approver applying the employee's own fix while the timesheet is out
+    for signature pulls the envelope back (timesheet_review.recall_for_change)
+    rather than being refused - see guard_edit's employee_request."""
+    import timesheet_review
+    r = timesheet_review.review_covering(db, (email or "").lower(), (local_date or "")[:10])
+    if r is not None and r.status == "signing":
+        timesheet_review.recall_for_change(db, r, actor, note)
+
+
 def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str,
                       ref_id: str = "", action: Optional[dict] = None) -> None:
     """Route a timecard request to the employee's manager and the Global Admins
@@ -3251,10 +3306,15 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     if visible is not None and row.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
-    _guard_review(db, row.employee_email, row.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
+    if decision == "approved":
+        # The employee's own fix, applied by the approver: an envelope out for
+        # signature is recalled, never a refusal (Neil, 10/08).
+        _recall_signing_for_fix(db, row.employee_email, row.local_date, user["email"],
+                                f"punch edit approved: {_kind_label(row.kind)} punch on {_us_day(row.local_date)}")
+        _guard_review(db, row.employee_email, row.local_date, user["email"], employee_request=True)
     now = _now_iso()
     note = (body.note or "").strip()
     if decision == "approved":
@@ -4829,11 +4889,24 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
     scope = _visible_emails(db, user)
     ents = {e.id: e for e in db.query(HrEntity).all()}
     people = []
-    emps = db.query(NexusEmployee).filter(NexusEmployee.status == "active").all()
-    for em in emps:
-        email = (em.work_email or "").lower()
-        if not email or (scope is not None and email not in scope):
+    # Keyed off the people who PUNCH, not the HR status (Neil, 10/08: an
+    # external staffer - a guest identity still "onboarding" in People - had
+    # clocked in and was nowhere on the map). Anyone with a located punch in
+    # the viewer's scope is shown unless they have left (offboarded /
+    # inactive); a punching person with no People row at all still appears,
+    # named by their email.
+    by_email = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    punchers = [r[0] for r in db.query(TimePunch.employee_email)
+                .filter(TimePunch.voided == 0, TimePunch.lat.isnot(None), TimePunch.lat != "")
+                .distinct().all()]
+    for email in sorted({(e or "").lower() for e in punchers if e}):
+        if scope is not None and email not in scope:
             continue
+        em = by_email.get(email)
+        if em is not None and (em.status or "active") in ("offboarded", "inactive"):
+            continue
+        if em is None:
+            em = SimpleNamespace(first_name="", last_name="", photo_url="", job_title="", department="", company="")
         # Latest punch WITH coordinates (for the pin), and latest punch OVERALL
         # (for the clocked-in dot). Usually the same row, but a manual +add punch
         # has no coords, so keep them separate.
