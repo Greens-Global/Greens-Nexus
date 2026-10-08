@@ -561,7 +561,7 @@ def preview_out(plan: dict) -> dict:
     return {
         "title": plan["title"], "company": plan["company"],
         "templateId": tpl.id, "templateName": tpl.name,
-        "documents": [tpl.name] + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")],
+        "documents": ([tpl.name] if tpl.body else []) + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")],
         "recipients": [{"order": p.ordinal, "role": p.role_key, "name": p.name, "email": p.email,
                         "isSubject": p.kind == "external"} for p in plan["parties"]],
         "unresolved": plan["unresolved"], "emailMessage": plan["setting"].email_message or "",
@@ -982,7 +982,7 @@ def promotion_preview_out(plan: dict) -> dict:
     return {
         "title": plan["title"], "company": plan["company"], "templateName": tpl.name, "templateId": tpl.id,
         "entityId": plan["employee"].company or "",
-        "documents": [tpl.name] + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")],
+        "documents": ([tpl.name] if tpl.body else []) + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")],
         "recipients": [{"order": p.ordinal, "role": p.role_key, "name": p.name, "email": p.email,
                         "who": "employee" if p.email == plan["employee"].work_email.lower()
                         else ("you" if p.role_key not in ("manager",) else "manager")} for p in plan["parties"]],

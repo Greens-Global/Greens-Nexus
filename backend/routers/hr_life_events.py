@@ -68,7 +68,7 @@ def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(ge
         "settings": [hle.ser_setting(db, r) for r in rows],
         "templates": [{"id": t.id, "name": t.name, "kind": t.kind, "entityId": t.entity_id or "",
                        "roles": hle.template_roles(t),
-                       "documents": 1 + len([a for a in (t.attachments or []) if a.get("path")])}
+                       "documents": (1 if t.body else 0) + len([a for a in (t.attachments or []) if a.get("path")])}
                       for t in tpls],
         "events": [{"key": k, "label": hle.EVENT_TITLES[k], "defaultSubfolder": hle.DEFAULT_SUBFOLDERS[k]}
                    for k in hle.EVENTS],

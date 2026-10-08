@@ -1890,12 +1890,16 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
           </div>
         )}
+        {/* A packet whose template has no typed letter is only its PDFs - no
+            empty white page in front of them. */}
+        {(!isTemplate || (payload.body || []).length > 0) && (
         <div ref={docRef} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
           {isTemplate
             ? (payload.body || []).map(renderPara)
             : <PdfDoc url={payload.pdfUrl} zoom={zoom} onPageCount={setDocPages}
                 renderOverlay={signingOverlay(payload.fields)} onPageSeen={notePageSeen} />}
         </div>
+        )}
         {/* Packet documents - attached PDFs signed in the same session */}
         {(payload.documents || []).map((d, di) => (
           <div key={di} style={{ marginTop: 16 }}>
