@@ -829,24 +829,35 @@ def delete_candidate(cid: str, user: dict = Depends(require_hr_delete), db: Sess
     return {"ok": True}
 
 
+_RESUME_TYPES = (".pdf", ".doc", ".docx")
+
+
 @router.post("/candidates/{cid}/resume")
 async def upload_resume(cid: str, file: UploadFile = File(...),
                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Resume / any candidate doc - private hr-docs bucket, path on the record."""
+    """Resume - private hr-docs bucket, path on the record. Same storage
+    helpers as Nexus Sign, so it also works on a local backend without
+    Supabase (files under Generated File/). The upload is a blocking HTTP
+    call, so it runs in a thread - never on the event loop (CLAUDE.md)."""
+    from routers import esign as _es
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
     _cand_in_scope(row, hr_scope(user, db))
+    name = file.filename or "resume.pdf"
+    if not name.lower().endswith(_RESUME_TYPES):
+        raise HTTPException(400, "Resumes can be PDF or Word files.")
     data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file is empty.")
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
-    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "resume.pdf")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
     path = f"candidates/{cid}/{uuid.uuid4()}-{safe}"
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                      headers={**_storage_headers(), "Content-Type": file.content_type or "application/octet-stream"},
-                      content=data, timeout=60)
-    if not resp.is_success:
-        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    up = await asyncio.to_thread(_es._storage_put, _DOC_BUCKET, path, data,
+                                 file.content_type or "application/octet-stream")
+    if not up.is_success:
+        raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row.resume_url = path
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
@@ -855,6 +866,7 @@ async def upload_resume(cid: str, file: UploadFile = File(...),
 
 @router.get("/candidates/{cid}/resume-url")
 def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    from routers import esign as _es
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row or not row.resume_url:
         raise HTTPException(404, "No resume on file")
@@ -862,11 +874,10 @@ def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Se
     # Legacy rows may hold a full external URL rather than a storage path.
     if row.resume_url.startswith("http"):
         return {"url": row.resume_url, "expiresIn": 0}
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.resume_url}",
-                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
-    if not resp.is_success:
-        raise HTTPException(502, "Could not sign URL")
-    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+    got = _es._storage_signed_url(_DOC_BUCKET, row.resume_url, 300)
+    if not got.is_success:
+        raise HTTPException(502, "Could not open the resume - try uploading it again.")
+    return got.json()
 
 
 # ── Leave tracker (Phase 6) ───────────────────────────────────────────────────
@@ -3710,6 +3721,30 @@ def ensure_rate_history(db: Session, email: str, by: str = "") -> None:
     db.flush()
 
 
+def adopt_pending_role(db: Session, emp: NexusEmployee, by: str, ev=None) -> None:
+    """A new hire's job role (picked in their hiring packet) is held until
+    they have a work email - role membership is keyed by it. Applied here
+    when the email lands, only if they have no role yet (never overrides a
+    role someone set by hand)."""
+    if not emp or not emp.work_email:
+        return
+    from models import HrLifeEvent, NexusGroup, NexusGroupMember
+    email = emp.work_email.lower()
+    has_role = (db.query(NexusGroupMember).join(NexusGroup, NexusGroup.id == NexusGroupMember.group_id)
+                .filter(NexusGroupMember.email == email, NexusGroup.is_job_role == 1).first())
+    if has_role:
+        return
+    if ev is None:
+        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "hire",
+                                           HrLifeEvent.status == "completed")
+              .order_by(HrLifeEvent.completed_at.desc()).first())
+    role_id = ((ev.inputs or {}).get("role_id") if ev else "") or ""
+    jr = db.query(NexusGroup).filter(NexusGroup.id == role_id, NexusGroup.is_job_role == 1).first() if role_id else None
+    if jr:
+        from routers.jobroles import apply_job_role
+        apply_job_role(db, jr, email, by)
+
+
 def adopt_pending_pay(db: Session, emp: NexusEmployee, by: str) -> None:
     """A hire's offer pay waits on the employee record (compensation) because
     the timecard rate is keyed by WORK email, which a new hire does not have
@@ -3720,6 +3755,7 @@ def adopt_pending_pay(db: Session, emp: NexusEmployee, by: str) -> None:
     - Pay & Benefits stays the only thing that changes an existing rate."""
     if not emp or not emp.work_email:
         return
+    adopt_pending_role(db, emp, by)
     comp = emp.compensation or {}
     if not str(comp.get("base") or "").strip() or not comp.get("payBasis"):
         return

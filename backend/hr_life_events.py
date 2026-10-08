@@ -256,11 +256,49 @@ class PacketError(ValueError):
         self.status = status
 
 
+def _company_role(db: Session, company: str, role_id: str):
+    from models import NexusGroup
+    r = db.query(NexusGroup).filter(NexusGroup.id == role_id, NexusGroup.is_job_role == 1).first()
+    if not r or ((r.company_id or "") and (r.company_id or "") != (company or "")):
+        return None
+    return r
+
+
+def _role_named(db: Session, company: str, name: str):
+    """An existing role of this company (or a shared one) with that name -
+    "Other" never creates a duplicate of a role that already exists."""
+    from models import NexusGroup
+    want = (name or "").strip().lower()
+    for r in db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).all():
+        if (r.name or "").strip().lower() == want and (r.company_id or "") in ("", company or ""):
+            return r
+    return None
+
+
 def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
-    """The offer HR entered, validated, falling back to the candidate card."""
+    """The offer HR entered, validated, falling back to the candidate card.
+    The job title is one of the hiring company's roles (Pranshu, Oct 8) - the
+    role decides the title and department and, once they have a work email,
+    their access. "Other" names a role the company doesn't have yet: it is
+    added to the company's roles at send, with no access until an
+    administrator sets it."""
+    role_id = (inputs.get("role_id") or "").strip()
+    new_role = (inputs.get("new_role_name") or "").strip()[:120]
+    role = None
+    if role_id:
+        role = _company_role(db, cand.company, role_id)
+        if not role:
+            raise PacketError("That role is not one of this company's roles - pick another or choose Other.")
+    elif new_role:
+        role = _role_named(db, cand.company, new_role)      # typed a role that already exists
+    elif cand.role_id:
+        role = _company_role(db, cand.company, cand.role_id)
     d = {
-        "job_title": (inputs.get("job_title") or cand.role_title or "").strip(),
-        "department": (inputs.get("department") or cand.department or "").strip(),
+        "role_id": role.id if role else "",
+        "new_role_name": "" if role else new_role,
+        "job_title": (role.name if role else (new_role or inputs.get("job_title") or cand.role_title or "")).strip(),
+        "department": ((role.department if role and role.department else "")
+                       or inputs.get("department") or cand.department or "").strip(),
         "start_date": (inputs.get("start_date") or cand.expected_start or "").strip()[:10],
         "manager_email": (inputs.get("manager_email") or "").strip().lower(),
         "employment_type": (inputs.get("employment_type") or "full_time").strip(),
@@ -270,7 +308,9 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     }
     from routers.hr import _EMPLOYMENT_TYPES
     if not d["job_title"]:
-        raise PacketError("Enter the job title for the offer.")
+        raise PacketError("Pick the job title - one of the company's roles, or Other.")
+    if d["new_role_name"] and not d["department"]:
+        raise PacketError("Pick the department for the new role.")
     if not d["start_date"]:
         raise PacketError("Enter the start date for the offer.")
     try:
@@ -284,6 +324,32 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
         if not db.query(NexusEmployee).filter(NexusEmployee.work_email == d["manager_email"]).first():
             raise PacketError("The supervisor must be someone in Nexus People.")
     return d
+
+
+def create_company_role(db: Session, company: str, name: str, department: str, by: str, for_name: str):
+    """Add a role the company didn't have yet (an offer's "Other"). It is created
+    with NO access - a role's access is an administrator's decision - and
+    everyone who can set it is told, so nobody is left wondering why the new
+    hire can't open anything."""
+    from models import NexusGroup, NexusRole
+    existing = _role_named(db, company, name)
+    if existing:
+        return existing
+    entity = db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
+    role = NexusGroup(id=str(uuid.uuid4()), name=name, department=department or "", is_job_role=1,
+                      tier="employee", allowed_modules="", company_id=company or "",
+                      description=f"Added from the hiring packet for {for_name} - set its access.",
+                      created_by=by, created_at=_now())
+    db.add(role)
+    admins = {r.email.lower() for r in db.query(NexusRole).filter(NexusRole.role.in_(("owner", "administrator"))).all()}
+    from routers.hr import _hr_notify
+    for to in admins | {by.lower()}:
+        _hr_notify(db, to, f"New role needs access - {name}",
+                   f"{by} added \"{name}\" to {entity.name if entity else 'the company'}'s roles while hiring "
+                   f"{for_name}. It has no access yet - set what it can open in Settings > Access.",
+                   ref_id=role.id, requested_by=by, action={"view": "admin-console", "sub": "global-access"},
+                   priority=1)
+    return role
 
 
 def _hire_merge(db: Session, details: dict, pay: dict) -> dict:
@@ -384,6 +450,7 @@ def preview_out(plan: dict) -> dict:
         "unresolved": plan["unresolved"], "emailMessage": plan["setting"].email_message or "",
         "egnyteSubfolder": plan["subfolder"], "startDate": plan["details"]["start_date"],
         "salaryText": plan["merge"].get("salary", ""),
+        "jobTitle": plan["details"]["job_title"], "newRole": plan["details"]["new_role_name"],
     }
 
 
@@ -403,6 +470,10 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         raise PacketError("A hiring packet is already out for this candidate - void it first "
                           "to send a new one.", 409)
     now = _now()
+    if plan["details"]["new_role_name"]:
+        role = create_company_role(db, cand.company, plan["details"]["new_role_name"],
+                                   plan["details"]["department"], user["email"], plan["subjectName"])
+        plan["details"]["role_id"] = role.id
     ev = HrLifeEvent(id=str(uuid.uuid4()), kind="hire", status="awaiting_sender",
                      entity_id=cand.company, candidate_id=cand.id, subject_name=plan["subjectName"],
                      subject_email=cand.email.strip().lower(), setting_id=plan["setting"].id,
@@ -548,6 +619,9 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         from routers.hr import adopt_pending_pay
         adopt_pending_pay(db, emp, ev.created_by)
     ev.employee_id = emp.id
+    if emp.work_email:
+        from routers.hr import adopt_pending_role
+        adopt_pending_role(db, emp, ev.created_by, ev)
     # _finalize attaches the sealed PDF to the profile's Documents tab for the
     # envelope's employee - set here, before it does.
     req.employee_id = emp.id
@@ -726,7 +800,8 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
 def promotion_preview_out(plan: dict) -> dict:
     tpl, d = plan["template"], plan["details"]
     return {
-        "title": plan["title"], "company": plan["company"], "templateName": tpl.name,
+        "title": plan["title"], "company": plan["company"], "templateName": tpl.name, "templateId": tpl.id,
+        "entityId": plan["employee"].company or "",
         "documents": [tpl.name] + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")],
         "recipients": [{"order": p.ordinal, "role": p.role_key, "name": p.name, "email": p.email,
                         "who": "employee" if p.email == plan["employee"].work_email.lower()
@@ -951,7 +1026,8 @@ def separation_preview_out(plan: dict) -> dict:
     return {
         "title": plan["title"], "company": plan["company"], "lastDay": d["last_day"],
         "immediate": d["immediate"], "sendTo": plan["to"], "why": plan["why"],
-        "package": plan["package"], "templateName": tpl.name if tpl else "",
+        "package": plan["package"], "templateName": tpl.name if tpl else "", "templateId": tpl.id if tpl else "",
+        "entityId": plan["employee"].company or "", "emailMessage": (plan["setting"].email_message or "") if plan["setting"] else "",
         "documents": ([tpl.name] + [a.get("name", "document.pdf") for a in (tpl.attachments or []) if a.get("path")])
         if tpl and plan["package"] else [],
         "recipients": [{"order": p.ordinal, "role": p.role_key, "name": p.name, "email": p.email,

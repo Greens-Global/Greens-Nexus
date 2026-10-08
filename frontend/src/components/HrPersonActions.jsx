@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { X, Send, FileSignature, FolderOpen, TrendingUp, ArrowRight, AlertTriangle, LogOut } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
-import { usDay } from './HiringPacket';
+import { usDay, EmailPreviewModal } from './HiringPacket';
 import { usePeopleDirectory } from '../lib/queries';
 import PersonSearchSelect from './PersonSearchSelect';
 
@@ -38,6 +38,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
   const [preview, setPreview] = useState(null);
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState('');
+  const [mail, setMail] = useState(null);
   useEffect(() => { api.hiringOptions(e.company || '').then(o => setRoles(o.roles || [])).catch(() => setRoles([])); }, [e.company]);
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
   const setP = (k, v) => { setPay(p => ({ ...p, [k]: v })); setPreview(null); };
@@ -150,6 +151,13 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
                   <div style={{ fontSize: 12.5, display: 'flex', gap: 6 }}><FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />{name} &gt; {preview.egnyteSubfolder}</div>
                 </div>
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12.5 }}>{name} gets the letter by email with a link to sign; their manager gets one after.</span>
+                <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
+                  onClick={() => setMail({ event: 'promotion', entityId: preview.entityId, templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
+                <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
+                  onClick={() => setMail({ event: 'promotion', entityId: preview.entityId, templateId: preview.templateId, role: 'manager' })}>Manager Email</button>
+              </div>
               {(preview.signedPeriods || []).length > 0 && <Warn>Already signed for the new pay period: {preview.signedPeriods.map(p => p.label).join(', ')}. These will be flagged for HR to review - not repriced.</Warn>}
               {(preview.unresolved || []).length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
@@ -166,6 +174,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
             </div>
           )}
         </div>
+        {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
           {!preview ? (
@@ -203,6 +212,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
   const [preview, setPreview] = useState(null);
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState('');
+  const [mail, setMail] = useState(null);
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
   const name = [e.firstName, e.lastName].filter(Boolean).join(' ');
   const nameOf = em => people.find(p => p.email === em)?.name || em;
@@ -310,6 +320,8 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
                     <div style={{ ...lbl, marginTop: 0 }}>Package</div>
                     {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
                     <div style={hint}>Goes to {preview.sendTo} - {preview.why}.</div>
+                    <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', marginTop: 6 }}
+                      onClick={() => setMail({ event: 'separation', entityId: preview.entityId, templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
@@ -338,6 +350,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
             </div>
           )}
         </div>
+        {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
           {!preview ? (

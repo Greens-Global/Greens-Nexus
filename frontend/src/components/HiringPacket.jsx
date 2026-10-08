@@ -24,6 +24,34 @@ import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 
 const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
+const OTHER_ROLE = '__other__';
+
+// The email a packet sends, exactly as the person receives it (sample person,
+// real company, the packet's own welcome note and documents).
+export function EmailPreviewModal({ event, entityId = '', templateId = '', note = '', role = 'subject', onClose }) {
+  const [mail, setMail] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    api.packetEmailPreview({ event, entityId, templateId, note, role }).then(setMail).catch(e => setErr(e?.message || 'Could not render the email.'));
+  }, [event, entityId, templateId, note, role]);
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 720, height: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Email Preview - Subject</div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginTop: 2 }}>{mail?.subject || (err ? '' : '...')}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        {err ? <div style={{ padding: 20 }}><Problem>{err}</Problem></div>
+          : !mail ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div>
+            : <iframe title="Email preview" srcDoc={mail.html} sandbox="" style={{ flex: 1, border: 'none', borderRadius: '0 0 16px 16px', background: '#f3f4f6' }} />}
+      </div>
+    </div>
+  );
+}
 const WORKER_LABEL = { any: 'Everyone', employee: 'Employees Only', contractor: 'Contractors Only' };
 const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern']];
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
@@ -94,6 +122,7 @@ function PacketRow({ row, templates, companyId, onSaved, onRemoved, toastErr }) 
     email_message: row.emailMessage || '', egnyte_subfolder: row.egnyteSubfolder || '',
   });
   const [busy, setBusy] = useState(false);
+  const [mail, setMail] = useState(null);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const choices = templates.filter(t => !t.entityId || t.entityId === companyId);
   const tpl = choices.find(t => t.id === f.template_id);
@@ -155,7 +184,18 @@ function PacketRow({ row, templates, companyId, onSaved, onRemoved, toastErr }) 
         placeholder={row.defaultSubfolder || 'Hiring Documents'} />
       <div style={hint}>Inside the new hire's own folder (Human Resources &gt; Employees &gt; their name), which they see in My HR &gt; My Documents. Blank uses "{row.defaultSubfolder || 'Hiring Documents'}".</div>
       {(row.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+      {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12.5 }}
+          onClick={() => setMail({ event: row.event, entityId: companyId, templateId: f.template_id, note: f.email_message })}>
+          Preview Email
+        </button>
+        {row.event === 'promotion' && (
+          <button type="button" className="secondary-btn" style={{ fontSize: 12.5 }}
+            onClick={() => setMail({ event: row.event, entityId: companyId, templateId: f.template_id, note: '', role: 'manager' })}>
+            Preview Manager Email
+          </button>
+        )}
         <button className="primary-btn" onClick={save} disabled={busy || !f.template_id || (!dirty && row.id)}
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save
@@ -240,28 +280,44 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
 // ── Offer stage: send the hiring packet ──────────────────────────────────────
 export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent, toastErr }) {
   const { data: people = [] } = usePeopleDirectory();
+  // The job title is one of the company's roles (Pranshu, Oct 8); "Other"
+  // names a new one - added to the company's roles at send, with no access
+  // until an administrator sets it.
   const [f, setF] = useState({
-    job_title: c.roleTitle || '', department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
+    role_id: c.roleId || (c.roleTitle ? OTHER_ROLE : ''), new_role_name: c.roleId ? '' : (c.roleTitle || ''),
+    department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
     manager_email: '', employment_type: 'full_time', salary_text: '',
   });
+  const [opts, setOpts] = useState({ roles: [], departments: [] });
+  const [mail, setMail] = useState(null);           // the email preview being shown
   const [pay, setPay] = useState({ base: '', payBasis: 'salary', frequency: 'annual', currency: 'USD' });
   const [extra, setExtra] = useState({});          // fields the template needs that Nexus can't fill
   const [preview, setPreview] = useState(null);
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState('');
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
-  // The role's default manager is the likely supervisor - prefilled, still changeable.
+  // The company's roles; the role's default manager is the likely supervisor
+  // - prefilled, still changeable.
   useEffect(() => {
-    if (!c.roleId || !c.company) return;
+    if (!c.company) return;
     api.hiringOptions(c.company).then(o => {
+      setOpts({ roles: o.roles || [], departments: o.departments || [] });
       const r = (o.roles || []).find(x => x.id === c.roleId);
       if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
     }).catch(() => {});
   }, [c.roleId, c.company]);
+  const isOther = f.role_id === OTHER_ROLE;
+  const role = opts.roles.find(r => r.id === f.role_id);
+  const pickRole = (id) => {
+    const r = opts.roles.find(x => x.id === id);
+    setF(p => ({ ...p, role_id: id, department: r ? (r.department || p.department) : p.department,
+                 manager_email: p.manager_email || r?.defaultManagerEmail || '' }));
+    setPreview(null);
+  };
   const setP = (k, v) => { setPay(p => ({ ...p, [k]: v })); setPreview(null); };
   const manager = people.find(p => p.email === f.manager_email);
   const body = () => ({
-    inputs: { ...f, merge: extra },
+    inputs: { ...f, role_id: isOther ? '' : f.role_id, new_role_name: isOther ? f.new_role_name.trim() : '', merge: extra },
     pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
     excluded_ack: ack,
   });
@@ -294,13 +350,37 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
       <Head title={`Send Hiring Packet - ${name}`} sub={`Goes to ${c.email || 'their personal email'}. You sign first, then ${c.firstName || 'they'} signs.`} onClose={onClose} />
       <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 14px' }}>
-          {input('Job Title *', 'job_title')}
-          {input('Department', 'department')}
+          <div><label style={lbl}>Job Title *</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)}>
+              <option value="">- pick the role -</option>
+              {opts.roles.map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              <option value={OTHER_ROLE}>Other (a new role)</option>
+            </select></div>
+          {isOther ? (
+            <>
+              {input('New Role Name *', 'new_role_name', { placeholder: 'e.g. Leasing Coordinator' })}
+              <div><label style={lbl}>Department *</label>
+                <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+                  <option value="">- pick a department -</option>
+                  {opts.departments.map(d => <option key={d} value={d}>{d}</option>)}
+                </select></div>
+            </>
+          ) : (
+            <div><label style={lbl}>Department</label>
+              <div className="form-input" style={{ width: '100%', background: 'var(--mist)', color: role?.department ? 'var(--ink)' : 'var(--muted)', display: 'flex', alignItems: 'center' }}>
+                {role ? (role.department || 'The role has no department') : 'Set by the role'}
+              </div></div>
+          )}
           {input('Start Date *', 'start_date', { type: 'date' })}
           <div><label style={lbl}>Employment Type</label>
             <select className="form-input" style={{ width: '100%' }} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
               {EMPLOYMENT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select></div>
+          {isOther && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Problem>"{f.new_role_name.trim() || 'The new role'}" is not one of this company's roles yet. Sending adds it to the company's roles with NO access - you and the administrators get a reminder to set its access in Settings &gt; Access.</Problem>
+            </div>
+          )}
           <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Supervisor</label>
             {manager ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -364,7 +444,12 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             <div style={{ fontSize: 12.5, marginTop: 10 }}>
               Starts <b>{usDay(preview.startDate)}</b>{preview.salaryText ? <> at <b>{preview.salaryText}</b></> : null}.
             </div>
-            {preview.emailMessage && <div style={{ fontSize: 12.5, marginTop: 8, fontStyle: 'italic' }}>"{preview.emailMessage}"</div>}
+            {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+              <span style={{ fontSize: 12.5 }}>{name} gets the welcome email with a link to sign.</span>
+              <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
+                onClick={() => setMail({ event: 'hire', entityId: c.company || '', templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
+            </div>
             {(preview.unresolved || []).length > 0 && (
               <div style={{ marginTop: 10 }}>
                 <Problem>The template needs a few more details Nexus doesn't have.</Problem>
@@ -384,10 +469,11 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
           </div>
         )}
       </div>
+      {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
       <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
         <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
         {!preview ? (
-          <button className="primary-btn" onClick={review} disabled={!!busy || !f.job_title.trim() || !f.start_date}
+          <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Packet
           </button>

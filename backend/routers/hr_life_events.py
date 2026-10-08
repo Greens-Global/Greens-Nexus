@@ -113,6 +113,22 @@ def delete_packet(sid: str, user: dict = Depends(require_hr_write), db: Session 
     return {"ok": True}
 
 
+@router.get("/packets/email-preview")
+def packet_email_preview(event: str, entity_id: str = "", template_id: str = "", note: str = "",
+                         role: str = "subject", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The email a packet sends, rendered with a sample person - so HR sees
+    exactly what a new hire / promoted employee / leaver receives."""
+    import hr_life_email
+    if event not in hle.EVENTS:
+        raise HTTPException(400, "Unknown event")
+    _setting_in_scope(entity_id, hr_scope(user, db), write=False)
+    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == template_id).first() if template_id else None
+    docs = [a.get("name", "document.pdf") for a in ((tpl.attachments or []) if tpl else []) if a.get("path")]
+    subject, html = hr_life_email.preview(db, user, event, entity_id, tpl.name if tpl else hle.EVENT_TITLES[event],
+                                          note, docs, role="manager" if role == "manager" else "subject")
+    return {"subject": subject, "html": html}
+
+
 # ── hiring packet ────────────────────────────────────────────────────────────
 
 class HirePacketIn(BaseModel):

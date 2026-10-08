@@ -108,7 +108,14 @@ class LifeEventCase(unittest.TestCase):
                          (svc, "upload_file", svc.upload_file)]
         esign.sign_otp._send_email = lambda to, code, title, sender: self.codes.__setitem__(to, code) or ""
         self.invited = []
-        esign._send_sign_email = lambda party, req, sender: self.invited.append(party.email) or (True, "")
+        self.mails = {}         # email -> (subject, html) of a life event's own invite
+
+        def send_sign(party, req, sender, custom=None):
+            self.invited.append(party.email)
+            if custom:
+                self.mails[party.email] = custom
+            return True, ""
+        esign._send_sign_email = send_sign
         esign._send_sealed_email = lambda *a, **k: (True, "")
         esign._storage_configured = lambda: False          # local files only - never the shared buckets
         egnyte_wiring.provision_person_folder = (
@@ -518,6 +525,76 @@ class OffboardTests(LifeEventCase):
         self._off("2099-01-31")
         with self.assertRaises(hle.PacketError):
             self._off("2099-02-28")
+
+
+class EmailAndRoleTests(LifeEventCase):
+    """Pranshu, Oct 8: the job title is one of the company's roles, "Other"
+    adds a role (flagged for access); each life event has its own email with
+    the link to sign."""
+
+    def setUp(self):
+        super().setUp()
+        for m in (models.NexusGroup, models.NexusGroupMember, models.NexusRole):
+            self.db.query(m).delete()
+        self.db.add(models.NexusGroup(id="jr-an", name="Senior Analyst", department="Accounting", is_job_role=1,
+                                      tier="employee", company_id=ENTITY))
+        self.db.add(models.NexusRole(email="admin@greensglobal.com", role="owner"))
+        self.db.commit()
+
+    def test_the_new_hire_gets_a_welcome_email_with_the_link(self):
+        ev = self._send(role_id="jr-an", job_title="")
+        self._sign(self._party(ev.sign_request_id, HR))
+        subject, html = self.mails[CAND_EMAIL]
+        self.assertEqual(subject, "Welcome to Greens Test Co, LLC - your offer and onboarding documents")
+        self.assertIn("Senior Analyst", html)
+        self.assertIn("November 2, 2026", html)
+        self.assertIn("Welcome to Greens!", html)                  # the packet's welcome note
+        token = self._party(ev.sign_request_id, CAND_EMAIL).token
+        self.assertIn(f"/sign/{token}", html)                       # click and sign
+        self.assertIn("Review &amp; Sign Your Offer", html)
+        self.assertNotIn(HR, self.mails)                            # HR signing for the company: Nexus Sign's own email
+
+    def test_role_sets_title_and_department(self):
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", {"role_id": "jr-an", "start_date": "2026-11-02"},
+                             {"base": 1, "payBasis": "hourly"}, None)
+        self.assertEqual((plan["details"]["job_title"], plan["details"]["department"]), ("Senior Analyst", "Accounting"))
+
+    def test_other_adds_a_company_role_with_no_access_and_tells_the_admins(self):
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1",
+                             {"new_role_name": "Leasing Coordinator", "department": "Operations", "start_date": "2026-11-02"},
+                             {"base": 1, "payBasis": "hourly"}, None)
+        self.assertEqual(hle.preview_out(plan)["newRole"], "Leasing Coordinator")
+        self.assertEqual(self.db.query(models.NexusGroup).filter_by(name="Leasing Coordinator").count(), 0)  # not at preview
+        ev = self._send(new_role_name="Leasing Coordinator", department="Operations", job_title="")
+        role = self.db.query(models.NexusGroup).filter_by(name="Leasing Coordinator").first()
+        self.assertEqual((role.company_id, role.allowed_modules, role.department), (ENTITY, "", "Operations"))
+        self.assertEqual(ev.inputs["role_id"], role.id)
+        bells = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).all()}
+        self.assertIn(("admin@greensglobal.com", "New role needs access - Leasing Coordinator"), bells)
+
+    def test_other_with_an_existing_name_reuses_the_role(self):
+        ev = self._send(new_role_name="senior analyst", job_title="")
+        self.assertEqual(ev.inputs["role_id"], "jr-an")
+        self.assertEqual(self.db.query(models.NexusGroup).count(), 1)
+
+    def test_the_role_lands_when_the_work_email_does(self):
+        ev = self._send(role_id="jr-an", job_title="")
+        self._sign(self._party(ev.sign_request_id, HR))
+        self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        emp = self.db.query(models.NexusEmployee).filter_by(id=self._ev(ev.id).employee_id).first()
+        emp.work_email = "jane.doe@greensglobal.com"
+        hr_router.adopt_pending_pay(self.db, emp, HR)
+        self.db.commit()
+        self.assertEqual([m.group_id for m in self.db.query(models.NexusGroupMember)
+                          .filter_by(email="jane.doe@greensglobal.com").all()], ["jr-an"])
+
+    def test_previews_render_for_every_event(self):
+        import hr_life_email
+        for event in hle.EVENTS:
+            subject, html = hr_life_email.preview(self.db, HR_USER, event, ENTITY, "Packet", "A note", ["NDA.pdf"])
+            self.assertTrue(subject and "NDA.pdf" in html and "A note" in html, event)
+        subject, _html = hr_life_email.preview(self.db, HR_USER, "promotion", ENTITY, "Letter", "", [], role="manager")
+        self.assertTrue(subject.startswith("Approval needed"))
 
 
 class SharedHireAndPayTests(LifeEventCase):

@@ -34,6 +34,7 @@ vi.mock('../api', () => ({
     sendHiringPacket: (...a) => sendPacket(...a),
     getLifeEvents: () => Promise.resolve(events),
     getPeopleDirectory: () => Promise.resolve([{ email: 'max@x.com', name: 'Max' }]),
+    hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting' }], departments: ['Accounting', 'IT'] }),
   },
 }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'max@x.com', name: 'Max' }] }) }));
@@ -54,7 +55,17 @@ describe('PacketsModal', () => {
 });
 
 describe('SendHiringPacketModal', () => {
-  const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', roleTitle: 'Analyst', expectedStart: '2026-11-02' };
+  const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', roleTitle: 'Analyst', roleId: 'jr-an', company: 'e1', expectedStart: '2026-11-02' };
+
+  it('the job title is a company role; Other asks for the new role and warns it has no access yet', async () => {
+    render(<SendHiringPacketModal candidate={cand} canSeePay onClose={noop} onSent={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('Analyst - Accounting')).toBeTruthy());
+    expect(screen.getByText('Accounting')).toBeTruthy();                       // department follows the role
+    fireEvent.change(screen.getByDisplayValue('Analyst - Accounting'), { target: { value: '__other__' } });
+    expect(screen.getByPlaceholderText('e.g. Leasing Coordinator')).toBeTruthy();
+    expect(screen.getByText(/NO access/)).toBeTruthy();
+    expect(screen.getByText('Review Packet').closest('button')).toBeDisabled();  // name + department first
+  });
 
   it('reviews, asks for what the template still needs, and sends only once confirmed', async () => {
     const onSent = vi.fn();

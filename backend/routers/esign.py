@@ -1107,15 +1107,25 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
 </div>"""
 
 
-def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict) -> tuple:
-    from_addr = os.getenv("NEXUS_FROM_EMAIL", "")
-    if not (party.email and from_addr):
-        return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
+def _sign_link(party: HrSignParty) -> str:
     # Straight to THIS request's signing page - never to a list the signer then
     # has to search. The token identifies the envelope, so there is no "which
     # document was I asked about?" step.
-    link = (f"{_app_url_fn()}/sign/{party.token}" if party.kind == "external"
+    return (f"{_app_url_fn()}/sign/{party.token}" if party.kind == "external"
             else f"{_app_url_fn()}/documents/documents-esign")
+
+
+def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custom: Optional[tuple] = None) -> tuple:
+    """`custom` = (subject, html) - an HR life event's own email (welcome /
+    promotion / separation, hr_life_email.py) in place of the generic one."""
+    from_addr = os.getenv("NEXUS_FROM_EMAIL", "")
+    if not (party.email and from_addr):
+        return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
+    link = _sign_link(party)
+    if custom:
+        return _graph_send_mail(from_addr=from_addr, display_name=_from_display(sender.get("name") or ""),
+                                to_email=party.email, subject=custom[0], html=custom[1],
+                                reply_to=(sender.get("email") or ""))
     # "Action needed" first, the document named after it - the subject line
     # the review pointed at, which says what is wanted before it says what it
     # is about. The mailbox really is unmonitored, so Reply-To is the sender:
@@ -1225,7 +1235,14 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
                    f"{sender['name']} sent you \"{req.title}\" to sign. Open Documents → Nexus Sign.",
                    ref_id=req.id, requested_by=sender_name,
                    action={"view": "documents", "sub": "documents-esign"})
-    ok, detail = _send_sign_email(party, req, sender)
+    custom = None
+    if (getattr(req, "link_kind", "") or "") == "life_event":
+        try:
+            import hr_life_email
+            custom = hr_life_email.invite_email(db, req, party, sender, _sign_link(party))
+        except Exception as e:      # the generic invite still goes out
+            print(f"[nexus-sign] life-event email not built: {type(e).__name__}: {e}")
+    ok, detail = _send_sign_email(party, req, sender, custom) if custom else _send_sign_email(party, req, sender)
     _log(db, req.id, "sent",
          f"notified {party.name} ({party.kind})" + ("" if ok else f" - email failed: {detail}"),
          party_id=party.id)
