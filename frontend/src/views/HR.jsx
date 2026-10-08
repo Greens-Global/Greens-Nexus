@@ -1,7 +1,8 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
-import { PacketsModal, SendHiringPacketModal, HiringPacketStatus, PacketSigner, packetIsActive } from '../components/HiringPacket';
+import { PacketsModal, SendHiringPacketModal, HiringPacketStatus, PacketSigner, packetIsActive, usDay } from '../components/HiringPacket';
+import CandidateFormModal from '../components/HiringCandidateForm';
 import {
   Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
@@ -1984,67 +1985,8 @@ const STAGE_META = {
 const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
-function CandidateFormModal({ onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', company: '', notes: '' });
-  const [busy, setBusy] = useState(false);
-  // Companies come server-filtered: a company-scoped admin only sees (and can
-  // only pick) their own, and the backend refuses anything else anyway.
-  const [entities, setEntities] = useState([]);
-  useEffect(() => { api.getEntities().then(setEntities).catch(() => {}); }, []);
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
-  async function save() {
-    if (!f.first_name.trim() || busy) return;
-    setBusy(true);
-    try { onSaved(await api.createCandidate(f)); onClose(); }
-    catch (err) { toastErr(err?.message || 'Could not add candidate.'); setBusy(false); }
-  }
-  const input = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
-  );
-  const dirty = Object.values(f).some(v => (v || '').trim() !== '');
-  const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add Candidate</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {input('FIRST NAME *', 'first_name', { autoFocus: true })}
-          {input('LAST NAME', 'last_name')}
-          {input('EMAIL', 'email', { type: 'email' })}
-          {input('PHONE', 'phone')}
-          {input('ROLE APPLYING FOR', 'role_title')}
-          {input('DEPARTMENT', 'department', { placeholder: 'target area - set for real on hire' })}
-          {input('EXPECTED START', 'expected_start', { type: 'date' })}
-          {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
-          <div><label style={FL}>HIRING COMPANY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-              <option value="">- pick a company -</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select></div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} /></div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />} Add Candidate
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.first_name.trim() ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
-}
-
 function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy,
-  onSendPacket, onSignPacket, packetRefresh, toastOk, toastErr }) {
+  onSendPacket, onSignPacket, packetRefresh, onEdit, toastOk, toastErr }) {
   const [history, setHistory] = useState(null);
   const [packetEvents, setPacketEvents] = useState(null);   // the hiring packet(s) on this candidate
   const [note, setNote] = useState('');
@@ -2098,13 +2040,16 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
             <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>{[c.roleTitle, c.department, c.source].filter(Boolean).join(' · ')}</div>
           </div>
           <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: `hsla(${sm.hue},0.12)`, color: `hsl(${sm.hue})`, flexShrink: 0 }}>{sm.label}</span>
+          {onEdit && c.stage !== 'hired' && (
+            <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 12, padding: '4px 11px', flexShrink: 0 }}>Edit</button>
+          )}
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
           <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {c.email && <span><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.email}</span>}
             {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
-            {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
+            {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {usDay(c.expectedStart)}</span>}
             {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
           </div>
           {/* Interview + resume */}
@@ -2241,6 +2186,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
+  const [editing, setEditing] = useState(null);            // candidate open in the edit form
   const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
@@ -2399,7 +2345,10 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onOpenInterviews={cand => { setDetail(null); setIvFor(cand); }}
         onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }}
         onSendPacket={cand => setPacketFor(cand)} onSignPacket={setSignParty} packetRefresh={packetRefresh}
+        onEdit={cand => setEditing(cand)}
         toastOk={toastOk} toastErr={toastErr} />}
+      {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
+        onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
       {packetsOpen && <PacketsModal onClose={() => setPacketsOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
         onClose={() => setPacketFor(null)}

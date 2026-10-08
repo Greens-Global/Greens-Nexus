@@ -897,6 +897,8 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN state VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN postal_code VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN m365_sync JSON",
+            # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
+            "ALTER TABLE hr_candidates ADD COLUMN role_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2017,6 +2019,8 @@ def _run_migrations():
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
         "ALTER TABLE hr_packet_settings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_life_events ENABLE ROW LEVEL SECURITY",
+        # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

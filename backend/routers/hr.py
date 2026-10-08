@@ -508,6 +508,7 @@ class CandidateIn(BaseModel):
     source:         Optional[str] = ""
     company:        Optional[str] = ""
     notes:          Optional[str] = ""
+    role_id:        Optional[str] = ""     # job role applied for; '' = Other (role_title + department typed)
 
 
 class CandidateUpdate(BaseModel):
@@ -524,6 +525,7 @@ class CandidateUpdate(BaseModel):
     stage:          Optional[str] = None
     stage_note:     Optional[str] = None
     interview_at:   Optional[str] = None   # ISO datetime; '' clears
+    role_id:        Optional[str] = None
 
 
 def _ser_candidate(c: HrCandidate) -> dict:
@@ -532,11 +534,66 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
         "expectedStart": c.expected_start, "source": c.source,
-        "company": c.company or "",
+        "company": c.company or "", "roleId": c.role_id or "",
         "interviewAt": c.interview_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
+
+
+# Where candidates come from (Neil, Oct 8: "Source should be a drop-down ...
+# referral, LinkedIn, Indeed"). A typed "Other - ..." is kept as written.
+HIRING_SOURCES = ("Referral", "LinkedIn", "Indeed", "Company Website", "Job Fair",
+                  "Recruiter / Agency", "Walk-In", "Other")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _job_role_for(db: Session, role_id: str, company: str):
+    """The job role a candidate applies for - a real role of the hiring company
+    (or a shared one). The role decides the title and the department, so they
+    can never disagree with what Settings > Access says the role is."""
+    from models import NexusGroup
+    role = db.query(NexusGroup).filter(NexusGroup.id == role_id, NexusGroup.is_job_role == 1).first()
+    if not role:
+        raise HTTPException(400, "That role no longer exists - pick another or choose Other.")
+    if (role.company_id or "") and (role.company_id or "") != (company or ""):
+        raise HTTPException(400, "That role belongs to a different company.")
+    return role
+
+
+def _check_candidate_email(email: str) -> str:
+    email = (email or "").strip().lower()
+    if email and not _EMAIL_RE.match(email):
+        raise HTTPException(400, "That email address doesn't look right.")
+    return email
+
+
+@router.get("/hiring/options")
+def hiring_options(company_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """What the Add Candidate form offers for a company: its job roles (and the
+    shared ones) with their departments, its departments, and the sources.
+    /jobroles is administrator-only; HR picks a role without that grant."""
+    from models import NexusGroup
+    scope = hr_scope(user, db)
+    company_id = (company_id or "").strip()
+    if company_id and scope is not None and company_id not in scope:
+        raise HTTPException(404, "Company not found")
+    q = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1)
+    roles = [r for r in q.order_by(NexusGroup.name).all()
+             if not (r.company_id or "") or (r.company_id or "") == company_id]
+    depts = []
+    if company_id:
+        entity = db.query(HrEntity).filter(HrEntity.id == company_id).first()
+        if entity:
+            _ensure_departments(db, entity)
+            depts = [d.name for d in db.query(HrDepartment).filter(HrDepartment.company_id == company_id)
+                     .order_by(HrDepartment.sort_order, HrDepartment.name).all()]
+    for r in roles:          # a role's department is always offered, even if the list lacks it
+        if r.department and r.department not in depts:
+            depts.append(r.department)
+    return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
+                       "companyId": r.company_id or ""} for r in roles],
+            "departments": depts, "sources": list(HIRING_SOURCES)}
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
@@ -583,11 +640,16 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     now = datetime.now(timezone.utc).isoformat()
+    role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
+    role_id = (body.role_id or "").strip()
+    if role_id:
+        role = _job_role_for(db, role_id, (body.company or "").strip())
+        role_title, department = role.name, (role.department or department)
     row = HrCandidate(
-        id=str(uuid.uuid4()),
+        id=str(uuid.uuid4()), role_id=role_id,
         first_name=body.first_name.strip(), last_name=(body.last_name or "").strip(),
-        email=(body.email or "").strip().lower(), phone=(body.phone or "").strip(),
-        role_title=(body.role_title or "").strip(), department=(body.department or "").strip(),
+        email=_check_candidate_email(body.email), phone=(body.phone or "").strip(),
+        role_title=role_title, department=department,
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
         company=(body.company or "").strip(),
         notes=body.notes or "", created_by=user["email"], created_at=now, updated_at=now,
@@ -682,6 +744,16 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                        ref_id=row.id, requested_by=user["email"],
                        action={"view": "hr", "sub": "hr-hiring"})
 
+    if body.email is not None:
+        body.email = _check_candidate_email(body.email)
+    if body.first_name is not None and not body.first_name.strip():
+        raise HTTPException(400, "First name can't be empty.")
+    if body.role_id is not None:
+        rid = body.role_id.strip()
+        if rid:
+            role = _job_role_for(db, rid, (body.company if body.company is not None else row.company) or "")
+            body.role_title, body.department = role.name, (role.department or body.department or row.department)
+        row.role_id = rid
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "company", "notes"):
         value = getattr(body, key)

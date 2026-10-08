@@ -33,7 +33,7 @@ const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 
 
 // 'YYYY-MM-DD' -> 'MM/DD/YYYY' without a timezone shift (a date-only string
 // parsed as a Date is UTC midnight - the day before in the US).
-function usDay(iso) {
+export function usDay(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
   return m ? `${m[2]}/${m[3]}/${m[1]}` : (iso || '');
 }
