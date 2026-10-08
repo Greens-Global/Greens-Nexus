@@ -31,9 +31,11 @@ const OTHER_ROLE = '__other__';
 export function EmailPreviewModal({ event, entityId = '', templateId = '', note = '', role = 'subject', onClose }) {
   const [mail, setMail] = useState(null);
   const [err, setErr] = useState('');
+  const [stage, setStage] = useState('invite');       // the sign-now email, or the "it's official" one after
   useEffect(() => {
-    api.packetEmailPreview({ event, entityId, templateId, note, role }).then(setMail).catch(e => setErr(e?.message || 'Could not render the email.'));
-  }, [event, entityId, templateId, note, role]);
+    setMail(null);
+    api.packetEmailPreview({ event, entityId, templateId, note, role, stage }).then(setMail).catch(e => setErr(e?.message || 'Could not render the email.'));
+  }, [event, entityId, templateId, note, role, stage]);
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -43,6 +45,15 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Email Preview - Subject</div>
             <div style={{ fontWeight: 700, fontSize: 14, marginTop: 2 }}>{mail?.subject || (err ? '' : '...')}</div>
           </div>
+          {role !== 'manager' && (
+            <div style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 999, padding: 3 }}>
+              {[['invite', 'To Sign'], ['completed', 'After Signing']].map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setStage(k)}
+                  style={{ border: 'none', borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                    background: stage === k ? 'var(--pine)' : 'transparent', color: stage === k ? '#fff' : 'var(--ink)' }}>{l}</button>
+              ))}
+            </div>
+          )}
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         {err ? <div style={{ padding: 20 }}><Problem>{err}</Problem></div>

@@ -116,7 +116,13 @@ class LifeEventCase(unittest.TestCase):
                 self.mails[party.email] = custom
             return True, ""
         esign._send_sign_email = send_sign
-        esign._send_sealed_email = lambda *a, **k: (True, "")
+        self.sealed = {}       # email -> (subject, html) of a life event's "it's official" email
+
+        def send_sealed(to_name, to_email, *a, **k):
+            if k.get("custom"):
+                self.sealed[to_email] = k["custom"]
+            return True, ""
+        esign._send_sealed_email = send_sealed
         esign._storage_configured = lambda: False          # local files only - never the shared buckets
         egnyte_wiring.provision_person_folder = (
             lambda emp, db: f"/Shared/#Entities/Greens Test Co/Human Resources/Employees/{emp.first_name} {emp.last_name}")
@@ -545,14 +551,24 @@ class EmailAndRoleTests(LifeEventCase):
         ev = self._send(role_id="jr-an", job_title="")
         self._sign(self._party(ev.sign_request_id, HR))
         subject, html = self.mails[CAND_EMAIL]
-        self.assertEqual(subject, "Welcome to Greens Test Co, LLC - your offer and onboarding documents")
-        self.assertIn("Senior Analyst", html)
-        self.assertIn("November 2, 2026", html)
+        self.assertEqual(subject, "Welcome to Greens Test Co, LLC, Jane! Your offer is ready to sign 🎉")
+        self.assertIn("Welcome to the team, Jane!", html)
+        self.assertIn("Your offer at a glance", html)
+        for fact in ("Senior Analyst", "Accounting", "Monday, November 2, 2026", "Max Test", "Full-Time",
+                     "$96,000 per year"):
+            self.assertIn(fact, html)
         self.assertIn("Welcome to Greens!", html)                  # the packet's welcome note
         token = self._party(ev.sign_request_id, CAND_EMAIL).token
         self.assertIn(f"/sign/{token}", html)                       # click and sign
         self.assertIn("Review &amp; Sign Your Offer", html)
+        self.assertIn("What happens next", html)
         self.assertNotIn(HR, self.mails)                            # HR signing for the company: Nexus Sign's own email
+        # Everyone signed -> "it's official", signed PDF attached by Nexus Sign
+        self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        subject, html = self.sealed[CAND_EMAIL]
+        self.assertEqual(subject, "You're officially part of Greens Test Co, LLC 🎉")
+        self.assertIn("Before you start", html)
+        self.assertNotIn(HR, self.sealed)
 
     def test_role_sets_title_and_department(self):
         plan = hle.plan_hire(self.db, HR_USER, "cand-1", {"role_id": "jr-an", "start_date": "2026-11-02"},
@@ -588,11 +604,32 @@ class EmailAndRoleTests(LifeEventCase):
         self.assertEqual([m.group_id for m in self.db.query(models.NexusGroupMember)
                           .filter_by(email="jane.doe@greensglobal.com").all()], ["jr-an"])
 
-    def test_previews_render_for_every_event(self):
+    def test_promotion_email_says_what_the_pay_went_up_by(self):
+        import hr_life_email
+        # Same unit: the increase in that unit. Different units: no made-up figure.
+        monthly = {"base": 7000, "payBasis": "salary", "frequency": "monthly", "currency": "USD"}
+        change = hr_life_email.pay_change(monthly, {**monthly, "base": 8000})
+        self.assertEqual((change["delta"], change["unit"]), (1000.0, "per month"))
+        hourly = hr_life_email.pay_change({"base": 30, "payBasis": "hourly"}, {"base": 32.5, "payBasis": "hourly"})
+        self.assertEqual((hourly["delta"], hourly["unit"]), (2.5, "per hour"))
+        mixed = hr_life_email.pay_change(monthly, {"base": 96000, "payBasis": "salary", "frequency": "annual"})
+        self.assertEqual((mixed["delta"], mixed["previous"]), (None, "$7,000 per month"))
+        subject, html = hr_life_email.preview(self.db, HR_USER, "promotion", ENTITY, "Letter", "", [])
+        self.assertTrue(subject.startswith("Congratulations, Jane! You've been promoted to Senior Analyst II"))
+        for fact in ("Your new base pay", "$8,000 per month", "$7,000 per month", "Up $1,000 per month",
+                     "Senior Analyst", "November 1, 2026", "month-end close"):
+            self.assertIn(fact, html)
+        for gone in ("%", "per year", "a year"):
+            self.assertNotIn(gone, html.split("Your new base pay")[1].split("</table>")[0])
+
+    def test_previews_render_for_every_event_and_stage(self):
         import hr_life_email
         for event in hle.EVENTS:
             subject, html = hr_life_email.preview(self.db, HR_USER, event, ENTITY, "Packet", "A note", ["NDA.pdf"])
             self.assertTrue(subject and "NDA.pdf" in html and "A note" in html, event)
+            subject, html = hr_life_email.preview(self.db, HR_USER, event, ENTITY, "Packet", "", [], stage="completed")
+            self.assertTrue(subject and "Warm regards" in html, event)
+        self.assertNotIn("🎉", hr_life_email.preview(self.db, HR_USER, "separation", ENTITY, "P", "", [])[1])
         subject, _html = hr_life_email.preview(self.db, HR_USER, "promotion", ENTITY, "Letter", "", [], role="manager")
         self.assertTrue(subject.startswith("Approval needed"))
 

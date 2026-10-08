@@ -1213,8 +1213,8 @@ export const api = {
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
   previewHiringPacket: (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendHiringPacket:    (cid, data) => req(`/hr/candidates/${cid}/hiring-packet`, { method: 'POST', body: JSON.stringify(data) }),
-  packetEmailPreview:  ({ event, entityId = '', templateId = '', note = '', role = 'subject' }) =>
-    req(`/hr/packets/email-preview?event=${encodeURIComponent(event)}&entity_id=${encodeURIComponent(entityId)}&template_id=${encodeURIComponent(templateId)}&role=${encodeURIComponent(role)}&note=${encodeURIComponent(note)}`),
+  packetEmailPreview:  ({ event, entityId = '', templateId = '', note = '', role = 'subject', stage = 'invite' }) =>
+    req(`/hr/packets/email-preview?event=${encodeURIComponent(event)}&entity_id=${encodeURIComponent(entityId)}&template_id=${encodeURIComponent(templateId)}&role=${encodeURIComponent(role)}&stage=${encodeURIComponent(stage)}&note=${encodeURIComponent(note)}`),
   getLifeEvents:       ({ candidateId = '', employeeId = '' } = {}) =>
     req(`/hr/life-events?candidate_id=${encodeURIComponent(candidateId)}&employee_id=${encodeURIComponent(employeeId)}`),
   retryLifeEventFiling: (id)      => req(`/hr/life-events/${id}/retry-filing`, { method: 'POST' }),

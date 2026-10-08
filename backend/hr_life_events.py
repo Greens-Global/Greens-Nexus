@@ -827,7 +827,14 @@ def send_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
     ev = HrLifeEvent(id=str(uuid.uuid4()), kind="promotion", status="awaiting_sender",
                      entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
                      subject_email=emp.work_email.lower(), setting_id=plan["setting"].id,
-                     template_id=plan["template"].id, inputs=dict(plan["details"]), pay=plan["pay"],
+                     template_id=plan["template"].id,
+                     # The pay before the change rides with the new pay (both
+                     # hr_comp-only) so the letter's email can say what it went
+                     # up by - "pay increased by" (Pranshu, Oct 8).
+                     inputs=dict(plan["details"]) | ({"old_pay": {k: (emp.compensation or {}).get(k)
+                                                                   for k in ("base", "payBasis", "frequency", "currency")}}
+                                                     if plan["pay"] and (emp.compensation or {}).get("base") else {}),
+                     pay=plan["pay"],
                      effective_date=plan["details"]["effective_date"],
                      flags=[{"code": "signed_timesheets", "periods": plan["flags"]}] if plan["flags"] else [],
                      created_by=user["email"].lower(), created_at=now, updated_at=now)

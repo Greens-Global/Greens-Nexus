@@ -115,7 +115,8 @@ def delete_packet(sid: str, user: dict = Depends(require_hr_write), db: Session 
 
 @router.get("/packets/email-preview")
 def packet_email_preview(event: str, entity_id: str = "", template_id: str = "", note: str = "",
-                         role: str = "subject", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+                         role: str = "subject", stage: str = "invite",
+                         user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """The email a packet sends, rendered with a sample person - so HR sees
     exactly what a new hire / promoted employee / leaver receives."""
     import hr_life_email
@@ -125,7 +126,8 @@ def packet_email_preview(event: str, entity_id: str = "", template_id: str = "",
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == template_id).first() if template_id else None
     docs = [a.get("name", "document.pdf") for a in ((tpl.attachments or []) if tpl else []) if a.get("path")]
     subject, html = hr_life_email.preview(db, user, event, entity_id, tpl.name if tpl else hle.EVENT_TITLES[event],
-                                          note, docs, role="manager" if role == "manager" else "subject")
+                                          note, docs, role="manager" if role == "manager" else "subject",
+                                          stage="completed" if stage == "completed" else "invite")
     return {"subject": subject, "html": html}
 
 

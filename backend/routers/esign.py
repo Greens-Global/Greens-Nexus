@@ -1146,7 +1146,7 @@ _ATTACH_MAX = 3_000_000  # Graph simple sendMail caps the whole message at ~4 MB
 def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: bytes,
                        open_link: str, view_link: str = "", note: str = "",
                        sender: Optional[dict] = None,
-                       party: Optional[HrSignParty] = None) -> tuple:
+                       party: Optional[HrSignParty] = None, custom: Optional[tuple] = None) -> tuple:
     """Fully-executed notice - sender, signers and CC alike get the sealed PDF
     ATTACHED (their retained copy, ESIGN retention), plus the three actions the
     review asked for: View, Download and Open in Nexus. Oversized documents
@@ -1164,8 +1164,8 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
         from_addr=from_addr,
         display_name=_from_display(sender["name"]) if (sender and sender.get("name")) else _SOR_NAME,
         to_email=to_email,
-        subject=f"Completed: All parties have signed {req.title}",
-        html=html,
+        subject=custom[0] if custom else f"Completed: All parties have signed {req.title}",
+        html=custom[1] if custom else html,
         reply_to=((sender or {}).get("email") or ""),
         pdf=((f"{safe} (signed).pdf", pdf) if attach else None),
         timeout=30.0,
@@ -4987,10 +4987,20 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         if not key or key in emailed:
             return
         emailed.add(key)
+        # The person an HR life event is about gets its own "it's official"
+        # email (hr_life_email.py) - same signed PDF attached.
+        custom = None
+        if (getattr(req, "link_kind", "") or "") == "life_event" and by_id.get(party_id) is not None:
+            try:
+                import hr_life_email
+                custom = hr_life_email.completed_email(db, req, by_id[party_id], sender, open_link)
+            except Exception as e:
+                print(f"[nexus-sign] life-event completion email not built: {type(e).__name__}: {e}")
+        kw = {"custom": custom} if custom else {}
         ok, detail = _send_sealed_email(name, email, req, final, open_link, view_link,
                                         note=(egnyte_note if egnyte_ok and egnyte_note
                                               and email == req.created_by else ""),
-                                        sender=sender, party=by_id.get(party_id))
+                                        sender=sender, party=by_id.get(party_id), **kw)
         _log(db, req.id, "sent", f"sealed copy emailed to {name or email}"
              + ("" if ok else f" - email failed: {detail}"), party_id=party_id)
 
