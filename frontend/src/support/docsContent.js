@@ -1100,11 +1100,10 @@ export const DOCS = [
       {
         title: 'Set Up a Hiring Packet',
         steps: [
-          'In People > Hiring, click Packets. Pick the company (or Default for every company without its own).',
-          "Under Packet Templates click New Template: name it, list the signers in order (Company Representative, then Employee / Candidate - the new hire is last), and upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several.",
-          'Click Place Fields on the PDF: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so the same template serves every pay; Start Date, Job Title and the others work the same way. Save the fields, then Save Template.',
-          'Click Packet For Everyone, pick the template, choose which role the new hire signs as, write the welcome note for the email, and click Save. Add a separate packet for contractors if they sign different documents.',
-          "The Egnyte Subfolder is where the signed packet is filed inside the new hire's own folder. Blank uses Hiring Documents.",
+          'In People > Hiring, click Packets. Pick the company (or Default for every company without its own). Under Hiring Packet click Add Packet.',
+          'Name the packet and pick the job roles it is for - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own; a role can be in one packet only.',
+          "Upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several. Click Place Fields: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so one packet serves every pay; Start Date, Job Title and the others work the same way.",
+          'Check the signers (Company Representative, then Employee / Candidate - the new hire signs last), write the welcome note for the email, set the Egnyte subfolder (blank uses Hiring Documents), and click Save Packet.',
         ],
       },
       {
@@ -1123,7 +1122,7 @@ export const DOCS = [
       {
         title: "Promote or Change Someone's Role",
         steps: [
-          'Set up the letter once: build it in Documents > Nexus Sign > Templates with an employee role and a manager role (employee first), then pick it in People > Hiring > Packets under Promotion Letter.',
+          'Set up the letter once in People > Hiring > Packets under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
           'Open the person in People and click Promote (or Change Role).',
           "Pick the new role, the title in the letter, the effective date (it can be in the past), their new responsibilities and their new pay, then click Review Letter.",
           'Check the change, the signing order and the Egnyte folder. Any timesheet already signed from that date is listed - it is flagged for review, not repriced.',
@@ -1135,7 +1134,7 @@ export const DOCS = [
       {
         title: 'Offboard Someone',
         steps: [
-          "Set up the separation package once: build it in Documents > Nexus Sign > Templates (your company role first, the employee last), then pick it in People > Hiring > Packets under Separation Package.",
+          "Set up the separation package once in People > Hiring > Packets under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
           'Open the person in People and click Offboard.',
           'Enter their last day and why they are leaving. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist.',
           'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email; they keep their access through their last day and Nexus marks them Left the morning after by itself.',

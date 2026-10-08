@@ -284,6 +284,50 @@ class HiringPacketTests(LifeEventCase):
         stamped = es._stamp_pdf(buf.getvalue(), req.documents[0]["fields"], parties)
         self.assertIn("$40 per hour", PdfReader(io.BytesIO(stamped)).pages[0].extract_text())
 
+    def test_a_role_gets_its_own_packet_and_the_rest_get_the_every_role_one(self):
+        """A company hiring for IT and Accounting sends each role its own
+        packet; roles without one fall back to the every-role packet, then
+        to the default every company shares (Pranshu, Oct 8)."""
+        self.db.add(models.NexusGroup(id="jr-it", name="IT Associate", department="IT", is_job_role=1,
+                                      tier="employee", company_id=ENTITY))
+        self.db.commit()
+        # One save builds the packet whole: documents + signers -> a template, roles + note -> the row.
+        r = self.client.put("/hr/packets/whole", json={
+            "entity_id": ENTITY, "event": "hire", "name": "Hiring Packet - IT", "role_ids": ["jr-it"],
+            "signers": [{"key": "company", "label": "Company"}, {"key": "employee", "label": "Employee"}],
+            "attachments": [], "body": BODY, "email_message": "Welcome to IT!", "egnyte_subfolder": "IT Hiring"})
+        self.assertEqual(r.status_code, 200, r.text)
+        it = r.json()
+        self.assertEqual((it["templateName"], it["roleNames"], it["signers"], it["subjectRole"], it["egnyteSubfolder"]),
+                         ("Hiring Packet - IT", ["IT Associate"], ["Company", "Employee"], "employee", "IT Hiring"))
+        # The role is now taken - a second packet for it is refused by name.
+        r = self.client.put("/hr/packets/whole", json={
+            "entity_id": ENTITY, "event": "hire", "name": "Another IT packet", "role_ids": ["jr-it"],
+            "signers": [{"key": "employee", "label": "Employee"}], "body": BODY})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("IT Associate already has a packet (Hiring Packet - IT)", r.json()["detail"])
+        # Resolution: the IT role gets the IT packet; the analyst role gets the every-role one.
+        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-it").id, it["id"])
+        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-an").id, "set-hire")
+        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "").id, "set-hire")
+        # Editing the IT packet keeps its row and template; the email carries its note.
+        r = self.client.put("/hr/packets/whole", json={
+            "id": it["id"], "entity_id": ENTITY, "event": "hire", "name": "Hiring Packet - IT v2", "role_ids": ["jr-it"],
+            "signers": [{"key": "company", "label": "Company"}, {"key": "employee", "label": "Employee"}],
+            "attachments": [], "body": BODY, "email_message": "Welcome to IT!"})
+        self.assertEqual((r.json()["id"], r.json()["templateId"], r.json()["templateName"]), (it["id"], it["templateId"], "Hiring Packet - IT v2"))
+        self.assertEqual(self.db.query(models.HrSignTemplate).filter_by(name="Hiring Packet - IT v2").count(), 1)
+        ev = self._send(role_id="jr-it", job_title="")
+        self.assertEqual(ev.setting_id, it["id"])
+        self._sign(self._party(ev.sign_request_id, HR))
+        self.assertIn("Welcome to IT!", self.mails[CAND_EMAIL][1])
+        # Removing the packet archives its template; the IT role falls back to the every-role packet.
+        self.client.post(f"/hr/life-events/{ev.id}/void")
+        self.assertEqual(self.client.delete(f"/hr/packets/{it['id']}").status_code, 200)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.HrSignTemplate).filter_by(id=it["templateId"]).first().status, "archived")
+        self.assertEqual(hle.resolve_setting(self.db, ENTITY, "hire", "employee", "jr-it").id, "set-hire")
+
     def test_the_preview_says_when_the_letter_never_shows_pay(self):
         plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(salary_text="$40 per hour"), None, None)
         self.assertTrue(hle.preview_out(plan)["payInLetter"])

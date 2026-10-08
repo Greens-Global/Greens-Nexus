@@ -5622,6 +5622,10 @@ class HrPacketSetting(Base):
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
     created_at       = Column(String, default="")
+    # The company's job roles this packet is for (NexusGroup ids); [] = every
+    # role the company has no role-specific packet for. A company hiring for
+    # IT and Accounting sends each its own packet (Pranshu, Oct 8).
+    role_ids         = Column(JSON, default=list)
 
 
 class HrLifeEvent(Base):

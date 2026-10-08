@@ -22,7 +22,7 @@ import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
-import { PacketTemplatesSection } from './PacketTemplates';
+import { PacketEditor, describeRoles } from './PacketTemplates';
 
 const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
@@ -128,91 +128,35 @@ export function PacketSigner({ partyId, onClose, onDone, toastOk, toastErr }) {
 }
 
 // ── Hiring > Packets ─────────────────────────────────────────────────────────
-function PacketRow({ row, templates, companyId, onSaved, onRemoved, toastErr }) {
-  const [f, setF] = useState({
-    template_id: row.templateId || '', subject_role: row.subjectRole || 'employee',
-    email_message: row.emailMessage || '', egnyte_subfolder: row.egnyteSubfolder || '',
-  });
+// One packet = one card: who it is for (job roles), its documents, its signers,
+// the welcome note and the Egnyte subfolder. Edited whole in PacketEditor.
+function PacketCard({ row, onEdit, onRemoved, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [mail, setMail] = useState(null);
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const choices = templates.filter(t => !t.entityId || t.entityId === companyId);
-  const tpl = choices.find(t => t.id === f.template_id);
-  const roles = tpl?.roles || [];
-  const dirty = f.template_id !== (row.templateId || '') || f.subject_role !== (row.subjectRole || 'employee')
-    || f.email_message !== (row.emailMessage || '') || f.egnyte_subfolder !== (row.egnyteSubfolder || '');
-
-  async function save() {
-    setBusy(true);
-    try {
-      onSaved(await api.savePacket({ entity_id: companyId, event: row.event, worker_type: row.workerType, ...f }));
-    } catch (e) { toastErr(e?.message || 'Could not save the packet.'); }
-    setBusy(false);
-  }
   async function remove() {
-    if (row.id && !await dialog.confirm('Remove this packet setting?', { title: 'Remove Packet', confirmText: 'Remove' })) return;
+    if (!await dialog.confirm(`Remove "${row.templateName}"? ${row.roleNames?.length ? `${describeRoles(row.roleNames)} will use the every-role packet instead.` : 'Roles without a packet of their own cannot be sent one until a new every-role packet is saved.'} Packets already sent are not affected.`, { title: 'Remove Packet', confirmText: 'Remove' })) return;
     setBusy(true);
-    try { if (row.id) await api.deletePacket(row.id); onRemoved(row); }
+    try { await api.deletePacket(row.id); onRemoved(row); }
     catch (e) { toastErr(e?.message || 'Could not remove it.'); setBusy(false); }
   }
-
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <b style={{ fontSize: 13 }}>{WORKER_LABEL[row.workerType]}</b>
-        {!row.id && <StatusChip label="Not Saved" tone="gray" />}
-        <span style={{ flex: 1 }} />
-        <button className="secondary-btn" onClick={remove} disabled={busy} style={{ fontSize: 11.5, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <Trash2 size={12} /> Remove
-        </button>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: 12 }}>
-        <div>
-          <label style={lbl}>Nexus Sign Template</label>
-          <select className="form-input" style={{ width: '100%' }} value={f.template_id}
-            onChange={e => { const t = choices.find(x => x.id === e.target.value); set('template_id', e.target.value);
-              const keys = (t?.roles || []).map(r => r.key);
-              if (keys.length && !keys.includes(f.subject_role)) set('subject_role', keys.includes('employee') ? 'employee' : keys[keys.length - 1]); }}>
-            <option value="">- pick a template -</option>
-            {choices.map(t => <option key={t.id} value={t.id}>{t.name}{t.documents > 1 ? ` (${t.documents} documents)` : ''}</option>)}
-          </select>
-          <div style={hint}>The template holds your PDFs, where each person signs and the Offer Fields - build it under Packet Templates above.</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 800 }}>{row.templateName || 'Unnamed packet'}</div>
+          <div style={{ fontSize: 12, marginTop: 3 }}><b>For:</b> {describeRoles(row.roleNames)}{row.workerType && row.workerType !== 'any' ? ` (${WORKER_LABEL[row.workerType]})` : ''}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+            {(row.documents || []).length ? row.documents.join(', ') : ''}{row.hasLetter ? `${(row.documents || []).length ? ' + ' : ''}typed letter` : ''}
+            {' · signs: '}{(row.signers || []).join(' → ') || '-'}
+            {' · filed in '}{row.effectiveSubfolder || row.egnyteSubfolder || 'Hiring Documents'}
+          </div>
         </div>
-        <div>
-          <label style={lbl}>The New Hire Signs As</label>
-          <select className="form-input" style={{ width: '100%' }} value={f.subject_role} onChange={e => set('subject_role', e.target.value)} disabled={!roles.length}>
-            {(roles.length ? roles : [{ key: f.subject_role, label: f.subject_role }]).map(r =>
-              <option key={r.key} value={r.key}>{r.label || r.key}</option>)}
-          </select>
-          <div style={hint}>You sign every other role when you send, so the new hire signs last.</div>
-        </div>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setMail({ event: row.event, entityId: row.entityId, templateId: row.templateId, note: row.emailMessage })}>Preview Email</button>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={onEdit}>Edit</button>
+        <button type="button" className="secondary-btn" onClick={remove} disabled={busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
       </div>
-      <label style={lbl}>Welcome Note In The Email</label>
-      <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
-        placeholder="Welcome to the team! Please review and sign your offer letter and onboarding documents."
-        value={f.email_message} onChange={e => set('email_message', e.target.value)} />
-      <label style={lbl}>Egnyte Subfolder</label>
-      <input className="form-input" style={{ width: '100%' }} value={f.egnyte_subfolder} onChange={e => set('egnyte_subfolder', e.target.value)}
-        placeholder={row.defaultSubfolder || 'Hiring Documents'} />
-      <div style={hint}>Inside the new hire's own folder (Human Resources &gt; Employees &gt; their name), which they see in My HR &gt; My Documents. Blank uses "{row.defaultSubfolder || 'Hiring Documents'}".</div>
       {(row.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
       {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-        <button type="button" className="secondary-btn" style={{ fontSize: 12.5 }}
-          onClick={() => setMail({ event: row.event, entityId: companyId, templateId: f.template_id, note: f.email_message })}>
-          Preview Email
-        </button>
-        {row.event === 'promotion' && (
-          <button type="button" className="secondary-btn" style={{ fontSize: 12.5 }}
-            onClick={() => setMail({ event: row.event, entityId: companyId, templateId: f.template_id, note: '', role: 'manager' })}>
-            Preview Manager Email
-          </button>
-        )}
-        <button className="primary-btn" onClick={save} disabled={busy || !f.template_id || (!dirty && row.id)}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save
-        </button>
-      </div>
     </div>
   );
 }
@@ -221,71 +165,70 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
   const [companyId, setCompanyId] = useState('');
-  const [drafts, setDrafts] = useState([]);       // unsaved rows the user added
+  const [editing, setEditing] = useState(null);     // { event, row | null }
   const load = () => api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
 
   const events = (data?.events || []).filter(e => ENABLED_EVENTS.includes(e.key));
-  const rowsFor = (ev) => {
-    const saved = (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === ev.key)
-      .map(s => ({ ...s, defaultSubfolder: ev.defaultSubfolder }));
-    const extra = drafts.filter(d => d.event === ev.key && !saved.some(s => s.workerType === d.workerType));
-    return [...saved, ...extra];
-  };
-  const inherited = (ev) => companyId && (data?.settings || []).filter(s => !s.entityId && s.event === ev.key);
-  const addRow = (ev, wt) => setDrafts(p => [...p, { event: ev.key, workerType: wt, defaultSubfolder: ev.defaultSubfolder, problems: [] }]);
+  const rowsFor = (ev) => (data?.settings || []).filter(s => (s.entityId || '') === companyId && s.event === ev.key)
+    .sort((a, b) => (a.roleIds?.length ? 1 : 0) - (b.roleIds?.length ? 1 : 0) || (a.templateName || '').localeCompare(b.templateName || ''));
+  const inherited = (ev) => companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
 
   return (
     <Overlay onClose={onClose} wide>
-      <Head title="Packets" sub="What each company sends through Nexus Sign when someone is hired" onClose={onClose} />
+      <Head title="Packets" sub="What each company sends through Nexus Sign - a packet per job role, or one packet for every role" onClose={onClose} />
       <div style={{ overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
             <label style={{ ...lbl, marginTop: 0 }}>Company</label>
-            <select className="form-input" style={{ width: '100%', maxWidth: 360 }} value={companyId} onChange={e => { setCompanyId(e.target.value); setDrafts([]); }}>
+            <select className="form-input" style={{ width: '100%', maxWidth: 360 }} value={companyId} onChange={e => setCompanyId(e.target.value)}>
               <option value="">Default (Every Company)</option>
               {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
-            <div style={hint}>A company without its own packet uses the default. Add a separate packet for contractors when they sign different documents.</div>
-            <PacketTemplatesSection companyId={companyId} entities={entities} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+            <div style={hint}>A company without its own packet uses the default. Within a company, a role with its own packet gets that one; every other role gets the "Every role" packet.</div>
             {events.map(ev => {
               const rows = rowsFor(ev);
-              const inh = inherited(ev) || [];
-              const missing = ['any', 'employee', 'contractor'].filter(wt => !rows.some(r => r.workerType === wt));
+              const inh = inherited(ev);
+              const hasGeneral = rows.some(r => !(r.roleIds || []).length);
               return (
                 <div key={ev.key} style={{ marginTop: 18 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <FileSignature size={15} style={{ color: 'var(--muted)' }} />
                     <b style={{ fontSize: 14 }}>{ev.label}</b>
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>- {company}</span>
+                    <span style={{ flex: 1 }} />
+                    <button type="button" className="secondary-btn" onClick={() => setEditing({ event: ev, row: null })}
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <Plus size={12} /> {hasGeneral ? 'Add Packet For A Role' : 'Add Packet'}
+                    </button>
                   </div>
                   {rows.length === 0 && (
                     <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
-                      {inh.length ? `Uses the default: ${inh.map(s => `${s.templateName} (${WORKER_LABEL[s.workerType]})`).join(', ')}.`
-                        : companyId ? 'No packet yet - this company cannot send a hiring packet until one is set here or as the default.'
-                          : 'No default packet yet.'}
+                      {inh.length ? `Uses the default: ${inh.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet here to give ${company} its own.`
+                        : companyId ? `No packet yet - ${company} cannot send a ${ev.label.toLowerCase()} until one is added here or as the default.`
+                          : `No default ${ev.label.toLowerCase()} yet. Click Add Packet, upload your PDF, place the signature boxes and an Offer Field for the salary, and save.`}
                     </div>
                   )}
                   {rows.map(r => (
-                    <PacketRow key={`${companyId}-${r.event}-${r.workerType}-${r.id || 'new'}`} row={r} templates={data.templates} companyId={companyId} toastErr={toastErr}
-                      onSaved={() => { setDrafts(p => p.filter(d => !(d.event === r.event && d.workerType === r.workerType))); load(); toastOk('Packet saved.'); }}
-                      onRemoved={() => { setDrafts(p => p.filter(d => !(d.event === r.event && d.workerType === r.workerType))); load(); }} />
+                    <PacketCard key={r.id} row={r} toastErr={toastErr} onEdit={() => setEditing({ event: ev, row: r })}
+                      onRemoved={() => { load(); toastOk('Packet removed.'); }} />
                   ))}
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {missing.map(wt => (
-                      <button key={wt} className="secondary-btn" onClick={() => addRow(ev, wt)}
-                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <Plus size={12} /> {wt === 'any' ? 'Packet For Everyone' : `Packet For ${WORKER_LABEL[wt].replace(' Only', '')}`}
-                      </button>
-                    ))}
-                  </div>
+                  {rows.length > 0 && !hasGeneral && (
+                    <div style={hint}>Only some roles have a packet. Roles without one {inh.length ? 'use the default' : `cannot be sent a ${ev.label.toLowerCase()}`} - add a packet for Every role to cover the rest.</div>
+                  )}
                 </div>
               );
             })}
           </>
         )}
       </div>
+      {editing && (
+        <PacketEditor packet={editing.row} event={editing.event.key} eventLabel={editing.event.label}
+          companyId={companyId} companyName={company} defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />
+      )}
     </Overlay>
   );
 }

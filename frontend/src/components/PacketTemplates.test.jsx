@@ -10,7 +10,7 @@ const salary = { id: 'm1', type: 'merge', merge: 'salary' };
 describe('templateProblems', () => {
   it('needs a name, a signer and something to sign', () => {
     expect(templateProblems({ name: '', roles: [], attachments: [], bodyText: '' })).toEqual([
-      'Give the template a name.', 'Add at least one signer.', 'Upload a PDF or type the letter - the packet is empty.',
+      'Give the packet a name.', 'Add at least one signer.', 'Upload a PDF or type the letter - the packet is empty.',
     ]);
   });
   it('tells which signer has nowhere to sign', () => {

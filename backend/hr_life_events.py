@@ -200,20 +200,34 @@ def compensation_from_pay(pay: dict, effective: str) -> dict:
 
 # ── packet settings ──────────────────────────────────────────────────────────
 
-def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str) -> Optional[HrPacketSetting]:
+def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
+                    role_id: str = "") -> Optional[HrPacketSetting]:
     """The packet a company sends for an event, most specific first: this
-    company + this worker type, this company + any, default + worker type,
-    default + any. A row without a template does not count."""
-    for ent, wt in ((entity_id, worker_type), (entity_id, "any"), ("", worker_type), ("", "any")):
-        if ent is None:
-            continue
-        row = (db.query(HrPacketSetting)
-               .filter(HrPacketSetting.entity_id == (ent or ""), HrPacketSetting.event == event,
-                       HrPacketSetting.worker_type == wt, HrPacketSetting.template_id != "")
-               .first())
-        if row:
-            return row
+    company's packet for the person's job role, then its packet for every
+    role (this worker type, then any), then the same for the default every
+    company falls back to. A row without a template does not count."""
+    role_id = (role_id or "").strip()
+    for ent in ((entity_id or ""), ""):
+        rows = (db.query(HrPacketSetting)
+                .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
+                        HrPacketSetting.template_id != "").all())
+        if role_id:
+            for r in rows:
+                if role_id in (r.role_ids or []):
+                    return r
+        general = [r for r in rows if not (r.role_ids or [])]
+        for wt in (worker_type, "any"):
+            for r in general:
+                if r.worker_type == wt:
+                    return r
     return None
+
+
+def role_id_for_employee(db: Session, emp: NexusEmployee) -> str:
+    """The job role an employee holds, by title - People records carry the
+    title, not the role id."""
+    role = _role_named(db, emp.company or "", emp.job_title or "")
+    return role.id if role else ""
 
 
 def template_roles(tpl: HrSignTemplate) -> list:
@@ -249,9 +263,19 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
 
 
 def ser_setting(db: Session, s: HrPacketSetting) -> dict:
+    from models import NexusGroup
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
+    role_ids = [r for r in (s.role_ids or []) if r]
+    names = ({g.id: g.name for g in db.query(NexusGroup).filter(NexusGroup.id.in_(role_ids)).all()}
+             if role_ids else {})
     return {"id": s.id, "entityId": s.entity_id or "", "event": s.event, "workerType": s.worker_type,
             "templateId": s.template_id or "", "templateName": tpl.name if tpl else "",
+            "roleIds": role_ids, "roleNames": [names.get(r, "a role that no longer exists") for r in role_ids],
+            "signers": [r.get("label") or r.get("key") for r in template_roles(tpl)] if tpl else [],
+            "documents": [a.get("name", "document.pdf") for a in ((tpl.attachments or []) if tpl else []) if a.get("path")],
+            "hasLetter": bool(tpl and tpl.body),
+            "attachments": (tpl.attachments or []) if tpl else [], "roles": (tpl.roles or []) if tpl else [],
+            "body": (tpl.body or []) if tpl else [],
             "subjectRole": s.subject_role or "employee", "emailMessage": s.email_message or "",
             "egnyteSubfolder": s.egnyte_subfolder or "",
             "effectiveSubfolder": (s.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS.get(s.event, ""),
@@ -517,7 +541,7 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
                               f"as {former.status} with this email - this is not a new hire. Edit their record instead.", 409)
         details["rehire_employee_id"] = former.id
     wt = worker_type_of(details["employment_type"])
-    setting = resolve_setting(db, cand.company, "hire", wt)
+    setting = resolve_setting(db, cand.company, "hire", wt, details["role_id"])
     entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
     company = entity.name if entity else "this company"
     if not setting:
@@ -936,7 +960,8 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
         raise PacketError("Nothing changes - pick a new role, title or pay.")
     entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
     company = entity.name if entity else "this company"
-    setting = resolve_setting(db, emp.company or "", "promotion", worker_type_of(emp.employment_type))
+    setting = resolve_setting(db, emp.company or "", "promotion", worker_type_of(emp.employment_type),
+                              details["role_id"] or role_id_for_employee(db, emp))
     if not setting:
         raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
                           f"People > Hiring > Packets.", 409)
@@ -1179,7 +1204,8 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
         to, kind_of, why = work, "internal", "they still have their work email until their last day"
     else:
         to, kind_of, why = personal, "external", "they have no work email, so it goes to their personal email"
-    setting = resolve_setting(db, emp.company or "", "separation", worker_type_of(emp.employment_type))
+    setting = resolve_setting(db, emp.company or "", "separation", worker_type_of(emp.employment_type),
+                              role_id_for_employee(db, emp))
     tpl = (db.query(HrSignTemplate).filter(HrSignTemplate.id == setting.template_id).first()
            if setting else None)
     problems = setting_problems(db, setting) if setting else []

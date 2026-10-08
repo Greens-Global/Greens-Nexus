@@ -41,6 +41,57 @@ class PacketSettingIn(BaseModel):
     subject_role:     Optional[str] = "employee"
     email_message:    Optional[str] = ""
     egnyte_subfolder: Optional[str] = ""
+    role_ids:         Optional[list] = None       # job roles this packet is for; [] / None = every role
+    id:               Optional[str] = ""          # an existing row to update
+
+
+class PacketIn(BaseModel):
+    """One packet, saved whole: the documents and signers (its Nexus Sign
+    template) together with who it is for and how it goes out. HR never
+    meets the template as a separate thing (Pranshu, Oct 8)."""
+    id:               Optional[str] = ""          # HrPacketSetting.id when editing
+    entity_id:        Optional[str] = ""
+    event:            str
+    name:             str
+    role_ids:         Optional[list] = None
+    worker_type:      Optional[str] = "any"
+    signers:          list                        # [{key, label, order}]
+    attachments:      Optional[list] = None
+    body:             Optional[list] = None
+    email_message:    Optional[str] = ""
+    egnyte_subfolder: Optional[str] = ""
+
+
+def _clean_role_ids(db: Session, entity_id: str, role_ids) -> list:
+    """Only the job roles this company can hire for (its own or shared)."""
+    from models import NexusGroup
+    want = [str(r).strip() for r in (role_ids or []) if str(r).strip()]
+    if not want:
+        return []
+    ok = {g.id for g in db.query(NexusGroup).filter(NexusGroup.is_job_role == 1, NexusGroup.id.in_(want)).all()
+          if not (g.company_id or "") or not entity_id or g.company_id == entity_id}
+    bad = [r for r in want if r not in ok]
+    if bad:
+        raise HTTPException(400, "Pick roles from this company's own list.")
+    return list(dict.fromkeys(want))
+
+
+def _roles_taken(db: Session, row: HrPacketSetting) -> None:
+    """A job role has one packet per event per company - two would make the
+    send a coin toss."""
+    from models import NexusGroup
+    mine = set(row.role_ids or [])
+    if not mine:
+        return
+    for other in (db.query(HrPacketSetting)
+                  .filter(HrPacketSetting.entity_id == (row.entity_id or ""), HrPacketSetting.event == row.event,
+                          HrPacketSetting.id != row.id).all()):
+        clash = mine & set(other.role_ids or [])
+        if clash:
+            g = db.query(NexusGroup).filter(NexusGroup.id == sorted(clash)[0]).first()
+            tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == other.template_id).first()
+            raise HTTPException(400, f"{g.name if g else 'That role'} already has a packet "
+                                     f"({tpl.name if tpl else 'unnamed'}) - remove it there first.")
 
 
 def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
@@ -81,14 +132,20 @@ def save_packet(body: PacketSettingIn, user: dict = Depends(require_hr_write), d
     entity_id = (body.entity_id or "").strip()
     _setting_in_scope(entity_id, hr_scope(user, db), write=True)
     wt = (body.worker_type or "any").strip()
-    row = (db.query(HrPacketSetting)
-           .filter(HrPacketSetting.entity_id == entity_id, HrPacketSetting.event == body.event,
-                   HrPacketSetting.worker_type == wt).with_for_update().first())
+    role_ids = _clean_role_ids(db, entity_id, body.role_ids)
+    row = db.query(HrPacketSetting).filter(HrPacketSetting.id == body.id).with_for_update().first() if body.id else None
+    if row is None and not role_ids:
+        # The every-role packet: one per company, event and worker type.
+        row = (db.query(HrPacketSetting)
+               .filter(HrPacketSetting.entity_id == entity_id, HrPacketSetting.event == body.event,
+                       HrPacketSetting.worker_type == wt).all())
+        row = next((r for r in row if not (r.role_ids or [])), None)
     now = _now()
     if row is None:
         row = HrPacketSetting(id=str(uuid.uuid4()), entity_id=entity_id, event=body.event,
                               worker_type=wt, created_at=now)
         db.add(row)
+    row.role_ids = role_ids
     row.template_id = (body.template_id or "").strip()
     row.subject_role = (body.subject_role or "employee").strip()
     row.email_message = (body.email_message or "").strip()[:4000]
@@ -98,8 +155,55 @@ def save_packet(body: PacketSettingIn, user: dict = Depends(require_hr_write), d
     if problems:
         db.rollback()
         raise HTTPException(400, problems[0])
+    _roles_taken(db, row)
     db.commit()
     return hle.ser_setting(db, row)
+
+
+@router.put("/packets/whole")
+def save_whole_packet(body: PacketIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Save a packet in one go: its documents, signers and letter become (or
+    update) a Nexus Sign template nobody has to manage by hand, and the row
+    says which roles get it, the welcome note and the Egnyte subfolder."""
+    from routers.esign import _clean_attachments
+    entity_id = (body.entity_id or "").strip()
+    _setting_in_scope(entity_id, hr_scope(user, db), write=True)
+    if body.event not in hle.EVENTS:
+        raise HTTPException(400, "Unknown event")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Give the packet a name.")
+    signers = [{"key": str(r.get("key") or "").strip(), "label": str(r.get("label") or r.get("key") or "").strip(),
+                "order": i + 1} for i, r in enumerate(body.signers or []) if isinstance(r, dict)]
+    signers = [r for r in signers if r["key"]]
+    if not signers:
+        raise HTTPException(400, "Add at least one signer.")
+    row = db.query(HrPacketSetting).filter(HrPacketSetting.id == body.id).with_for_update().first() if body.id else None
+    if row is not None:
+        _setting_in_scope(row.entity_id or "", hr_scope(user, db), write=True)
+    now = _now()
+    tpl = (db.query(HrSignTemplate).filter(HrSignTemplate.id == row.template_id).first()
+           if row is not None and row.template_id else None)
+    if tpl is None:
+        from egnyte_wiring import effective as _wired
+        tpl = HrSignTemplate(id=str(uuid.uuid4()), kind="offer" if body.event == "hire" else "custom",
+                             created_by=user["email"], created_at=now, status="active",
+                             egnyte_folder=_wired("esign.default-folder")[0])
+        db.add(tpl)
+    tpl.name, tpl.entity_id, tpl.roles = name, entity_id, signers
+    tpl.body = [str(p) for p in (body.body or []) if str(p).strip()]
+    tpl.attachments = _clean_attachments([dict(a) for a in (body.attachments or []) if isinstance(a, dict)])
+    tpl.updated_at = now
+    db.flush()
+    # The person signs as the LAST signer for a hire or separation (the
+    # company signs at send); a promotion letter's employee signs first.
+    subject = ("employee" if any(r["key"] == "employee" for r in signers)
+               else (signers[0]["key"] if body.event == "promotion" else signers[-1]["key"]))
+    setting = PacketSettingIn(id=row.id if row is not None else "", entity_id=entity_id, event=body.event,
+                              worker_type=body.worker_type or "any", template_id=tpl.id, subject_role=subject,
+                              email_message=body.email_message or "", egnyte_subfolder=body.egnyte_subfolder or "",
+                              role_ids=body.role_ids or [])
+    return save_packet(setting, user, db)
 
 
 @router.delete("/packets/{sid}")
@@ -108,7 +212,13 @@ def delete_packet(sid: str, user: dict = Depends(require_hr_write), db: Session 
     if not row:
         raise HTTPException(404, "Packet setting not found")
     _setting_in_scope(row.entity_id or "", hr_scope(user, db), write=True)
+    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == row.template_id).first() if row.template_id else None
     db.delete(row)
+    db.flush()
+    # A template nothing else sends is archived with its packet - signed
+    # envelopes keep their frozen copy either way.
+    if tpl is not None and not db.query(HrPacketSetting).filter(HrPacketSetting.template_id == tpl.id).first():
+        tpl.status, tpl.updated_at = "archived", _now()
     db.commit()
     return {"ok": True}
 

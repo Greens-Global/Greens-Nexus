@@ -1,25 +1,27 @@
-// Packet templates - the documents a company sends through Nexus Sign for a
-// life event (hiring packet, promotion letter, separation package), built
-// where they are used: People > Hiring > Packets.
-//
-// A template is the packet with blanks in it: the company's own PDFs (the
-// merged hiring packet, an NDA...) with signature boxes placed once, Offer
-// Fields that print the offer HR types at send (pay, start date, title), the
-// signers in order, and an optional typed cover letter with {{tokens}}.
-// Nexus Sign itself only signs - it lost its Templates tab in September, so
-// without this screen there was nowhere to build a packet (Pranshu, Oct 8).
+// A packet - what a company sends through Nexus Sign for a life event
+// (hiring packet, promotion letter, separation package), edited as ONE thing:
+// which job roles it is for, who signs, the company's PDFs with the signature
+// boxes placed once and Offer Fields that print each offer's pay and dates,
+// an optional typed letter, the welcome note and the Egnyte subfolder.
+// Nexus Sign only signs; the template behind a packet is Nexus's business,
+// never HR's (Pranshu, Oct 8).
 import { useEffect, useRef, useState } from 'react';
-import { X, Plus, Trash2, FileText, UploadCloud, ChevronUp, ChevronDown, PenTool, CheckCircle, Pencil, Archive, AlertTriangle } from 'lucide-react';
+import { X, Plus, Trash2, FileText, UploadCloud, ChevronUp, ChevronDown, PenTool, CheckCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
-import { dialog } from '../ui/dialog';
 import { Spinner } from './AsyncState';
 import { AttachmentPlacer, MERGE_FIELDS } from './ESign';
 
 const MERGE_LABEL = Object.fromEntries(MERGE_FIELDS);
-const DEFAULT_ROLES = [
-  { key: 'company', label: 'Company Representative', order: 1 },
-  { key: 'employee', label: 'Employee / Candidate', order: 2 },
-];
+const DEFAULT_SIGNERS = {
+  hire: [{ key: 'company', label: 'Company Representative' }, { key: 'employee', label: 'Employee / Candidate' }],
+  promotion: [{ key: 'employee', label: 'Employee' }, { key: 'manager', label: 'Manager' }],
+  separation: [{ key: 'company', label: 'Company Representative' }, { key: 'employee', label: 'Employee' }],
+};
+const SIGNER_HINT = {
+  hire: 'The new hire signs last; you sign every other role when you send.',
+  promotion: 'The employee signs first, then their manager.',
+  separation: 'The person leaving signs last; you sign for the company when you send.',
+};
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
 const Problem = ({ children }) => (
@@ -30,7 +32,7 @@ const Problem = ({ children }) => (
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'signer';
 const toParagraphs = (text) => String(text || '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
 
-/** What a document's placed fields add up to, for the list ("2 signatures, Salary"). */
+/** What a document's placed fields add up to, for the list ("2 signatures · Salary"). */
 export function describeFields(fields) {
   const fs = fields || [];
   const signs = fs.filter(f => f.type === 'sign').length;
@@ -43,10 +45,10 @@ export function describeFields(fields) {
   return parts.length ? parts.join(' · ') : 'No fields placed yet';
 }
 
-/** Why a template cannot be saved as it stands, or [] when it can. */
+/** Why a packet cannot be saved as it stands, or [] when it can. */
 export function templateProblems(t) {
   const out = [];
-  if (!String(t.name || '').trim()) out.push('Give the template a name.');
+  if (!String(t.name || '').trim()) out.push('Give the packet a name.');
   const roles = (t.roles || []).filter(r => r.key);
   if (!roles.length) out.push('Add at least one signer.');
   const docs = (t.attachments || []).filter(a => a.path);
@@ -59,22 +61,36 @@ export function templateProblems(t) {
   return out;
 }
 
-function PacketTemplateEditor({ template, companyId, entities, onClose, onSaved, toastErr }) {
+/** "Every role" or the role names a packet is for. */
+export function describeRoles(roleNames) {
+  return roleNames?.length ? roleNames.join(', ') : 'Every role';
+}
+
+/** The one editor for a packet. `packet` is a saved row from /hr/packets
+ *  (null for a new one); `event` is hire | promotion | separation. */
+export function PacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, onClose, onSaved, toastErr }) {
   const [t, setT] = useState(() => ({
-    id: template?.id || '',
-    name: template?.name || '',
-    entityId: template ? (template.entityId || '') : (companyId || ''),
-    roles: template?.roles?.length ? template.roles.map((r, i) => ({ ...r, order: r.order || i + 1 })) : DEFAULT_ROLES,
-    attachments: template?.attachments || [],
-    bodyText: (template?.body || []).join('\n\n'),
+    id: packet?.id || '',
+    name: packet?.templateName || '',
+    roleIds: packet?.roleIds || [],
+    roles: packet?.roles?.length ? packet.roles.map((r, i) => ({ ...r, order: r.order || i + 1 })) : DEFAULT_SIGNERS[event] || DEFAULT_SIGNERS.hire,
+    attachments: packet?.attachments || [],
+    bodyText: (packet?.body || []).join('\n\n'),
+    emailMessage: packet?.emailMessage || '',
+    egnyteSubfolder: packet?.egnyteSubfolder || '',
   }));
-  const [placing, setPlacing] = useState(null);     // attachment index whose fields are being placed
+  const [companyRoles, setCompanyRoles] = useState(null);
+  const [placing, setPlacing] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showLetter, setShowLetter] = useState(() => (packet?.body || []).length > 0);
   const fileRef = useRef(null);
   const set = (k, v) => setT(p => ({ ...p, [k]: v }));
   const problems = templateProblems(t);
   const roles = t.roles;
+  useEffect(() => {
+    api.hiringOptions(companyId || '').then(o => setCompanyRoles(o.roles || [])).catch(() => setCompanyRoles([]));
+  }, [companyId]);
 
   async function upload(file) {
     if (!file) return;
@@ -96,62 +112,61 @@ function PacketTemplateEditor({ template, companyId, entities, onClose, onSaved,
     let key = slug(label); while (roles.some(r => r.key === key)) key += '_';
     set('roles', [...roles, { key, label, order: roles.length + 1 }]);
   };
+  const toggleRole = (id) => set('roleIds', t.roleIds.includes(id) ? t.roleIds.filter(x => x !== id) : [...t.roleIds, id]);
   async function save() {
     setBusy(true);
     try {
-      const data = {
-        name: t.name.trim(), kind: template?.kind || 'offer', entity_id: t.entityId || '',
-        roles: roles.map((r, i) => ({ key: r.key, label: (r.label || r.key).trim(), order: i + 1 })),
-        attachments: t.attachments, body: toParagraphs(t.bodyText), status: 'active',
-      };
-      const saved = t.id ? await api.updateSignTemplate(t.id, data) : await api.createSignTemplate(data);
+      const saved = await api.savePacketWhole({
+        id: t.id, entity_id: companyId || '', event, name: t.name.trim(), role_ids: t.roleIds,
+        signers: roles.map((r, i) => ({ key: r.key, label: (r.label || r.key).trim(), order: i + 1 })),
+        attachments: t.attachments, body: toParagraphs(t.bodyText),
+        email_message: t.emailMessage, egnyte_subfolder: t.egnyteSubfolder,
+      });
       onSaved(saved);
-    } catch (e) { toastErr(e?.message || 'Could not save the template.'); }
+    } catch (e) { toastErr(e?.message || 'Could not save the packet.'); }
     setBusy(false);
   }
+  const who = event === 'hire' ? 'new hire' : event === 'promotion' ? 'employee' : 'person leaving';
 
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 64vw, 900px)', maxHeight: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 64vw, 900px)', maxHeight: 'min(92dvh, 880px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{t.id ? 'Edit Packet Template' : 'New Packet Template'}</div>
+            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{t.id ? 'Edit' : 'New'} {eventLabel} - {companyName}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Your PDFs with the signature boxes placed once; Offer Fields print each offer's pay and dates at send.</div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '4px 22px 18px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)', gap: 12 }}>
-            <div>
-              <label style={lbl}>Template Name</label>
-              <input className="form-input" style={{ width: '100%' }} value={t.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Hiring Packet - Full-Time" autoFocus />
-            </div>
-            <div>
-              <label style={lbl}>Company</label>
-              <select className="form-input" style={{ width: '100%' }} value={t.entityId} onChange={e => set('entityId', e.target.value)}>
-                <option value="">Every company</option>
-                {(entities || []).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
-            </div>
-          </div>
+          <label style={lbl}>Packet Name</label>
+          <input className="form-input" style={{ width: '100%' }} value={t.name} onChange={e => set('name', e.target.value)} placeholder={`e.g. ${eventLabel} - IT`} autoFocus />
 
-          <label style={lbl}>Signers, In Order</label>
-          {roles.map((r, i) => (
-            <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--mist)', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-              <input className="form-input" style={{ flex: 1 }} value={r.label} onChange={e => setRole(i, { label: e.target.value })} placeholder="Who signs here" />
-              <code style={{ fontSize: 11, color: 'var(--muted)', minWidth: 70 }}>{r.key}</code>
-              <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('roles', move(roles, i, -1))} style={{ padding: '4px 6px' }} aria-label="Move up"><ChevronUp size={13} /></button>
-              <button type="button" className="secondary-btn" disabled={i === roles.length - 1} onClick={() => set('roles', move(roles, i, 1))} style={{ padding: '4px 6px' }} aria-label="Move down"><ChevronDown size={13} /></button>
-              <button type="button" className="secondary-btn" disabled={roles.length <= 1} onClick={() => set('roles', roles.filter((_, j) => j !== i))} style={{ padding: '4px 6px' }} aria-label="Remove signer"><Trash2 size={13} /></button>
+          <label style={lbl}>For Which Roles</label>
+          {companyRoles === null ? <Spinner size={14} /> : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <button type="button" onClick={() => set('roleIds', [])}
+                style={{ borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                  border: `1.5px solid ${t.roleIds.length === 0 ? 'var(--pine)' : 'var(--line)'}`, background: t.roleIds.length === 0 ? 'var(--mist)' : 'var(--card)', color: 'var(--ink)' }}>
+                Every role
+              </button>
+              {companyRoles.map(r => {
+                const on = t.roleIds.includes(r.id);
+                return (
+                  <button key={r.id} type="button" onClick={() => toggleRole(r.id)}
+                    style={{ borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                      border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'var(--mist)' : 'var(--card)', color: 'var(--ink)' }}>
+                    {on ? '✓ ' : ''}{r.name}{r.department ? <span style={{ color: 'var(--muted)', fontWeight: 500 }}> · {r.department}</span> : null}
+                  </button>
+                );
+              })}
             </div>
-          ))}
-          <button type="button" className="secondary-btn" onClick={addRole} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Signer</button>
-          <div style={hint}>The person being hired (or leaving) signs last; you sign every other role when you send. A promotion letter needs an employee role and a manager role, employee first.</div>
+          )}
+          <div style={hint}>Pick the job roles this packet is for - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own. A role can be in one packet only.</div>
 
           <label style={lbl}>Documents</label>
-          {t.attachments.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your hiring packet - the offer letter, NDA and the rest can be one merged PDF or several.</div>}
+          {t.attachments.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your {eventLabel.toLowerCase()} - the offer letter, NDA and the rest can be one merged PDF or several.</div>}
           {t.attachments.map((a, i) => (
             <div key={a.path} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
               <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
@@ -169,20 +184,48 @@ function PacketTemplateEditor({ template, companyId, entities, onClose, onSaved,
           <button type="button" className="secondary-btn" disabled={uploading} onClick={() => fileRef.current?.click()} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
             {uploading ? <Spinner size={12} /> : <UploadCloud size={12} />} Upload PDF
           </button>
-          <div style={hint}>Place Fields opens the PDF: drop a Signature box for each signer where they sign, and an <b>Offer Field</b> on the blank salary line (or start date, job title) - it is printed from the offer every time this packet is sent, so one template serves every pay.</div>
+          <div style={hint}>Place Fields opens the PDF: drop a Signature box for each signer where they sign, and an <b>Offer Field</b> on the blank salary line (or start date, job title) - it is printed from the offer every time this packet is sent, so one packet serves every pay.</div>
 
-          <label style={lbl}>Letter Text (Optional)</label>
-          <textarea className="form-input" rows={5} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
-            value={t.bodyText} onChange={e => set('bodyText', e.target.value)}
-            placeholder={'Dear {{first_name}},\n\nWe are pleased to offer you the position of {{job_title}} at {{company}}, starting {{start_date}} at {{salary}}.\n\n[[sign:company]]\n\n[[sign:employee]]'} />
-          <div style={hint}>Typed pages that go in front of the PDFs. Leave blank when the PDFs are the whole packet. Blank line = new paragraph; {'{{salary}}'}, {'{{start_date}}'}, {'{{job_title}}'}, {'{{first_name}}'}, {'{{company}}'} fill in at send; [[sign:company]] on its own line is a signature line.</div>
+          <label style={lbl}>Signers, In Order</label>
+          {roles.map((r, i) => (
+            <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--mist)', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+              <input className="form-input" style={{ flex: 1 }} value={r.label} onChange={e => setRole(i, { label: e.target.value })} placeholder="Who signs here" />
+              <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('roles', move(roles, i, -1))} style={{ padding: '4px 6px' }} aria-label="Move up"><ChevronUp size={13} /></button>
+              <button type="button" className="secondary-btn" disabled={i === roles.length - 1} onClick={() => set('roles', move(roles, i, 1))} style={{ padding: '4px 6px' }} aria-label="Move down"><ChevronDown size={13} /></button>
+              <button type="button" className="secondary-btn" disabled={roles.length <= 1} onClick={() => set('roles', roles.filter((_, j) => j !== i))} style={{ padding: '4px 6px' }} aria-label="Remove signer"><Trash2 size={13} /></button>
+            </div>
+          ))}
+          <button type="button" className="secondary-btn" onClick={addRole} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Signer</button>
+          <div style={hint}>{SIGNER_HINT[event] || SIGNER_HINT.hire}</div>
+
+          <label style={lbl}>Welcome Note In The Email</label>
+          <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+            placeholder="Welcome to the team! Please review and sign your offer letter and onboarding documents."
+            value={t.emailMessage} onChange={e => set('emailMessage', e.target.value)} />
+
+          <label style={lbl}>Egnyte Subfolder</label>
+          <input className="form-input" style={{ width: '100%' }} value={t.egnyteSubfolder} onChange={e => set('egnyteSubfolder', e.target.value)} placeholder={defaultSubfolder || 'Hiring Documents'} />
+          <div style={hint}>Inside the {who}'s own folder (Human Resources &gt; Employees &gt; their name), which they see in My HR &gt; My Documents. Blank uses "{defaultSubfolder || 'Hiring Documents'}".</div>
+
+          {showLetter ? (
+            <>
+              <label style={lbl}>Letter Text (Optional)</label>
+              <textarea className="form-input" rows={5} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+                value={t.bodyText} onChange={e => set('bodyText', e.target.value)}
+                placeholder={'Dear {{first_name}},\n\nWe are pleased to offer you the position of {{job_title}} at {{company}}, starting {{start_date}} at {{salary}}.\n\n[[sign:company]]\n\n[[sign:employee]]'} />
+              <div style={hint}>Typed pages that go in front of the PDFs. Blank line = new paragraph; {'{{salary}}'}, {'{{start_date}}'}, {'{{job_title}}'}, {'{{first_name}}'}, {'{{company}}'} fill in at send; [[sign:company]] on its own line is a signature line.</div>
+            </>
+          ) : (
+            <button type="button" className="secondary-btn" onClick={() => setShowLetter(true)} style={{ fontSize: 12, marginTop: 14 }}>Add A Typed Letter Instead Of A PDF</button>
+          )}
 
           {problems.map(p => <Problem key={p}>{p}</Problem>)}
         </div>
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" onClick={save} disabled={busy || problems.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: problems.length ? 0.6 : 1 }}>
-            {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Template
+            {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Packet
           </button>
         </div>
       </div>
@@ -190,56 +233,6 @@ function PacketTemplateEditor({ template, companyId, entities, onClose, onSaved,
         <AttachmentPlacer attachment={t.attachments[placing]} roles={roles} toastErr={toastErr}
           onClose={() => setPlacing(null)}
           onSave={(fields) => set('attachments', t.attachments.map((a, j) => j === placing ? { ...a, fields } : a))} />
-      )}
-    </div>
-  );
-}
-
-/** The list of packet templates for the chosen company, with New / Edit / Archive. */
-export function PacketTemplatesSection({ companyId, entities, onChanged, toastOk, toastErr }) {
-  const [templates, setTemplates] = useState(null);
-  const [editing, setEditing] = useState(undefined);   // undefined = closed, null = new, object = edit
-  const load = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
-  useEffect(() => { load(); }, []);
-  const mine = (templates || []).filter(t => (t.status || 'active') === 'active' && (!t.entityId || t.entityId === companyId));
-
-  async function archive(t) {
-    if (!await dialog.confirm(`Archive "${t.name}"? Packets that use it stop working until another template is picked. Signed packets are not affected.`, { title: 'Archive Template', confirmText: 'Archive' })) return;
-    try { await api.updateSignTemplate(t.id, { name: t.name, status: 'archived' }); load(); onChanged?.(); toastOk?.('Template archived.'); }
-    catch (e) { toastErr(e?.message || 'Could not archive it.'); }
-  }
-
-  return (
-    <div style={{ marginTop: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <FileText size={15} style={{ color: 'var(--muted)' }} />
-        <b style={{ fontSize: 14 }}>Packet Templates</b>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>- the documents, signers and offer fields a packet sends</span>
-        <span style={{ flex: 1 }} />
-        <button type="button" className="secondary-btn" onClick={() => setEditing(null)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> New Template</button>
-      </div>
-      {templates === null ? <div style={{ padding: 12 }}><Spinner size={16} /></div>
-        : mine.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>
-            No template yet. Click New Template, upload your hiring packet PDF, place the signature boxes and an Offer Field for the salary, and save - then pick it in the packet below.
-          </div>
-        ) : mine.map(t => (
-          <div key={t.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{t.name}{!t.entityId && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}> · every company</span>}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                {(t.roles || []).map(r => r.label || r.key).join(' → ') || 'no signers'} · {(t.attachments || []).length} PDF{(t.attachments || []).length === 1 ? '' : 's'}{(t.body || []).length ? ' + typed letter' : ''}
-                {' · '}{describeFields((t.attachments || []).flatMap(a => a.fields || []))}
-              </div>
-            </div>
-            <button type="button" className="secondary-btn" onClick={() => setEditing(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={12} /> Edit</button>
-            <button type="button" className="secondary-btn" onClick={() => archive(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Archive size={12} /> Archive</button>
-          </div>
-        ))}
-      {editing !== undefined && (
-        <PacketTemplateEditor template={editing} companyId={companyId} entities={entities} toastErr={toastErr}
-          onClose={() => setEditing(undefined)}
-          onSaved={() => { setEditing(undefined); load(); onChanged?.(); toastOk?.('Template saved - pick it in the packet below.'); }} />
       )}
     </div>
   );

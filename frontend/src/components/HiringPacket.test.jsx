@@ -49,9 +49,10 @@ describe('PacketsModal', () => {
     render(<PacketsModal onClose={noop} toastOk={noop} toastErr={noop} />);
     await waitFor(() => expect(screen.getByText('Hiring Packet')).toBeTruthy());
     expect(screen.getByText('Promotion Letter')).toBeTruthy();
-    expect(screen.getAllByText('No default packet yet.')).toHaveLength(2);
-    fireEvent.click(screen.getAllByText('Packet For Everyone')[0]);
-    expect(screen.getByText('Nexus Sign Template')).toBeTruthy();
+    expect(screen.getAllByText(/No default hiring packet yet|No default promotion letter yet/)).toHaveLength(2);
+    fireEvent.click(screen.getAllByText('Add Packet')[0]);
+    expect(screen.getByText('For Which Roles')).toBeTruthy();
+    expect(screen.getByText('Packet Name')).toBeTruthy();
   });
 });
 

@@ -1210,6 +1210,7 @@ export const api = {
   // HR - life events through Nexus Sign (hiring packet, Oct 2026)
   getPackets:          ()         => req('/hr/packets'),
   savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
+  savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
   deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
   previewHiringPacket: (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendHiringPacket:    (cid, data) => req(`/hr/candidates/${cid}/hiring-packet`, { method: 'POST', body: JSON.stringify(data) }),
