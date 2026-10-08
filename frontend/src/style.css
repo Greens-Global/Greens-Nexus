@@ -3991,6 +3991,8 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-board { grid-template-columns: repeat(2, 1fr); }
   .dk-main { grid-template-columns: 1fr; }
   .dk-head-right { align-items: flex-start; }
+  /* Left-aligned here, so the big clock leads and the small zones follow. */
+  .dk-clock-row { flex-direction: row-reverse; justify-content: flex-end; }
 }
 @media (max-width: 560px) {
   .dk-board { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -4017,9 +4019,18 @@ button, [role="button"], select { touch-action: manipulation; }
   .dk-head { padding-top: 0; gap: 8px; }
 }
 @media (max-width: 640px) {
-  .dk-head h1 { font-size: 24px; }
-  .dk-head-right { width: 100%; align-items: stretch; gap: 0; }
-  .dk-clock-row { display: none; }   /* the time rides in .dk-sub-local on a phone */
+  /* Phone: the big clock keeps the top-right corner (Neil, Oct 7). The two
+     column wrappers dissolve (display: contents) so the header's own pieces
+     land on a grid - greeting | clock on the first row, the date line and
+     the scrolling toolbar full-width beneath. Only the small zones hide;
+     California rides in the date line (.dk-sub-local). */
+  .dk-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 0; align-items: start; }
+  .dk-head-left, .dk-head-right { display: contents; }
+  .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 1; }
+  .dk-clock-row { grid-column: 2; grid-row: 1; }
+  .dk-clock { font-size: 24px; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 2; }
+  .dk-toolbar { grid-column: 1 / -1; grid-row: 3; }
   .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
   .dk-toolbar::-webkit-scrollbar { display: none; }
   .dk-toolbar > * { flex-shrink: 0; }

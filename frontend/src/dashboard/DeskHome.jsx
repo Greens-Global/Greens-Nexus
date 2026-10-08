@@ -137,11 +137,12 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
         <h1>{greeting}, {firstName}!</h1>
         <div className="dk-head-sub">
           {dateLine}{summary && <> · {summary}</>}
-          {/* On a phone the zones line below is hidden and the time rides
-              here instead (Sep 23) - one line, no separate row. Own time and
-              California (when different) only; the My Profile picks stay on
-              the wider layout. */}
-          {clocks.filter((c) => c.home).map((c) => (
+          {/* On a phone the small zones beside the big clock are hidden and
+              California (when different) rides here instead (Sep 23 / Oct 7)
+              - one line, no separate row. The viewer's own time is the big
+              clock at every width now, so it is not repeated here; the My
+              Profile picks stay on the wider layout. */}
+          {clocks.filter((c) => c.home && c.label).map((c) => (
             <span key={c.tz} className="dk-sub-local"> · <ZoneClock clock={c} now={now} /></span>
           ))}
         </div>
@@ -151,8 +152,9 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             controls - the 12px zones line under the toolbar was too small to
             read (Neil, Oct 7). The other clocks (California when it differs,
             the My Profile picks) sit small on the same baseline, before it,
-            so the right side is two rows like the left. On a phone this row
-            is hidden and the time rides in the greeting's sub line instead. */}
+            so the right side is two rows like the left. On a phone the clock
+            keeps the top-right corner beside the greeting (style.css regrids
+            the header there); only the small zones hide. */}
         <div className="dk-clock-row">
           {clocks.length > 1 && (
             <div className="dk-zones">
