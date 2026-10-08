@@ -9,7 +9,8 @@ import { SearchSelect } from '../tasks/components';
 import {
   SERVICE_AREAS, SERVICE_FIELDS, serviceAreaLabel, serviceFields, withDynamicOptions,
   intakeFields, TYPE_FIELDS, TICKET_TYPE_ORDER, TICKET_TYPE_META, NO_RECORDING_TYPES,
-  serviceFieldApplies,
+  serviceFieldApplies, HELP_TOPICS, helpGroupFor, topicArea,
+  topicOptions, helpWithLabel, HELP_SUBTOPIC_KEY,
 } from './ticketMeta';
 
 describe('service areas', () => {
@@ -96,10 +97,11 @@ describe('service questions depend on the type, not just the app', () => {
     expect(keys('hardware', 'service_request')).not.toContain('svc_assetTag');
   });
 
-  it('does not ask whose account on the types that already ask who it is for', () => {
-    expect(keys('email', 'incident')).toEqual(['svc_account']);
-    expect(keys('email', 'service_request')).toEqual([]);
-    expect(keys('email', 'access_request')).toEqual([]);
+  it('no longer asks whose account - the form-wide Requester field is that question (Oct 1)', () => {
+    ['incident', 'bug', 'service_request', 'access_request'].forEach((type) =>
+      expect(keys('email', type), type).toEqual([]));
+    // Retired, not deleted: tickets that answered it still read it back.
+    expect(SERVICE_FIELDS.email.find((f) => f.key === 'svc_account')?.retired).toBe(true);
   });
 
   it('asks the area-wide questions on every type except Other', () => {
@@ -109,8 +111,15 @@ describe('service questions depend on the type, not just the app', () => {
     expect(keys('web', 'other')).toEqual([]);
   });
 
-  it('asks Other nothing at all, in every area', () => {
-    Object.keys(SERVICE_FIELDS).forEach((area) => expect(keys(area, 'other'), area).toEqual([]));
+  it('asks Other nothing at all, in every area but maintenance', () => {
+    Object.keys(SERVICE_FIELDS).filter((a) => a !== 'facilities')
+      .forEach((area) => expect(keys(area, 'other'), area).toEqual([]));
+  });
+
+  it('always asks where a maintenance issue is, whatever the type (Neil, Sep 30)', () => {
+    Object.keys(TICKET_TYPE_META).forEach((type) => {
+      expect(keys('facilities', type), type).toEqual(['svc_facility', 'svc_unit']);
+    });
   });
 
   it('never asks more than two service questions for any pairing', () => {
@@ -121,9 +130,12 @@ describe('service questions depend on the type, not just the app', () => {
     });
   });
 
-  it('only ever names types that are actually on offer', () => {
+  it('only ever names types that exist', () => {
+    // Defined, not necessarily offered: a type retired from intake still
+    // has tickets that read their answers back through these.
+    const defined = Object.keys(TICKET_TYPE_META);
     Object.values(SERVICE_FIELDS).flat().forEach((f) => {
-      (f.types || []).forEach((t) => expect(TICKET_TYPE_ORDER, `${f.key} -> ${t}`).toContain(t));
+      (f.types || []).forEach((t) => expect(defined, `${f.key} -> ${t}`).toContain(t));
     });
   });
 
@@ -171,14 +183,15 @@ describe('dynamic options', () => {
   });
 });
 
-// Aug 31 2026: six types, and every question rewritten for someone who does not
-// work in IT. The rules that must not regress are (a) the six are all offered,
+// Aug 31 2026: every question rewritten for someone who does not work in IT.
+// Sep 30 2026 (Neil): five types - Service Request and Change / Enhancement
+// left intake. The rules that must not regress are (a) the five are offered,
 // (b) nothing asks for developer-speak any more, and (c) no definition was
 // DELETED - a retired one still has to render the answer an old ticket holds.
 describe('intake types', () => {
-  const INTAKE = ['incident', 'bug', 'service_request', 'access_request', 'change_request', 'other'];
+  const INTAKE = ['incident', 'bug', 'feature_request', 'access_request', 'other'];
 
-  it('offers all six, in the order a requester scans them', () => {
+  it('offers the five, Incident first (Neil, Sep 30)', () => {
     expect(TICKET_TYPE_ORDER).toEqual(INTAKE);
   });
 
@@ -250,6 +263,8 @@ describe('intake types', () => {
       ['requestKind', 'user', 'accessType', 'reason', 'endDate']);
     expect(intakeFields('change_request').map((f) => f.key)).toEqual(
       ['currentConfiguration', 'requestedChange', 'reason', 'implementationDate']);
+    expect(intakeFields('feature_request').map((f) => f.key)).toEqual(
+      ['currentProblem', 'proposedSolution']);
     expect(intakeFields('other')).toEqual([]);
   });
 
@@ -301,5 +316,73 @@ describe('grouped picker', () => {
     expect(screen.getByText('Ramp')).toBeTruthy();
     expect(screen.queryByText('Used by IT')).toBeNull();
     expect(screen.queryByText('All applications')).toBeNull();
+  });
+});
+
+// Sep 30 2026 (Neil): "What do you need help with?" lists the topics of the
+// department picked above it - IT things for IT, maintenance for Construction.
+describe('help topics', () => {
+  const GROUPS = [
+    { label: 'IT Support', departments: ['it', 'it support'], topics: [{ name: 'Nexus', area: 'tasks' }, { name: 'Printer or Scanner', area: 'hardware' }] },
+    { label: 'Construction', departments: ['construction'], topics: [{ name: 'Plumbing or Water Leak', area: 'facilities' }] },
+  ];
+  const load = () => { HELP_TOPICS.length = 0; HELP_TOPICS.push(...GROUPS); };
+
+  it('finds a department\'s list by its name, in any case', () => {
+    load();
+    expect(helpGroupFor('IT Support').label).toBe('IT Support');
+    expect(helpGroupFor('  Construction ').label).toBe('Construction');
+  });
+
+  it('has no list for a department nobody set one up for', () => {
+    load();
+    expect(helpGroupFor('Accounting')).toBeNull();
+    expect(helpGroupFor('')).toBeNull();
+  });
+
+  it('files a topic under its own area, and a typed answer under none', () => {
+    load();
+    expect(topicArea('plumbing or water leak')).toBe('facilities');
+    expect(topicArea('Printer or Scanner')).toBe('hardware');
+    expect(topicArea('Front gate keypad')).toBe('');
+  });
+
+  it('never offers IT topics to Construction', () => {
+    load();
+    expect(helpGroupFor('construction').topics.map((t) => t.name)).not.toContain('Nexus');
+  });
+});
+
+// Oct 1 2026 (Neil): a topic may have an optional "Which one?" level -
+// Microsoft -> Outlook. Stored on typeFields.svc_helpSubtopic.
+describe('help topic sub-options', () => {
+  const GROUPS = [
+    { label: 'IT', departments: ['it'], topics: [
+      { name: 'Microsoft (Outlook, Teams, OneDrive)', area: 'email', options: ['Outlook', 'Teams'] },
+      { name: 'Egnyte', area: 'files' }] },
+  ];
+  const load = () => { HELP_TOPICS.length = 0; HELP_TOPICS.push(...GROUPS); };
+
+  it("lists a topic's sub-options, in any case, and none for a topic without them", () => {
+    load();
+    expect(topicOptions('microsoft (outlook, teams, onedrive)')).toEqual(['Outlook', 'Teams']);
+    expect(topicOptions('Egnyte')).toEqual([]);
+    expect(topicOptions('Front gate keypad')).toEqual([]);
+    expect(topicOptions('')).toEqual([]);
+  });
+
+  it("can be scoped to one department's group", () => {
+    load();
+    expect(topicOptions('Microsoft (Outlook, Teams, OneDrive)', { topics: [] })).toEqual([]);
+  });
+
+  it('shows the topic with its sub-option wherever Help With is shown', () => {
+    expect(helpWithLabel({ application: 'Microsoft', typeFields: { [HELP_SUBTOPIC_KEY]: 'Outlook' } })).toBe('Microsoft / Outlook');
+    expect(helpWithLabel({ application: 'Egnyte', typeFields: {} })).toBe('Egnyte');
+    expect(helpWithLabel({ application: '', typeFields: { [HELP_SUBTOPIC_KEY]: 'Outlook' } })).toBe('');
+  });
+
+  it('keeps the sub-option under an svc_ key, so a department change clears it and a type change keeps it', () => {
+    expect(HELP_SUBTOPIC_KEY.startsWith('svc_')).toBe(true);
   });
 });

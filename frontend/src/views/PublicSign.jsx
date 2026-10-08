@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileSignature, Loader2, CheckCircle, XCircle, AlertTriangle, Lock, Download, Clock, Mail, Phone } from 'lucide-react';
+import { FileSignature, CheckCircle, XCircle, AlertTriangle, Lock, Download, Clock, Mail, Phone } from 'lucide-react';
 import { API_BASE } from '../api';
 import { SigningDoc } from '../components/ESign';
 // US date format everywhere in user-facing copy (CLAUDE.md) - the expiry read
 // as 2026-09-25 to the signer.
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
+import { Spinner } from '../components/AsyncState';
 
 // ── Nexus Sign - public signing page, /sign/{token} ───────────────────────────
 // Renders OUTSIDE the MSAL gate (external signers have no login); the URL token
@@ -288,7 +289,7 @@ export default function PublicSign({ token }) {
 
   if (!payload) return shell(
     <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--muted, #6b7280)' }}>
-      <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+      <Spinner size="section" />
     </div>, 620);
 
   // Access-code gate - the sender shared a code with this signer out-of-band.

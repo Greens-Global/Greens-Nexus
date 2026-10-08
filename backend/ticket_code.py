@@ -6,16 +6,19 @@ them into email, and tickets.py -> ticket_notify.py -> ticket_mail_templates.py
 is already an import chain. Putting the helper at either end would close it into
 a cycle.
 
-STORED  "000001"          - a plain zero-padded sequence, nothing else.
-SHOWN   "Ticket #000001"  - everywhere a person reads one.
+STORED  "000001"     - a plain zero-padded sequence, nothing else.
+SHOWN   "Ticket #1"  - everywhere a person reads one (Oct 1: "#00027" read as
+                       noise - it is just ticket 27, counting upwards). The
+                       padding stays in storage only, where it keeps codes
+                       sorting in order as text.
 
 The "TKT-" prefix is gone. It was stored inside the value, so every consumer
 carried it whether or not it wanted to, and the number could not be widened
 without changing what the stored string looked like.
 
-Six digits is the number, not a display choice: the sequence has to be wide
-enough never to change width, because a number that grows a digit stops sorting
-correctly and stops being recognisable as the same kind of thing.
+Six digits is a storage choice, not a display one: the stored sequence has to
+be wide enough never to change width, because a code that grows a digit stops
+sorting correctly as text.
 """
 
 TICKET_CODE_DIGITS = 6
@@ -41,10 +44,18 @@ def normalize(code: str) -> str:
     return f"{n:0{TICKET_CODE_DIGITS}d}" if n else text
 
 
+def display_number(code: str) -> str:
+    """The number as a person reads it, without the storage padding:
+    "000012" -> "12", "TKT-012" -> "12". A non-numeric code passes through."""
+    text = (code or "").strip()
+    n = digits_of(text)
+    return str(n) if n else text
+
+
 def ticket_no(code: str) -> str:
-    """What a person reads: "Ticket #000012".
+    """What a person reads: "Ticket #12".
 
     Blank stays blank rather than becoming "Ticket #" - a ticket with no number
     should look like it has none, not like it has an empty one."""
-    normalized = normalize(code)
-    return f"Ticket #{normalized}" if normalized else ""
+    shown = display_number(code)
+    return f"Ticket #{shown}" if shown else ""

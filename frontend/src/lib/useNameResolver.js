@@ -24,7 +24,7 @@ export function useNameResolver() {
         // roles first, People second - People wins where both know the email
         for (const res of [roles, people]) {
           if (res.status !== 'fulfilled') continue;
-          for (const u of res.value || []) {
+          for (const u of (Array.isArray(res.value) ? res.value : [])) {
             const e = (u.email || '').toLowerCase();
             const n = cleanName(u.name || u.display_name || '');
             if (e && n) m[e] = n;

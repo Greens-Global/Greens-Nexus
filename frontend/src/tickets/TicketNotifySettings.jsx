@@ -6,13 +6,13 @@ import { RefreshCw, Save, AlertTriangle, CheckCircle2, Clock, RotateCcw } from '
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { TicketSelect } from './TicketAtoms';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
 const EVENT_LABELS = {
-  created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Ticket updates',
+  created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Replies to the requester',
   resolved: 'Ticket resolved', reopened: 'Ticket reopened', approval_required: 'Approval required',
 };
 const STATUS_META = {
@@ -60,7 +60,7 @@ export default function TicketNotifySettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   const set = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
   const setEvent = (k, v) => setCfg((c) => ({ ...c, enabledEvents: { ...c.enabledEvents, [k]: v } }));
@@ -132,12 +132,15 @@ export default function TicketNotifySettings() {
                 </div>
               ))}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: `1px solid ${NX.border2}`, marginTop: 4 }}>
-                <span style={{ fontSize: 13.5 }}>Comments trigger an email</span>
+                <span style={{ fontSize: 13.5 }}>Comments trigger an email and Teams message</span>
                 <Toggle on={!!cfg.commentsTrigger} onChange={() => set('commentsTrigger', !cfg.commentsTrigger)} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-                <span style={{ fontSize: 13.5 }}>Attachments trigger an email</span>
-                <Toggle on={!!cfg.attachmentsTrigger} onChange={() => set('attachmentsTrigger', !cfg.attachmentsTrigger)} />
+              {/* Requesters are emailed and messaged on Teams only when their
+                  ticket is assigned, gets a reply, or is resolved/closed (Neil,
+                  Oct 1 2026) - attachments no longer email anyone, so their
+                  toggle is gone (the setting key stays, unused). */}
+              <div style={{ fontSize: 11.5, color: NX.faint, paddingTop: 6 }}>
+                Requesters get an email and a Teams message only when their ticket is assigned, gets a reply, or is resolved or closed. Their own changes never message them.
               </div>
             </div>
           </div>
@@ -187,7 +190,7 @@ function DeliveryLog() {
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No notification attempts yet.</div>
       ) : (

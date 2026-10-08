@@ -64,6 +64,7 @@ class ShiftRequestTests(unittest.TestCase):
             # keeps the company-wide scope these tests exercise.
             db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
             db.add(models.ShiftGroup(id=GROUP, name="Store"))
+            db.add(models.ShiftGroup(id="group-sreq-other", name="Other Store"))
             db.add(models.ShiftGroupMember(id="sgm-sreq-a", group_id=GROUP, employee_email=A))
             db.add(models.ShiftGroupMember(id="sgm-sreq-b", group_id=GROUP, employee_email=B))
             db.commit()
@@ -90,7 +91,7 @@ class ShiftRequestTests(unittest.TestCase):
                .filter(models.NexusEmployee.work_email.like("sreq.%")).delete(synchronize_session=False))
             db.query(models.NexusGroup).filter(models.NexusGroup.id == GRANT).delete(synchronize_session=False)
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == GRANT).delete(synchronize_session=False)
-            db.query(models.ShiftGroup).filter(models.ShiftGroup.id == GROUP).delete(synchronize_session=False)
+            db.query(models.ShiftGroup).filter(models.ShiftGroup.id.in_([GROUP, "group-sreq-other"])).delete(synchronize_session=False)
             db.query(models.ShiftGroupMember).filter(models.ShiftGroupMember.group_id == GROUP).delete(synchronize_session=False)
             db.query(models.ScheduledShift).filter(
                 (models.ScheduledShift.employee_email.like("sreq.%")) | (models.ScheduledShift.created_by == "sreq-test") |
@@ -105,12 +106,12 @@ class ShiftRequestTests(unittest.TestCase):
     def _as(self, email):
         os.environ["NEXUS_DEV_EMAIL"] = email
 
-    def _shift(self, email, day=DAY, published=1, slots=0, start="09:00"):
+    def _shift(self, email, day=DAY, published=1, slots=0, start="09:00", group=GROUP, end="17:00"):
         db = database.SessionLocal()
         try:
-            sid = f"ss-{email or 'open'}-{day}-{start}-{published}"
+            sid = f"ss-{email or 'open'}-{day}-{start}-{published}-{group}"
             db.add(models.ScheduledShift(id=sid, employee_email=email, work_date=day, start_hhmm=start,
-                                         end_hhmm="17:00", published=published, open_slots=slots,
+                                         end_hhmm=end, published=published, open_slots=slots, group_id=group,
                                          created_by="sreq-test", created_at="2026-09-29T00:00:00"))
             db.commit()
             return sid
@@ -226,7 +227,7 @@ class ShiftRequestTests(unittest.TestCase):
         self._as(ADMIN)
         self.assertEqual(self.client.get("/timeclock/shift-requests").json()["pending"][0]["status"], "pending_manager")
 
-    def test_approving_cancels_other_requests_on_the_same_shift(self):
+    def test_approving_declines_other_requests_on_the_same_shift(self):
         x, y = self._shift(A), self._shift(B, day=DAY2)
         offer = self._ask(A, kind="offer", shift_id=x, target_email=B).json()
         swap = self._ask(B, kind="swap", shift_id=y, target_email=A, target_shift_id=x).json()
@@ -235,7 +236,102 @@ class ShiftRequestTests(unittest.TestCase):
         self._decide(offer["id"])
         self._as(B)
         mine = {m["id"]: m for m in self.client.get("/timeclock/shift-requests/mine").json()["mine"]}
-        self.assertEqual(mine[swap["id"]]["status"], "cancelled")
+        # Declined with the reason - not "cancelled" as if B withdrew it (Oct 2).
+        self.assertEqual((mine[swap["id"]]["status"], mine[swap["id"]]["decisionNote"]),
+                         ("declined", "Another request filled this shift"))
+
+    # ── Oct 2 rebuild: teams, locks, conflicts, the inbox ────────────────
+
+    def test_open_shifts_are_offered_to_their_own_team_only(self):
+        ours = self._shift("", slots=1)                      # GROUP: A and B
+        theirs = self._shift("", slots=1, group="group-sreq-other", start="10:00")
+        legacy = self._shift("", slots=1, group="", start="11:00")   # before teams: everyone
+        self._as(A)
+        seen = [s["id"] for s in self.client.get(f"/timeclock/shift-requests/mine?start={DAY}&end={DAY}").json()["openShifts"]]
+        self.assertEqual(seen, [ours, legacy])
+        mine = self.client.get(f"/timeclock/my-schedule?start={DAY}&end={DAY}").json()
+        self.assertEqual([s["id"] for s in mine["openShifts"]], [ours, legacy])
+        self.assertEqual(mine["groups"], [GROUP])
+        self.assertEqual(self._ask(A, kind="open", shift_id=theirs).status_code, 403)
+        self._as(C)                                          # on no team at all
+        seen = [s["id"] for s in self.client.get(f"/timeclock/shift-requests/mine?start={DAY}&end={DAY}").json()["openShifts"]]
+        self.assertEqual(seen, [legacy])
+
+    def test_the_last_slot_is_locked_while_it_is_approved(self):
+        """Two approvals of the last slot: the row is read FOR UPDATE and the
+        count re-checked, so the second one is refused (SQLite has no row
+        locks, so this exercises the lock path and the re-check)."""
+        from unittest import mock
+        from sqlalchemy.orm import Query
+        open_id = self._shift("", slots=1)
+        ra = self._ask(A, kind="open", shift_id=open_id).json()
+        rb = self._ask(B, kind="open", shift_id=open_id).json()
+        locked = []
+        real = Query.with_for_update
+
+        def spy(self_, *a, **k):
+            locked.append(True)
+            return real(self_, *a, **k)
+        with mock.patch.object(Query, "with_for_update", spy):
+            self.assertEqual(self._decide(ra["id"]).json()["status"], "approved")
+        self.assertGreaterEqual(len(locked), 2)              # the request row and the shift row
+        self.assertIsNone(self._row(open_id))
+        second = self._decide(rb["id"])
+        self.assertEqual(second.status_code, 409)             # already declined for A's approval, or stale
+        self._as(B)
+        mine = {m["id"]: m for m in self.client.get("/timeclock/shift-requests/mine").json()["mine"]}
+        self.assertEqual(mine[rb["id"]]["status"], "declined")
+
+    def test_approval_checks_the_new_owners_schedule_unless_forced(self):
+        x = self._shift(A)                                   # 09:00 - 17:00 on DAY
+        self._shift(B, start="13:00", end="21:00")           # B already works that afternoon
+        r = self._ask(A, kind="offer", shift_id=x, target_email=B).json()
+        self._as(B)
+        self.client.post(f"/timeclock/shift-requests/{r['id']}/respond", json={"accept": True})
+        refused = self._decide(r["id"])
+        self.assertEqual(refused.status_code, 409, refused.text)
+        self.assertIn("Overlaps another shift", refused.json()["detail"])
+        self.assertEqual(self._row(x).employee_email, A)     # nothing moved
+        self._as(ADMIN)
+        forced = self.client.post(f"/timeclock/shift-requests/{r['id']}/decide", json={"approve": True, "force": True})
+        self.assertEqual(forced.json()["status"], "approved", forced.text)
+        self.assertEqual(self._row(x).employee_email, B)
+
+    def test_a_re_owned_shift_drops_the_old_owners_unshared_edit(self):
+        x = self._shift(A)
+        db = database.SessionLocal()
+        try:
+            db.query(models.ScheduledShift).filter(models.ScheduledShift.id == x).update(
+                {"pending_json": '{"shiftId": "", "start": "08:00", "end": "16:00", "label": "", "note": "", "openSlots": 0}'})
+            db.commit()
+        finally:
+            db.close()
+        r = self._ask(A, kind="offer", shift_id=x, target_email=B).json()
+        self._as(B)
+        self.client.post(f"/timeclock/shift-requests/{r['id']}/respond", json={"accept": True})
+        self.assertEqual(self._decide(r["id"]).json()["status"], "approved")
+        self.assertEqual((self._row(x).employee_email, self._row(x).pending_json), (B, ""))
+
+    def test_the_inbox_shows_requests_waiting_on_the_teammate_and_both_shifts(self):
+        x, y = self._shift(A), self._shift(B, day=DAY2)
+        r = self._ask(A, kind="swap", shift_id=x, target_email=B, target_shift_id=y).json()
+        self._as(ADMIN)
+        box = self.client.get("/timeclock/shift-requests").json()
+        self.assertEqual(box["pending"], [])
+        self.assertEqual([w["id"] for w in box["waitingOnPeer"]], [r["id"]])
+        w = box["waitingOnPeer"][0]
+        self.assertEqual((w["shift"]["id"], w["shift"]["email"], w["targetShift"]["id"], w["targetShift"]["email"]),
+                         (x, A, y, B))
+        self.assertEqual(w["asked"]["date"], DAY)
+        self.assertEqual(self._decide(r["id"]).status_code, 409)   # still not a manager's to decide
+
+    def test_the_week_start_is_a_setting(self):
+        self._as(ADMIN)
+        self.assertEqual(self.client.get("/timeclock/shift-requests/settings").json()["weekStart"], "monday")
+        self.assertEqual(self.client.put("/timeclock/shift-requests/settings", json={"weekStart": "friday"}).status_code, 400)
+        self.assertEqual(self.client.put("/timeclock/shift-requests/settings", json={"weekStart": "Sunday"}).json()["weekStart"], "sunday")
+        self._as(A)
+        self.assertEqual(self.client.get(f"/timeclock/my-schedule?start={DAY}&end={DAY}").json()["weekStart"], "sunday")
 
     def test_the_requester_can_cancel_and_nobody_else_can(self):
         r = self._ask(A, kind="offer", shift_id=self._shift(A), target_email=B).json()

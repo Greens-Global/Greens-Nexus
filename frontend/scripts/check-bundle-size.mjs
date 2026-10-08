@@ -133,7 +133,60 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // would have failed and left the old frontend serving. +14 KB for the
 // feature; the old team table came out as the grid went in. No new
 // dependency. Needs the owner's nod like the bumps above (Visesh).
-const TOTAL_KB     = 10050;
+// Sep 30, 2026: 10050 -> 10150. The 09/29 accounting call (Charmi, Neil):
+// Filters, chips, the Excel writer, the General Ledger report, the saved
+// reports screen, PFS from the ledger, MRI, package adjustments, the Send
+// dialog, the priority bar and the Intacct access import - about 76 KB of
+// new screens, measured at 10076 KB. Deliberate; every piece was asked for.
+// Oct 1, 2026: 10150 -> 10200. Neil's Oct 1 Ticket review (PR #407): the
+// rich-text intake, Requester picker, help-topic Which One? lists, Latest
+// Comment column, requester Mark Resolved, satisfaction survey and the
+// department on/off settings - about 16 KB, less 5.5 KB for the retired Report
+// a Bug composer, so ~10 KB net. Dev measured 10144 KB in CI (6 KB under),
+// so it tipped at 10154 KB. Deliberate; every piece was asked for.
+// Oct 2, 2026: 10200 -> 10320. Charmi's 09/30 call + the Shifts QA against
+// Teams (Visesh: "do recommended ... make it big clean and easier"): the
+// Schedule rebuilt with a side-panel editor, Day/Week/Month, Share dialog,
+// context menus and keyboard support; a Requests inbox with tabs; the Shifts
+// settings category; Workday shift requests; pay history priced per day and
+// the Time Clock settings section; Accounting figures through <Amount />.
+// Measured exactly 10200 KB locally after merging dev's Locations work, and
+// CI's clean install reads about 10 KB higher. +120 KB of headroom for the
+// batch; the old ShiftsPanel, ShiftSelfService and modal editors came out as
+// the new screens went in. No new dependency. Deliberate; every piece was
+// asked for (Visesh, 10/02).
+// Oct 2, 2026 (late): 10400 -> 10480. Charmi's export batch: the report's
+// Export menu now builds ledger-line files (linesExport.js: PDF / Excel /
+// CSV) and Save to Files opens the full Files browser. ~5 KB over.
+// Oct 2, 2026 (evening): 10320 -> 10400. Charmi + Neil's accounting batch:
+// columns per picked employee, Egnyte destination + folder browser, Journals
+// filter, Flux Analysis, drill from every figure, PFS classification + Move
+// to + liabilities/real estate from the ledger + Excel + co-borrower +
+// Schedule E/C + jewelry, Budget / Vendors & Customers / Allocations tabs,
+// Export for Intacct. Measured 10295 KB locally (25 KB under), CI reads about
+// 10 KB higher. +80 KB headroom. No new dependency. Deliberate; every piece
+// was asked for (Visesh, 10/02: "build all of it").
+// Oct 6, 2026: 10480 -> 10750. Charmi + Neil's 10/04 review batch: MRE
+// (a new Reporting tab), loan amortization schedules + rate stress tests,
+// the Loans rebuild (detail, payment history, manual loans, Egnyte folders),
+// PFS Affiliated Entities + per-file lock + first page, the MRI rent roll
+// filters / notes / tenant card, Dashboard / Reporting / Tools dropdowns.
+// Measured 10654 KB locally; CI reads about 10 KB higher. No new dependency.
+// Deliberate; every piece was asked for (Visesh, 10/06: "fix all of these").
+// Oct 7, 2026: 10750 -> 10850. Property tickets (#434, Neil 10/05 + Pranshu
+// 10/06): the property picker on ticket forms, Property Walkthrough (many
+// tickets at one property in one submit), the Asset Management Maintenance
+// tab's Support-style ticket tables, Needs Action -> maintenance record with
+// recurring services, the nested Maintenance Log with filters, and the world
+// currency picker. CI measured 10809 KB with dev at 10743 (dev was 7 KB under
+// the cap, so any feature tipped it). No new dependency. Deliberate.
+// Oct 7, 2026: 10850 -> 11050. Accounting / Time Clock / Asset Management
+// feedback (#465, Neil / Charmi / Priyanka 10/07): PFS affiliated shares,
+// investments block and encrypted PDF, Loans stress + dismissals, MRI / MRE
+// grids, Dashboard Customize, Reports drill chips and Ledger Search
+// operators, the property Financing section. CI measured 10947 KB. No new
+// dependency. Deliberate.
+const TOTAL_KB     = 11050;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

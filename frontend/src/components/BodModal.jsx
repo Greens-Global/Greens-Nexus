@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { Sunrise, Sunset, Coffee, Play, X, Send, Loader2, MessageSquare } from 'lucide-react';
+import { Sunrise, Sunset, Coffee, Play, X, Send, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { bodDurable, newBodId } from '../lib/bodQueue';
 import { msalInstance } from '../msalInstance';
@@ -9,12 +9,13 @@ import { useRole } from '../contexts/RoleContext';
 import { cleanName, emailToName } from '../lib/utils';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { Spinner } from './AsyncState';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
 // posts to a Teams GROUP CHAT from the employee's OWN ACCOUNT and is recorded in
 // Nexus. Each person posts to exactly ONE chat - the one an admin bound to their
-// group (managed under Shifts → Presets & groups). Employees never pick from a
+// group (Settings > Global Settings > Shifts > Groups). Employees never pick from a
 // list; if their group has no bound chat, the message is recorded in Nexus only.
 // Prompts skip only via the "already sent" tick, so nobody silently skips and
 // nobody is nagged twice.
@@ -207,7 +208,9 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         try {
           const my = await api.timeMyChat();
           if (!live) return;
-          if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
+          // A group chat, or a channel in a team (Oct 6) - the server says which.
+          if (my?.chatId) setBound({ id: my.chatId, name: my.targetType === 'channel' ? `${my.teamName || 'Team'} › ${my.chatName}` : my.chatName,
+            channelName: my.chatName, type: my.targetType || 'chat', teamId: my.teamId || '', teamName: my.teamName || '' });
           setChatErr(false); setLoading(false);
           return;
         } catch (_) {
@@ -290,7 +293,8 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     // while the punch seconds later went through (Amy and Vicki, 09/16/2026).
     const r = await bodDurable({
       id: msgId,
-      kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
+      kind: mode, message, tasks, channel_id: targetId, channel_name: bound?.channelName || targetName,
+      target_type: bound?.type || 'chat', team_id: bound?.teamId || '', team_name: bound?.teamName || '',
       // ALWAYS send the composed message. If our chat lookup blipped (targetId
       // empty), the SERVER resolves the person's bound chat and posts it - a
       // transient client failure can no longer silently drop the Teams post.
@@ -389,11 +393,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             <label style={FL}>Posts to</label>
             {loading ? (
               <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Finding your team chat…
+                <Spinner size={12} /> Finding your team chat…
               </div>
             ) : bound ? (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
-                <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
+                  <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
+                </div>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Posted as you, with a small "Sent by Nexus" line at the bottom.</span>
               </div>
             ) : chatErr ? (
               // Couldn't confirm the chat here, but the server resolves it on send -
@@ -404,7 +411,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
             ) : (
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 No team chat set up for you yet - your message is recorded in Nexus.
-                An admin can link one under Shifts → Presets &amp; groups.
+                An admin sets it on your job role under Access &gt; Job Roles.
               </div>
             )}
           </div>
@@ -424,7 +431,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
           )}
           <button className="primary-btn" onClick={send} disabled={busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} {M.cta}
+            {busy ? <Spinner size={13} /> : <Send size={13} />} {M.cta}
           </button>
         </div>
       </div>

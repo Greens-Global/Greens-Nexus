@@ -30,6 +30,21 @@ describe('TimesheetReviewPanel', () => {
     await waitFor(() => expect(submit).toHaveBeenCalledWith('2026-09-06', 'All good'));
   });
 
+  it('will not submit a timesheet with punch errors, and says why (Oct 1)', () => {
+    const why = 'Fix this on your timesheet before you submit it - 09/25/2026: no clock-out - add the out time.';
+    render(<TimesheetReviewPanel {...props} review={{ status: 'not_submitted', rounds: [], parties: [], submitBlocker: why }} />);
+    expect(screen.getByText(why)).toBeTruthy();
+    expect(screen.getByText('Submit for Review').closest('button')).toBeDisabled();
+  });
+
+  it('will not resubmit with punch errors either', () => {
+    const why = 'Fix this on your timesheet before you submit it - 09/27/2026: a clock-out with no clock-in.';
+    render(<TimesheetReviewPanel {...props}
+      review={{ ...base, status: 'with_employee', canSubmit: true, submitBlocker: why, rounds: [{ note: 'Fix Sun' }] }} />);
+    expect(screen.getByText(why)).toBeTruthy();
+    expect(screen.getByText('Resubmit').closest('button')).toBeDisabled();
+  });
+
   it('gives the manager Send Back (with a note) and Agree', async () => {
     render(<TimesheetReviewPanel {...props} self={false}
       review={{ ...base, status: 'with_manager', canAgree: true, canSendBack: true }} />);

@@ -15,16 +15,27 @@ from mail_text import Rich, rich_to_email_html
 
 from ticket_code import ticket_no
 
+# Title Case, like every status chip in the app (Neil, Sep 30: "In Progress",
+# "On Hold") - mirrors TICKET_STATUS_META in frontend/src/tickets/ticketMeta.js.
 TICKET_STATUS_META = {
     "new":         {"label": "New",         "color": "#2563eb"},
     "open":        {"label": "Open",        "color": "#7c3aed"},
-    "in_progress": {"label": "In progress", "color": "#d97706"},
-    "on_hold":     {"label": "On hold",     "color": "#6b7280"},
+    "in_progress": {"label": "In Progress", "color": "#d97706"},
+    "waiting_user":   {"label": "Waiting for User",   "color": "#2563eb"},
+    "waiting_vendor": {"label": "Waiting for Vendor", "color": "#6b7280"},
+    "on_hold":     {"label": "On Hold",     "color": "#6b7280"},
     "resolved":    {"label": "Resolved",    "color": "#16a34a"},
     "closed":      {"label": "Closed",      "color": "#9ca3af"},
     "reopened":    {"label": "Reopened",    "color": "#dc2626"},
 }
 PRIORITY_LABEL = {"urgent": "Urgent", "high": "High", "medium": "Medium", "low": "Low"}
+
+
+def status_label(status: str) -> str:
+    """The Title Case label for a status key - for bell titles and email copy,
+    which used to show the raw key ("Ticket moved to in_progress")."""
+    m = TICKET_STATUS_META.get(status or "")
+    return m["label"] if m else (status or "-").replace("_", " ").title()
 
 
 def _status_badge(status: str) -> str:
@@ -260,7 +271,18 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
     return subject, html
 
 
-def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False) -> tuple[str, str]:
+def _comment_block(t: dict, latest_comment: str) -> dict:
+    """A reply saved in the same Done as the change this email is about
+    (update_ticket sends one email per save) - shown under the details, the
+    same block update_email uses."""
+    if not latest_comment:
+        return {}
+    actor = t.get("actorName") or t.get("actorEmail")
+    return {"comment_label": f"Latest comment - {actor}", "comment_text": latest_comment}
+
+
+def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_requester: bool = False,
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     intro = (
         "You've been assigned this ticket - please review and take action."
@@ -282,6 +304,7 @@ def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str, for_
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), logo_url=logo_url,
         note="Action required." if audience == "assignee" else "",
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
@@ -326,7 +349,8 @@ def update_email(*, t: dict, base_url: str, logo_url: str, update_kind: str,
     return subject, html
 
 
-def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
+def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str,
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     secondary = None
     note = ""
@@ -346,18 +370,20 @@ def resolved_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> t
         intro="Here's a summary of the resolution.",
         rows=[
             ("Resolution", t.get("resolutionLabel") or "-"),
-            ("Resolution notes", t.get("description") or "-"),
+            ("Resolution notes", t.get("resolutionNote") or "-"),
             ("Resolved by", t.get("actorName") or t.get("actorEmail")),
             ("Resolved", t.get("eventAtDisplay") or "-"),
             ("Total resolution time", t.get("resolutionDuration") or "-"),
         ],
         cta_label="Confirm Resolution" if audience == "requester" else "Review Ticket",
         cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester), secondary_ctas=secondary, note=note, logo_url=logo_url,
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
 
-def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -> tuple[str, str]:
+def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "",
+                   latest_comment: str = "") -> tuple[str, str]:
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
@@ -372,6 +398,7 @@ def reopened_email(*, t: dict, base_url: str, logo_url: str, reason: str = "") -
         ],
         cta_label="Open Ticket", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
         note="Action required.",
+        **_comment_block(t, latest_comment),
     )
     return subject, html
 
@@ -405,3 +432,105 @@ def escalated_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> 
         note="Action required.",
     )
     return subject, html
+
+
+# ── Teams chat message to the requester (Neil, Oct 1 2026) ──────────────────
+# Only three things reach a requester in Teams: their ticket was ASSIGNED, a
+# public REPLY from someone else (with what was said), or it was RESOLVED /
+# CLOSED (with the resolution). One message per save, however many of those
+# it carried. Status moves, priority and field edits stay in the bell and the
+# Support list - "we don't need any other Teams spam".
+
+def _has_text(raw: str) -> bool:
+    return bool(str(rich_to_email_html(raw or "", limit=10)).replace("<br>", "").strip())
+
+
+def requester_teams_dm_html(*, code: str, subject: str, link: str, actor_name: str = "",
+                            assigned_to: str = "", closed_status: str = "",
+                            resolution_note: str = "", comment: str = "") -> str:
+    """The HTML body of one Teams chat message, or "" when nothing in it is
+    news to the requester. One summary line per event, the reply or the
+    resolution quoted under it, and a short masked link ("Open Ticket #27")
+    instead of the raw URL. Every value is escaped; rich-text comment bodies
+    are reduced to text first (mail_text.rich_to_email_html), never pasted
+    in as markup."""
+    no = ticket_no(code) or "Ticket"
+    title = f'{escape(no)} "{escape(subject or "")}"'
+    parts = []
+    if assigned_to:
+        parts.append(f"<p>{title} has been assigned to {escape(assigned_to)}.</p>")
+    if closed_status in ("resolved", "closed"):
+        lead = "It" if parts else title
+        parts.append(f"<p>{lead} has been {closed_status}.</p>")
+        if _has_text(resolution_note):
+            parts.append(f"<p><b>Resolution:</b> {rich_to_email_html(resolution_note, limit=1500)}</p>")
+    if _has_text(comment):
+        who = escape(actor_name or "Someone")
+        lead = f"{who} replied:" if parts else f"{who} replied on {title}:"
+        parts.append(f"<p>{lead}</p><blockquote>{rich_to_email_html(comment, limit=2000)}</blockquote>")
+    if not parts:
+        return ""
+    parts.append(f'<p><a href="{escape(link, quote=True)}">Open {escape(no)}</a></p>')
+    return "".join(parts)
+
+
+def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, rows: list, audience: str,
+                      base_url: str, logo_url: str) -> tuple[str, str]:
+    """One email for a whole Property Walkthrough (Neil, 10/05): a table of its
+    tickets instead of one email per ticket. Requesters open theirs through
+    Support (see _ticket_url); the asset manager is sent to the property's
+    Open Tickets in Asset Management, which they can open without the Tickets
+    grant."""
+    n = len(rows)
+    s = "s" if n != 1 else ""
+    who = actor_name or "A colleague"
+    heading, intro = {
+        "requester": (f"Your {n} ticket{s} at {property_name} were submitted",
+                      f"{who} filed these in one walkthrough. Each is its own ticket, and you will hear about each one as it is worked."),
+        "assignee": (f"You were assigned {n} ticket{s} at {property_name}",
+                     f"Assigned during a walkthrough by {who}."),
+        "asset_manager": (f"{n} new ticket{s} at {property_name}",
+                          f"{who} walked the property and filed these. They show under the property's Maintenance > Open Tickets."),
+    }.get(audience, (f"{n} new ticket{s} at {property_name} to assign",
+                     f"Filed in one walkthrough by {who}. Each needs an owner."))
+    th = email_theme.current()
+    base = (base_url or "").rstrip("/")
+    for_req = audience == "requester"
+    linked = audience != "asset_manager"
+    trs = "".join(
+        "<tr>"
+        "<td style='padding:8px 8px 8px 0;border-bottom:1px solid #f0f1f3;font-size:12.5px;white-space:nowrap;font-weight:700'>"
+        + (f"<a href='{escape(_ticket_url(base_url, r['id'], for_requester=for_req))}' style='color:#2563eb;text-decoration:none'>"
+           f"{escape(ticket_no(r['code']))}</a>" if linked else escape(ticket_no(r["code"])))
+        + "</td>"
+        f"<td style='padding:8px;border-bottom:1px solid #f0f1f3;font-size:13.5px;color:#1f2937'>{escape(r['subject'])}"
+        f"<div style='font-size:12px;color:#6b7280'>{escape(' · '.join(x for x in (r['category'], r['location']) if x))}"
+        f"{' · Needs Approval' if r['pending'] else ''}</div></td>"
+        "<td style='padding:8px 0 8px 8px;border-bottom:1px solid #f0f1f3;font-size:12.5px;color:#374151;white-space:nowrap'>"
+        f"{escape(PRIORITY_LABEL.get(r['priority'], r['priority']))}</td>"
+        "</tr>" for r in rows)
+    if audience == "asset_manager":
+        cta_label, cta_url = "View Property Maintenance", (f"{base}/property-asset/tickets:{property_id}" if base else "#")
+    elif for_req:
+        cta_label, cta_url = "View My Tickets", (f"{base}/support" if base else "#")
+    else:
+        cta_label, cta_url = "View Tickets", (f"{base}/tickets" if base else "#")
+    html = f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
+    <tr><td style="background:{th.color('#0f3d2e')};padding:18px 28px">{th.logo_block(logo_url)}</td></tr>
+    <tr><td style="padding:26px 28px 8px">
+      <div style="font-size:11.5px;color:#9ca3af;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">Property Walkthrough</div>
+      <h2 style="margin:0 0 10px;font-size:19px;color:#111827;line-height:1.35">{escape(heading)}</h2>
+      <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{escape(intro)}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0 8px">{trs}</table>
+    </td></tr>
+    <tr><td style="padding:8px 28px 28px;text-align:center">
+      <a href="{escape(cta_url)}" style="display:inline-block;background:{th.color('#0f3d2e')};color:#ffffff;text-decoration:none;
+        font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">{escape(cta_label)}</a>
+    </td></tr>
+    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
+      This is an automated notification from the Ticket Management System.{th.footer_lines()}
+    </td></tr>
+  </table>
+</div>"""
+    return f"{n} new ticket{s} at {property_name} - Property Walkthrough", html

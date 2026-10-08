@@ -79,6 +79,9 @@ export default function RichDescription({
   // Task attachments. Given a File, the parent stores it and returns
   // { url, name } (or null). Undefined = the "+" menu only offers inline images.
   onAttachFile,
+  // Comment composers: a paperclip in the toolbar that hands the picked files
+  // back to the parent to stage (posted with the comment, not embedded).
+  onStageFiles,
   // People available to @mention. Undefined disables mentions entirely.
   mentionPeople,
   // Ctrl/Cmd+Enter submit (comment composer).
@@ -93,6 +96,7 @@ export default function RichDescription({
   const addRef = useRef(null);
   const fileRef = useRef(null);
   const imageRef = useRef(null);
+  const stageRef = useRef(null);
   // Double-click, not click: a single click on an image in the editor selects
   // it (to delete or move it), which must keep working.
   const [zoomImage, zoomViewer] = useImageZoom();
@@ -348,6 +352,13 @@ export default function RichDescription({
           onChange={async (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; for (const f of fs) await attach(f); }} />
         <input ref={imageRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
           onChange={async (e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; for (const f of fs) await insertImage(f); }} />
+        {onStageFiles && (
+          <>
+            <Btn icon={Paperclip} label="Attach Files" onClick={() => stageRef.current?.click()} />
+            <input ref={stageRef} type="file" multiple style={{ display: 'none' }}
+              onChange={(e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) onStageFiles(fs); }} />
+          </>
+        )}
 
         <Divider />
         <Btn icon={Undo2} label="Undo" disabled={!can?.undo().run} onClick={() => editor.chain().focus().undo().run()} />

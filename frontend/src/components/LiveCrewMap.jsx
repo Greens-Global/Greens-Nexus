@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { LoadingState } from './AsyncState';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../api.js';
 import EnrolPhone from './EnrolPhone';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { formatDistance } from '../lib/distance';
 
 // Live location of clocked-in field crews (native app posts pings to /track/*).
 // Markers coloured by geofence verdict; click a person to replay today's path.
@@ -127,7 +129,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'min(68vh, 620px)', overflowY: 'auto' }}>
           {crew === null ? (
-            <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+            <LoadingState compact />
           ) : list.length === 0 ? (
             <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 2px' }}>
               No one is clocked in with tracking right now. Crews appear here while they're on shift in the Nexus Fields app.
@@ -145,7 +147,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
                   <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{c.name}</span>
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
-                  {st.label}{c.workSiteName ? ` · ${c.workSiteName}` : ''}{c.distanceM ? ` (${c.distanceM} m)` : ''}
+                  {st.label}{c.workSiteName ? ` · ${c.workSiteName}` : ''}{c.distanceM ? ` (${formatDistance(c.distanceM)})` : ''}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
                   {ago(c.at)}{c.batteryPct >= 0 ? ` · battery ${c.batteryPct}%` : ''}

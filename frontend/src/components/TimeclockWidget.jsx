@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2, ChevronUp, Coffee, Play } from 'lucide-react';
+import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, ChevronUp, Coffee, Play } from 'lucide-react';
 import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
@@ -7,6 +7,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
+import { Spinner } from './AsyncState';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -407,7 +408,7 @@ export default function TimeclockWidget() {
   const right = 18;
 
   return (
-    <div ref={wrapRef} style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
+    <div ref={wrapRef} className="tc-capsule" style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 232,
@@ -464,13 +465,13 @@ export default function TimeclockWidget() {
               border: `1px solid ${onBreak ? 'rgba(180,83,9,0.35)' : 'var(--wk-line2)'}`, cursor: 'pointer',
               background: onBreak ? 'rgba(180,83,9,0.1)' : 'var(--card)', color: onBreak ? '#b45309' : 'var(--ink)',
               fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
-            {breakBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : onBreak ? <Play size={13} /> : <Coffee size={13} />}
+            {breakBusy ? <Spinner size={13} /> : onBreak ? <Play size={13} /> : <Coffee size={13} />}
             {onBreak ? 'End Break' : 'Start Break'}
           </button>
           <button onClick={quickPunchOut} disabled={busy} title="Punch out"
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
               border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LogOut size={13} />}
+            {busy ? <Spinner size={13} /> : <LogOut size={13} />}
             {lostOut ? 'Retry Punch Out' : 'Punch Out'}
           </button>
         </div>

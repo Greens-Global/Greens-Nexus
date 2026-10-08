@@ -807,6 +807,9 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
             # Group schedulers (Sep 29) - see the Postgres list.
             "ALTER TABLE shift_groups ADD COLUMN scheduler_emails TEXT DEFAULT ''",
+            # Teams switcher (Sep 30) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN archived INTEGER DEFAULT 0",
+            "ALTER TABLE shift_groups ADD COLUMN sort_order INTEGER DEFAULT 0",
             # Confidential time off (Neil, Sep 29) - see the Postgres list.
             "ALTER TABLE time_off_requests ADD COLUMN confidential INTEGER DEFAULT 0",
             # Several allowed work sites per person + manager-set punch sites
@@ -816,6 +819,83 @@ def _run_migrations():
             # Address-verified work sites (Sep 30) - see the Postgres list.
             "ALTER TABLE hr_work_sites ADD COLUMN address_verified_at TEXT DEFAULT ''",
             "ALTER TABLE hr_work_sites ADD COLUMN address_verified_by TEXT DEFAULT ''",
+            # Work site from a Google Maps link (Sep 30) - see the Postgres list.
+            "ALTER TABLE hr_work_sites ADD COLUMN location_source TEXT DEFAULT ''",
+            "ALTER TABLE hr_work_sites ADD COLUMN map_link TEXT DEFAULT ''",
+            # Accounting: when each person last opened the screen (Sep 30).
+            "ALTER TABLE accounting_user_prefs ADD COLUMN last_opened_at TEXT DEFAULT ''",
+            "ALTER TABLE accounting_user_prefs ADD COLUMN opens INTEGER DEFAULT 0",
+            # Priority notifications (Sep 30) - see the Postgres list.
+            "ALTER TABLE nexus_notifications ADD COLUMN priority INTEGER DEFAULT 0",
+            # Ticket unread dot + resolution note (Sep 30) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN requester_update_at TEXT DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN requester_seen_at TEXT DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN resolution_note TEXT DEFAULT ''",
+            # Closed notifications (Oct 1) - see the Postgres list.
+            "ALTER TABLE nexus_notifications ADD COLUMN closed_by VARCHAR DEFAULT ''",
+            # Ticket raised on behalf of someone else (Oct 1) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN created_by_email TEXT DEFAULT ''",
+            # Ticket departments come from the global list (Oct 1) - see the Postgres list.
+            "ALTER TABLE ticket_departments ADD COLUMN enabled BOOLEAN DEFAULT 1",
+            # Shifts rebuild (Oct 2): a placed shift's team and zone - see the Postgres list.
+            "ALTER TABLE scheduled_shifts ADD COLUMN group_id TEXT DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN timezone TEXT DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
+            "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
+            # Time-tracking exemption moves to the role (Visesh, Oct 2) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN time_tracking_exempt INTEGER DEFAULT 0",
+            # MRI rent roll Notes column + automatic customer link (Oct 6) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN team_note VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN team_note_by VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN team_note_at VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN link_source VARCHAR DEFAULT ''",
+            # Marketing > Google Business Profile performance sync (Oct 2026)
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_synced_at VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_integration_tokens ADD COLUMN perf_error VARCHAR DEFAULT ''",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN photo_count INTEGER DEFAULT 0",
+            "ALTER TABLE marketing_gbp_locations ADD COLUMN last_photo_at VARCHAR DEFAULT ''",
+            # Property Tickets (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN property_name VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN batch_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_vendor VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN maintenance_cost VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+            # Property maintenance records + recurring services (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_locked INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN parent_ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN service_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+            "ALTER TABLE ticket_maintenance_records ADD COLUMN currency VARCHAR DEFAULT 'USD'",
+            # BOD/EOD to a Teams channel (Oct 6) - see the Postgres list.
+            "ALTER TABLE shift_groups ADD COLUMN teams_target VARCHAR DEFAULT 'chat'",
+            "ALTER TABLE shift_groups ADD COLUMN teams_team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN teams_team_name VARCHAR DEFAULT ''",
+            "ALTER TABLE time_bod ADD COLUMN target_type VARCHAR DEFAULT 'chat'",
+            # Ticket soft delete (Oct 6) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+            "ALTER TABLE pfs_affiliates ADD COLUMN roles JSON",   # PFS role per borrower (Neil, Oct 7)
+            # Accounting > Loans (Oct 7) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_type VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN stress_excluded BOOLEAN DEFAULT 0",
+            # MRI: one list of every income source (Oct 7) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN income_type VARCHAR DEFAULT 'lease'",
+            # Job role -> Teams destination for BOD/EOD (Oct 7) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN bod_target VARCHAR DEFAULT 'chat'",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_chat_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_chat_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_team_name VARCHAR DEFAULT ''",
+            # Microsoft 365 contact info two-way (Oct 7) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN office_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN street_address VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN city VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN state VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN postal_code VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN m365_sync JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1732,6 +1812,9 @@ def _run_migrations():
         # Group schedulers + staff availability (Sep 29). Availability is a
         # new table - RLS per CLAUDE.md.
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS scheduler_emails TEXT DEFAULT ''",
+        # Teams switcher (Sep 30): archive + the managers' own order.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS archived INTEGER DEFAULT 0",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
         "ALTER TABLE shift_availability ENABLE ROW LEVEL SECURITY",
         # Accounting: memorized reports and reporting packages (Neil, Sep 25).
         # New tables - RLS per CLAUDE.md.
@@ -1766,6 +1849,168 @@ def _run_migrations():
         # older site, so the UI asks for each to be re-checked once.
         "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_at TEXT DEFAULT ''",
         "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS address_verified_by TEXT DEFAULT ''",
+        # Work site placed from a pasted Google Maps link (Pranshu, Sep 30):
+        # how the point was set, and the link itself as the record of it.
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS location_source TEXT DEFAULT ''",
+        "ALTER TABLE hr_work_sites ADD COLUMN IF NOT EXISTS map_link TEXT DEFAULT ''",
+        # Accounting: when each person last opened the screen (Sep 30).
+        "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS last_opened_at TEXT DEFAULT ''",
+        "ALTER TABLE accounting_user_prefs ADD COLUMN IF NOT EXISTS opens INTEGER DEFAULT 0",
+        # Priority notifications (Neil, call of 09/29): 1 = the yellow bar across
+        # the top until acted on; 0 = the bell.
+        "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 0",
+        # Tickets (Neil, Sep 30): the requester's unread dot on Support (last
+        # update by someone else vs. when they last opened it) and the written
+        # resolution every resolve/close now requires.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS requester_update_at TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS requester_seen_at TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS resolution_note TEXT DEFAULT ''",
+        # Closed notifications (Neil, 10/01): clearing moves a row to the
+        # person's Closed list instead of deleting it; rows live 30 days.
+        "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
+        # Tickets (Neil, Oct 1): who filed a ticket raised on someone else's
+        # behalf - requester_email is who it is for.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS created_by_email TEXT DEFAULT ''",
+        # Ticket departments come from the company's GLOBAL department list
+        # (Neil, 10/01): ticket_departments is now only the Tickets module's
+        # per-department settings, and `enabled` is whether intake offers it.
+        "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE",
+        # Shifts rebuild (Oct 2): a placed shift belongs to a scheduling group
+        # (open shifts, day notes and publish key on it) and carries the zone
+        # its times are in (models.ScheduledShift.group_id / timezone). The
+        # grid and the reminder scan read one person's days, so the pair is
+        # indexed together.
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS group_id TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS timezone TEXT DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_group_id ON scheduled_shifts (group_id)",
+        "CREATE INDEX IF NOT EXISTS ix_scheduled_shifts_email_date ON scheduled_shifts (employee_email, work_date)",
+        # Accounting > Reports > Flux Analysis explanation notes (Neil, 10/02).
+        # New table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_flux_notes ENABLE ROW LEVEL SECURITY",
+        # Accounting (Oct 2): vendor / customer change requests and the monthly
+        # payroll allocation runs. New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_partner_changes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_allocation_runs ENABLE ROW LEVEL SECURITY",
+        # Time-tracking exemption is set on the role / access group in Settings >
+        # Access, beside the screen-share exemption (Visesh, Oct 2).
+        # payroll_rates.time_tracking_exempt stays as a record but is no longer read.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS time_tracking_exempt INTEGER DEFAULT 0",
+        # Accounting > Loans (Charmi and Neil, 10/06): amortization schedules
+        # and stress scenarios per loan. New tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_schedules ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_loan_stress_scenarios ENABLE ROW LEVEL SECURITY",
+        # Accounting > MRE, monthly recurring expenses (Oct 6). New table - RLS
+        # per CLAUDE.md.
+        "ALTER TABLE recurring_expenses ENABLE ROW LEVEL SECURITY",
+        # PFS (Charmi, 10/04): Affiliated Entities, the co-borrower's executive
+        # profile, the per-file one-time codes and the file access log. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE pfs_affiliates ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_profile_extras ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_challenges ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE pfs_access_log ENABLE ROW LEVEL SECURITY",
+        # MRI rent roll (Charmi, Oct 6): the team's note per lease (who / when)
+        # and how the lease was linked to its Intacct customer.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_by VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS team_note_at VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS link_source VARCHAR DEFAULT ''",
+        # Accounting > Loans & Financing (Oct 6): interest account, original
+        # principal, Internal / External and Egnyte folders per loan. New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ENABLE ROW LEVEL SECURITY",
+        # Marketing > Google Business Profile performance sync (Oct 2026)
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_synced_at VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_integration_tokens ADD COLUMN IF NOT EXISTS perf_error VARCHAR DEFAULT ''",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS photo_count INTEGER DEFAULT 0",
+        "ALTER TABLE marketing_gbp_locations ADD COLUMN IF NOT EXISTS last_photo_at VARCHAR DEFAULT ''",
+        # Marketing > Google Business Profile (Oct 2026). New tables - RLS per
+        # CLAUDE.md (the token table holds the sealed Google refresh token).
+        "ALTER TABLE marketing_integration_tokens ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_locations ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_reviews ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_review_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_listing_actions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_gbp_keywords ENABLE ROW LEVEL SECURITY",
+        # Property Tickets (Neil, 10/05): a ticket's Asset Management property
+        # (soft link + name snapshot), the walkthrough it was filed in, and its
+        # maintenance vendor/cost. See property_links.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_name VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS batch_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_vendor VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS maintenance_cost VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_property_asset_id ON task_tickets (property_asset_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_batch_id ON task_tickets (batch_id)",
+        # Property Walkthrough (Neil, 10/05): one row per batch submit. New
+        # table - RLS per CLAUDE.md (dev AND prod).
+        "ALTER TABLE ticket_batches ENABLE ROW LEVEL SECURITY",
+        # Property maintenance records + recurring services (Pranshu, 10/06):
+        # a ticket raised from the property keeps it; a child ticket opened by
+        # a recurring service points at its parent. Two new tables - RLS.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_locked INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS parent_ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS service_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_parent_ticket_id ON task_tickets (parent_ticket_id)",
+        "ALTER TABLE ticket_maintenance_records ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE property_maintenance_services ENABLE ROW LEVEL SECURITY",
+        # The record's cost in any world currency (ISO 4217), totals kept per currency.
+        "ALTER TABLE ticket_maintenance_records ADD COLUMN IF NOT EXISTS currency VARCHAR DEFAULT 'USD'",
+        # BOD/EOD to a Teams channel (Pranshu, 10/06): a group binds a group
+        # chat OR a channel; each queued post records which it targets.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_target VARCHAR DEFAULT 'chat'",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_team_name VARCHAR DEFAULT ''",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS target_type VARCHAR DEFAULT 'chat'",
+        # Marketing > Google Ads (Oct 2026). New tables - RLS per CLAUDE.md.
+        "ALTER TABLE marketing_ads_accounts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_campaigns ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_daily ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ads_keywords ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE marketing_ad_budgets ENABLE ROW LEVEL SECURITY",
+        # Ticket soft delete (Oct 6): DELETE /task-tickets/{id} marks the row
+        # instead of dropping it and its conversation/files/activity; restore
+        # is POST /task-tickets/{id}/restore. models.TaskTicket.deleted_at.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+        # Ticket numbers / task codes that never repeat (Oct 2026): one row per
+        # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
+        "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
+        # PFS Affiliated Entities: a role per borrower (Neil, Oct 7). models.PfsAffiliate.roles.
+        "ALTER TABLE pfs_affiliates ADD COLUMN IF NOT EXISTS roles JSON",
+        # Accounting > Loans (Charmi, Oct 7): the loan's product (Line of Credit
+        # shows Draws) and the Stress Test's excluded loans; removed ledger
+        # loans and the Stress Test's per-entity NOI basis / Addback. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_type VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS stress_excluded BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_loan_dismissed ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_loan_stress_entities ENABLE ROW LEVEL SECURITY",
+        # MRI (Charmi, Oct 7): one list of every recurring income source - a
+        # lease, interest, a loan payment received, other - with a Type column.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS income_type VARCHAR DEFAULT 'lease'",
+        # Accounting > AMA, Asset Management Agreements (Priyanka, Oct 7). New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_ama_agreements ENABLE ROW LEVEL SECURITY",
+        # Job role -> Teams destination for BOD/EOD/break posts (Neil, Oct 7):
+        # set on the role in Access, wins over the shift group's binding.
+        # models.NexusGroup.bod_*.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_target VARCHAR DEFAULT 'chat'",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_chat_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_chat_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_team_name VARCHAR DEFAULT ''",
+        # Microsoft 365 contact info kept in step both ways (Neil, Oct 7):
+        # office phone, work street address, city, state, ZIP, plus the
+        # three-way-merge base in m365_sync. models.NexusEmployee, m365_profile_sync.py.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS office_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS street_address VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS city VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS postal_code VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS m365_sync JSON",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2082,6 +2327,10 @@ async def lifespan(app: FastAPI):
                 file=_sys.stderr,
             )
             _sys.exit(1)
+    # Same rule for the session/token encryption key: no repo-known fallback
+    # on a deployed instance (secret_box.py, Sep 30 review).
+    import secret_box as _secret_box
+    _secret_box.require_key_on_azure()
 
     try:
         models.Base.metadata.create_all(bind=engine)
@@ -2158,6 +2407,23 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Ticket desk access rule (Oct 2026, ticket_roles.py): pinned once, the
+    # first time this database starts without one. Existing data (tickets,
+    # tasks or a tasks/tickets grant) -> "legacy", so nobody on the desk loses
+    # access; an empty database (a new customer) -> "explicit". A no-op on
+    # every later boot.
+    try:
+        from database import SessionLocal
+        import ticket_roles
+        db = SessionLocal()
+        try:
+            seeded = ticket_roles.seed_desk_access_mode(db)
+            if seeded:
+                print(f"[startup] ticket desk access set to '{seeded}'")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket desk access seed skipped: {e}")
     # Company holidays used to get a SEPARATE row per country picked for the
     # same company+date+name (Sep 21, Pranshu: "it should have 1 date, 1
     # company... IN, US, GE like this") - the create endpoint now merges onto
@@ -2324,6 +2590,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(accounting_sso_sync_loop()))
         except Exception as e:
             print(f"[startup] accounting sso sync skipped: {e}")
+        # MRI leasing ledger sync (Charmi, Oct 6): leases linked to their
+        # Intacct customers, new tenants added. Deployed-worker gated inside.
+        try:
+            from routers.accounting_leasing import leasing_sync_loop
+            _tasks.append(_a.create_task(leasing_sync_loop()))
+        except Exception as e:
+            print(f"[startup] leasing sync skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -2393,6 +2666,41 @@ async def lifespan(app: FastAPI):
                 print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
+        # Microsoft 365 contact info both ways, every 15 minutes (Neil, Oct 7 -
+        # m365_profile_sync.py). Deployed worker only: a laptop must not poll
+        # the live directory, and Entra writes stay production-only inside.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from m365_profile_sync import m365_contact_sync_loop
+                _tasks.append(_a.create_task(m365_contact_sync_loop()))
+            else:
+                print("[startup] M365 contact sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] M365 contact sync skipped: {e}")
+        # Google Business Profile mirror (Marketing, Oct 2026): locations and
+        # reviews every 30 minutes. Deployed worker only - one connected Google
+        # account, and a laptop must not spend its quota or race the deploy.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from gbp import gbp_sync_loop
+                _tasks.append(_a.create_task(gbp_sync_loop()))
+            else:
+                print("[startup] Google Business Profile sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Business Profile sync skipped: {e}")
+        # Google Ads mirror (Marketing, Oct 2026): spend per campaign per day,
+        # every 2 hours. Deployed worker only, for the same reasons.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from google_ads import google_ads_sync_loop
+                _tasks.append(_a.create_task(google_ads_sync_loop()))
+            else:
+                print("[startup] Google Ads sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Google Ads sync skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -2413,6 +2721,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] task trash purge sweep skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] task trash purge sweep skipped: {e}")
+        # Notification retention (Neil, 10/01): closed rows are kept 30 days
+        # so a clear can be undone; this sweep removes them after that.
+        # Deployed-worker gated like the trash sweep above.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from notification_retention import notification_retention_loop
+                _tasks.append(_a.create_task(notification_retention_loop()))
+            else:
+                print("[startup] notification retention sweep skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] notification retention sweep skipped: {e}")
         # "What's New" drafts itself (Sept 2026): the same generation the
         # Manage > "Generate from git" button runs, fired a few minutes after
         # each merge by the GitHub push webhook and daily as a backstop, so dev
@@ -2790,3 +3110,35 @@ from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
 from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
+from routers import accounting_flux  # noqa: E402
+app.include_router(accounting_flux.router)  # Accounting > Reports > Flux Analysis explanation notes (routers/accounting_flux.py)
+from routers import accounting_budgets, accounting_partners, accounting_allocations  # noqa: E402
+app.include_router(accounting_budgets.router)      # Accounting > Budget: the budget grid through the accounting app (Oct 2)
+app.include_router(accounting_partners.router)     # Accounting > Vendors & Customers: records + change requests for approval (Oct 2)
+app.include_router(accounting_allocations.router)  # Accounting > Allocations: monthly payroll allocation entry from Time Clock hours (Oct 2)
+from routers import accounting_loans, accounting_leasing  # noqa: E402
+app.include_router(accounting_loans.router)        # Accounting > Loans & Financing: loans set up from the ledger, DSCR review (Oct 2)
+app.include_router(accounting_leasing.router)      # Accounting > MRI > Leasing > Set Up From the Ledger: leases proposed from rent postings (Oct 2)
+from routers import hr_checklists as hr_checklists_router  # noqa: E402
+app.include_router(hr_checklists_router.router)    # People > onboarding / offboarding / leave checklists per person (hr_checklists.py)
+from routers import accounting_loan_plans  # noqa: E402
+app.include_router(accounting_loan_plans.router)   # Accounting > Loans: amortization schedules + rate stress scenarios per loan (Oct 6)
+from routers import accounting_mre  # noqa: E402
+app.include_router(accounting_mre.router)          # Accounting > Reporting > MRE: monthly recurring expenses, paid read from the ledger (Oct 6)
+from routers import pfs_access, pfs_affiliates  # noqa: E402
+app.include_router(pfs_access.router)              # Accounting > PFS: one-time code per file, borrower notice, access log (Charmi, 10/04)
+app.include_router(pfs_affiliates.router)          # Accounting > PFS > Affiliated Entities + co-borrower executive profile (Charmi, 10/04)
+from routers import marketing_gbp  # noqa: E402
+app.include_router(marketing_gbp.router)           # Marketing > Google Business Profile: listings, reviews, replies (Oct 2026)
+app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import property_tickets  # noqa: E402
+app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
+from routers import ticket_walkthroughs  # noqa: E402
+app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrough - many tickets at one property in one submit (Neil, 10/05)
+from routers import marketing_ads  # noqa: E402
+app.include_router(marketing_ads.router)           # Marketing > Google Ads: spend per campaign, budgets (read-only, Oct 2026)
+app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import acct_scan  # noqa: E402
+app.include_router(acct_scan.router)               # Accounting: amount by entity x account x customer / vendor x month - the party-months aggregate, entity-scoped (Oct 7)
+from routers import accounting_ama  # noqa: E402
+app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)

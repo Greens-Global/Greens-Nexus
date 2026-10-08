@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { LoadingState } from '../components/AsyncState';
 import { X, Plus, Check } from 'lucide-react';
 import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS } from './widgets.jsx';
 import { api } from '../api';
@@ -57,7 +58,7 @@ function LinksFolderFields({ config, onChange }) {
     <div>
       <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Folder</label>
       {state.loading ? (
-        <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading your folders…</p>
+        <LoadingState compact label="Loading your folders…" />
       ) : state.folders.length === 0 ? (
         <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
           You don't have any folders yet - open Links, drag a couple of apps together (or hit "New Folder" on either tab), then come back here.

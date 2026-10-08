@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { buildSupportTourSteps } from './supportTourSteps';
 
 describe('buildSupportTourSteps', () => {
-  it('covers Submit a Ticket and Report a Bug specifically', () => {
+  it('covers Submit a Ticket, and no longer the retired Report a Bug tile', () => {
     const targets = buildSupportTourSteps().map((s) => s.target);
     expect(targets).toContain('support-submit-ticket');
-    expect(targets).toContain('support-report-bug');
+    // Neil, Oct 1 2026: Report a Bug folded into Submit a Ticket (Bug Report type).
+    expect(targets).not.toContain('support-report-bug');
   });
 
   it('opens and closes on the options grid, so the tour ends where it started', () => {

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Camera, ChevronLeft, Loader2, MoonStar } from 'lucide-react';
+import { X, Camera, ChevronLeft, MoonStar } from 'lucide-react';
 import { api } from '../api';
 import ImageLightbox from './ImageLightbox';
 import { useWorkforceView } from './workforce/viewContext';
+import { Spinner } from './AsyncState';
 
 // ── Admin → Screenshots - work-session capture gallery ───────────────────────
 // Pick a day → people with captures → their frames (signed URLs, 1h expiry).
@@ -69,7 +70,7 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
         <div style={{ flex: 1, overflowY: 'auto', padding: embedded ? '16px 0 0' : '16px 20px' }}>
           {!who && (
             people === null
-              ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Spinner size="section" /></div>
               : people.length === 0
                 ? <div style={{ textAlign: 'center', padding: '30px 20px', fontSize: 12.5, color: 'var(--muted)' }}>
                     {everyone.length
@@ -91,7 +92,7 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
 
           {who && (
             shots === null
-              ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Spinner size="section" /></div>
               : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
                   {shots.map((s, i) => (
                     <button key={s.id} onClick={() => setViewIdx(i)} title="Click to view - use arrow keys to browse"

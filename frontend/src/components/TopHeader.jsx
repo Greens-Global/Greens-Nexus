@@ -4,7 +4,7 @@ const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import HelpMenu from "../support/HelpMenu";
-import { useHeaderTabs } from "./ModuleTabs";
+import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
 import EmailSettingsModal from "./EmailSettingsModal";
 
@@ -31,6 +31,7 @@ import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { api } from "../api";
+import { ModalLoading, Spinner } from './AsyncState';
 
 // Header search reaches into the Task module's content, not just the module
 // list, so typing a task's title finds the task. Grouped by kind the way Asana's
@@ -315,7 +316,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
           {searching && hitCount === 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
-              <span aria-hidden style={{ width: 13, height: 13, borderRadius: '50%', border: '2px solid var(--line)', borderTopColor: 'var(--muted)', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
+              <Spinner size={14} />
               Searching tasks, projects and people…
             </div>
           )}
@@ -445,8 +446,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
         {headerTabs ? (
-          <nav className="hdr-tabs" aria-label="Module sections">
-            {headerTabs.tabs.map(({ key, label, Icon, badge }) => (
+          <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
+            {headerTabs.tabs.map(({ key, label, Icon, badge, items }) => (items ? (
+              <TabGroupButton key={key} tab={{ key, label, Icon, items }} active={headerTabs.active} className="hdr-tab"
+                onSelect={(k) => { setSearchQuery(''); setSearchOpen(false); headerTabs.onChange(k); }} />
+            ) : (
               <button key={key}
                 className={`hdr-tab${headerTabs.active === key ? ' active' : ''}`}
                 aria-current={headerTabs.active === key ? 'page' : undefined}
@@ -455,7 +459,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                 <span>{label}</span>
                 {badge > 0 && <span className="hdr-tab-badge">{badge}</span>}
               </button>
-            ))}
+            )))}
           </nav>
         ) : (
           <div style={{ position: 'relative' }} ref={searchRef}>
@@ -614,6 +618,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                   <PlayCircle size={14} /> Tour
                 </button>
               )}
+              {/* Documents module's guided walkthrough (Oct 1) - same pattern,
+                  gated on activeView === 'documents' and firing Documents.jsx's
+                  own nexus:documents-tour. */}
+              {activeView === 'documents' && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:documents-tour')); }}>
+                  <PlayCircle size={14} /> Tour
+                </button>
+              )}
 
               {/* Act As and Audit Logs live in Settings (the Tools and Audit
                   Logs tabs) - neither belongs in this personal menu.
@@ -629,7 +641,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         </div>
       </div>
       {changelogOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           <Changelog onClose={() => setChangelogOpen(false)} />
         </Suspense>
       )}

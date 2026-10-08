@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Search, Loader2, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, Trash2, Eye, Building2, Check } from 'lucide-react';
+import { Search, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, Trash2, Eye, Building2, Check } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
+import { Spinner } from './AsyncState';
 
 // ── Document Templates & Letterheads (Phase 3) ───────────────────────────────
 // Category tabs + search over doc_templates, reusing DocumentBuilder (kind=
@@ -168,7 +169,7 @@ function LetterheadsPanel({ toastOk, toastErr }) {
     api.deleteDocLetterhead(id).then(() => { toastOk?.('Deleted'); load(); }).catch(e => toastErr?.(e.message));
   };
 
-  if (!letterheads) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+  if (!letterheads) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>;
 
   return (
     <div>
@@ -277,7 +278,7 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
               <option value="">All Categories</option>
               {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
+            <button className="primary-btn" data-tour="documents-new-template" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
               <Plus size={13} /> New Template
             </button>
             {isAdmin && templates?.length > 0 && statusFilter === 'active' && (
@@ -302,7 +303,7 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
           </div>
 
           {!templates ? (
-            <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
           ) : templates.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
               <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />

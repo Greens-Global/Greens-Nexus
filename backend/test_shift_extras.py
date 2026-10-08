@@ -192,7 +192,11 @@ class GroupSchedulerTests(_Base):
         self._as(LEAD)
         grid = self._grid()
         self.assertTrue(grid["canManage"])
-        self.assertEqual({e["email"] for e in grid["employees"]}, {A, LEAD})
+        # A manager sees everyone (Neil, Sep 30) but changes only the team
+        # they schedule (and themself).
+        editable = {e["email"] for e in grid["employees"] if e["canEdit"]}
+        self.assertEqual(editable, {A, LEAD})
+        self.assertIn(B, {e["email"] for e in grid["employees"]})
         self._place(email=A)
         self._place(email=B, expect=403)
         pub = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": TUE})
@@ -234,7 +238,7 @@ class ImportTests(_Base):
         rows = [
             {"row": 2, "email": A, "date": MON, "start": "09:00", "end": "17:00", "label": "Front", "break_min": 30},
             {"row": 3, "email": B, "date": TUE, "shift": "xe"},                         # the preset's times
-            {"row": 4, "email": "", "date": TUE, "start": "10:00", "end": "14:00", "open_slots": 2},
+            {"row": 4, "email": "", "date": TUE, "start": "10:00", "end": "14:00", "open_slots": 2, "group": "Xtra Store"},
             {"row": 5, "email": "stranger@greensglobal.com", "date": MON, "start": "09:00", "end": "17:00"},
             {"row": 6, "email": A, "date": "11/16/2026", "start": "09:00", "end": "17:00"},
             {"row": 7, "email": A, "date": TUE, "shift": "Nope"},

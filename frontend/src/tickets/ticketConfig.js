@@ -15,7 +15,7 @@
 // field list are.
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { SLA_TARGET_HOURS, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS } from './ticketMeta';
+import { SLA_TARGET_HOURS, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, HELP_TOPICS } from './ticketMeta';
 
 const EVENT = 'nexus:ticket-taxonomy-config';
 let _loaded = false;
@@ -60,9 +60,17 @@ function applyConfig(cfg) {
       if (Array.isArray(override.fields)) TYPE_FIELDS[key] = override.fields;
     }
   }
+  if (Array.isArray(cfg?.helpTopics)) {
+    HELP_TOPICS.length = 0;
+    HELP_TOPICS.push(...cfg.helpTopics);
+  }
   if (Array.isArray(cfg?.typeOrder)) {
     TICKET_TYPE_ORDER.length = 0;
-    TICKET_TYPE_ORDER.push(...cfg.typeOrder.filter((k) => TICKET_TYPE_META[k]));
+    // Only the five types exist (Oct 1): an order saved before then may still
+    // switch on a retired one (Service Request, Change) - it is dropped. With
+    // none of the five left on, the default five are offered rather than none.
+    const on = cfg.typeOrder.filter((k, i, arr) => TICKET_TYPE_KEYS.includes(k) && arr.indexOf(k) === i);
+    TICKET_TYPE_ORDER.push(...(on.length ? on : TICKET_TYPE_KEYS));
   }
   window.dispatchEvent(new CustomEvent(EVENT));
 }

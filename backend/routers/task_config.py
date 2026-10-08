@@ -698,7 +698,14 @@ def add_changelog_comment(entry_id: str, body: ChangelogCommentBody,
 # in prod, local `git log` in dev), ask Claude to cluster them into a few
 # user-facing, plain-English "What's New" entries, and file them as origin='pr'
 # / status='Pending Review'. They then flow through the normal review → publish.
-_AI_MODEL = "claude-opus-4-8"
+# Drafting stopped for months (Jul-Oct 2026) because the Anthropic account ran
+# out of credit and every refusal was swallowed - see _cluster_commits. The
+# model moved from claude-opus-4-8 to Opus 5 at the same time; set
+# NEXUS_CHANGELOG_MODEL to change it without a code change.
+# Opus 5 thinks by default and max_tokens covers thinking + the answer, so the
+# budget below is sized for both.
+_AI_MODEL = os.getenv("NEXUS_CHANGELOG_MODEL", "").strip() or "claude-opus-5"
+_AI_MAX_TOKENS = 16000
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 _GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 _GITHUB_REPO = os.getenv("GITHUB_REPO", "Greens-Global/Greens-Nexus")
@@ -801,10 +808,30 @@ def _known_shas(db: Session) -> set[str]:
     return seen
 
 
+class ChangelogAIError(Exception):
+    """Claude could not draft the entries (refused, unreachable, unreadable).
+    Distinct from an empty answer, which means "nothing user-facing"."""
+
+
+def _api_error_text(r: httpx.Response) -> str:
+    try:
+        err = (r.json() or {}).get("error") or {}
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+    except ValueError:
+        msg = ""
+    return f"HTTP {r.status_code}: {(msg or r.text or '').strip()[:200]}"
+
+
 def _cluster_commits(commits: list[dict]) -> list[dict]:
-    """Ask Claude to fold the commits into a few plain-English feature entries."""
-    if not _ANTHROPIC_API_KEY or not commits:
+    """Ask Claude to fold the commits into a few plain-English feature entries.
+    [] means Claude found nothing user-facing; any failure RAISES
+    ChangelogAIError - it used to return [] too, which made an Anthropic
+    billing refusal look like a quiet week (the auto-sweep logged "found nothing to draft" and
+    counted it a success, every day, for weeks)."""
+    if not commits:
         return []
+    if not _ANTHROPIC_API_KEY:
+        raise ChangelogAIError("ANTHROPIC_API_KEY is missing.")
     lines = []
     for c in commits:
         line = f"- [{c['sha'][:8]}] {c['subject']}"
@@ -832,28 +859,38 @@ def _cluster_commits(commits: list[dict]) -> list[dict]:
         f"COMMITS:\n{commit_block}"
     )
     try:
-        with httpx.Client(timeout=120) as client:
+        with httpx.Client(timeout=240) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": _ANTHROPIC_API_KEY,
                          "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": 6000,
+                json={"model": _AI_MODEL, "max_tokens": _AI_MAX_TOKENS,
                       "messages": [{"role": "user", "content": prompt}]},
             )
-            r.raise_for_status()
-            data = r.json()
-        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
-        if text.startswith("```"):
-            text = text.split("```", 2)[1].lstrip("json").strip() if "```" in text[3:] else text.strip("`")
-        start, end = text.find("["), text.rfind("]")
-        if start == -1 or end == -1:
-            return []
+    except httpx.HTTPError as e:
+        raise ChangelogAIError(f"Could not reach Claude ({type(e).__name__}).")
+    if r.status_code >= 400:
+        raise ChangelogAIError(f"Claude refused the request ({_AI_MODEL}) - {_api_error_text(r)}")
+    try:
+        data = r.json()
+    except ValueError:
+        raise ChangelogAIError("Claude's answer was not JSON.")
+    if data.get("stop_reason") == "max_tokens":
+        raise ChangelogAIError(f"Claude's answer was cut off at {_AI_MAX_TOKENS} tokens.")
+    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+    if text.startswith("```"):
+        text = text.split("```", 2)[1].lstrip("json").strip() if "```" in text[3:] else text.strip("`")
+    start, end = text.find("["), text.rfind("]")
+    if start == -1 or end == -1:
+        raise ChangelogAIError("Claude's answer had no list of entries in it.")
+    try:
         parsed = json.loads(text[start:end + 1])
-        return parsed if isinstance(parsed, list) else []
-    except Exception as e:  # noqa: BLE001
-        print(f"[changelog] cluster failed: {e}")
-        return []
+    except ValueError:
+        raise ChangelogAIError("Claude's list of entries could not be read.")
+    if not isinstance(parsed, list):
+        raise ChangelogAIError("Claude's answer was not a list of entries.")
+    return parsed
 
 
 def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict:
@@ -876,7 +913,11 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
         return {"created": 0, "scanned": len(commits), "source": source,
                 "message": "No new commits to summarise since the last update."}
 
-    drafts = _cluster_commits(fresh[:40])
+    try:
+        drafts = _cluster_commits(fresh[:40])
+    except ChangelogAIError as e:
+        print(f"[changelog] cluster failed: {e}")
+        return {"error": f"Claude could not draft the update: {e}"}
     created = []
     now = now_iso()
     for d in drafts:
@@ -905,13 +946,31 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     db.commit()
     for e in created:
         db.refresh(e)
-    return {"created": len(created), "scanned": len(fresh), "source": source,
-            "entries": [changelog_entry_to_dict(e) for e in created]}
+    out = {"created": len(created), "scanned": len(fresh), "source": source,
+           "entries": [changelog_entry_to_dict(e) for e in created]}
+    if not created:
+        # Claude read them and found nothing a user would notice - say so,
+        # rather than letting the screen fall back to "no new commits".
+        out["message"] = f"Nothing user-facing in the {len(fresh)} new commit{'' if len(fresh) == 1 else 's'}."
+    return out
 
 
 @router.post("/task-changelog/generate")
 def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
     result = generate_changelog_from_commits(db, user["email"])
+    try:
+        import changelog_auto
+        changelog_auto.record_manual(db, result)
+    except Exception as e:  # noqa: BLE001 - the status line must never fail the click
+        db.rollback()
+        print(f"[changelog] could not record the manual run: {e}")
     if "error" in result:
         raise HTTPException(503, result["error"])
     return result
+
+
+@router.get("/task-changelog/auto-status")
+def changelog_auto_status(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Automatic drafting's last run, last error and next run (changelog_auto)."""
+    import changelog_auto
+    return changelog_auto.status(db)

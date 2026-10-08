@@ -1,12 +1,13 @@
 // Weekly Digest - admin settings (Sep 28 2026). Separate from the Daily
 // Briefing (backend weekly_digest.py): one email per person per week listing
 // their overdue tasks with due dates and an Extend Due Date button, plus
-// "Still to Do" - the Daily Briefing's Action Required items (Sep 29). Neil's
+// "Needs Your Attention" - the Daily Briefing's Action Required items (Sep 29). Neil's
 // default is every Monday, 2 hours before the person's shift, and it is meant
 // to just work - these settings exist to test it and switch it on, not for
 // every employee to tune. Same Global-Admin bar, off/test/live modes and
 // "confirm before going live" speed bump as DailyBriefingSettings.jsx.
 import { useEffect, useState } from 'react';
+import { LoadingState } from './AsyncState';
 import { CalendarDays, Save, Send, AlertTriangle, ShieldAlert, RefreshCw, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -55,7 +56,7 @@ export default function WeeklyDigestSettings() {
       </div>
     );
   }
-  if (!cfg) return <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err || 'Loading…'}</div>;
+  if (!cfg) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
   // Only an actual switch INTO live needs the tick - re-saving while already
   // live must not ask again (same rule as the daily settings).
@@ -252,7 +253,7 @@ function SendTestDigest({ testRecipients }) {
       const r = await api.sendTestWeeklyDigest(email);
       const where = (r.recipients || []).join(', ');
       if (!r.sent) setResult({ ok: true, text: `${r.employeeEmail} has nothing overdue or waiting right now, so there is nothing to send.` });
-      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} still to do` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
+      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} needing attention` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
     } catch (e) { setResult({ ok: false, text: e.message || String(e) }); }
     finally { setBusy(false); }
   };
@@ -289,7 +290,7 @@ function SendTestDigest({ testRecipients }) {
 function statusOf(row) {
   if (row.sentAt) return { label: 'Sent', color: NX.green, Icon: CheckCircle2 };
   if (row.mode === 'off') return { label: 'Off (scan only)', color: NX.faint, Icon: MinusCircle };
-  // The log counts overdue work only; a digest with only "Still to Do" items
+  // The log counts overdue work only; a digest with only "Needs Your Attention" items
   // that went out shows as Sent above.
   if (!((row.overdueCount || 0) + (row.teamCount || 0))) return { label: 'Nothing to send', color: NX.faint, Icon: MinusCircle };
   return { label: 'Send failed', color: NX.red, Icon: XCircle };
@@ -353,7 +354,7 @@ function DigestDeliveryLog() {
         {note && <span role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>{note}</span>}
       </div>
       {rows === null ? (
-        <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>Loading…</div>
+        <LoadingState compact />
       ) : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>No weekly scans logged yet.</div>
       ) : (

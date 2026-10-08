@@ -2,6 +2,7 @@
 // gallery), Workload (per-assignee load). Ported from the export's
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
 import { useEffect, useMemo, useState } from 'react';
+import { LoadingState } from '../../components/AsyncState';
 import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download } from 'lucide-react';
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
@@ -163,7 +164,7 @@ export function FilesView({ tasks, onOpen, nameOf }) {
         </div>
         <span style={{ fontSize: 12, color: NX.dim }}>{files.length} file{files.length === 1 ? '' : 's'}</span>
       </div>
-      {rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 30 }}>Loading…</div>
+      {rows === null ? <LoadingState />
         : files.length === 0 ? <EmptyState icon={Paperclip} title="No Attachments Yet" hint="Files attached to any task show up here." />
           : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>

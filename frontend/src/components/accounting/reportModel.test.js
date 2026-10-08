@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, csvRows, defaultConfig, isHistorical, presetRange, iso, resolveConfig, runReport, stepAsOf, stepRange,
+  MAX_DIM_COLUMNS, activeColumns, balanceAsOf, columnModes, columnsForPicks, csvRows, defaultConfig, fluxRows, isHistorical, presetRange, iso, reportFileName, resolveConfig, runReport, stepAsOf, stepRange, withAdjustments, withFluxNotes,
 } from './reportModel';
 
 // The logic behind Accounting -> Reports (Neil and Charmi, Sep 25): what a
@@ -86,7 +86,7 @@ describe('periods', () => {
     expect(resolveConfig({ report: 'balance-sheet', compare: 'prior-month' }, NOW).cols).toBe('prior_month');
     // A layout the statement does not have falls back to the total.
     expect(resolveConfig({ report: 'balance-sheet', cols: 'vendor' }, NOW).cols).toBe('total');
-    expect(columnModes('pnl').map((m) => m.label)).toEqual(['Total Only', 'By Month', 'By Quarter', 'By Year', 'By Entity', 'By Department', 'By Vendor', 'By Customer', 'By Employee', 'By Project-Job', 'By Item', 'vs Prior Period', 'vs Prior Year']);
+    expect(columnModes('pnl').map((m) => m.label)).toEqual(['Total Only', 'By Month', 'By Quarter', 'By Year', 'By Entity', 'By Department', 'By Vendor', 'By Customer', 'By Employee', 'By Project-Job', 'By Item', 'vs Prior Period', 'vs Prior Year', 'Actual vs Budget']);
     expect(columnModes('trial-balance')).toHaveLength(1);
   });
 });
@@ -185,10 +185,13 @@ describe('the statement itself', () => {
     expect(r.pickable).toHaveLength(6);
   });
 
-  it('leaves the accounts with nothing in them off when asked to', async () => {
-    const shown = async (suppressZero) => (await runReport(fakeApi({ pnl: full }), resolveConfig({ ...defaultConfig(NOW), suppressZero }, NOW))).rows.filter((x) => x.kind === 'account').map((x) => x.code);
-    expect(await shown(false)).toContain('41100');
-    expect(await shown(true)).not.toContain('41100');
+  it('leaves the accounts with nothing in them off unless asked to show them', async () => {
+    const shown = async (showZero) => (await runReport(fakeApi({ pnl: full }), resolveConfig({ ...defaultConfig(NOW), showZero }, NOW))).rows.filter((x) => x.kind === 'account').map((x) => x.code);
+    expect(await shown(true)).toContain('41100');
+    expect(await shown(false)).not.toContain('41100');
+    // A view memorized with the old flag still hides them.
+    expect(resolveConfig({ suppressZero: true }, NOW).showZero).toBe(false);
+    expect(resolveConfig({ suppressZero: true }, NOW).suppressZero).toBeUndefined();
   });
 });
 
@@ -390,11 +393,204 @@ describe('export', () => {
   });
 });
 
+describe('general ledger', () => {
+  const tb = { org: 'Greens Global', generated_at: '2026-09-28', totals: { opening: 0, debit: 1300, credit: 1000, closing: 300 }, rows: [
+    { account_no: '11341', title: 'Chase Checking', opening: 100, debit: 1300, credit: 0, closing: 1400 },
+    { account_no: '41101', title: 'Rental Income', opening: 0, debit: 0, credit: 1000, closing: -1000 },
+    { account_no: '61101', title: 'Repairs', opening: 0, debit: 0, credit: 0, closing: 0 },
+  ] };
+  const lines = {
+    '11341': [{ line_id: 'a', entry_id: 'e2', entry_no: 'IA-2', entry_date: '2026-08-15', description: 'Rent August', location_name: 'Escondido', debit: 800, credit: 0 },
+              { line_id: 'b', entry_id: 'e1', entry_no: 'IA-1', entry_date: '2026-07-15', description: 'Rent July', location_name: 'Escondido', debit: 500, credit: 0 }],
+    '41101': [{ line_id: 'c', entry_id: 'e1', entry_no: 'IA-1', entry_date: '2026-07-15', description: 'Rent July', location_name: 'Escondido', debit: 0, credit: 1000 }],
+  };
+  const api = () => ({
+    getAccountingTrialBalance: vi.fn(async () => tb),
+    searchAccountingLedger: vi.fn(async ({ account }) => ({ rows: lines[account] || [], total: (lines[account] || []).length })),
+  });
+
+  it('lists each account with its opening balance, its lines oldest first with a running balance, and its closing', async () => {
+    const a = api();
+    const r = await runReport(a, resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', entities: ['15000'] }, NOW));
+    expect(r.columns.map((c) => `${c.key}:${c.type}`)).toEqual(['entry:text', 'description:text', 'entity:text', 'debit:amount', 'credit:amount', 'balance:amount']);
+    // The account with nothing in it is left off (zero balances hidden by default).
+    expect(r.rows.filter((x) => x.kind === 'section').map((x) => x.label)).toEqual(['11341 Chase Checking', '41101 Rental Income']);
+    const chase = r.rows.slice(0, 4);
+    expect(chase.map((x) => [x.kind, x.label, ...x.values.slice(3)])).toEqual([
+      ['section', '11341 Chase Checking', 1300, 0, 100],
+      ['line', '07/15/2026', 500, 0, 600],
+      ['line', '08/15/2026', 800, 0, 1400],
+      ['subtotal', 'Closing balance', 1300, 0, 1400],
+    ]);
+    expect(chase[1].values.slice(0, 3)).toEqual(['IA-1', 'Rent July', 'Escondido']);
+    expect(r.rows.at(-1)).toMatchObject({ kind: 'grand', values: ['', '', '', 1300, 1000, 300] });
+    // The lines were asked for per account, within the entity and period, oldest first on screen.
+    expect(a.searchAccountingLedger.mock.calls.map((c) => c[0].account)).toEqual(['11341', '41101']);
+    expect(a.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ location: '15000', from: '2026-01-01', to: '2026-09-28', book: 'accrual' });
+    expect(r.pickable.map((p) => p.code)).toEqual(['11341', '41101', '61101']);
+    // Oct 2 (Charmi): no Debits / Credits up top - the line counter stays.
+    expect(r.summary.map((f) => [f.label, f.value])).toEqual([['Lines', '3']]);
+    expect(r.glLabel).toBe('Account');
+  });
+
+  it('lists the accounts only when too many are open at once', async () => {
+    const many = { ...tb, rows: Array.from({ length: 30 }, (_x, i) => ({ account_no: String(60000 + i), title: `Account ${i}`, opening: 0, debit: 10, credit: 0, closing: 10 })) };
+    const a = { ...api(), getAccountingTrialBalance: vi.fn(async () => many) };
+    const r = await runReport(a, resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger' }, NOW));
+    // Plain account rows (no fold arrow that opens nothing), closing balance, and one count of the period's lines.
+    expect(r.rows.filter((x) => x.kind === 'section')).toHaveLength(0);
+    expect(r.rows.filter((x) => x.kind === 'account')).toHaveLength(30);
+    expect(r.rows[0]).toMatchObject({ kind: 'account', code: '60000', title: 'Account 0', values: ['', '', '', 10, 0, 10] });
+    expect(a.searchAccountingLedger).toHaveBeenCalledTimes(1);
+    expect(a.searchAccountingLedger.mock.calls[0][0]).toMatchObject({ limit: 1, from: '2026-01-01', to: '2026-09-28' });
+    expect(a.searchAccountingLedger.mock.calls[0][0].account).toBeUndefined();
+    // Activity on the balances with no line counted is not "0 lines" (item 20).
+    expect(r.summary).toEqual([{ label: 'Lines', value: 'Not counted' }]);
+    expect(r.notes[0]).toMatch(/30 accounts have activity/);
+    // Picking accounts opens them.
+    const r2 = await runReport(api(), resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger', accounts: ['41101'] }, NOW));
+    expect(r2.rows.filter((x) => x.kind === 'section').map((x) => x.label)).toEqual(['41101 Rental Income']);
+  });
+});
+
+describe('adjustments on a package statement', () => {
+  const full = () => ({
+    org: 'Greens Global', generated_at: '2026-09-28',
+    sections: [
+      { key: 'revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking', amount: 0 }] },
+      { key: 'cogs', accounts: [{ account_no: '51000', title: 'Cost of Sales', amount: 200 }] },
+      { key: 'expense', accounts: [{ account_no: '61000', title: 'Repairs', amount: 300 }] },
+      { key: 'other_income', accounts: [{ account_no: '81000', title: 'Interest Income', amount: 50 }] },
+      { key: 'other_expense', accounts: [{ account_no: '91000', title: 'Interest Expense', amount: 150 }] },
+    ],
+  });
+  it('moves the line, its section total and every subtotal, and prints the note', async () => {
+    const r = await runReport(fakeApi({ pnl: full }), resolveConfig(defaultConfig(NOW), NOW));
+    const adjusted = withAdjustments(r, [{ account: '61000', amount: -100000, note: 'Gate at Valley Center - capital, not repairs' }, { account: '41000', amount: 0, note: 'Includes September true-up' }]);
+    expect(adjusted.columns.map((c) => `${c.key}:${c.type}`)).toEqual(['reported:amount', 'adjustment:variance', 'adjusted:amount', 'note:text']);
+    const row = (label) => adjusted.rows.find((x) => x.label === label || x.code === label);
+    expect(row('61000').values).toEqual([300, -100000, -99700, 'Gate at Valley Center - capital, not repairs']);
+    expect(row('41000').values.slice(1)).toEqual([0, 1000, 'Includes September true-up']);
+    expect(row('Operating Income').values.slice(0, 3)).toEqual([500, 100000, 100500]);
+    expect(row('Net Income').values.slice(0, 3)).toEqual([400, 100000, 100400]);
+    expect(adjusted.rows.find((x) => x.kind === 'section' && x.section === 'expense').values.slice(0, 3)).toEqual([300, -100000, -99700]);
+    // The margin is recomputed from the adjusted net over the same income.
+    expect(row('Net Profit Margin %').values[2]).toBeCloseTo(100400 / 1050, 4);
+  });
+
+  it('adds the notes only on a layout with more than one figure column', async () => {
+    const r = await runReport(fakeApi({ pnl: full }), resolveConfig({ ...defaultConfig(NOW), cols: 'prior_year' }, NOW));
+    const adjusted = withAdjustments(r, [{ account: '61000', amount: -5, note: 'Note' }]);
+    expect(adjusted.columns.at(-1)).toMatchObject({ key: 'note', type: 'text' });
+    expect(adjusted.columns).toHaveLength(r.columns.length + 1);
+    expect(adjusted.rows.find((x) => x.code === '61000').values.at(-1)).toBe('Note');
+    expect(withAdjustments(r, [])).toBe(r);
+  });
+});
+
 describe('historical classes', () => {
   it('knows the (H) mark', () => {
     expect(isHistorical('Valley Center (H)')).toBe(true);
     expect(isHistorical('Old Program ( h )')).toBe(true);
     expect(isHistorical('Hotel Operations')).toBe(false);
     expect(isHistorical('')).toBe(false);
+  });
+});
+
+// ── 10/02 batch (Charmi, Neil) ──────────────────────────────────────────────
+describe('columns per picked value (R1)', () => {
+  it('names the picks on the layout and switches to it when a filter grows to two', () => {
+    const c = resolveConfig({ report: 'pnl', dims: { employee: ['E1', 'E2'] }, entities: ['15000', '56000'] }, NOW);
+    const labels = Object.fromEntries(columnModes('pnl', c).map((m) => [m.key, m.label]));
+    expect(labels.employee).toBe('By Employee (2 picked)');
+    expect(labels.entity).toBe('By Entity (2 picked)');
+    expect(labels.vendor).toBe('By Vendor');
+    expect(columnModes('pnl').find((m) => m.key === 'employee').label).toBe('By Employee');
+    const total = resolveConfig({ report: 'pnl', dims: { employee: ['E1'] } }, NOW);
+    expect(columnsForPicks(total, { ...total.dims, employee: ['E1', 'E2'] })).toBe('employee');
+    // Already laid out another way, or still one pick: nothing changes.
+    expect(columnsForPicks({ ...total, cols: 'month' }, { ...total.dims, employee: ['E1', 'E2'] })).toBeNull();
+    expect(columnsForPicks(total, { ...total.dims, employee: ['E2'] })).toBeNull();
+    // A balance sheet has no By Vendor, so two vendors stay combined.
+    const bs = resolveConfig({ report: 'balance-sheet' }, NOW);
+    expect(columnsForPicks(bs, { ...bs.dims, vendor: ['V1', 'V2'] })).toBeNull();
+    expect(columnsForPicks(bs, { ...bs.dims, departments: ['D1', 'D2'] })).toBe('department');
+  });
+
+  it('keeps a column per picked value only, and the Total adds those', async () => {
+    const api = fakeApi({ buckets: () => ({ labels: { E1: 'Amy', E2: 'Ashley', E3: 'Stray' }, rows: [
+      line('61000', 'Repairs', 'expense', 'E1', 100, 0), line('61000', 'Repairs', 'expense', 'E2', 250, 0), line('61000', 'Repairs', 'expense', 'E3', 999, 0),
+    ] }) });
+    const r = await runReport(api, resolveConfig({ report: 'pnl', cols: 'employee', dims: { employee: ['E1', 'E2'] } }, NOW));
+    expect(r.columns.map((c) => c.label)).toEqual(['Amy', 'Ashley', 'Total']);
+    expect(r.rows.find((x) => x.code === '61000').values).toEqual([100, 250, 350]);
+    expect(api.getAccountingBuckets.mock.calls[0][0]).toMatchObject({ by: 'employee', dims: { employee: ['E1', 'E2'] } });
+  });
+});
+
+describe('journals filter (R7)', () => {
+  it('travels with the other dimensions and reads as a chip', async () => {
+    const api = fakeApi();
+    const c = resolveConfig({ report: 'pnl', dims: { journals: ['APJ', 'STAT'] } }, NOW);
+    await runReport(api, c);
+    expect(api.getAccountingPnl.mock.calls[0][3]).toMatchObject({ journals: ['APJ', 'STAT'] });
+    expect(resolveConfig({ report: 'pnl' }, NOW).dims.journals).toEqual([]);
+  });
+});
+
+describe('file names (R2)', () => {
+  it('names the file after the statement, its entity and its period', () => {
+    const entities = [{ code: '13000', name: 'Darshana R. Kadakia MD Inc.' }];
+    const pnl = { config: resolveConfig({ report: 'pnl', preset: 'custom', from: '2026-01-01', to: '2026-12-31', entities: ['13000'] }, NOW), def: { key: 'pnl', label: 'Income Statement', period: 'range' } };
+    expect(reportFileName(pnl, entities, 'pdf')).toBe('Income Statement - Darshana R. Kadakia MD Inc. (13000) - 01-01-2026 to 12-31-2026.pdf');
+    expect(reportFileName(pnl, entities, 'excel')).toMatch(/\.xlsx$/);
+    expect(reportFileName(pnl, entities, 'csv')).toMatch(/\.csv$/);
+    const bs = { config: resolveConfig({ report: 'balance-sheet', asof: '2026-09-30', asofToday: false }, NOW), def: { key: 'balance-sheet', label: 'Balance Sheet', period: 'asof' } };
+    expect(reportFileName(bs, entities, 'pdf')).toBe('Balance Sheet - All entities - as of 09-30-2026.pdf');
+    // Nothing a file system refuses.
+    expect(reportFileName(pnl, [{ code: '13000', name: 'A/B: "C"' }], 'pdf')).toBe('Income Statement - A B C (13000) - 01-01-2026 to 12-31-2026.pdf');
+  });
+});
+
+describe('flux analysis (R8)', () => {
+  const sec = (key, accounts) => ({ key, accounts });
+  it('computes variance $, variance % and the flag from both thresholds', () => {
+    const cur = [sec('revenue', [{ account_no: '41000', title: 'Rent', amount: 12000 }]), sec('expense', [{ account_no: '61000', title: 'Repairs', amount: 400 }, { account_no: '62000', title: 'New Cost', amount: 7000 }])];
+    const prior = [sec('revenue', [{ account_no: '41000', title: 'Rent', amount: 10000 }]), sec('expense', [{ account_no: '61000', title: 'Repairs', amount: 6000 }, { account_no: '63000', title: 'Gone', amount: 300 }])];
+    const rows = Object.fromEntries(fluxRows(cur, prior).map((r) => [r.code, r]));
+    expect(rows['41000']).toMatchObject({ cur: 12000, prior: 10000, variance: 2000, flag: false });   // 20% but under $5,000
+    expect(rows['41000'].pct).toBeCloseTo(0.2, 6);
+    expect(rows['61000']).toMatchObject({ cur: 400, prior: 6000, variance: -5600, flag: true });     // -93.3% and over $5,000
+    expect(rows['61000'].pct).toBeCloseTo(-5600 / 6000, 6);
+    expect(rows['62000']).toMatchObject({ cur: 7000, prior: 0, variance: 7000, flag: true });        // new account: no %, the amount decides
+    expect(Number.isNaN(rows['62000'].pct)).toBe(true);
+    expect(rows['63000']).toMatchObject({ cur: 0, prior: 300, variance: -300, flag: false });
+    // The thresholds are the report's own.
+    const loose = Object.fromEntries(fluxRows(cur, prior, { fluxPct: 10, fluxAmount: 1000 }).map((r) => [r.code, r]));
+    expect(loose['41000'].flag).toBe(true);
+    const tight = Object.fromEntries(fluxRows(cur, prior, { fluxPct: 95, fluxAmount: 1000 }).map((r) => [r.code, r]));
+    expect(tight['61000'].flag).toBe(false);
+    expect(fluxRows(cur, prior).map((r) => r.code)).toEqual(['41000', '61000', '62000', '63000']);
+  });
+
+  it('runs this period against the prior one as a statement with notes, and prior year on request', async () => {
+    const answers = { '2026-09-01': stmt([{ account_no: '41000', title: 'Rent', amount: 12000 }]), '2026-08-01': stmt([{ account_no: '41000', title: 'Rent', amount: 10000 }]), '2025-09-01': stmt([{ account_no: '41000', title: 'Rent', amount: 9000 }]) };
+    const api = fakeApi({ pnl: ({ from }) => answers[from] || stmt([]) });
+    const c = resolveConfig({ report: 'flux', preset: 'custom', from: '2026-09-01', to: '2026-09-30', fluxAmount: 1000 }, NOW);
+    expect(c.cols).toBe('prior_period');
+    const r = await runReport(api, c);
+    expect(api.getAccountingPnl.mock.calls.map((x) => x.slice(0, 2))).toEqual([['2026-09-01', '2026-09-30'], ['2026-08-01', '2026-08-31']]);
+    expect(r.columns.map((x) => `${x.key}:${x.type}`)).toEqual(['cur:amount', 'prior:amount', 'var:variance', 'pct:pct', 'flag:text', 'note:text']);
+    const rent = r.rows.find((x) => x.code === '41000');
+    expect(rent.values).toEqual([12000, 10000, 2000, '20.0%', 'Review', '']);
+    expect(rent.flag).toBe(true);
+    expect(r.rows.find((x) => x.label === 'Net Income').values.slice(0, 4)).toEqual([12000, 10000, 2000, '20.0%']);
+    expect(r.summary.find((s) => s.label === 'Flagged').value).toBe('1');
+    expect(r.flux.period).toBe('2026-09-01_2026-09-30');
+    const noted = withFluxNotes(r, { 41000: 'Two new tenants.' });
+    expect(noted.rows.find((x) => x.code === '41000').values[5]).toBe('Two new tenants.');
+    expect(csvRows(noted).find((row) => row[1] === '41000').at(-1)).toBe('Two new tenants.');
+    const yr = await runReport(fakeApi({ pnl: ({ from }) => answers[from] || stmt([]) }), { ...c, cols: 'prior_year' });
+    expect(yr.rows.find((x) => x.code === '41000').values.slice(0, 3)).toEqual([12000, 9000, 3000]);
   });
 });

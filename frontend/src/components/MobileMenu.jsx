@@ -10,17 +10,17 @@ import { NAV } from './Sidebar';
 // tap deep-links exactly where the in-page tab would. Modules absent here
 // (Dashboard, Tasks, Asset Management, Investor Relations…) navigate directly.
 export const SUBMENUS = {
-  // Staff have My Shifts (their week + their team) and Requests.
+  // Staff have My Shifts (their week + their group); managers add the
+  // Schedule and the Requests inbox (Charmi, 09/30). Staff ask for swaps,
+  // offers and open shifts in Workday > Time Off.
   shifts: {
     manager: [
       { sub: 'mine', label: 'My Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
-      { sub: 'presets', label: 'Presets & Groups' },
     ],
     employee: [
       { sub: 'mine', label: 'My Shifts' },
-      { sub: 'requests', label: 'Requests' },
     ],
   },
   inventory: {
@@ -59,6 +59,7 @@ export const SUBMENUS = {
     { sub: 'hr-hiring', label: 'Hiring' },
     { sub: 'hr-org',    label: 'Org Chart' },
     { sub: 'hr-leave',  label: 'Leave' },
+    { sub: 'hr-checklists', label: 'Checklists' },
   ],
   marketing: [
     { sub: 'marketing-ads',        label: 'Google Ads Performance' },

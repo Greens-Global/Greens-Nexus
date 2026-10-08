@@ -13,13 +13,14 @@
 // comes from the server registry - nothing here is invented client-side.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Building2, Cable, ChevronRight, FileSignature, FolderSearch, HardHat, Loader2,
+  Building2, Cable, ChevronRight, FileSignature, FolderSearch, HardHat,
   Pencil, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, Users, X,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import FolderPickModal from './EgnyteFolderPick';
 import { BODY, CARD, EgnyteDialog, ELLIPSIS, HEADING, Loading, Notice, ProblemNote } from './ui';
+import { Spinner, LoadingState } from '../components/AsyncState';
 
 // ── plain-language layer ─────────────────────────────────────────────────────
 // The backend registry stays the truth for WHICH slots exist; this maps each
@@ -501,7 +502,7 @@ function FolderGroupDialog({ onClose, onSaved }) {
                 style={{ flex: '1 1 280px', minWidth: 0 }}
               />
               <button type="submit" className="secondary-btn" disabled={drafting || prompt.trim().length < 8} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {drafting ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />}
+                {drafting ? <Spinner size={13} /> : <Sparkles size={13} />}
                 {drafting ? 'Thinking…' : 'Fill the Dropdowns'}
               </button>
             </form>
@@ -511,7 +512,7 @@ function FolderGroupDialog({ onClose, onSaved }) {
         {/* ── live membership preview ── */}
         <div style={{ ...BODY, fontSize: 12.5, minHeight: 18 }}>
           {previewing ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> Checking who matches…</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Spinner size={12} /> Checking who matches…</span>
           ) : members === null ? (
             <span style={{ color: 'var(--wk-faint)' }}>Pick at least one condition to see who matches.</span>
           ) : (
@@ -622,7 +623,7 @@ function FolderGroups({ onWiringChanged }) {
       </div>
 
       {groups === null ? (
-        <div style={{ ...BODY, fontSize: 12.5, padding: 12 }}>Loading…</div>
+        <LoadingState compact />
       ) : groups.length === 0 ? (
         <div style={{ ...BODY, fontSize: 12.5, padding: 12, color: 'var(--wk-faint)' }}>
           No groups yet. Press &ldquo;New Folder Group&rdquo; and describe one in plain words.
@@ -637,7 +638,7 @@ function FolderGroups({ onWiringChanged }) {
             <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: 'var(--wk-dim)', flex: '1 1 200px', ...ELLIPSIS }} title={g.path}>{g.path}</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <button type="button" className="secondary-btn" disabled={syncing === g.id} onClick={() => sync(g)} title="Create any missing person folders inside the group folder" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {syncing === g.id ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <RefreshCw size={13} />} Sync Folders
+                {syncing === g.id ? <Spinner size={13} /> : <RefreshCw size={13} />} Sync Folders
               </button>
               <button type="button" className="secondary-btn" onClick={() => remove(g)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Trash2 size={13} /> Delete

@@ -7,8 +7,9 @@
 // TasksContext's `loading` clears - it is the store's own FIRST_PAINT signal
 // (tasks + projects + statuses in), so an empty state only ever means empty.
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+
 import { NX, FONT } from './theme';
+import { Spinner } from '../components/AsyncState';
 
 // Past this the message admits it is slow rather than looking frozen.
 const SLOW_AFTER_MS = 8000;
@@ -31,7 +32,7 @@ export default function TasksLoading({ opening = false }) {
     <div role="status" aria-live="polite" aria-busy="true"
       style={{ fontFamily: FONT, padding: '28px 16px', maxWidth: 960, margin: '0 auto', animation: 'fadeIn 0.2s ease' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center', marginBottom: 24 }}>
-        <Loader2 size={30} aria-hidden="true" style={{ color: 'var(--wk-brand)', animation: 'spin 0.9s linear infinite' }} />
+        <Spinner size="section" />
         <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
         <div style={{ fontSize: 12.5, color: NX.faint }}>{hint}</div>
       </div>

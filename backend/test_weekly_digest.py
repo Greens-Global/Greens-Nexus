@@ -202,9 +202,9 @@ class ScheduleTests(_Case):
         self.assertEqual(self.sent[0]["to"], ["qa@greensglobal.com"])
         self.assertTrue(self.sent[0]["subject"].startswith(f"[TEST -> {AMY}]"))
         # Links that act as Amy are not in a copy someone else reads.
-        self.assertNotIn("Extend Due Date", self.sent[0]["html"])
+        self.assertNotIn("do=extend", self.sent[0]["html"])
         self.assertNotIn("mail-actions", self.sent[0]["html"])
-        self.assertIn("Open in Nexus", self.sent[0]["html"])
+        self.assertIn(">Open</a>", self.sent[0]["html"])
 
     def test_inactive_and_external_people_are_skipped(self):
         for who, kw in (("gone@greensglobal.com", {"status": "offboarded"}),
@@ -224,6 +224,57 @@ class ScheduleTests(_Case):
         self.assertEqual(self._logs()[0].sent_at, "")
 
 
+class DueThisWeekTests(_Case):
+    """Oct 2: what is coming due, beside Overdue - today through six days on.
+    A recurring series keeps one open occurrence now, so its next date shows
+    here instead of as a pile of copies."""
+
+    def test_due_this_week_lists_today_through_six_days_on_soonest_first(self):
+        self._emp(AMY)
+        self._task("Overdue one", "2026-09-27")
+        self._task("Thursday", "2026-10-01")
+        self._task("Today", "2026-09-28")
+        self._task("Sunday", "2026-10-04")
+        self._task("Next Monday", "2026-10-05")
+        self._task("Done", "2026-09-30", completed=True)
+        self._task("Bob's", "2026-09-29", assignee="bob@greensglobal.com")
+        s = weekly_digest.build_sections(self.db, AMY, TODAY)
+        self.assertEqual([r["title"] for r in s["due_week"]], ["Today", "Thursday", "Sunday"])
+        self.assertEqual(s["due_week"][1]["detail"], "Due Thu 10/01/2026")
+        self.assertEqual([r["title"] for r in s["overdue"]], ["Overdue one"])   # not repeated
+
+    def test_a_recurring_task_says_so(self):
+        self._emp(AMY)
+        self._task("Payroll Import", "2026-09-30", recurrence={"freq": "monthly", "interval": 1}, status="recurring")
+        [row] = weekly_digest.build_sections(self.db, AMY, TODAY)["due_week"]
+        self.assertEqual(row["detail"], "Due Wed 09/30/2026 - recurring")
+
+    def test_the_email_has_the_section_and_only_due_work_is_enough_to_send(self):
+        self._emp(AMY)
+        self.db.query(models.Task).delete()
+        self._task("Thursday", "2026-10-01")
+        self._config(defaultSendTime="07:00")
+        self._scan()
+        html = self.sent[0]["html"]
+        self.assertIn("Due This Week", html)
+        self.assertIn("Due Thu 10/01/2026", html)
+
+    def test_the_daily_briefing_puts_tasks_due_today_under_action_required_once(self):
+        import daily_briefing
+        self._emp(AMY)
+        today = self._task("Payroll Import", "2026-09-28", owner_email="boss@greensglobal.com")
+        self._task("Tomorrow", "2026-09-29")
+        self.db.add(models.TaskActivity(id=gen_id(), entity_kind="task", entity_id=today, entity_title="Payroll Import",
+                                        type="commented", actor_email="boss@greensglobal.com",
+                                        at="2026-09-28T01:00:00", detail="commented"))
+        self.db.commit()
+        s = daily_briefing.build_sections(self.db, AMY, "2026-09-27T00:00:00", "2026-09-28")
+        due = [r for r in s["action_required"] if r.get("task_id") == today]
+        self.assertEqual([(r["title"], r["detail"]) for r in due], [("Payroll Import", "Due today")])
+        self.assertNotIn(today, [r.get("task_id") for r in s.get("needs_to_know", [])])   # not twice
+        self.assertNotIn("Tomorrow", [r["title"] for r in s["action_required"]])
+
+
 class ContentTests(_Case):
     def test_overdue_is_open_assigned_past_due_oldest_first(self):
         self._emp(AMY)
@@ -241,7 +292,7 @@ class ContentTests(_Case):
         self.assertEqual([r["title"] for r in rows], ["Oldest overdue", "Newer overdue"])
         self.assertEqual(rows[0]["detail"], "Due 09/01/2026 - 27 days overdue")
         self.assertEqual(rows[1]["detail"], "Due 09/25/2026 - 3 days overdue - Office Move")
-        self.assertEqual(rows[1]["ref"], "T-2")
+        self.assertNotIn("ref", rows[1])   # no task ID in the digest (Oct 1)
         self.assertTrue(rows[0]["task_extend"])
 
     def test_manager_gets_one_line_per_report(self):
@@ -264,21 +315,44 @@ class ContentTests(_Case):
         mail = self.sent[0]
         self.assertEqual(mail["subject"], "Your Weekly Digest - Week of 09/28/2026")
         html = mail["html"]
-        self.assertIn("These are the tasks you have overdue, along with their due dates, "
-                      "and everything else still waiting on you.", html)
+        # The opening line counts what is waiting, not "the tasks you have
+        # overdue" (Neil, 10/01).
+        self.assertIn("Here is everything waiting on you in Nexus this week: 1 overdue task.", html)
+        self.assertNotIn("These are the tasks you have overdue", html)
         self.assertIn("Due 09/20/2026 - 8 days overdue", html)
-        self.assertIn("Extend Due Date", html)
+        self.assertIn(">Extend</a>", html)
         self.assertIn("do=extend", html)
         self.assertIn('class="nx-acc" checked', html)   # its one section starts open
+        self.assertNotIn(">ID</th>", html)              # no task ID column (Oct 1)
         self.assertNotIn("Daily Briefing", html)
-        self.assertIn("Open My Tasks", html)
-        self.assertIn("/tasks/mine", html)
-        self.assertNotIn("Open My Briefing", html)
+        self.assertIn("Open My Briefing", html)
+        self.assertIn("/briefing", html)
+        self.assertNotIn("Open My Tasks", html)
+
+    def test_outlook_desktop_gets_no_checkbox_or_arrow_and_real_buttons(self):
+        """Oct 1: Outlook Classic (the Word engine) drew the open section's
+        collapse checkbox as "[X]", showed the arrow, and turned each button
+        into an outline with color only behind the words - unlike Outlook web."""
+        import re
+        self._emp(AMY)
+        self._task("Old task", "2026-09-20")
+        self._config(defaultSendTime="07:00")
+        self._scan()
+        html = self.sent[0]["html"]
+        # Every checkbox and arrow sits inside a block Outlook desktop skips.
+        hidden = "".join(re.findall(r"<!--\[if !mso\]><!-->(.*?)<!--<!\[endif\]-->", html, re.S))
+        self.assertEqual(html.count('type="checkbox"'), hidden.count('type="checkbox"'))
+        self.assertEqual(html.count("&#9656;"), hidden.count("&#9656;"))
+        self.assertGreater(hidden.count('type="checkbox"'), 0)
+        # Buttons are colored cells (bgcolor + mso-padding-alt), not a bare link.
+        self.assertRegex(html, r"<td class='nx-btn' bgcolor='#[0-9a-f]{6}'[^>]*mso-padding-alt[^>]*><a [^>]*>Open My Briefing</a></td>")
+        # A row's own actions are one line of links (Neil, 10/01), Extend included.
+        self.assertRegex(html, r"<a href='[^']*do=extend'[^>]*>Extend</a>")
 
 
 class StillToDoTests(_Case):
     """Sep 29 (Sagar): the Daily Briefing's "Action Required" items ride along
-    as "Still to Do" - approvals, tickets, time off to decide."""
+    as "Needs Your Attention" - approvals, tickets, time off to decide."""
 
     def test_pending_work_joins_the_digest_without_repeating_overdue_tasks(self):
         self._emp(AMY)
@@ -311,8 +385,8 @@ class StillToDoTests(_Case):
         self._scan()
         self.assertEqual(len(self.sent), 1)
         html = self.sent[0]["html"]
-        self.assertIn("Still to Do", html)
-        self.assertIn("and everything else still waiting on you.", html)
+        self.assertIn("Needs Your Attention", html)
+        self.assertIn("1 item needing your action (Tasks).", html)
         self.assertNotIn("Overdue Tasks", html)
 
     def test_a_test_copy_carries_no_one_click_decisions(self):
@@ -340,10 +414,13 @@ class DailyUnchangedTests(_Case):
         self.assertEqual(subject, "Your Daily Briefing - Monday, 09/28/2026")
         self.assertIn("Here is what changed since your last briefing.", html)
         self.assertIn("You receive one briefing a day", html)
-        self.assertIn("Open in Nexus", html)
+        self.assertIn(">Open</a>", html)
+        self.assertIn("Toggle Completion", html)
+        for gone in ("Open in Nexus", "Change Status", "Mark Complete", "Collapse sections"):
+            self.assertNotIn(gone, html)
         self.assertIn("Open My Briefing", html)
         self.assertIn("/briefing", html)
-        self.assertNotIn("Extend Due Date", html)
+        self.assertNotIn("do=extend", html)
         self.assertNotIn(" checked", html)
 
 
@@ -457,7 +534,7 @@ class SendTestTests(_Case):
         self.assertEqual(r.json()["overdueCount"], 1)
         self.assertEqual([s["to"] for s in self.sent], [["qa@greensglobal.com"]])
         self.assertEqual(self.sent[0]["subject"], f"[TEST -> {AMY}] Your Weekly Digest - Week of 09/28/2026")
-        self.assertNotIn("Extend Due Date", self.sent[0]["html"])
+        self.assertNotIn("do=extend", self.sent[0]["html"])
         self.assertEqual(self._logs(), [])   # the real weekly send is unaffected
 
     def test_defaults_to_the_admin_when_there_are_no_test_recipients(self):
@@ -467,7 +544,7 @@ class SendTestTests(_Case):
     def test_your_own_digest_keeps_the_extend_button(self):
         r = self._send(to=[AMY.upper()])
         self.assertTrue(r.json()["sent"])
-        self.assertIn("Extend Due Date", self.sent[0]["html"])
+        self.assertIn(">Extend</a>", self.sent[0]["html"])
 
     def test_nothing_overdue_sends_nothing(self):
         self._emp("bob@greensglobal.com")

@@ -15,13 +15,14 @@ Jul 28); craft bar monday.com.
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
-  ArrowUpRight, BookOpen, CheckCircle2, CheckSquare, ChevronRight,
-  Clock, Package, PenLine, Users,
+  ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight,
+  Package, PenLine, Ticket, Users,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatTimeIn, greetingFor } from '../lib/datetime';
+import { ModalLoading } from '../components/AsyncState';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
@@ -210,7 +211,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
 
-  const unread = notifications.filter(n => !n.read);
+  const unread = notifications.filter(n => !n.read && !n.closed);
   const actionable = unread.filter(n => n.action && !n.actioned).slice(0, 6);
   const pendingSigs = sigs.length;
 
@@ -361,12 +362,10 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
               <span className="dk-chip dk-chip--blue"><CheckSquare /></span> New task
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
-            <button className="dk-key" onClick={() => navTo('timeclock')}>
-              <span className="dk-chip dk-chip--green"><Clock /></span> Time clock
-              <ChevronRight size={14} className="dk-key-arrow" />
-            </button>
-            <button className="dk-key" onClick={() => navTo('sop')}>
-              <span className="dk-chip dk-chip--brand"><BookOpen /></span> Knowledge base
+            {/* New ticket replaced Time clock and Knowledge base here (Neil,
+                10/08) - the Ticket module's own form, opened in place. */}
+            <button className="dk-key" onClick={() => setComposing('ticket')}>
+              <span className="dk-chip dk-chip--red"><Ticket /></span> New ticket
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
             <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search everything</div>
@@ -378,7 +377,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
           in front of the dashboard for one frame is worse than it appearing a
           beat later. */}
       {composing && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<ModalLoading />}>
           <QuickActionModal kind={composing} onClose={() => setComposing(null)} />
         </Suspense>
       )}

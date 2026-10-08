@@ -13,9 +13,9 @@
 // Administrator only - the category is hidden from everyone else and every
 // write endpoint checks the same level.
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { Check, Loader2, Upload, X, Download, Eye, Send } from 'lucide-react';
+import { Check, Upload, X, Download, Eye, Send } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
+import { SkeletonBlocks, ErrorBanner, Spinner } from '../components/AsyncState';
 import { ACCENT_VARS, accentVars, setBrandAccent } from '../lib/brandAccent';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { PolicyText, formatPolicyVersion } from '../lib/policyText';
@@ -27,7 +27,7 @@ const ROW = { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }
 const IB = { display: 'inline-flex', alignItems: 'center', gap: 6 };
 const FIELD = { fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 4 };
 const FULL = { width: '100%', boxSizing: 'border-box' };
-const spin = <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />;
+const spin = <Spinner size={14} />;
 
 function SaveButton({ busy, onClick, children = 'Save', icon = <Check size={14} />, disabled }) {
   return (

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  FlaskConical, Plus, X, Loader2, Camera, CheckCircle, XCircle, MinusCircle,
+  FlaskConical, Plus, X, Camera, CheckCircle, XCircle, MinusCircle,
   ChevronRight, Bug, ListChecks, ScrollText, Sparkles, UserPlus, Video, Square,
   Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic, Download, Upload, Trash2,
 } from 'lucide-react';   // eslint-disable-line
@@ -17,6 +17,7 @@ import { msalInstance } from '../msalInstance';
 import { popupRedirectUri } from '../authConfig';
 import { toViewUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { Spinner } from '../components/AsyncState';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -317,14 +318,14 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
               <Play size={13} /> Replay flow ({caseObj.flow.length})
             </button>
           )}
-          {uploading && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />}
+          {uploading && <Spinner size={14} />}
           <button className="secondary-btn" disabled={busy} onClick={() => save('skipped')}>Skip</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save('blocked')} style={{ color: 'hsl(var(--color-orange))' }}>Blocked</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save('fail')} style={{ color: 'hsl(var(--color-red))', fontWeight: 700 }}>
             <XCircle size={14} style={{ verticalAlign: -2, marginRight: 5 }} />Fail - file a bug
           </button>
           <button className="primary-btn" disabled={busy} onClick={() => save('pass')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Pass
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Pass
           </button>
         </div>
       </div>
@@ -428,7 +429,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={assign} disabled={!email || pool.length === 0 || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!email || pool.length === 0) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <UserPlus size={14} />} Assign
+            {busy ? <Spinner size={14} /> : <UserPlus size={14} />} Assign
           </button>
         </div>
       </div>
@@ -489,7 +490,7 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
           {caseObj?.status === 'draft' && (
             <button className="primary-btn" onClick={() => save(true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               title={runId ? `Approve and add to the run “${runName}”` : 'Approve into the library'}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} {runId ? 'Approve & add to run' : 'Approve into library'}
+              {busy ? <Spinner size={14} /> : <Check size={14} />} {runId ? 'Approve & add to run' : 'Approve into library'}
             </button>
           )}
           <button className={caseObj?.status === 'draft' ? 'secondary-btn' : 'primary-btn'} onClick={() => save(false)} disabled={busy}>Save</button>
@@ -649,7 +650,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                 <button ref={recBtn} className="secondary-btn" title={desc.trim() ? 'Reproduce the bug anywhere - steps, screen and voice are captured together; one Stop attaches them all here' : 'Describe the bug first, then record'}
                   onClick={() => setRecMenu(m => !m)} disabled={!desc.trim() || screenBusy}
                   style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: desc.trim() ? 1 : 0.5 }}>
-                  {screenBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} />} Record
+                  {screenBusy ? <Spinner size={12} /> : <CircleDot size={13} />} Record
                   <ChevronRight size={12} style={{ transform: recMenu ? 'rotate(90deg)' : 'rotate(90deg) rotate(180deg)', transition: 'transform .15s' }} />
                 </button>
                 {/* Portaled (AnchoredMenu): closes on an outside tap, never clipped. */}
@@ -693,12 +694,12 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
           onChange={e => { addShots([...e.target.files]); e.target.value = ''; }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button className="primary-btn" onClick={submit} disabled={!desc.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: desc.trim() ? 1 : 0.6 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />} Send report
+            {busy ? <Spinner size={14} /> : <Send size={14} />} Send report
           </button>
         </div>
       </div>
 
-      {!bugs ? <div style={{ padding: 30, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} /></div>
+      {!bugs ? <div style={{ padding: 30, textAlign: 'center' }}><Spinner size="inline" /></div>
         : bugs.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 4px' }}>No bug reports yet.</div>
         : (
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
@@ -762,7 +763,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                   <>
                     {b.status === 'new' && (
                       <button className="secondary-btn" onClick={() => convert(b)} disabled={convertBusy === b.id} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-                        {convertBusy === b.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />} Convert with AI
+                        {convertBusy === b.id ? <Spinner size={12} /> : <Sparkles size={12} />} Convert with AI
                       </button>
                     )}
                     <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'fixed' }).then(load)} title="Mark this bug fixed - it stays until a tester verifies it"
@@ -892,7 +893,7 @@ export default function Testing() {
     return { ids, due, remaining };
   }, [assignments, myEmail, resultsByCase]);
 
-  if (enabled === null) return <div style={{ padding: 60, textAlign: 'center' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} /></div>;
+  if (enabled === null) return <div style={{ padding: 60, textAlign: 'center' }}><Spinner size="section" /></div>;
   if (!enabled) return <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' }}>The Testing module is only available on the dev environment.</div>;
 
   async function createRun() {
@@ -934,7 +935,7 @@ export default function Testing() {
 
       {/* ── RUN TESTS ── */}
       {tab === 'run' && (
-        !cases || !runs ? <div style={{ padding: 40, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} /></div> : (
+        !cases || !runs ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="inline" /></div> : (
           <>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
               <select value={runId} onChange={e => setRunId(e.target.value)} style={{ ...inputStyle, width: 260 }}>
@@ -950,12 +951,12 @@ export default function Testing() {
               )}
               <button className="secondary-btn" onClick={doExport} disabled={!!ioBusy} title="Download an Excel of every case + this run's status + screenshots - and the import template"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {ioBusy === 'export' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />} Export Excel
+                {ioBusy === 'export' ? <Spinner size={14} /> : <Download size={14} />} Export Excel
               </button>
               {canEdit && (
                 <button className="secondary-btn" onClick={() => importRef.current?.click()} disabled={!!ioBusy} title="Import an edited template - updates cases + statuses"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {ioBusy === 'import' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />} Import
+                  {ioBusy === 'import' ? <Spinner size={14} /> : <Upload size={14} />} Import
                 </button>
               )}
               <input ref={importRef} type="file" accept=".xlsx" style={{ display: 'none' }}
@@ -1017,7 +1018,7 @@ export default function Testing() {
 
       {/* ── LIBRARY ── */}
       {tab === 'library' && (
-        !cases ? <div style={{ padding: 40, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} /></div> : (
+        !cases ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="inline" /></div> : (
           <>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
               <select value={libFilter.module} onChange={e => setLibFilter(p => ({ ...p, module: e.target.value }))} style={{ ...inputStyle, width: 200 }}>
@@ -1050,7 +1051,7 @@ export default function Testing() {
                           .catch(e => toastErr(e?.message || 'Generation failed.'))
                           .finally(() => setGenBusy('')); }}
                         style={{ padding: '5px 9px' }}>
-                        {genBusy === c.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Bot size={12} />}
+                        {genBusy === c.id ? <Spinner size={12} /> : <Bot size={12} />}
                       </button>
                       <button className="secondary-btn" onClick={() => setEditor(c)} title={c.status === 'draft' ? 'Review draft' : 'Edit'} style={{ padding: '5px 9px' }}><Pencil size={12} /></button>
                       <button className="secondary-btn" onClick={() => api.qaUpdateCase(c.id, { status: 'archived' }).then(() => { toastOk('Archived.'); api.qaCases().then(setCases); })} title="Archive" style={{ padding: '5px 9px' }}><Archive size={12} /></button>
@@ -1065,7 +1066,7 @@ export default function Testing() {
 
       {/* ── LOG ── */}
       {tab === 'log' && (
-        !activity ? <div style={{ padding: 40, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} /></div> :
+        !activity ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="inline" /></div> :
         activity.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13.5, textAlign: 'center', padding: 30 }}>No testing activity yet.</div> : (
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
             {activity.map((e, i) => (

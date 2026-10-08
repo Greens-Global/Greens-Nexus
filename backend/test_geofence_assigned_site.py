@@ -1,13 +1,17 @@
-"""Punch locations, judged punch by punch (Charmi, Sep 29).
+"""Punch locations, judged punch by punch by WHERE the punch was (Sep 30).
 
-A person may be allowed at several work sites and move between them whenever
-they like. Every punch is judged on its own coordinates:
-  - inside an allowed site's fence -> that site (in_fence)
-  - inside none -> out_of_fence ("Out of Location"), never another site's name
-  - coordinates but no mapped allowed site -> no_site, not "Location off"
-The timecard re-judges from the coordinates against today's allowed sites, so
-a week punched before a site was mapped stops reading the wrong site. A site a
-manager set by hand is kept.
+Every punch is judged on its own coordinates against every mapped site on the
+person's company list (plus any site HR picked for them):
+  - inside a site's fence -> that site (in_fence), even one not picked for
+    them (Jeremy at PBK Residence read "Out of Location - nearest RJK DRK
+    73 km" because PBK was not on his list); overlaps prefer their own site
+  - inside none -> out_of_fence ("Out of Location"), never billed to the
+    nearest site
+  - a rough fix whose whole error circle misses every fence -> out_of_fence
+  - coordinates but no mapped site -> no_site, not "Location off"
+Another company's site never counts. The timecard re-judges from the
+coordinates, so a week punched before a site was mapped stops reading the
+wrong site. A site a manager set by hand is kept.
 
     python -m unittest test_geofence_assigned_site
 """
@@ -35,6 +39,7 @@ DAY = "2026-09-21"
 A = ("-41.0000", "-150.0000")   # "Menifee"
 B = ("-41.0500", "-150.0000")   # "Temecula"
 C = ("-41.1000", "-150.0000")   # a company site this person is NOT allowed at
+E = ("-41.2000", "-150.0000")   # another company's site
 FAR = ("-41.5000", "-150.0000")
 
 
@@ -47,7 +52,7 @@ class PunchLocationTest(unittest.TestCase):
         tag = uuid.uuid4().hex[:8]
         self.email = f"geo.sites.{tag}@greensglobal.com"
         self.company = f"co-{tag}"
-        self.a, self.b, self.c, self.d = (f"site-{k}-{tag}" for k in "abcd")
+        self.a, self.b, self.c, self.d, self.e = (f"site-{k}-{tag}" for k in "abcde")
         self.emp_id = str(uuid.uuid4())
         self.punch_ids = []
         db = database.SessionLocal()
@@ -56,6 +61,8 @@ class PunchLocationTest(unittest.TestCase):
                 db.add(HrWorkSite(id=sid, name=name, latitude=pt[0], longitude=pt[1], radius_m=150))
                 db.add(HrCompanyWorkSite(id=f"{self.company}:{sid}", company_id=self.company, site_id=sid))
             db.add(HrWorkSite(id=self.d, name="Unmapped", latitude="", longitude=""))
+            db.add(HrWorkSite(id=self.e, name="Elsewhere Co", latitude=E[0], longitude=E[1], radius_m=150))
+            db.add(HrCompanyWorkSite(id=f"other-{tag}:{self.e}", company_id=f"other-{tag}", site_id=self.e))
             db.add(NexusEmployee(id=self.emp_id, work_email=self.email, first_name="Geo", last_name="Test",
                                  company=self.company, work_site_ids=json.dumps([self.a, self.b])))
             db.commit()
@@ -67,13 +74,13 @@ class PunchLocationTest(unittest.TestCase):
         try:
             db.query(TimePunch).filter(TimePunch.id.in_(self.punch_ids)).delete(synchronize_session=False)
             db.query(NexusEmployee).filter(NexusEmployee.id == self.emp_id).delete()
-            db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == self.company).delete()
-            db.query(HrWorkSite).filter(HrWorkSite.id.in_([self.a, self.b, self.c, self.d])).delete(synchronize_session=False)
+            db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.site_id.in_([self.a, self.b, self.c, self.e])).delete(synchronize_session=False)
+            db.query(HrWorkSite).filter(HrWorkSite.id.in_([self.a, self.b, self.c, self.d, self.e])).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
 
-    def judge(self, pt, **emp):
+    def judge(self, pt, acc=10, exact=False, **emp):
         db = database.SessionLocal()
         try:
             if emp:
@@ -81,8 +88,8 @@ class PunchLocationTest(unittest.TestCase):
                 for k, v in emp.items():
                     setattr(row, k, v)
                 db.commit()
-            lat, lng = near(pt) if pt else ("", "")
-            return _geofence(db, lat, lng, 10, email=self.email)
+            lat, lng = (pt if exact else near(pt)) if pt else ("", "")
+            return _geofence(db, lat, lng, acc, email=self.email)
         finally:
             db.close()
 
@@ -90,10 +97,39 @@ class PunchLocationTest(unittest.TestCase):
         self.assertEqual((self.judge(A)["geo_status"], self.judge(A)["work_site_id"]), ("in_fence", self.a))
         self.assertEqual((self.judge(B)["geo_status"], self.judge(B)["work_site_id"]), ("in_fence", self.b))
 
-    def test_a_site_they_are_not_allowed_at_is_out_of_location(self):
+    def test_any_company_site_is_where_the_punch_was(self):
+        # Charmi, Sep 30: PBK Residence was on the company list but not on
+        # Jeremy's - his punches there must read PBK, not Out of Location.
         g = self.judge(C)
+        self.assertEqual((g["geo_status"], g["work_site_id"]), ("in_fence", self.c))
+
+    def test_another_companys_site_never_counts(self):
+        g = self.judge(E)
         self.assertEqual(g["geo_status"], "out_of_fence")
-        self.assertNotEqual(g["work_site_id"], self.c)
+        self.assertNotEqual(g["work_site_id"], self.e)
+
+    def test_out_of_location_names_the_truly_nearest_site(self):
+        # ~1.1 km past C: the hint is C (1.1 km), not an allowed site 6+ km away.
+        g = self.judge(("-41.1100", "-150.0000"), exact=True)
+        self.assertEqual((g["geo_status"], g["work_site_id"]), ("out_of_fence", self.c))
+        self.assertTrue(1000 < g["distance_m"] < 1200, g)
+
+    def test_overlapping_fences_prefer_their_own_site(self):
+        db = database.SessionLocal()
+        try:
+            db.query(HrWorkSite).filter(HrWorkSite.id == self.c).first().latitude = "-41.0003"
+            db.commit()
+        finally:
+            db.close()
+        # ~11 m from A, ~22 m from C: A anyway; and C when C is theirs and A is not.
+        self.assertEqual(self.judge(A)["work_site_id"], self.a)
+        self.assertEqual(self.judge(A, work_site_ids=json.dumps([self.c]))["work_site_id"], self.c)
+
+    def test_rough_fix_far_from_every_fence_is_out_of_location(self):
+        self.assertEqual(self.judge(FAR, acc=2000)["geo_status"], "out_of_fence")
+
+    def test_rough_fix_that_could_be_at_a_site_is_approximate(self):
+        self.assertEqual(self.judge(A, acc=2000)["geo_status"], "low_accuracy")
 
     def test_far_away_is_out_of_location(self):
         self.assertEqual(self.judge(FAR)["geo_status"], "out_of_fence")
@@ -104,11 +140,30 @@ class PunchLocationTest(unittest.TestCase):
 
     def test_the_old_single_site_still_counts(self):
         g = self.judge(B, work_site_ids="", work_site_id=self.a)
-        self.assertEqual(g["geo_status"], "out_of_fence")
+        self.assertEqual((g["geo_status"], g["work_site_id"]), ("in_fence", self.b))
         self.assertEqual(self.judge(A)["work_site_id"], self.a)
 
-    def test_gps_with_no_mapped_allowed_site_is_not_location_off(self):
-        self.assertEqual(self.judge(A, work_site_ids=json.dumps([self.d]))["geo_status"], "no_site")
+    def test_a_picked_site_off_the_company_list_still_counts(self):
+        g = self.judge(E, work_site_ids=json.dumps([self.e]))
+        self.assertEqual((g["geo_status"], g["work_site_id"]), ("in_fence", self.e))
+
+    def test_gps_with_no_mapped_site_is_not_location_off(self):
+        db = database.SessionLocal()
+        try:   # the company list holds only the unmapped site
+            db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == self.company).delete()
+            db.add(HrCompanyWorkSite(id=f"{self.company}:{self.d}", company_id=self.company, site_id=self.d))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            self.assertEqual(self.judge(A, work_site_ids=json.dumps([self.d]))["geo_status"], "no_site")
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == self.company).delete()
+                db.commit()
+            finally:
+                db.close()
 
     def test_no_coordinates_is_still_location_off(self):
         self.assertEqual(self.judge(None)["geo_status"], "no_location")
@@ -142,6 +197,27 @@ class PunchLocationTest(unittest.TestCase):
             self.assertEqual((segs[1]["geo"], segs[1]["workSiteId"]), ("in_fence", self.a))
             db.expire_all()   # read-only: the stored stamp is untouched
             self.assertEqual(db.query(TimePunch).filter(TimePunch.id == stale[0]).first().work_site_name, "Menifee")
+        finally:
+            db.close()
+
+
+    def test_out_of_location_time_is_not_billed_to_the_nearest_site(self):
+        db = database.SessionLocal()
+        try:
+            common = dict(employee_email=self.email, local_date=DAY, tz_offset_min=0, source="web",
+                          voided=0, created_by=self.email, created_at=f"{DAY}T00:00:00", accuracy_m=10)
+            far = ("-41.1100", "-150.0000")   # 1.1 km past C, inside no fence
+            ids = [str(uuid.uuid4()) for _ in range(4)]
+            self.punch_ids += ids
+            for pid, kind, hh, pt in ((ids[0], "in", "09", far), (ids[1], "out", 10, far),
+                                      (ids[2], "in", 11, A), (ids[3], "out", 12, A)):
+                db.add(TimePunch(id=pid, kind=kind, at=f"{DAY}T{hh}:00:00", lat=pt[0], lng=pt[1], **common))
+            db.commit()
+            card = _compute_timecard(db, self.email, DAY, DAY)
+            by_loc = {x["workSite"]: (x["workSiteId"], x["workedMin"]) for x in card["byLocation"]}
+            self.assertEqual(by_loc.get("Out of Location"), ("", 60), by_loc)
+            self.assertEqual(by_loc.get("Menifee"), (self.a, 60), by_loc)
+            self.assertNotIn("Other", by_loc)
         finally:
             db.close()
 

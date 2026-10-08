@@ -61,23 +61,31 @@ class QueueingTests(unittest.TestCase):
         self.db.commit()
         self.db.close()
 
-    def test_an_agent_update_queues_a_dm_to_the_requester(self):
+    def test_an_agent_reply_queues_a_dm_to_the_requester(self):
+        # Oct 1 (Neil): the DM says what happened - here the reply itself -
+        # instead of the old generic "has been updated" line.
         t = _ticket()
-        _queue_requester_teams_dm(self.db, t, AGENT)
+        _queue_requester_teams_dm(self.db, t, AGENT, comment="<p>Swapping the toner now.</p>")
         self.db.commit()
         rows = self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).all()
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row.agent_email, AGENT)
         self.assertEqual(row.requester_email, REQUESTER)
-        self.assertIn("000042", row.html)
-        self.assertIn("has been updated", row.html)
+        self.assertIn("Ticket #42 ", row.html)   # shown without the storage padding (Oct 1)
+        self.assertIn("Swapping the toner now.", row.html)
+
+    def test_nothing_to_say_queues_nothing(self):
+        t = _ticket()
+        self.assertIsNone(_queue_requester_teams_dm(self.db, t, AGENT))
+        self.db.commit()
+        self.assertEqual(self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).count(), 0)
 
     def test_the_link_goes_through_support_not_the_gated_tickets_module(self):
         # The same Access Restricted trap the email link had - see
         # ticket_mail_templates._ticket_url's for_requester param.
         t = _ticket()
-        _queue_requester_teams_dm(self.db, t, AGENT)
+        _queue_requester_teams_dm(self.db, t, AGENT, comment="hi")
         self.db.commit()
         row = self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).first()
         self.assertIn("/support?ticket=", row.html)
@@ -85,19 +93,19 @@ class QueueingTests(unittest.TestCase):
 
     def test_the_requester_editing_their_own_ticket_gets_no_dm(self):
         t = _ticket()
-        _queue_requester_teams_dm(self.db, t, REQUESTER)
+        _queue_requester_teams_dm(self.db, t, REQUESTER, comment="hi")
         self.db.commit()
         self.assertEqual(self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).count(), 0)
 
     def test_a_ticket_with_no_requester_on_file_is_skipped(self):
         t = _ticket(requester_email="")
-        _queue_requester_teams_dm(self.db, t, AGENT)
+        _queue_requester_teams_dm(self.db, t, AGENT, comment="hi")
         self.db.commit()
         self.assertEqual(self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).count(), 0)
 
     def test_email_casing_does_not_defeat_the_self_edit_skip(self):
         t = _ticket(requester_email=REQUESTER.upper())
-        _queue_requester_teams_dm(self.db, t, REQUESTER.lower())
+        _queue_requester_teams_dm(self.db, t, REQUESTER.lower(), comment="hi")
         self.db.commit()
         self.assertEqual(self.db.query(models.TicketTeamsMessage).filter_by(ticket_id=t.id).count(), 0)
 

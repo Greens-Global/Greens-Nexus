@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  FileSignature, Plus, X, Loader2, CheckCircle, XCircle, Clock, Send, Trash2,
+  FileSignature, Plus, X, CheckCircle, XCircle, Clock, Send, Trash2,
   Pencil, FileText, Download, ShieldCheck, Bell, ChevronRight, ChevronLeft,
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
   RefreshCw, Ban, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
@@ -20,6 +20,7 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
+import { Spinner, LoadingState } from './AsyncState';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -484,7 +485,7 @@ function PdfDoc({ url, file, zoom = 1, renderOverlay, onPageSeen, onPageCount })
   if (error) return <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', padding: 16, display: 'flex', gap: 8, alignItems: 'center' }}><AlertTriangle size={15} /> {error}</div>;
   if (!pages) return (
     <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
-      <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
+      <Spinner size="section" />
       <div style={{ fontSize: 12, marginTop: 10 }}>Rendering document…</div>
       {/* An indeterminate bar, not a bare spinner: "everything has a loading
           bar on it, so you're not just looking at an empty screen." */}
@@ -647,7 +648,7 @@ function ConsentGate({ payload, busy, onAccept, onDecline }) {
           <div style={{ display: 'flex', gap: 14, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="primary-btn" disabled={!agreed || busy} onClick={onAccept}
               style={{ opacity: agreed && !busy ? 1 : 0.5, fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+              {busy ? <Spinner size={14} /> : null}
               I Agree
             </button>
             <button onClick={onDecline}
@@ -759,7 +760,7 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
               )}
               <button className="primary-btn" disabled={busy} onClick={() => send(channel)}
                 style={{ fontSize: 13.5, padding: '11px 26px', display: 'inline-flex', alignItems: 'center', gap: 7, opacity: busy ? 0.6 : 1 }}>
-                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
+                {busy ? <Spinner size={14} /> : <Send size={14} />}
                 Send Code
               </button>
             </>
@@ -780,7 +781,7 @@ function OtpGate({ payload, busy, onRequest, onVerify, error }) {
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
                 <button type="submit" className="primary-btn" disabled={code.length !== 6 || busy}
                   style={{ fontSize: 13.5, padding: '11px 26px', opacity: code.length === 6 && !busy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                  {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ShieldCheck size={14} />}
+                  {busy ? <Spinner size={14} /> : <ShieldCheck size={14} />}
                   Verify &amp; Continue
                 </button>
                 <button type="button" disabled={cooldown > 0 || busy} onClick={() => send(sent.channel)}
@@ -875,8 +876,8 @@ function HistoryPanel({ loadHistory, onClose }) {
             <p style={{ fontSize: 13, color: 'hsl(var(--color-red))', margin: '14px 0' }}>{error}</p>
           ) : !rows ? (
             <div style={{ padding: '26px 0', textAlign: 'center', color: 'var(--muted)' }}>
-              <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
-              <div style={{ fontSize: 12, marginTop: 8 }}>Loading history…</div>
+              <Spinner size="inline" />
+              <LoadingState compact label="Loading history…" />
             </div>
           ) : !rows.length ? (
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: '14px 0' }}>Nothing recorded yet.</p>
@@ -1008,7 +1009,7 @@ function UploadField({ field, style, innerRef, record, busy, disabled, error,
       }}>
       <input ref={inputRef} type="file" accept={accept} style={{ display: 'none' }}
         onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onFile(f); }} />
-      {busy ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+      {busy ? <Spinner size={11} style={{ flexShrink: 0 }} />
         : done ? <Check size={11} style={{ flexShrink: 0 }} />
           : <Paperclip size={11} style={{ flexShrink: 0 }} />}
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1595,7 +1596,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               <button className="secondary-btn" onClick={() => setPaperStep(2)}>Back</button>
               <button className="primary-btn" disabled={!paperFile || paperBusy} onClick={submitPaper}
                 style={{ opacity: paperFile && !paperBusy ? 1 : 0.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                {paperBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />}
+                {paperBusy ? <Spinner size={14} /> : <Check size={14} />}
                 Submit Signed Copy
               </button>
             </div>
@@ -1743,7 +1744,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
             <button className="primary-btn" disabled={!canAct || busy}
               onClick={primaryAction}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} {primaryLabel}
+              {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} {primaryLabel}
             </button>
           </div>
         </div>
@@ -1900,7 +1901,7 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
           </button>
           <button className="primary-btn" disabled={!canAct || busy} onClick={primaryAction}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 7, opacity: canAct && !busy ? 1 : 0.5, fontSize: 13 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} {primaryLabel}
+            {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} {primaryLabel}
           </button>
         </div>
       )}
@@ -1985,7 +1986,7 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
       <div style={{ overflowY: 'auto', flex: 1, padding: '20px clamp(12px, 6vw, 60px)' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           {!payload
-            ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /></div>
+            ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
             : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
                 historyApi={historyApi} />}
@@ -2175,7 +2176,7 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '26px 20px', minWidth: 0 }}>
           {url ? <PdfDoc url={url} renderOverlay={overlay} />
-               : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+               : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>}
         </div>
         <FieldsPanel recipients={roles.map((r, i) => ({ label: r.label || r.key, sub: `Signs ${_ord(i + 1)}`, color: rcolor(i) }))}
           activeIdx={activeRole} onPick={setActiveRole}
@@ -2358,7 +2359,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
     <button className="secondary-btn" onClick={saveDraft} disabled={savingDraft || busy}
       title="Keep this and finish it later"
       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0 }}>
-      {savingDraft ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={13} />}
+      {savingDraft ? <Spinner size={13} /> : <Save size={13} />}
       Save Draft
     </button>
   );
@@ -2825,7 +2826,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           ) : (
             <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: sendBlocked ? 0.6 : 1 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
+              {busy ? <Spinner size={14} /> : <Send size={13} />} Send
             </button>
           )}
         </div>
@@ -2878,7 +2879,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                           onClick={() => { setPendingTpl(null); setFillErrors({}); }}>Back to templates</button>
                         <button className="primary-btn" disabled={!!generating} onClick={submitTemplateFill}
                           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          {generating ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <ArrowRight size={13} />}
+                          {generating ? <Spinner size={13} /> : <ArrowRight size={13} />}
                           Generate &amp; Continue
                         </button>
                       </div>
@@ -2911,12 +2912,12 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                         </span>
                       </span>
                       {generating === t.id
-                        ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--pine)' }} />
+                        ? <Spinner size={16} />
                         : docTemplateId === t.id && <CheckCircle size={17} style={{ color: 'var(--pine)' }} />}
                     </button>
                   ))}
                   {docTemplates === null && (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 16px' }}>Loading templates…</div>
+                    <LoadingState compact label="Loading templates…" />
                   )}
                   {docTemplates !== null && shownDocTemplates.length === 0 && (
                     <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 16px', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
@@ -2960,7 +2961,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
                 </button>
                 {converting && (
                   <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)' }}>
-                    <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                    <Spinner size={13} />
                     Converting the Word document, preserving its layout…
                   </div>
                 )}
@@ -3406,7 +3407,7 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
           ) : (
             <button className="primary-btn" onClick={send} disabled={sendBlocked} title={sendTitle}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, flexShrink: 0, opacity: sendBlocked ? 0.6 : 1 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send
+              {busy ? <Spinner size={14} /> : <Send size={13} />} Send
             </button>
           )}
         </div>
@@ -3497,7 +3498,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         {!req ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
           <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -3703,7 +3704,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
+        <div className="scroll-tabs" data-tour="documents-esign-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
           {tabs.map(([id, label]) => (
             <button key={id} onClick={() => switchSub(id)}
               style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === id ? 'var(--pine)' : 'transparent'}`, color: sub === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
@@ -3711,13 +3712,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             </button>
           ))}
         </div>
-        <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button className="primary-btn" data-tour="documents-send" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Send size={13} /> Send for Signature
         </button>
       </div>
 
       {sub === 'inbox' && (
-        !inbox ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        !inbox ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : inbox.length === 0 ? empty(FileSignature, 'Nothing awaiting your signature.')
         : inbox.map(item => (
           <div key={item.partyId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${item.myTurn ? '#fbbf24' : 'var(--line)'}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)' }}>
@@ -3735,7 +3736,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       )}
 
       {sub === 'requests' && (
-        !requests ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        !requests ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : requests.length === 0 ? empty(Send, 'No signature requests yet.',
             <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send Your First</button>)
         : (
@@ -3793,7 +3794,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       )}
 
       {sub === 'drafts' && (
-        !drafts ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        !drafts ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         : drafts.length === 0
           ? empty(FilePlus2, 'No drafts. A send you save from the wizard waits here until you finish it.',
               <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send for Signature</button>)

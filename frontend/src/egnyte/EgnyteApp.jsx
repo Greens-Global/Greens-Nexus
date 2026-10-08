@@ -14,7 +14,7 @@
 // explained empty state instead of a wall of failed requests.
 import { useEffect, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
-import { Cable, FolderOpen, Link2, Loader2 } from 'lucide-react';
+import { Cable, FolderOpen, Link2 } from 'lucide-react';
 import { api } from '../api';
 import ModuleTabs from '../components/ModuleTabs';
 import { useRole } from '../contexts/RoleContext';
@@ -22,6 +22,7 @@ import { useEgnyteStatus } from './lib';
 import EgnyteFolderBrowser from './EgnyteFolderBrowser';
 import EgnyteWiring from './EgnyteWiring';
 import { BODY, CARD, HEADING, Loading, NotConnected, Notice } from './ui';
+import { Spinner } from '../components/AsyncState';
 
 // The signed-in person's photo, from the People directory (the same source the
 // Task module avatars use). Fetched once per session, module-scoped.
@@ -162,7 +163,7 @@ function ConnectStrip({ oauth, onChanged }) {
             </div>
           </div>
           <button type="button" className="primary-btn" disabled={busy} onClick={connect} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Link2 size={13} />} Connect Egnyte
+            {busy ? <Spinner size={13} /> : <Link2 size={13} />} Connect Egnyte
           </button>
         </div>
       )}

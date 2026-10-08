@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { X, Camera, CheckCircle, Loader2, Trash2 } from 'lucide-react';
+import { X, Camera, CheckCircle, Trash2 } from 'lucide-react';
 import { api } from '../api';
+import { Spinner } from './AsyncState';
 
 // Profile photo editor - view, re-crop (pan + zoom slider, thirds grid), or
 // choose a new photo; exports a 512px square JPEG via canvas. Its own file
@@ -178,7 +179,7 @@ export default function PhotoEditorModal({ employee: e, photoUrl, title = 'Profi
             <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
             <button className="primary-btn" onClick={save} disabled={!nat || busy}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!nat || busy) ? 0.6 : 1 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save photo
+              {busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Save photo
             </button>
           </div>
         </div>

@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from auth import require_module_grant, hr_scope
+from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
-from models import NexusEmployee, PayrollRate, HrRemovedIdentity
+from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
 from services import logo_video
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
@@ -27,6 +27,26 @@ require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
 # bypass; everyone else needs an explicit "hr_comp" Access Group grant.
 require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")
 require_hr_comp_write = require_module_grant("hr_comp", "editor", bypass_level="owner")
+
+
+def require_comp_read_or_manager(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Pay & Benefits reads: the hr_comp grant as before, OR (Pranshu, 10/07)
+    the Manager tier holding People - for their DIRECT reports only, read only
+    and without bank details, checked per record (_direct_report_or_404)."""
+    from auth import _LEVELS, _module_level
+    if hr_team_limited(user) and _module_level(user["email"], "hr", db) >= 1:
+        return user
+    if user["level"] >= _LEVELS["owner"] or _module_level(user["email"], "hr_comp", db) >= 1:
+        return user
+    raise HTTPException(status_code=403, detail="You don't have access to this screen")
+
+
+def _direct_report_or_404(user: dict, emp: Optional[NexusEmployee]) -> None:
+    """A manager sees pay only for people whose Reports To is them - not the
+    rest of the chain they see in People. 404, so existence doesn't leak."""
+    me = (user.get("email") or "").strip().lower()
+    if emp is None or (emp.manager_email or "").strip().lower() != me:
+        raise HTTPException(404, "Employee not found")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -53,6 +73,11 @@ class EmployeeIn(BaseModel):
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
     country:         Optional[str] = ""   # ISO 3166 alpha-2 - THIS person's own country, e.g. for signature phone formatting
+    office_phone:    Optional[str] = ""   # Microsoft 365 contact info (Oct 7) - see m365_profile_sync.py
+    street_address:  Optional[str] = ""
+    city:            Optional[str] = ""
+    state:           Optional[str] = ""
+    postal_code:     Optional[str] = ""
     company:         Optional[str] = ""
     identity_type:   Optional[str] = "internal"
     contractor:      Optional[dict] = None
@@ -76,6 +101,11 @@ class EmployeeUpdate(BaseModel):
     status:          Optional[str] = None
     location:        Optional[str] = None
     country:         Optional[str] = None
+    office_phone:    Optional[str] = None
+    street_address:  Optional[str] = None
+    city:            Optional[str] = None
+    state:           Optional[str] = None
+    postal_code:     Optional[str] = None
     company:         Optional[str] = None
     division:        Optional[str] = None
     identity_type:   Optional[str] = None
@@ -101,6 +131,8 @@ def _validate(employment_type: Optional[str], status: Optional[str], identity_ty
 # people are visible only to unrestricted admins.
 
 def _in_scope(emp: Optional[NexusEmployee], scope) -> bool:
+    if emp is not None and is_team_scope(scope):   # People limited to their own team (Oct 6)
+        return (emp.work_email or "").strip().lower() in scope.emails
     return emp is not None and (scope is None or (emp.company or "") in scope)
 
 
@@ -115,7 +147,9 @@ def _assert_scope(emp: Optional[NexusEmployee], scope) -> NexusEmployee:
 
 
 def _scoped(q, scope):
-    """Apply a company scope to a NexusEmployee query."""
+    """Apply a company (or own-team) scope to a NexusEmployee query."""
+    if is_team_scope(scope):
+        return q.filter(func.lower(NexusEmployee.work_email).in_(sorted(scope.emails)))
     if scope is not None:
         q = q.filter(NexusEmployee.company.in_(scope))
     return q
@@ -157,6 +191,12 @@ def _serialize(e: NexusEmployee) -> dict:
         "status":         e.status,
         "location":       e.location,
         "country":        e.country or "",
+        "officePhone":    e.office_phone or "",
+        "streetAddress":  e.street_address or "",
+        "city":           e.city or "",
+        "state":          e.state or "",
+        "postalCode":     e.postal_code or "",
+        "m365Sync":       {k: (e.m365_sync or {}).get(k, "") for k in ("at", "error")} if isinstance(e.m365_sync, dict) else {},
         "company":        e.company,
         "division":       e.division or "",
         "identityType":   e.identity_type or "internal",
@@ -180,12 +220,26 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     """`deleted=true` returns the removed people INSTEAD of the live ones - the
     Deleted filter in the directory. Live listings need no filtering of their
     own: the session hides removed rows globally (database.py)."""
-    q = _scoped(db.query(NexusEmployee), hr_scope(user, db))
+    scope = hr_scope(user, db)
+    q = _scoped(db.query(NexusEmployee), scope)
     if deleted:
         q = (q.execution_options(include_deleted=True)
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
+    if is_team_scope(scope):
+        return [_team_view(_serialize(e)) for e in rows]
     return [_serialize(e) for e in rows]
+
+
+_CONTRACTOR_PAY = ("rate", "rate_type", "currency", "billing_rate", "bill_rate")
+
+
+def _team_view(row: dict) -> dict:
+    """An employee as a manager sees them in People (Oct 6): Overview as is,
+    but no Compliance records and no contractor rate - never pay."""
+    row["compliance"] = {}
+    row["contractor"] = {k: v for k, v in (row.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
+    return row
 
 
 @router.post("/employees")
@@ -214,6 +268,11 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         status=body.status or "active",
         location=(body.location or "").strip(),
         country=(body.country or "").strip().upper(),
+        office_phone=(body.office_phone or "").strip(),
+        street_address=(body.street_address or "").strip(),
+        city=(body.city or "").strip(),
+        state=(body.state or "").strip(),
+        postal_code=(body.postal_code or "").strip(),
         company=(body.company or "").strip(),
         identity_type=body.identity_type or "internal",
         contractor=body.contractor or {},
@@ -298,9 +357,44 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             token = _graph_token()
             written = _graph_writeback(token, row, db)
             manager = _graph_set_manager(token, row) if "manager_email" in fields else None
+            # The contact fields go through the two-way sync's push as well: it
+            # clears a field HR emptied (the writeback above never blanks one)
+            # and records the values as the new merge base, so the next pull
+            # does not mistake them for a change made in Microsoft 365.
+            import m365_profile_sync
+            contact = [k for k in changes if k in m365_profile_sync.CONTACT_COLUMNS]
+            if contact:
+                m365_profile_sync.push(token, row, contact)
+                db.commit()
+            out = _serialize(row)
             out["entra"] = {"synced": True, "written": written, "manager": manager}
         except Exception as e:
             out["entra"] = {"synced": False, "error": str(e)[:200]}
+    return out
+
+
+@router.post("/employees/{eid}/m365-sync")
+def sync_employee_m365(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Bring one person's Microsoft 365 contact info in step now (Refresh on
+    their profile): what changed in Microsoft 365 comes in, what HR changed
+    goes out. The 15-minute background pass does the same for everyone."""
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
+    if not (row.m365_id or "").strip():
+        raise HTTPException(400, "This person is not linked to a Microsoft 365 account.")
+    import m365_profile_sync
+    try:
+        result = m365_profile_sync.sync_person(db, row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Microsoft 365 did not answer: {str(e)[:160]}")
+    db.refresh(row)
+    out = _serialize(row)
+    out["m365Result"] = result
+    out["m365Result"]["writesEnabled"] = _entra_writes_enabled()
     return out
 
 
@@ -385,17 +479,19 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 
 
 def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
-               action: Optional[dict] = None) -> None:
+               action: Optional[dict] = None, priority: int = 0) -> None:
     """Server-side bell notification (items.py pattern). Empty recipient = noop -
     HR events must always target a person, never broadcast to all managers.
-    `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there."""
+    `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there.
+    `priority=1` puts it in the bar across the top of the recipient's screen
+    until they act (Neil, call of 09/29: timecards due, timesheet adjustments)."""
     if not (recipient or "").strip():
         return
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
         title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
         action=json.dumps(action) if action else "", actioned=False, read_by="",
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(), priority=1 if priority else 0,
     ))
 
 
@@ -535,6 +631,9 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             db.add(emp)
             row.employee_id = emp.id
             created_employee = emp
+            # Their onboarding checklist starts with the hire (hr_checklists.py).
+            import hr_checklists
+            hr_checklists.start_on_hire(db, emp, user["email"])
 
         # One notification per stage move, to the candidate's owner (unless
         # they made the move themselves) - mirrors the items.py convention
@@ -801,6 +900,8 @@ def _has_comp(user: dict, db: Session) -> bool:
     """Inline hr_comp check (paystubs are salary documents). Mirrors
     require_hr_comp_read: Global Admin bypass OR an explicit hr_comp grant."""
     from auth import _module_level, _LEVELS
+    if is_team_scope(hr_scope(user, db)):
+        return False   # the manager tier never sees pay (Oct 6)
     return user["level"] >= _LEVELS["owner"] or _module_level(user["email"], "hr_comp", db) >= 1
 
 
@@ -852,8 +953,15 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first(), hr_scope(user, db))
-    if row.kind == "paystub" and not _has_comp(user, db):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first()
+    _assert_scope(emp, hr_scope(user, db))
+    if hr_team_limited(user):
+        # A manager opens only a direct report's paystub here (Oct 7) - their
+        # other documents are not part of the team view.
+        if row.kind != "paystub":
+            raise HTTPException(404, "Document not found")
+        _direct_report_or_404(user, emp)
+    elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
@@ -883,9 +991,12 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
 # Employees see/download their own via /myhr/paystubs (routers/myhr.py).
 
 @router.get("/employees/{eid}/paystubs")
-def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read),
+def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
                   _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
-    _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    _assert_scope(emp, hr_scope(user, db))
+    if hr_team_limited(user):
+        _direct_report_or_404(user, emp)   # a manager: direct reports only (Oct 7)
     rows = (db.query(HrDocument)
             .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
             .order_by(HrDocument.created_at.desc()).all())
@@ -1084,7 +1195,9 @@ _EMPLOYEE_TYPE_LABEL = {"full_time": "Full-time", "part_time": "Part-time",
 # Nexus employee fields whose edit means the linked Entra user is now stale
 ENTRA_MAPPED_FIELDS = {"first_name", "last_name", "job_title", "department", "phone",
                        "location", "employee_code", "employment_type", "start_date",
-                       "company", "personal", "manager_email"}
+                       "company", "personal", "manager_email",
+                       # Microsoft 365 contact info (Oct 7, m365_profile_sync.py)
+                       "office_phone", "street_address", "city", "state", "postal_code", "country"}
 
 
 def _m365_job_title(title: str) -> str:
@@ -1121,16 +1234,23 @@ def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
         from models import HrEntity
         ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
         company_name = (ent.name if ent else "") or ""
-    street = " ".join(str((emp.personal or {}).get("currentAddress", "")).split())[:1024]
+    # streetAddress is the WORK address M365 shows in contact info (Oct 7) -
+    # it used to be filled from the HOME address in `personal`, which put
+    # people's home addresses in the company directory.
+    from countries import country_name
     for attr, value in (("jobTitle", _m365_job_title(emp.job_title)), ("department", emp.department),
                         ("mobilePhone", emp.phone), ("officeLocation", emp.location),
                         ("employeeId", emp.employee_code),
                         ("employeeType", _EMPLOYEE_TYPE_LABEL.get(emp.employment_type or "", "")),
                         ("companyName", company_name),
-                        ("streetAddress", street)):
+                        ("streetAddress", " ".join((emp.street_address or "").split())[:1024]),
+                        ("city", emp.city), ("state", emp.state), ("postalCode", emp.postal_code),
+                        ("country", country_name(emp.country or "") or (emp.country or ""))):
         v = (value or "").strip()
         if v:
             payload[attr] = v
+    if (emp.office_phone or "").strip():
+        payload["businessPhones"] = [emp.office_phone.strip()]
     # Graph wants a full DateTimeOffset for hire date, not a bare ISO date
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", (emp.start_date or "").strip()):
         payload["employeeHireDate"] = f"{emp.start_date.strip()}T00:00:00Z"
@@ -2025,7 +2145,11 @@ def _serialize_entity(e: HrEntity) -> dict:
 def list_entities(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     scope = hr_scope(user, db)
     q = db.query(HrEntity)
-    if scope is not None:
+    if is_team_scope(scope):
+        # Their team's companies, for the names on the cards - nothing else.
+        ids = {c for (c,) in _scoped(db.query(NexusEmployee.company), scope).all() if c}
+        q = q.filter(HrEntity.id.in_(sorted(ids)))
+    elif scope is not None:
         q = q.filter(HrEntity.id.in_(scope))
     rows = q.order_by(HrEntity.name).all()
     return [_serialize_entity(e) for e in rows]
@@ -2537,8 +2661,15 @@ class WorkSiteIn(BaseModel):
     company:  Optional[str] = ""
     notes:    Optional[str] = ""
     # True when latitude/longitude came from an address the person searched and
-    # picked (Sep 30) - the only way the screen sets them now.
+    # picked (Sep 30).
     address_verified: Optional[bool] = False
+    # "google_link" when the point came from a pasted Google Maps link or
+    # coordinates (map_link keeps what was pasted); "address" for a search pick.
+    location_source: Optional[str] = ""
+    map_link: Optional[str] = ""
+    # The companies that use this location (Neil, Oct 1: pick them right in
+    # the library - All, or some). None = leave the links alone.
+    company_ids: Optional[List[str]] = None
 
 
 class WorkSiteUpdate(BaseModel):
@@ -2549,6 +2680,9 @@ class WorkSiteUpdate(BaseModel):
     radius_m: Optional[int] = None
     notes:    Optional[str] = None
     address_verified: Optional[bool] = None
+    location_source: Optional[str] = None
+    map_link: Optional[str] = None
+    company_ids: Optional[List[str]] = None
 
 
 class CompanySitesIn(BaseModel):
@@ -2574,7 +2708,32 @@ def _serialize_site(s: HrWorkSite, companies=None) -> dict:
         "notes": s.notes, "createdAt": s.created_at, "updatedAt": s.updated_at,
         # '' = the point came from the old map pin; the UI asks for a re-check.
         "addressVerifiedAt": s.address_verified_at or "", "addressVerifiedBy": s.address_verified_by or "",
+        "locationSource": getattr(s, "location_source", "") or "", "mapLink": getattr(s, "map_link", "") or "",
     }
+
+
+_LOCATION_SOURCES = ("", "address", "google_link")
+
+
+def _check_location_source(source: str, link: str, has_point: bool) -> tuple:
+    """(source, link) to store. A Google-link site must carry the Google Maps
+    link (or coordinates) it came from - the record of where the point was
+    taken - and a point; anything else is refused rather than half-saved."""
+    from maps_link import MapLinkError, needs_resolving, parse_point
+    source = (source or "").strip()
+    link = (link or "").strip()[:2000]
+    if source not in _LOCATION_SOURCES:
+        raise HTTPException(400, "Unknown location source")
+    if source != "google_link":
+        return source, ""
+    if not link or not has_point:
+        raise HTTPException(400, "Paste the Google Maps link again - the site has no point from it yet")
+    if not needs_resolving(link):
+        try:
+            parse_point(link)
+        except MapLinkError as e:
+            raise HTTPException(400, str(e))
+    return source, link
 
 
 def company_sites(db: Session, company_id: str):
@@ -2628,6 +2787,30 @@ def _link_site(db: Session, company_id: str, site_id: str, email: str) -> bool:
     return True
 
 
+def _set_site_companies(db: Session, site_id: str, company_ids: list, scope, email: str) -> None:
+    """Make `company_ids` the companies using a location (Neil, Oct 1 - picked
+    in the library form: All, or some). A company-scoped admin changes only
+    their own companies' links; links to companies outside their scope are
+    kept as they are. Unknown company ids are refused."""
+    wanted = list(dict.fromkeys(str(c).strip() for c in (company_ids or []) if str(c).strip()))
+    if wanted:
+        known = {e.id for e in db.query(HrEntity.id).filter(HrEntity.id.in_(wanted)).all()}
+        missing = [c for c in wanted if c not in known]
+        if missing:
+            raise HTTPException(404, "Company not found")
+    if scope is not None:
+        outside = [c for c in wanted if c not in scope]
+        if outside:
+            raise HTTPException(403, "Pick only your own companies - your People access is limited to specific companies")
+    current = set(_site_links(db, [site_id]).get(site_id, []))
+    changeable = current if scope is None else {c for c in current if c in scope}
+    for cid in changeable - set(wanted):
+        db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.company_id == cid,
+                                           HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
+    for cid in wanted:
+        _link_site(db, cid, site_id, email)
+
+
 def _assert_site_editable(db: Session, site_id: str, scope) -> None:
     """A library site is shared, so a company-scoped admin may only change or
     delete one that no company outside their scope uses."""
@@ -2635,7 +2818,7 @@ def _assert_site_editable(db: Session, site_id: str, scope) -> None:
         return
     used_by = set(_site_links(db, [site_id]).get(site_id, []))
     if used_by - set(scope):
-        raise HTTPException(403, "Another company uses this work site - ask an admin with access to every company")
+        raise HTTPException(403, "Another company uses this location - ask an admin with access to every company")
 
 
 @router.get("/work-sites")
@@ -2654,7 +2837,9 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
         raise HTTPException(400, "name is required")
     company = (body.company or "").strip()
     scope = hr_scope(user, db)
-    if scope is not None and company not in scope:
+    # A company-scoped admin's new location must belong to one of their
+    # companies - from a company's tab (`company`) or picked in the form.
+    if scope is not None and company not in scope and not (body.company_ids or []):
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     if company and not db.query(HrEntity).filter(HrEntity.id == company).first():
         raise HTTPException(404, "Company not found")
@@ -2666,7 +2851,9 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
         company="", notes=body.notes or "",
         created_by=user["email"], created_at=now, updated_at=now,
     )
-    if body.address_verified and row.latitude and row.longitude:
+    row.location_source, row.map_link = _check_location_source(
+        body.location_source, body.map_link, bool(row.latitude and row.longitude))
+    if (body.address_verified or row.location_source) and row.latitude and row.longitude:
         row.address_verified_at, row.address_verified_by = now, user["email"]
     db.add(row)
     # Added from a company = in the library for everyone AND on that company's
@@ -2674,21 +2861,29 @@ def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), d
     # global also").
     if company:
         _link_site(db, company, row.id, user["email"])
+    if body.company_ids is not None:
+        db.flush()
+        _set_site_companies(db, row.id, body.company_ids + ([company] if company else []), scope, user["email"])
     db.commit(); db.refresh(row)
-    return _serialize_site(row, [company] if company else [])
+    return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
 
 
 @router.patch("/work-sites/{site_id}")
 def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if not row:
-        raise HTTPException(404, "Work site not found")
+        raise HTTPException(404, "Location not found")
     _assert_site_editable(db, site_id, hr_scope(user, db))
     if body.name is not None and not body.name.strip():
         raise HTTPException(400, "name cannot be empty")
     before = (row.latitude or "", row.longitude or "")
     fields = body.model_dump(exclude_unset=True)
     verified = fields.pop("address_verified", None)
+    source = fields.pop("location_source", None)
+    link = fields.pop("map_link", None)
+    company_ids = fields.pop("company_ids", None)
+    if company_ids is not None:
+        _set_site_companies(db, site_id, company_ids, hr_scope(user, db), user["email"])
     for key, value in fields.items():
         if value is None:
             continue
@@ -2697,12 +2892,114 @@ def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(re
     # Coordinates from a picked address mark the site verified; coordinates
     # that changed any other way (an older client, the API) clear it, so the
     # badge never vouches for a point nobody checked against an address.
-    if verified and row.latitude and row.longitude:
+    if source is not None:
+        row.location_source, row.map_link = _check_location_source(
+            source, link or "", bool(row.latitude and row.longitude))
+    if (verified or (source and row.location_source)) and row.latitude and row.longitude:
         row.address_verified_at, row.address_verified_by = row.updated_at, user["email"]
     elif (row.latitude or "", row.longitude or "") != before:
+        # Moved some other way (an older client, the API): nothing vouches
+        # for the new point any more.
         row.address_verified_at, row.address_verified_by = "", ""
+        row.location_source, row.map_link = "", ""
     db.commit(); db.refresh(row)
     return _serialize_site(row, _site_links(db, [row.id]).get(row.id))
+
+
+class MapLinkIn(BaseModel):
+    link: str
+
+
+@router.post("/work-sites/resolve-link")
+def resolve_work_site_link(body: MapLinkIn, user: dict = Depends(require_hr_write)):
+    """The point in a pasted Google Maps link or coordinates (Sep 30): the
+    place's own pin when the link has one, a dropped pin, or - flagged as
+    `view` - only where the map was looking. Short share links are opened on
+    the server, Google hosts only (maps_link.resolve_link). Plain def: the
+    short-link fetch runs on a worker thread, never the event loop."""
+    from maps_link import MapLinkError, resolve_link
+    link = (body.link or "").strip()
+    if len(link) > 2000:
+        raise HTTPException(400, "That link is too long to be a Google Maps link")
+    try:
+        point = resolve_link(link)
+    except MapLinkError as e:
+        raise HTTPException(422, str(e))
+    # The location's address comes from the same link (Neil, Oct 1): read off
+    # the link, or looked up from the point, written the US way. "" = HR types it.
+    from site_address import address_for
+    return {**point, **address_for(point)}
+
+
+_FENCE_CHECK_DAYS = 30
+
+
+@router.get("/work-sites/fence-check")
+def work_site_fence_check(lat: float, lng: float, radius_m: int = 150, site_id: str = "",
+                          user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Before a site's point or radius is saved: the last 30 days of located
+    punches near the proposed fence, and how many fall inside it - and inside
+    the SAVED fence when editing, so a point that would turn a crew's on-site
+    punches into Out of Location shows up before it is saved. Same rule as the
+    time clock's verdict (GPS accuracy credit capped at 150 m; a fix worse
+    than 500 m never counts as inside). Punches of the viewer's companies
+    only; no names leave the server, only dots and counts."""
+    from maps_link import haversine_m
+    from models import TimePunch
+    from datetime import timedelta
+    from sqlalchemy import func
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        raise HTTPException(400, "Invalid point")
+    radius = max(25, min(int(radius_m or 150), 5000))
+    old = None
+    if site_id:
+        st = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+        try:
+            if st:
+                old = (float(st.latitude), float(st.longitude), max(25, int(st.radius_m or 150)))
+        except (TypeError, ValueError):
+            old = None
+    since = (datetime.now(timezone.utc) - timedelta(days=_FENCE_CHECK_DAYS + 1)).strftime("%Y-%m-%d")
+    q = (db.query(TimePunch.lat, TimePunch.lng, TimePunch.accuracy_m, TimePunch.employee_email)
+         .filter(TimePunch.voided == 0, TimePunch.local_date >= since,
+                 TimePunch.lat != "", TimePunch.lng != "", TimePunch.kind.in_(("in", "out"))))
+    scope = hr_scope(user, db)
+    if scope is not None:
+        emails = [e.lower() for (e,) in db.query(NexusEmployee.work_email)
+                  .filter(NexusEmployee.company.in_(list(scope))).all() if e]
+        if not emails:
+            return {"days": _FENCE_CHECK_DAYS, "near": 0, "inside": 0, "people": 0,
+                    "savedInside": 0 if old else None, "points": []}
+        q = q.filter(func.lower(TimePunch.employee_email).in_(emails))
+
+    def _in(d, acc, r):
+        return acc <= 500 and max(0.0, d - min(acc, 150)) <= r
+
+    near = inside = saved_inside = 0
+    people = set()
+    points = []
+    reach = radius + 1000
+    for plat_s, plng_s, acc, email in q.all():
+        try:
+            plat, plng = float(plat_s), float(plng_s)
+        except (TypeError, ValueError):
+            continue
+        acc = max(0, int(acc or 0))
+        if old and _in(haversine_m(plat, plng, old[0], old[1]), acc, old[2]):
+            saved_inside += 1
+        d = haversine_m(plat, plng, lat, lng)
+        if d > reach:
+            continue
+        near += 1
+        hit = _in(d, acc, radius)
+        if hit:
+            inside += 1
+            people.add((email or "").lower())
+        if len(points) < 600:
+            points.append({"lat": round(plat, 6), "lng": round(plng, 6), "accuracyM": acc,
+                           "distanceM": int(round(d)), "inside": hit})
+    return {"days": _FENCE_CHECK_DAYS, "near": near, "inside": inside, "people": len(people),
+            "savedInside": saved_inside if old else None, "points": points}
 
 
 @router.delete("/work-sites/{site_id}")
@@ -3128,13 +3425,20 @@ class CompensationIn(BaseModel):
 
 
 @router.get("/employees/{eid}/compensation")
-def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read),
+def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager),
                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
-    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+    if hr_team_limited(user):
+        # A manager's read-only view of a direct report (Oct 7): pay, history
+        # and benefits - never the bank accounts.
+        _direct_report_or_404(user, row)
+        return {"compensation": row.compensation or {}, "bank": [], "readOnly": True,
+                "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
+    return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
 # ── Pay-record link: the inline "Payroll wage" (PayrollRate, drives the timecard)
@@ -3158,8 +3462,47 @@ def sync_comp_from_rate(db: Session, email: str) -> None:
     emp.compensation = comp
 
 
+_OT_RULES = ("ca", "federal", "none")
+
+
+def default_overtime_rule(db: Session, emp: NexusEmployee) -> str:
+    """The overtime law that follows from the company's country, not typed per
+    person (Charmi, Sep 30): US -> California, IN -> none (India's weekend
+    policy is calculated separately), anywhere else -> federal."""
+    ent = (db.query(HrEntity).filter(HrEntity.id == emp.company).first()
+           if emp is not None and (emp.company or "").strip() else None)
+    country = ((ent.country if ent else "") or "US").strip().upper()
+    return {"US": "ca", "IN": "none"}.get(country, "federal")
+
+
+def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
+    """The timecard-only part of the pay record, as the Pay & Benefits screen
+    shows it: the OT rule in force, full-day hours and the exemption flag.
+    The time-tracking exemption is read from the person's role (Settings >
+    Access, Visesh Oct 2) - shown read-only here with the role that sets it."""
+    from routers.timeclock import time_tracking_exempt_via
+    _via = time_tracking_exempt_via(db, emp.work_email) if emp is not None and emp.work_email else ""
+    row = (db.query(PayrollRate).filter(PayrollRate.employee_email == (emp.work_email or "").lower()).first()
+           if emp is not None and emp.work_email else None)
+    return {
+        "payType": (getattr(row, "pay_type", None) or "hourly") if row else "hourly",
+        "overtimeRule": (getattr(row, "overtime_rule", None) or default_overtime_rule(db, emp)) if row
+                        else default_overtime_rule(db, emp),
+        "defaultOvertimeRule": default_overtime_rule(db, emp),
+        "fullDayHours": float(getattr(row, "full_day_hours", 8) or 8) if row else 8.0,
+        "timeTrackingExempt": bool(_via),
+        "timeTrackingExemptVia": _via,
+        "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
+        "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
+        "isSet": row is not None,
+    }
+
+
 def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
-    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate."""
+    """Pay & Benefits saved → reflect base/basis/currency in the timecard rate,
+    plus the timecard-only fields that live on the comp record since Sep 30
+    (overtimeRule, fullDayHours). Pay & Benefits is the
+    ONLY writer of PayrollRate from the UI."""
     if not emp or not emp.work_email:
         return
     comp = emp.compensation or {}
@@ -3167,7 +3510,8 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
     base = float(comp.get("base") or 0)
     row = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
     if not row:
-        row = PayrollRate(employee_email=emp.work_email.lower())
+        row = PayrollRate(employee_email=emp.work_email.lower(),
+                          overtime_rule=default_overtime_rule(db, emp))
         db.add(row)
     cur = comp.get("currency") or ""
     if cur in ("USD", "INR"):
@@ -3183,6 +3527,94 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
         # daily / fixed_fee have NO timecard pay model - zero the timecard pay so it
         # can't keep silently paying the previous (hourly/salary) model.
         row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", 0.0, 0.0
+    # Overtime rule: an explicit choice wins; '' / "company default" follows the
+    # company's country (never a per-person guess on the timecard).
+    rule = (comp.get("overtimeRule") or "").strip().lower()
+    row.overtime_rule = rule if rule in _OT_RULES else default_overtime_rule(db, emp)
+    if comp.get("fullDayHours") not in (None, ""):
+        try:
+            row.full_day_hours = max(1.0, float(comp.get("fullDayHours") or 8))
+        except (TypeError, ValueError):
+            pass
+    # timeTrackingExempt is no longer written here: the exemption is set on the
+    # role in Settings > Access (Visesh, Oct 2); a stale value sent is ignored.
+
+
+def _rate_history_rows(db: Session, email: str) -> list:
+    return sorted(db.query(PayrollRateHistory).filter(PayrollRateHistory.employee_email == (email or "").lower()).all(),
+                  key=lambda r: ((r.effective_date or ""), (r.created_at or "")))
+
+
+def ensure_rate_history(db: Session, email: str, by: str = "") -> None:
+    """Lazy backfill: a person with a PayrollRate but no history yet gets one
+    row from the current rate with effective_date '' ("since always"), so the
+    days before their first dated change keep the rate they were paid at.
+    Call BEFORE overwriting PayrollRate with a new value."""
+    em = (email or "").lower()
+    if not em or _rate_history_rows(db, em):
+        return
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not rate:
+        return
+    db.add(PayrollRateHistory(id=str(uuid.uuid4()), employee_email=em, effective_date="",
+                              pay_type=rate.pay_type or "hourly", hourly_rate=float(rate.hourly_rate or 0),
+                              monthly_salary=float(rate.monthly_salary or 0), currency=rate.currency or "USD",
+                              overtime_rule=rate.overtime_rule or "ca", created_by=by,
+                              created_at=datetime.now(timezone.utc).isoformat()))
+    db.flush()
+
+
+def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by: str) -> None:
+    """One row per compensation save that changes the pay or its effective
+    date. Saving the same effective date twice corrects that row in place (a
+    typo fixed a minute later is not a second raise). Called AFTER
+    sync_rate_from_comp, so PayrollRate already holds the new values."""
+    if not emp or not emp.work_email:
+        return
+    em = emp.work_email.lower()
+    rate = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not rate:
+        return
+    eff = (effective_date or "").strip()[:10]
+    vals = {"pay_type": rate.pay_type or "hourly", "hourly_rate": float(rate.hourly_rate or 0),
+            "monthly_salary": float(rate.monthly_salary or 0), "currency": rate.currency or "USD",
+            "overtime_rule": rate.overtime_rule or "ca"}
+    rows = _rate_history_rows(db, em)
+    same = next((r for r in rows if (r.effective_date or "") == eff), None)
+    if same is not None:
+        for k, v in vals.items():
+            setattr(same, k, v)
+        return
+    if rows:
+        last = rows[-1]
+        unchanged = all(getattr(last, k) == v for k, v in vals.items())
+        if unchanged:
+            return   # nothing about the pay changed - no new period
+    db.add(PayrollRateHistory(id=str(uuid.uuid4()), employee_email=em, effective_date=eff,
+                              created_by=by, created_at=datetime.now(timezone.utc).isoformat(), **vals))
+
+
+def rate_history_out(db: Session, emp: NexusEmployee) -> list:
+    """The History table on Pay & Benefits: newest first. With no rows yet,
+    the current PayrollRate is shown as the "since always" entry."""
+    if not emp or not emp.work_email:
+        return []
+    rows = _rate_history_rows(db, emp.work_email)
+    out = [{"id": r.id, "effectiveDate": r.effective_date or "", "payType": r.pay_type or "hourly",
+            "base": float(r.monthly_salary or 0) if (r.pay_type or "hourly") == "fixed" else float(r.hourly_rate or 0),
+            "payBasis": "salary" if (r.pay_type or "hourly") == "fixed" else "hourly",
+            "currency": r.currency or "USD", "overtimeRule": r.overtime_rule or "ca",
+            "changedBy": r.created_by or "", "changedAt": r.created_at or ""} for r in rows]
+    if not out:
+        rate = db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first()
+        if rate and (float(rate.hourly_rate or 0) or float(rate.monthly_salary or 0)):
+            fixed = (rate.pay_type or "hourly") == "fixed"
+            out = [{"id": "", "effectiveDate": "", "payType": rate.pay_type or "hourly",
+                    "base": float(rate.monthly_salary or 0) if fixed else float(rate.hourly_rate or 0),
+                    "payBasis": "salary" if fixed else "hourly", "currency": rate.currency or "USD",
+                    "overtimeRule": rate.overtime_rule or "ca", "changedBy": rate.updated_by or "",
+                    "changedAt": rate.updated_at or ""}]
+    return list(reversed(out))
 
 
 @router.put("/employees/{eid}/compensation")
@@ -3192,6 +3624,7 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
+    effective = ""
     if body.compensation is not None:
         incoming = dict(body.compensation or {})
         current = dict(row.compensation or {})
@@ -3206,12 +3639,20 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
             })
         incoming["history"] = history
         row.compensation = incoming
+        effective = str(incoming.get("effectiveDate") or "")
     if body.bank is not None:
         row.bank = body.bank
     row.updated_at = datetime.now(timezone.utc).isoformat()
-    sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
+    if body.compensation is not None:
+        # Pay priced per day: keep what was paid before this change (backfill),
+        # then record this change from its effective date.
+        ensure_rate_history(db, row.work_email, by=user["email"])
+        sync_rate_from_comp(db, row)   # keep the timecard pay rate in step with this record
+        db.flush()
+        append_rate_history(db, row, effective, by=user["email"])
     db.commit()
-    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+    return {"compensation": row.compensation or {}, "bank": row.bank or [],
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
 
 
 # ---------------------------------------------------------------------------
@@ -3258,6 +3699,7 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
 # ---------------------------------------------------------------------------
 from models import TimeBod, TimePunch
 from datetime import timedelta
+from shift_day import shift_bounds_by_day
 
 
 @router.get("/employees/{eid}/bod")
@@ -3282,26 +3724,38 @@ def employee_bod_log(eid: str, start: str = "", end: str = "",
             .order_by(TimeBod.created_at.desc()).limit(200).all())
 
     # The actual clock-in/out time (from TimePunch, the punch of record) beside
-    # each BOD/EOD post - "in" backs a BOD, "out" backs an EOD. A day can hold
-    # more than one of each (corrections, multiple sessions): the first in-punch
-    # and the last out-punch are the ones that bracket the work day.
+    # each BOD/EOD post - "in" backs a BOD, "out" backs an EOD. Paired by SHIFT,
+    # the payroll rule (shift_day.py, Oct 2): a workday's clock-in, and the
+    # clock-out that closed that shift even when it came after midnight - a
+    # 6:30 PM - 2:30 AM shift shows its 2:30 AM clock-out on the evening's day,
+    # not the next one. A day holding several shifts brackets them: the first
+    # clock-in, the last clock-out. One calendar day either side is fetched so
+    # shifts that cross the range edges still pair.
     dates = sorted({r.local_date for r in rows})
-    punch_in_at, punch_out_at = {}, {}
+    punch_in_at, punch_out_at, punch_tz = {}, {}, {}
     if dates:
+        lo = (datetime.strptime(dates[0], "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+        hi = (datetime.strptime(dates[-1], "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
         punches = (db.query(TimePunch)
-                   .filter(TimePunch.employee_email == email, TimePunch.local_date.in_(dates),
+                   .filter(TimePunch.employee_email == email, TimePunch.local_date >= lo,
+                           TimePunch.local_date <= hi,
                            TimePunch.voided == 0, TimePunch.kind.in_(("in", "out")))
                    .order_by(TimePunch.at.asc()).all())
-        for p in punches:
-            if p.kind == "in" and p.local_date not in punch_in_at:
-                punch_in_at[p.local_date] = p.at
-            elif p.kind == "out":
-                punch_out_at[p.local_date] = p.at   # keep overwriting - last one wins
+        for day, b in shift_bounds_by_day(punches).items():
+            if b["first_in"]:
+                punch_in_at[day] = b["first_in"]
+                punch_tz[("bod", day)] = b["in_tz"]
+            if b["last_out"]:
+                punch_out_at[day] = b["last_out"]
+                punch_tz[("eod", day)] = b["out_tz"]
 
     return {"start": start_d, "end": end_d, "logs": [{
         "id": r.id, "kind": r.kind, "date": r.local_date,
         "message": r.message or "", "tasks": r.tasks or "", "at": r.created_at,
         "punchAt": (punch_in_at if r.kind == "bod" else punch_out_at).get(r.local_date, ""),
+        # The punching device's UTC offset (JS getTimezoneOffset) - the screen
+        # shows the employee's own wall-clock time, not the viewer's.
+        "punchTz": punch_tz.get((r.kind, r.local_date)),
     } for r in rows]}
 
 
@@ -3325,6 +3779,18 @@ def _geofence_payload(emp: NexusEmployee) -> dict:
         "setBy": emp.geofence_set_by or "",
         "setAt": emp.geofence_set_at or "",
     }
+
+
+@router.get("/employees/{eid}/access")
+def employee_access_read(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The Access tab, READ ONLY, for a manager looking at their team in
+    People (Oct 6): the person's job role, groups and module levels - the same
+    resolution the administrators' Access tab shows - and nothing to change."""
+    from routers.jobroles import effective_access
+    emp = _assert_scope(db.query(NexusEmployee).filter(NexusEmployee.id == eid).first(), hr_scope(user, db))
+    if not emp or not (emp.work_email or "").strip():
+        raise HTTPException(404, "Employee not found")
+    return effective_access((emp.work_email or "").strip().lower(), user=user, db=db)
 
 
 @router.get("/employees/{eid}/geofence")
@@ -3382,7 +3848,7 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
     _assert_scope(emp, hr_scope(user, db))
     if body.remote is None and body.work_site_id is None and body.work_site_ids is None:
         raise HTTPException(400, "Personal work locations were retired - mark the person remote, "
-                                 "or leave them on-site to punch from any company work site.")
+                                 "or leave them on-site to punch from any company location.")
     if body.remote is not None:
         emp.work_remote = 1 if body.remote else 0
     if body.work_site_ids is not None or body.work_site_id is not None:
@@ -3390,7 +3856,7 @@ def set_geofence(eid: str, body: GeofenceIn, user: dict = Depends(require_hr_wri
                else ([body.work_site_id.strip()] if body.work_site_id.strip() else []))
         found = {s.id for s in db.query(HrWorkSite).filter(HrWorkSite.id.in_(ids)).all()} if ids else set()
         if any(i not in found for i in ids):
-            raise HTTPException(404, "Work site not found")
+            raise HTTPException(404, "Location not found")
         _set_allowed_sites(emp, ids)
     emp.geofence_set_by = user["email"]
     emp.geofence_set_at = datetime.now(timezone.utc).isoformat()
@@ -3421,6 +3887,17 @@ def _graph_set_signin(token: str, m365_id: str, enabled: bool) -> None:
                        json={"accountEnabled": enabled}, timeout=20)
     if not resp.is_success:
         raise RuntimeError(f"sign-in toggle failed: {resp.text[:200]}")
+
+
+def _graph_revoke_sessions(token: str, m365_id: str) -> None:
+    """End every Microsoft 365 session the person already has (G3). Blocking
+    sign-in only stops NEW sign-ins - Outlook and Teams on a phone keep their
+    refresh tokens until those expire. Same app permission as the sign-in
+    toggle (User.ReadWrite.All covers revokeSignInSessions)."""
+    resp = httpx.post(f"{_GRAPH}/users/{m365_id}/revokeSignInSessions",
+                      headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"session revoke failed: {resp.text[:200]}")
 
 
 def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
@@ -3536,6 +4013,14 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
             if off_block["mailboxAction"] in ("remove", "share"):
                 _graph_set_signin(token, row.m365_id, False)
                 m365["signIn"] = "blocked"
+                # Its own try: a failed revoke must not skip the license and
+                # export steps below - it is reported, and IT can press Revoke
+                # Sessions in the Entra admin center.
+                try:
+                    _graph_revoke_sessions(token, row.m365_id)
+                    m365["sessions"] = "ended"
+                except Exception as e:
+                    m365["sessions"] = f"not ended ({str(e)[:120]}) - press Revoke Sessions in Entra"
             if off_block.get("freeUpLicense"):
                 m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
@@ -3548,7 +4033,18 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
             m365["error"] = str(getattr(e, "detail", e))[:200]
     elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
         m365 = {"error": "No linked M365 account - nothing to block or free."}
-    elif did_change and row.m365_id and body.status in ("active", "onboarding"):
+    # A leaver's open Nexus tabs and phones are logged out now, not at the next
+    # token refresh (up to an hour). Runs with or without an M365 link.
+    if did_change and body.status == "offboarded" and row.work_email:
+        try:
+            import bff_session
+            dropped = bff_session.revoke_sessions(db, row.work_email)
+            if m365 is None:
+                m365 = {}
+            m365["nexusSessions"] = dropped
+        except Exception as e:
+            print(f"[hr] Nexus session revoke failed for {row.id}: {e}")
+    if did_change and row.m365_id and body.status in ("active", "onboarding"):
         # Coming back from inactive/left - restore sign-in (best-effort).
         try:
             _graph_set_signin(_graph_token(), row.m365_id, True)

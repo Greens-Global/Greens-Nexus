@@ -1065,6 +1065,7 @@ def download_my_document(rid: str, user: dict = Depends(get_current_user), db: S
 
 @router.get("/egnyte-documents")
 def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import cache
     import egnyte_wiring as wiring
     from services import egnyte as svc
     if not svc.configured():
@@ -1073,13 +1074,21 @@ def my_egnyte_documents(user: dict = Depends(get_current_user), db: Session = De
         emp = _me(db, user["email"])
     except HTTPException:
         return {"available": False}
-    res = wiring.resolve_person_folder("people.person-folder", emp, db)
-    if not res["folder"]:
-        return {"available": False}
-    groups = wiring.list_person_document_groups(res["folder"])
-    if groups is None:
-        return {"available": False}     # folder not created yet - show nothing
-    return {"available": True, "folder": res["folder"], **groups}
+
+    # Cached per person (cache.myhr_egnyte_docs, single-flight): resolving the
+    # folder walks the Egnyte tree one segment at a time and then lists every
+    # subfolder - measured at ~19 s on dev, on every My HR visit (Sep 29).
+    # "Not available yet" is cached too, so a person without a folder doesn't
+    # pay the walk on every visit either.
+    def load():
+        res = wiring.resolve_person_folder("people.person-folder", emp, db)
+        if not res["folder"]:
+            return {"available": False}
+        groups = wiring.list_person_document_groups(res["folder"])
+        if groups is None:
+            return {"available": False}     # folder not created yet - show nothing
+        return {"available": True, "folder": res["folder"], **groups}
+    return cache.myhr_egnyte_docs.get_or_load(user["email"].lower(), load)
 
 
 @router.get("/egnyte-documents/file")

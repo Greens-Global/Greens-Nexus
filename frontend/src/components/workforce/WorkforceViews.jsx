@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Users, Plus, Pencil, X, Search, Check, Star, Trash2, Loader2 } from 'lucide-react';
+import { Users, Plus, Pencil, X, Search, Check, Star, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import { useWorkforceView } from './viewContext';
+import { Spinner } from '../AsyncState';
 
 // The picker, the "showing view X" notice and the view editor. State and the
 // filter itself live in viewContext.js.
@@ -153,7 +154,7 @@ function ViewEditor({ view, onClose, onDone }) {
 
           {opts === null ? (
             <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading your teams…
+              <Spinner size={14} /> Loading your teams…
             </div>
           ) : opts === false ? (
             <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load the team options - close and try again.</div>
@@ -223,7 +224,7 @@ function ViewEditor({ view, onClose, onDone }) {
           )}
           <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button type="button" className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />} Save View
+            {busy ? <Spinner size={13} /> : <Check size={13} />} Save View
           </button>
         </div>
       </div>

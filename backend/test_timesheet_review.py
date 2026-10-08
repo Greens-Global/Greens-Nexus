@@ -58,7 +58,8 @@ class ReviewCase(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.TimesheetReview, models.TimePunch, models.TimeApproval, models.HrSignParty,
                   models.HrSignRequest, models.HrSignConsent, models.HrSignDocument, models.HrSignSeal,
-                  models.HrSignOtpChallenge, models.NexusEmployee, models.HrEntity, models.PayrollRate):
+                  models.HrSignOtpChallenge, models.NexusEmployee, models.HrEntity, models.PayrollRate,
+                  models.NexusGroupMember, models.NexusGroup):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id=ENTITY, name="Greens Test Co", hr_contact_email=HR))
         for email, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (HR, "Hana", "")):
@@ -163,6 +164,27 @@ class ReviewLoopTests(ReviewCase):
             tsr.submit(self.db, EMP, ANCHOR)
         self.assertEqual(e.exception.status_code, 409)
 
+    def test_exempt_from_time_tracking_has_no_timesheet(self):
+        # Exempt = no clock and no timesheet (Visesh, 10/02). The flag is set on
+        # the person's role in Settings > Access.
+        self.db.add(models.NexusGroup(id="g-ts-mp", name="Managing Principal", is_job_role=1,
+                                      time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-ts-mp", email=EMP))
+        self.db.commit()
+        with self.assertRaises(HTTPException) as e:
+            tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(e.exception.status_code, 400)
+
+    def test_legacy_pay_record_flag_no_longer_exempts(self):
+        # payroll_rates.time_tracking_exempt is a kept record, never read (Oct 2).
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="hourly", currency="USD", hourly_rate=20,
+                                       full_day_hours=8, overtime_rule="ca", time_tracking_exempt=1))
+        self.db.add(models.NexusGroup(id="g-ts-crew", name="Crew", is_job_role=1, time_tracking_exempt=0))
+        self.db.add(models.NexusGroupMember(group_id="g-ts-crew", email=EMP))
+        self.db.commit()
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(r.status, "with_manager")
+
     def test_agreeing_needs_an_hr_contact(self):
         self.db.query(models.HrEntity).update({"hr_contact_email": ""})
         self.db.commit()
@@ -170,6 +192,29 @@ class ReviewLoopTests(ReviewCase):
         with self.assertRaises(HTTPException) as e:
             tsr.agree(self.db, r, MGR)
         self.assertIn("HR contact", e.exception.detail)
+
+    def test_fixed_salary_month_goes_through_the_same_review(self):
+        # A salaried (monthly) employee reviews the calendar month, not the
+        # bi-weekly period - same submit / agree chain (Charmi, Sep 30 - A6).
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type="fixed", currency="INR",
+                                       monthly_salary=30000, full_day_hours=8, overtime_rule="none"))
+        self.db.commit()
+        start, end, pay_type = tsr.period_for(self.db, EMP, ANCHOR)
+        self.assertEqual(pay_type, "fixed")
+        self.assertEqual((start[-2:], start[:7]), ("01", ANCHOR[:7]))
+        self.assertEqual(end[:7], ANCHOR[:7])
+        self._punch(start, "in", "16:00:00")
+        self._punch(start, "out", "23:00:00")
+        self.db.commit()
+        card = tsr.card_for(self.db, EMP, start, end, pay_type)
+        self.assertEqual(card["payType"], "fixed")
+        self.assertTrue(card.get("fixedDays"))
+        self.assertEqual(tsr.day_minutes(card, pay_type)[start], 420)
+        r = tsr.submit(self.db, EMP, ANCHOR, "September")
+        self.assertEqual((r.status, r.period_start, r.period_end, r.pay_type), ("with_manager", start, end, "fixed"))
+        tsr.agree(self.db, r, MGR, "Agreed")
+        self.db.expire_all()
+        self.assertEqual(tsr.active_review(self.db, EMP, start).status, "signing")
 
     def test_the_old_one_click_sign_is_retired(self):
         with self.assertRaises(HTTPException) as e:
@@ -239,6 +284,26 @@ class SigningTests(ReviewCase):
         self.assertEqual(len(PdfReader(io.BytesIO(pdf)).pages), last + 1)
         self.assertTrue(all(f["page"] == last for f in tsr._sig_fields(last)))
 
+    def test_the_employee_attests_above_their_signature(self):
+        """Charmi, Oct 1: the paper time sheet's statement, boxed just above the
+        employee's signature line - and clear of where their signature lands."""
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        pdf, last = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        page = PdfReader(io.BytesIO(pdf)).pages[last]
+        found = []
+        page.extract_text(visitor_text=lambda t, cm, tm, fd, fs: found.append((t.strip(), tm[5])) if t.strip() else None)
+        text = " ".join(t for t, _y in found)
+        self.assertIn("By execution and signature of this time sheet, I agree I have reviewed this", text)
+        self.assertIn("accurate and correct.", text)
+        y_of = {t: y for t, y in found}
+        height = float(page.mediabox.height)
+        sign_top = height - tsr._SIG_TOP * height                 # top edge of the employee's signature field
+        att_y = min(y for t, y in found if "accurate and correct" in t)
+        self.assertGreater(att_y, sign_top)                       # above the field: never under the signature
+        self.assertGreater(att_y, y_of["Employee"])               # and above the Employee row
+
 
 class StateTests(ReviewCase):
     def test_what_each_viewer_may_do(self):
@@ -256,6 +321,214 @@ class StateTests(ReviewCase):
         self.assertEqual(emp_view["turn"], "employee")
         self.assertTrue(emp_view["myPartyId"])
         self.assertIsNone(mgr_view["myPartyId"])
+
+
+class SubmitBlockTests(ReviewCase):
+    """Oct 1: the employee fixes a missing clock-out, a clock-out with no
+    clock-in or an unended break BEFORE the timesheet reaches the manager - and
+    a clock-out can never be set before its clock-in."""
+
+    def _day(self, n):
+        return (datetime.strptime(self.start, "%Y-%m-%d") + timedelta(days=n)).strftime("%Y-%m-%d")
+
+    def test_submit_is_refused_while_a_clock_out_is_missing(self):
+        self._punch(self._day(1), "in", "16:00:00")
+        self.db.commit()
+        state = tsr.state_for(self.db, EMP, self.start, EMP, False)
+        self.assertIn("Fix this on your timesheet before you submit it", state["submitBlocker"])
+        self.assertIn("no clock-out", state["submitBlocker"])
+        with self.assertRaises(HTTPException) as e:
+            tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual((e.exception.status_code, e.exception.detail), (409, state["submitBlocker"]))
+        self.assertIsNone(self._r())
+
+    def test_a_clean_timesheet_submits_and_shows_no_blocker(self):
+        self.assertEqual(tsr.state_for(self.db, EMP, self.start, EMP, False)["submitBlocker"], "")
+        tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual(self._r().status, "with_manager")
+
+    def test_resubmit_is_refused_until_fixed(self):
+        tsr.submit(self.db, EMP, ANCHOR)
+        tsr.send_back(self.db, self._r(), MGR, "Add Tuesday")
+        self._punch(self._day(2), "out", "18:00:00")      # a clock-out with no clock-in
+        self.db.commit()
+        state = tsr.state_for(self.db, EMP, self.start, EMP, False)
+        self.assertIn("a clock-out with no clock-in", state["submitBlocker"])
+        with self.assertRaises(HTTPException):
+            tsr.submit(self.db, EMP, ANCHOR)
+        self._punch(self._day(2), "in", "10:00:00")
+        self.db.commit()
+        tsr.submit(self.db, EMP, ANCHOR, "Added Tuesday")
+        self.assertEqual(self._r().status, "with_manager")
+
+    # ── a clock-out never before its clock-in ───────────────────────────
+    def _guard(self, **kw):
+        return timeclock._guard_punch_order(self.db, EMP, **kw)
+
+    def test_moving_the_clock_out_before_the_clock_in_is_refused(self):
+        with self.assertRaises(HTTPException) as e:
+            self._guard(kind="out", at=f"{self.start}T15:00:00", local_date=self.start,
+                        punch_id=f"p-{self.start}-out-23:00:00")
+        self.assertEqual(e.exception.status_code, 400)
+        self.assertIn("can't be before the clock-in", e.exception.detail)
+
+    def test_moving_the_clock_in_after_the_clock_out_is_refused(self):
+        with self.assertRaises(HTTPException):
+            self._guard(kind="in", at=f"{self.start}T23:30:00", local_date=self.start,
+                        punch_id=f"p-{self.start}-in-16:00:00")
+
+    def test_adding_a_clock_out_before_the_open_clock_in_is_refused(self):
+        self._punch(self._day(1), "in", "16:00:00")
+        self.db.commit()
+        with self.assertRaises(HTTPException):
+            self._guard(kind="out", at=f"{self._day(1)}T09:00:00", local_date=self._day(1))
+        self._guard(kind="out", at=f"{self._day(1)}T22:00:00", local_date=self._day(1))   # after it: fine
+
+    def test_valid_moves_and_a_lone_clock_out_pass(self):
+        self._guard(kind="out", at=f"{self.start}T23:45:00", local_date=self.start,
+                    punch_id=f"p-{self.start}-out-23:00:00")
+        self._guard(kind="out", at=f"{self._day(3)}T17:00:00", local_date=self._day(3))   # missing in, not inverted
+
+    def test_a_day_already_wrong_never_blocks_an_unrelated_fix(self):
+        self._punch(self._day(4), "out", "10:00:00")
+        self._punch(self._day(4), "in", "11:00:00")
+        self.db.commit()
+        self._guard(kind="out", at=f"{self._day(4)}T19:00:00", local_date=self._day(4))
+
+    def test_a_pending_clock_in_request_counts_for_the_requested_clock_out(self):
+        from types import SimpleNamespace
+        pending = [SimpleNamespace(id="req-in", kind="in", at=f"{self._day(5)}T09:00:00", local_date=self._day(5))]
+        self._guard(kind="out", at=f"{self._day(5)}T17:00:00", local_date=self._day(5), extra=pending)
+        with self.assertRaises(HTTPException):
+            self._guard(kind="out", at=f"{self._day(5)}T08:00:00", local_date=self._day(5), extra=pending)
+
+
+class FixAndResubmitFlowTests(ReviewCase):
+    """Oct 1, end to end through the API as each person: the employee's fixes
+    are REQUESTS, so (a) they may submit once their pending fixes would clear
+    the errors, (b) the manager approves those fixes - even while the timesheet
+    is back with the employee, which used to 403 and deadlock both sides - and
+    (c) Agree unlocks once the real punches are clean."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == MGR).delete()
+        self.db.query(models.PunchRequest).delete()
+        self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
+        self.db.commit()
+        # Errors near the period end (requests may reach 45 days back):
+        # day A - two clock-ins before one clock-out (the first never closes);
+        # day B - a clock-out with no clock-in.
+        e = datetime.strptime(self.end, "%Y-%m-%d")
+        self.day_a = (e - timedelta(days=2)).strftime("%Y-%m-%d")
+        self.day_b = (e - timedelta(days=1)).strftime("%Y-%m-%d")
+        self._punch(self.day_a, "in", "09:00:00")
+        self._punch(self.day_a, "in", "09:23:00")
+        self._punch(self.day_a, "out", "17:00:00")
+        self._punch(self.day_b, "out", "14:00:00")
+        self.db.commit()
+        self._prev = os.environ.get("NEXUS_DEV_EMAIL")
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop("NEXUS_DEV_EMAIL", None)
+        else:
+            os.environ["NEXUS_DEV_EMAIL"] = self._prev
+        super().tearDown()
+
+    def _as(self, email):
+        os.environ["NEXUS_DEV_EMAIL"] = email
+
+    def _request_fixes(self):
+        self._as(EMP)
+        c = self.client
+        r = c.post("/timeclock/punch-requests", json={
+            "action": "remove", "target_punch_id": f"p-{self.day_a}-in-09:00:00", "reason": "double clock-in"})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = c.post("/timeclock/punch-requests", json={
+            "action": "add", "punch_kind": "in", "at": f"{self.day_b}T10:00:00", "tz_offset_min": 0,
+            "reason": "forgot in"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _approve_all(self):
+        self._as(MGR)
+        self.db.expire_all()
+        for req in self.db.query(models.PunchRequest).filter(models.PunchRequest.status == "pending").all():
+            r = self.client.patch(f"/timeclock/punch-requests/{req.id}", json={"status": "approved"})
+            self.assertEqual(r.status_code, 200, r.text)
+
+    def _submit(self, expect=200):
+        self._as(EMP)
+        r = self.client.post("/timesheet-review/submit", json={"start": ANCHOR, "note": "fixed"})
+        self.assertEqual(r.status_code, expect, r.text)
+        return r
+
+    def _agree(self, expect=200):
+        self._as(MGR)
+        r = self.client.post(f"/timesheet-review/{self._r().id}/agree", json={"note": ""})
+        self.assertEqual(r.status_code, expect, r.text)
+        return r
+
+    def test_errors_block_submit_until_the_fixes_are_requested(self):
+        r = self._submit(expect=409)
+        self.assertIn("no clock-out", r.json()["detail"])
+        self.assertIn("a clock-out with no clock-in", r.json()["detail"])
+
+    def test_first_submission_fix_approve_agree(self):
+        self._request_fixes()
+        self._submit()                                        # pending fixes clear the errors
+        self.assertEqual(self._r().status, "with_manager")
+        r = self._agree(expect=409)                          # real punches still wrong...
+        self.assertIn("waiting for your approval", r.json()["detail"]["message"])   # ...and it says why
+        self._approve_all()
+        self._agree()
+        self.assertEqual(self._r().status, "signing")
+
+    def test_back_with_the_employee_the_manager_can_still_approve_their_fix(self):
+        """The screenshot: sent back, the employee requests the clock-in, the
+        manager's Approve was refused ("back with ... for changes")."""
+        # Reach "with_employee" the way it happened: a clean submission, then
+        # the errors surface, then it is sent back.
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 1}, synchronize_session=False)
+        self.db.commit()
+        self._submit()
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 0}, synchronize_session=False)
+        self.db.commit()
+        self._as(MGR)
+        r = self.client.post(f"/timesheet-review/{self._r().id}/send-back", json={"note": "correct it"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._r().status, "with_employee")
+        self._request_fixes()
+        self._approve_all()                                   # used to be 403 here
+        self.assertEqual(self._r().status, "with_employee")   # approving does not take it back
+        self._submit()
+        self._agree()
+        self.assertEqual(self._r().status, "signing")
+
+    def test_the_employee_may_resubmit_before_the_manager_approves(self):
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 1}, synchronize_session=False)
+        self.db.commit()
+        self._submit()
+        self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 0}, synchronize_session=False)
+        self.db.commit()
+        self._as(MGR)
+        self.client.post(f"/timesheet-review/{self._r().id}/send-back", json={"note": "correct it"})
+        self._submit(expect=409)                              # nothing requested yet
+        self._request_fixes()
+        self._submit()                                        # requested: may resubmit
+        self._approve_all()                                   # with the manager now
+        self._agree()
+
+    def test_a_signing_timesheet_still_refuses_any_change(self):
+        self._request_fixes()
+        self._submit()
+        self._approve_all()
+        self._agree()
+        self._as(EMP)
+        r = self.client.post("/timeclock/punch-requests", json={
+            "action": "add", "punch_kind": "out", "at": f"{self.day_b}T18:00:00", "tz_offset_min": 0,
+            "reason": "late"})
+        self.assertEqual(r.status_code, 403, r.text)
 
 
 class WaitingOnReviewerTests(ReviewCase):
@@ -326,23 +599,27 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertTrue(e.exception.detail["message"].startswith("Fix this on the timesheet before sign-off - 08/05/2026"))
         self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
 
-    def test_the_bell_takes_the_manager_to_that_timecard(self):
+    def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
+        """Oct 1: Workday > Time Sheet, where the Timesheets to Review list is -
+        People > Time needs the HR grant, which a reviewing manager may lack."""
         tsr.submit(self.db, EMP, ANCHOR)
         import json as _json
         action = _json.loads(self._bells(MGR)[-1].action)
-        self.assertEqual(action, {"view": "hr", "sub": "hr-time", "timecard": EMP,
-                                  "start": self.start, "payType": "hourly"})
+        self.assertEqual(action, {"view": "timeclock", "sub": "timesheet"})
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(_json.loads(self._bells(EMP)[-1].action)["view"], "timeclock")   # the employee's own card
 
     def test_the_daily_briefing_asks_the_manager_to_review_it(self):
         import daily_briefing
         tsr.submit(self.db, EMP, ANCHOR)
-        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {}) if r["module"] == "timecard"]
+        # The review row only - the manager's own "Confirm your time card"
+        # reminder is a timecard row too, near a pay period's close.
+        rows = [r for r in daily_briefing._red_rows(self.db, MGR, {})
+                if r["module"] == "timecard" and r["title"].startswith("Review ")]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Review Erin Test's timesheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
-        self.assertTrue(rows[0]["url"].endswith(f"/hr/hr-time?timecard=emp.ts%40greensglobal.com&start={self.start}&type=hourly"))
+        self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import {
   ChartPie, PieChart as PieChartIcon, Grid2x2, Funnel as FunnelIcon, Table2, Hash,
 } from 'lucide-react';
 import { api } from '../api';
-import { SkeletonBlocks } from '../components/AsyncState';
+import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import { compactLayout } from './useDashboards.js';
@@ -655,7 +655,7 @@ function DrilldownModal({ request, onClose }) {
         </div>
         <div style={{ padding: 18, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
           {state.loading ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading…</div>
+            <LoadingState compact />
           ) : state.error ? (
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{state.error}</div>
           ) : !state.rows.length ? (

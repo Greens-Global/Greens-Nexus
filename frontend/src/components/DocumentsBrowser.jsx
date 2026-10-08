@@ -426,7 +426,7 @@ export default function DocumentsBrowser({ openCreateSignal, employees = [], ent
           <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
             placeholder="Search title…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
+        <button className="primary-btn" data-tour="documents-new-document" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
           <FilePlus2 size={13} /> New Document
         </button>
       </div>

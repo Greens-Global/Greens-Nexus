@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
@@ -30,6 +30,9 @@ class NotificationIn(BaseModel):
     item_name:    Optional[str] = ""
     requested_by: Optional[str] = ""
     action:       Optional[dict] = None
+    # 1 = a priority notice: the bar across the top of the recipient's screen
+    # until they act (Neil, call of 09/29). Managers and above may raise one.
+    priority:     Optional[int] = 0
 
 
 
@@ -49,6 +52,11 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         raise HTTPException(400, "Title too long (max 200 chars)")
     if len(n.body) > 1000:
         raise HTTPException(400, "Body too long (max 1000 chars)")
+    priority = 1 if n.priority else 0
+    if priority and user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to raise a priority notice")
+    if priority and not (n.recipient or "").strip():
+        raise HTTPException(400, "A priority notice goes to a person, never to everyone")
     # Server-generate the id and INSERT (never merge/upsert on a client id) - a
     # client-supplied id + merge let a supervisor overwrite any existing
     # notification's contents/recipient. Ignore n.id entirely.
@@ -67,6 +75,7 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         read_by      = "",
         company      = company_of(user, db),   # company wall: sender's company
         created_at   = datetime.now(timezone.utc).isoformat(),
+        priority     = priority,
     )
     db.add(row)
     db.commit()
@@ -105,15 +114,22 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
             q = q.filter(or_(*conds))
     else:
         q = q.filter(NexusNotification.recipient == email)
+    # Thirty days of history (Neil, 10/01), closed rows included - the bell
+    # lists them under Closed so an accidental clear can be undone. The sweep
+    # removes older rows; this filter keeps the list honest between sweeps.
+    # created_at is an ISO string, so the comparison is lexical on the
+    # YYYY-MM-DD prefix.
+    q = q.filter(NexusNotification.created_at >= retention_cutoff())
     rows = (
         q.order_by(NexusNotification.created_at.desc())
-        .limit(100)
+        .limit(300)
         .all()
     )
 
     result = []
     for r in rows:
         read_list = [x for x in (r.read_by or "").split(",") if x]
+        closed_list = [x for x in (r.closed_by or "").split(",") if x]
         result.append({
             "id":           r.id,
             "type":         r.type,
@@ -127,8 +143,51 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
             "actioned":     r.actioned,
             "read":         email in read_list,
             "created_at":   r.created_at,
+            "priority":     int(r.priority or 0),
+            "closed":       email in closed_list,
         })
     return result
+
+
+# Retention (Neil, 10/01): every notification stays 30 days, then goes.
+RETENTION_DAYS = 30
+
+
+def retention_cutoff(now: Optional[datetime] = None) -> str:
+    return ((now or datetime.now(timezone.utc)) - timedelta(days=RETENTION_DAYS)).isoformat()
+
+
+def _set_closed(row: NexusNotification, email: str, closed: bool) -> None:
+    emails = [x for x in (row.closed_by or "").split(",") if x]
+    if closed and email not in emails:
+        emails.append(email)
+    if not closed and email in emails:
+        emails = [x for x in emails if x != email]
+    row.closed_by = ",".join(emails)
+
+
+def _may_clear(row: NexusNotification, user: dict) -> None:
+    rec = (row.recipient or "").lower()
+    # Only the intended recipient (or a manager for broadcast notifications) may close or restore it.
+    if rec != "" and rec != user["email"]:
+        raise HTTPException(403, "You can only clear your own notifications")
+    if rec == "" and user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to clear broadcast notifications")
+
+
+@router.patch("/{nid}/restore")
+def restore_notification(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Brings a closed notification back into the person's list."""
+    row = db.query(NexusNotification).filter(NexusNotification.id == nid).first()
+    if not row:
+        return {"ok": False}
+    _may_clear(row, user)
+    _set_closed(row, user["email"], False)
+    try:
+        db.commit()
+    except StaleDataError:
+        db.rollback()
+    return {"ok": True}
 
 
 @router.patch("/{nid}/read")
@@ -173,17 +232,18 @@ def mark_actioned(nid: str, user: dict = Depends(get_current_user), db: Session 
 
 @router.delete("/{nid}")
 def delete_notification(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clearing a notification CLOSES it for the caller (Neil, 10/01) - the
+    row stays for its 30 days under the bell's Closed list, where Restore
+    brings it back. Nothing a person does removes a row; only the sweep."""
     row = db.query(NexusNotification).filter(NexusNotification.id == nid).first()
     if not row:
         return {"ok": True}
-    rec = (row.recipient or "").lower()
-    # Only the intended recipient (or a manager for broadcast notifications) may delete a notification.
-    if rec != "" and rec != user["email"]:
-        raise HTTPException(403, "You can only delete your own notifications")
-    if rec == "" and user["level"] < 3:
-        raise HTTPException(403, "Manager or above required to delete broadcast notifications")
-    db.delete(row)
-    db.commit()
+    _may_clear(row, user)
+    _set_closed(row, user["email"], True)
+    try:
+        db.commit()
+    except StaleDataError:
+        db.rollback()
     return {"ok": True}
 
 

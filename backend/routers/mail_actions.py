@@ -155,6 +155,19 @@ def _perform(request: Request, db, *, user: dict, task_id: str, action: str, tex
     if action == "complete":
         tasks_router.update_task(task_id, tasks_router.TaskUpdate(completed=True), bt, user=user, db=db)
         return "Marked complete"
+    if action == "toggle":
+        # Toggle Completion (Neil, Oct 1 - replaces Mark Complete and Change
+        # Status in the briefing). `text` carries the state the person saw
+        # when they clicked ("done" / "open"), so a double submit or a stale
+        # email never flips the task back; with no text it simply flips.
+        t = db.query(models.Task).filter(models.Task.id == task_id).first()
+        if not t:
+            raise HTTPException(404, "Task not found")
+        want_done = {"done": True, "open": False}.get(text, not bool(t.completed))
+        if bool(t.completed) == want_done:
+            return "Already complete" if want_done else "Already open"
+        tasks_router.update_task(task_id, tasks_router.TaskUpdate(completed=want_done), bt, user=user, db=db)
+        return "Marked complete" if want_done else "Reopened"
     if action == "status":
         t = db.query(models.Task).filter(models.Task.id == task_id).first()
         valid = {k for k, _ in tma.status_options(db, getattr(t, "project_id", "") or "")}
@@ -297,7 +310,7 @@ def _card_error(message: str, status: int) -> JSONResponse:
 
 _PAGE_TITLES = {"comment": "Add Comment", "reply": "Reply", "status": "Change Status",
                 "complete": "Mark Complete", "react": "React", "mute": "Mute This Task",
-                "extend": "Extend Due Date"}
+                "extend": "Extend Due Date", "toggle": "Toggle Completion"}
 
 
 def _page(title: str, inner: str) -> HTMLResponse:
@@ -306,14 +319,45 @@ def _page(title: str, inner: str) -> HTMLResponse:
 <body style="margin:0;background:#f4f5f7;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1f2937">
 <div style="max-width:560px;margin:32px auto;padding:0 16px">
 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden">
-<div style="background:#0f3d2e;padding:16px 24px;color:#fff;font-weight:700;letter-spacing:3px">GREENS GLOBAL</div>
+<div style="background:#248f4b;padding:16px 24px;color:#fff;font-weight:700;letter-spacing:3px">GREENS GLOBAL</div>
 <div style="padding:22px 24px">{inner}</div></div></div></body></html>""")
 
 
 def _task_header(t) -> str:
     return (f"<h2 style='margin:0 0 4px;font-size:18px'>{escape(t.title or 'Task')}</h2>"
             f"<p style='margin:0 0 16px;font-size:13px;color:#6b7280'>"
-            f"<a href='{escape(app_url())}/tasks/mine?task={escape(t.id)}' style='color:#2563eb'>Open in Nexus</a></p>")
+            f"<a href='{escape(app_url())}/tasks/mine?task={escape(t.id)}' style='color:#248f4b;font-weight:600'>Open in Nexus</a></p>")
+
+
+_RECENT_COMMENTS = 5
+
+
+def _recent_comments_html(db, t) -> str:
+    """The task's latest comments, newest last, above the Comment / Reply box
+    (Oct 6) - so the person answers the conversation instead of commenting
+    blind. Internal notes stay out, as they do in every email."""
+    rows = (db.query(models.TaskComment)
+            .filter(models.TaskComment.task_id == t.id, models.TaskComment.internal == False)  # noqa: E712
+            .order_by(models.TaskComment.created_at.desc()).limit(_RECENT_COMMENTS).all())
+    if not rows:
+        return ("<p style='margin:0 0 14px;font-size:13px;color:#6b7280'>No comments yet - "
+                "yours will be the first.</p>")
+    from datetime import datetime
+    items = []
+    for c in reversed(rows):
+        try:
+            when = datetime.strptime((c.created_at or "")[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
+        except ValueError:
+            when = ""
+        items.append(
+            "<div style='padding:9px 0;border-top:1px solid #eef0f2'>"
+            f"<div style='font-size:12.5px;color:#6b7280'><b style='color:#111827'>{escape(_name(db, c.author_email or ''))}</b>"
+            f"{' &middot; ' + when if when else ''}</div>"
+            f"<div style='font-size:14px;line-height:1.5;margin-top:2px;white-space:pre-wrap'>"
+            f"{escape(tma._plain(c.body or '', 1000))}</div></div>")
+    return ("<div style='margin:0 0 16px'><div style='font-size:11px;font-weight:700;letter-spacing:.05em;"
+            "text-transform:uppercase;color:#6b7280;margin-bottom:2px'>Recent Comments</div>"
+            + "".join(items) + "</div>")
 
 
 _BTN = ("display:inline-block;border:none;border-radius:8px;background:#248f4b;color:#fff;"
@@ -346,9 +390,9 @@ def action_page(token: str = "", do: str = "comment"):
             return _page("React", _task_header(t) +
                         "<p style='margin:0 0 12px;font-size:14px'>Tap a reaction:</p>"
                         f"<div>{btns}</div>")
-        field = ""
+        field, submit = "", _PAGE_TITLES[do]
         if do in ("comment", "reply"):
-            field = ("<textarea name='text' rows='5' required autofocus style='width:100%;box-sizing:border-box;"
+            field = _recent_comments_html(db, t) + ("<textarea name='text' rows='5' required autofocus style='width:100%;box-sizing:border-box;"
                      "border:1px solid #d1d5db;border-radius:8px;padding:10px;font:inherit;font-size:14px'"
                      f" placeholder='{'Write a reply…' if do == 'reply' else 'Write a comment…'}'></textarea>")
         elif do == "status":
@@ -361,6 +405,13 @@ def action_page(token: str = "", do: str = "comment"):
                      "You will still be emailed if someone mentions you on it.</p>")
         elif do == "complete":
             field = "<p style='margin:0;font-size:14px'>Mark this task as complete?</p>"
+        elif do == "toggle":
+            # Whichever way the task is NOW: complete it, or reopen it.
+            done = bool(t.completed)
+            submit = "Reopen Task" if done else "Mark Complete"
+            field = (f"<input type='hidden' name='text' value='{'open' if done else 'done'}'>"
+                     "<p style='margin:0;font-size:14px'>"
+                     + ("This task is complete. Reopen it?" if done else "Mark this task as complete?") + "</p>")
         elif do == "extend":
             import task_due
             from datetime import date, timedelta
@@ -380,7 +431,7 @@ def action_page(token: str = "", do: str = "comment"):
         form = (f"<form method='post' action='/mail-actions/page'>"
                 f"<input type='hidden' name='token' value='{escape(token)}'>"
                 f"<input type='hidden' name='action' value='{escape(do)}'>{field}"
-                f"<p style='margin:16px 0 0'><button type='submit' style='{_BTN}'>{escape(_PAGE_TITLES[do])}</button></p></form>")
+                f"<p style='margin:16px 0 0'><button type='submit' style='{_BTN}'>{escape(submit)}</button></p></form>")
         return _page(_PAGE_TITLES[do], _task_header(t) + form)
     finally:
         db.close()
@@ -409,7 +460,7 @@ def _action_page_submit_sync(request: Request, form: dict):
                                text=str(form.get("text") or ""), bt=bt)
         except HTTPException as e:
             return _page("Could Not Save", header + f"<p style='color:#b91c1c'>{escape(str(e.detail))}</p>")
-        resp = _page("Done", header + f"<p style='font-size:15px;font-weight:600;color:#15803d'>{escape(outcome)}.</p>"
+        resp = _page("Done", header + f"<p style='font-size:15px;font-weight:600;color:#248f4b'>{escape(outcome)}.</p>"
                      "<p style='font-size:13px;color:#6b7280'>You can close this page.</p>")
         resp.background = bt
         return resp

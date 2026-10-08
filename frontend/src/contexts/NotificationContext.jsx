@@ -33,6 +33,11 @@ function rowToNotif(r) {
     actioned:    r.actioned,
     read:        r.read,
     timestamp:   r.created_at,
+    // 1 = the bar across the top until acted on (PriorityBar); 0 = the bell.
+    priority:    Number(r.priority) || 0,
+    // Closed by me (Neil, 10/01): cleared from the list but kept 30 days
+    // under the bell's Closed section, where Restore brings it back.
+    closed:      !!r.closed,
   };
 }
 
@@ -161,15 +166,23 @@ export function NotificationProvider({ children }) {
     }));
   }, [myEmail]);
 
+  // Clearing CLOSES (Neil, 10/01): the row stays in the list as closed, so
+  // the bell can show it under Closed and give it back. The server keeps
+  // every row 30 days, then removes it.
   const dismiss = useCallback((id) => {
-    setNotifications(p => p.filter(n => n.id !== id));
+    setNotifications(p => p.map(n => n.id === id ? { ...n, closed: true, read: true } : n));
     api.deleteNotif(id).catch(() => {});
+  }, []);
+
+  const restore = useCallback((id) => {
+    setNotifications(p => p.map(n => n.id === id ? { ...n, closed: false } : n));
+    api.restoreNotif(id).catch(() => {});
   }, []);
 
   const clearRead = useCallback(() => {
     setNotifications(p => {
-      p.filter(n => n.read).forEach(n => api.deleteNotif(n.id).catch(() => {}));
-      return p.filter(n => !n.read);
+      p.filter(n => n.read && !n.closed).forEach(n => api.deleteNotif(n.id).catch(() => {}));
+      return p.map(n => n.read ? { ...n, closed: true } : n);
     });
   }, []);
 
@@ -198,13 +211,13 @@ export function NotificationProvider({ children }) {
   const clearPendingApproval = useCallback(() => setPendingApprovalId(null), []);
   const openPanel = useCallback(() => setOpenPanelSignal(s => s + 1), []);
 
-  const unreadCount         = notifications.filter(n => !n.read && !n.actioned).length;
+  const unreadCount         = notifications.filter(n => !n.read && !n.actioned && !n.closed).length;
   const activeOverdueAlerts = overdueAlerts.filter(a => !a.dismissed);
 
   return (
     <NotificationCtx.Provider value={{
       notifications, overdueAlerts, activeOverdueAlerts, unreadCount,
-      addNotification, markRead, markAllRead, dismiss, clearRead, markActioned,
+      addNotification, markRead, markAllRead, dismiss, restore, clearRead, markActioned,
       sendOverdueAlert, dismissOverdueAlert,
       pendingApprovalId, openApproval, clearPendingApproval,
       openPanelSignal, openPanel,

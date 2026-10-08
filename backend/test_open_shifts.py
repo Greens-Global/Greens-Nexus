@@ -36,6 +36,7 @@ with database.engine.connect() as _c:
 ADMIN = "openshift.admin@greensglobal.com"
 A = "openshift.a@greensglobal.com"
 SHIFT = "shift-openshift"
+GROUP = "group-openshift"
 GRANT = "grant-openshift"
 
 
@@ -58,6 +59,7 @@ class OpenShiftTests(unittest.TestCase):
             # keeps the company-wide scope these tests exercise.
             db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
             db.add(models.Shift(id=SHIFT, code="GST", name="Store", start_hhmm="09:00", end_hhmm="17:00", color="#3b82f6"))
+            db.add(models.ShiftGroup(id=GROUP, name="Open Team"))
             db.commit()
         finally:
             db.close()
@@ -83,6 +85,7 @@ class OpenShiftTests(unittest.TestCase):
             db.query(models.NexusGroup).filter(models.NexusGroup.id == GRANT).delete(synchronize_session=False)
             db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == GRANT).delete(synchronize_session=False)
             db.query(models.Shift).filter(models.Shift.id == SHIFT).delete(synchronize_session=False)
+            db.query(models.ShiftGroup).filter(models.ShiftGroup.id == GROUP).delete(synchronize_session=False)
             db.query(models.ScheduledShift).filter(models.ScheduledShift.work_date == "2026-09-01").delete(synchronize_session=False)
             db.commit()
         finally:
@@ -94,7 +97,7 @@ class OpenShiftTests(unittest.TestCase):
     def test_open_shift_create_appears_assign_decrements(self):
         # Create an open shift for 2 people.
         r = self.client.post("/timeclock/schedule", json={
-            "employee_email": "", "work_date": "2026-09-01", "shift_id": SHIFT, "open_slots": 2})
+            "employee_email": "", "work_date": "2026-09-01", "shift_id": SHIFT, "open_slots": 2, "group_id": GROUP})
         self.assertEqual(r.status_code, 200, r.text)
         oid = r.json()["id"]
         self.assertEqual(r.json()["email"], "")
@@ -114,12 +117,14 @@ class OpenShiftTests(unittest.TestCase):
         self.assertEqual([s for s in sched if s["email"] == A][0]["start"], "09:00")
         self.assertEqual([s for s in sched if not s["email"]][0]["openSlots"], 1)
 
-        # Assign the last slot -> the open row is gone; A now has two shifts.
-        r = self.client.post(f"/timeclock/schedule/{oid}/assign", json={"employee_email": A})
+        # The same slot again on A would be a duplicate (Oct 2); the last one
+        # goes to ADMIN -> the open row is gone.
+        self.assertEqual(self.client.post(f"/timeclock/schedule/{oid}/assign", json={"employee_email": A}).status_code, 409)
+        r = self.client.post(f"/timeclock/schedule/{oid}/assign", json={"employee_email": ADMIN})
         self.assertEqual(r.status_code, 200, r.text)
         sched = self._schedule()["scheduled"]
         self.assertEqual(len([s for s in sched if not s["email"]]), 0)
-        self.assertEqual(len([s for s in sched if s["email"] == A]), 2)
+        self.assertEqual(len([s for s in sched if s["email"] in (A, ADMIN)]), 2)
 
     def test_cannot_assign_an_already_assigned_shift(self):
         r = self.client.post("/timeclock/schedule", json={

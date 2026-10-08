@@ -25,6 +25,9 @@ vi.mock('../api', () => ({
     getDocLetterheads: () => Promise.resolve([]),
     getEmployees: () => Promise.resolve([]),
     searchDocuments: () => Promise.resolve([]),
+    // The Documents tour (Oct 1) as already seen, so these tests see the module itself.
+    getToursSeen: () => Promise.resolve({ seen: { documents: '2026-10-01' } }),
+    markTourSeen: () => Promise.resolve({}),
     updateDocument: (...a) => updateDocument(...a),
   },
 }));

@@ -108,7 +108,15 @@ export default function CampaignTable({ campaigns, onToggleStatus, searchable, s
                 <td style={{ ...td, color: C.emerald600, fontWeight: 500 }}>{c.conversions}</td>
                 <td style={td}>{formatPercent(ctr(c))}</td>
                 <td style={td}>{formatCurrency(costPerConv(c))}</td>
-                {showStatus && (
+                {showStatus && !onToggleStatus && (
+                  // Real Google Ads campaigns: the status is Google's, changed in Google Ads.
+                  <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-block', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500, ...statusStyles[c.status] }}>
+                      {c.status}
+                    </span>
+                  </td>
+                )}
+                {showStatus && onToggleStatus && (
                   <td style={{ padding: '10px', whiteSpace: 'nowrap' }}>
                     <button
                       disabled={c.status === 'Completed'}

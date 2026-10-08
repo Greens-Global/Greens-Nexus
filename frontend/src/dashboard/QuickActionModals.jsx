@@ -5,7 +5,7 @@
 // an Outlook deep link when they are not (see m365.js). "New Task" is the real
 // Tasks-module CreateTaskModal - it needs TasksProvider, which lives on the
 // Tasks view, so we mount a provider around it here just for the modal.
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { X, Send } from 'lucide-react';
 import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
@@ -243,10 +243,29 @@ function TaskModal({ onClose }) {
   );
 }
 
+// ── New Ticket ───────────────────────────────────────────────────────────────
+// The Ticket module's own create form (the same one Support mounts), with the
+// provider it reads createTicket from. Lazy: the tickets chunk only loads on
+// click, never with the dashboard.
+const CreateTicketModal = lazy(async () => {
+  const { CreateTicketModal: M } = await import('../tickets/TicketsView');
+  return { default: M };
+});
+function TicketModal({ onClose }) {
+  return (
+    <TasksProvider>
+      <Suspense fallback={null}>
+        <CreateTicketModal onClose={() => onClose()} />
+      </Suspense>
+    </TasksProvider>
+  );
+}
+
 export default function QuickActionModal({ kind, onClose, initialUrl }) {
   if (kind === 'personal-link') return <PersonalLinkComposer initialUrl={initialUrl} onClose={onClose} />;
   if (kind === 'email') return <EmailModal onClose={onClose} />;
   if (kind === 'event') return <EventModal onClose={onClose} />;
   if (kind === 'task')  return <TaskModal  onClose={onClose} />;
+  if (kind === 'ticket') return <TicketModal onClose={onClose} />;
   return null;
 }

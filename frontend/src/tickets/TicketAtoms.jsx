@@ -40,10 +40,22 @@ export function TicketSelect({
       </div>
     );
   }
+  // An option may carry `desc` - a one-line plain-English definition shown
+  // under its label in the open list (Neil, Sep 30: people cannot tell a Bug
+  // Report from an Incident unless each option says what it means).
+  const withDesc = opts.some((o) => o.desc);
+  const renderOption = withDesc ? (o) => (
+    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontWeight: 600 }}>{o.label}</span>
+      {o.desc && <span style={{ fontSize: 11.5, color: NX.dim, whiteSpace: 'normal', lineHeight: 1.35 }}>{o.desc}</span>}
+    </span>
+  ) : undefined;
   return (
-    <SearchSelect options={opts} value={command ? undefined : (value ?? '')}
+    <SearchSelect options={withDesc ? opts.map((o) => ({ ...o, keywords: o.desc || '' })) : opts}
+      value={command ? undefined : (value ?? '')}
       onPick={(id) => onChange(id)} placeholder={placeholder} searchPlaceholder={searchPlaceholder}
-      emptyText={emptyText} menuMinWidth={menuMinWidth} buttonStyle={base} />
+      emptyText={emptyText} menuMinWidth={withDesc ? Math.max(menuMinWidth, 320) : menuMinWidth} buttonStyle={base}
+      renderOption={renderOption} />
   );
 }
 

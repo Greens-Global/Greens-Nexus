@@ -4,6 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CheckSquare, ChevronRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
+  Ticket,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
@@ -17,6 +18,7 @@ import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
+import { ModalLoading, LoadingState } from '../components/AsyncState';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -75,7 +77,7 @@ export const KPI_CATALOG = {
   open_tickets:         { label: 'Open Tickets',            color: 'red',    Icon: TicketIcon,    hint: 'Across the team',      nav: { view: 'tickets' } },
   // Manager Dashboard folded into the one Dashboard (Sep 3) - these KPI tiles
   // used to go Home (a no-op from the dashboard); they now open the screen where the work happens.
-  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'hr', sub: 'hr-time-attendance' } },
+  clocked_in_now:       { label: 'Clocked In Now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'shifts', sub: 'schedule' } },
   time_off_pending:     { label: 'Time Off to Review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'hr', sub: 'hr-time-off' } },
 };
 
@@ -93,7 +95,6 @@ export const SHORTCUT_TARGETS = [
   { view: 'hr',               label: 'HR' },
   { view: 'accounting',       label: 'Accounting' },
   { view: 'operations',       label: 'Operations' },
-  { view: 'development',      label: 'Development' },
   { view: 'ops',              label: 'Construction' },
   { view: 'external-links',   label: 'Links' },
   { view: 'support',          label: 'Support' },
@@ -368,7 +369,7 @@ function LinksFolderWidget({ config }) {
     <DashCard title={title} sub={config.itemType === 'personal' ? 'Personal' : 'Company'}
       action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>Loading…</div>
+        <LoadingState />
       ) : !state.folder ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
@@ -511,7 +512,7 @@ function FavoritesWidget() {
   return (
     <DashCard title={title} sub={mode === 'recents' ? 'Company links opened in this browser' : undefined} action={tabs}>
       {state.loading ? (
-        <div style={noteStyle}>Loading…</div>
+        <LoadingState compact />
       ) : links.length === 0 ? (
         mode === 'recents' ? (
           <div style={noteStyle}>Nothing opened yet in this browser. Company links you open show up here.</div>
@@ -580,7 +581,7 @@ function PersonalLinksWidget() {
       <DashCard title="My Personal Links" sub={note || 'Only visible to you'}
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
-          <div style={noteStyle}>Loading…</div>
+          <LoadingState compact />
         ) : (
           <>
             <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
@@ -594,7 +595,7 @@ function PersonalLinksWidget() {
           <LinksFolderAllModal title="My Personal Links" links={state.links} itemType="personal" onOpen={open} onClose={() => setShowAll(false)} />
         )}
         {composer && (
-          <Suspense fallback={null}>
+          <Suspense fallback={<ModalLoading />}>
             <QuickActionModal kind="personal-link" initialUrl={composer.initialUrl} onClose={closeComposer} />
           </Suspense>
         )}
@@ -609,12 +610,14 @@ function PersonalLinksWidget() {
 // screen the way this widget always has. Order here is the display order.
 // A tile's config (`actions`: array of keys, picked in the gallery / pencil
 // checklist - Sep 24, configurable like the KPI tile) chooses which ones it
-// shows; tiles saved before that carry no config and keep the original six
-// (DEFAULT_QUICK_ACTIONS), so nothing already placed changes.
+// shows; tiles saved before that carry no config and show the default set
+// (DEFAULT_QUICK_ACTIONS).
 export const QUICK_ACTIONS = [
   { key: 'task',          label: 'New Task',          act: 'task',          color: 'blue',   Icon: CheckSquare },
   { key: 'event',         label: 'New Event',         act: 'event',         color: 'purple', Icon: CalendarPlus },
   { key: 'email',         label: 'New Email',         act: 'email',         color: 'brand',  Icon: Mail },
+  // The Ticket module's own create form, in place (Neil, 10/08: "Add + Ticket").
+  { key: 'ticket',        label: 'New Ticket',        act: 'ticket',        color: 'red',    Icon: Ticket },
   { key: 'personal-link', label: 'Add Personal Link', act: 'personal-link', color: 'purple', Icon: Link2 },
   { key: 'request-item',  label: 'Request an Item',   view: 'inventory', sub: 'catalog', color: 'orange', Icon: Package },
   { key: 'time-off',      label: 'Request Time Off',  view: 'timeclock', sub: 'timeoff',   color: 'orange', Icon: CalendarClock },
@@ -624,7 +627,9 @@ export const QUICK_ACTIONS = [
   { key: 'timeclock',     label: 'Time Clock',        view: 'timeclock',    color: 'green',  Icon: Clock },
   { key: 'kb',            label: 'Knowledge Base',    view: 'sop',          color: 'brand',  Icon: BookOpen },
 ];
-export const DEFAULT_QUICK_ACTIONS = ['task', 'event', 'email', 'request-item', 'timeclock', 'kb'];
+// Time Clock and Knowledge Base left the default set for New Ticket (Neil,
+// 10/08); both stay in the catalog for a tile that picks them.
+export const DEFAULT_QUICK_ACTIONS = ['task', 'event', 'email', 'request-item', 'ticket'];
 export function resolveQuickActions(config) {
   const keys = Array.isArray(config?.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS;
   const picked = new Set(keys);
@@ -652,7 +657,7 @@ function QuickActionsWidget({ config }) {
           </button>
         ))}
       </div>
-      {modal && <Suspense fallback={null}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
+      {modal && <Suspense fallback={<ModalLoading />}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
     </DashCard>
   );
 }
@@ -674,14 +679,15 @@ const importanceOf = (n) => NOTIF_IMPORTANCE[n.type] ?? 1;
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
   // Unread first, then most-important type, then most recent - so the thing
   // that most needs your attention is always at the top of the list.
-  const sorted = [...(notifications || [])].sort((a, b) => {
+  // Closed ones live in the bell's Closed list, not here.
+  const sorted = (notifications || []).filter(n => !n.closed).sort((a, b) => {
     if (!!a.read !== !!b.read) return a.read ? 1 : -1;
     const diff = importanceOf(b) - importanceOf(a);
     if (diff) return diff;
     return new Date(b.timestamp) - new Date(a.timestamp);
   });
   const list = sorted.slice(0, 12);
-  const unread = (notifications || []).filter(n => !n.read).length;
+  const unread = sorted.filter(n => !n.read).length;
   return (
     <DashCard title="Notifications" sub={unread ? `${unread} unread` : 'All caught up'}
       action={list.length > 0 ? (

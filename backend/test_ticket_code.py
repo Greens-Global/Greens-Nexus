@@ -1,5 +1,6 @@
 """
-Ticket numbers: a 6-digit sequence, shown as "Ticket #000001" (Aug 2026).
+Ticket numbers: a 6-digit sequence, stored as "000001" and shown as "Ticket #1"
+(Aug 2026; the padding left the display Oct 1).
 
 They used to be "TKT-001". The prefix lived inside the stored value, so every
 consumer carried it whether it wanted to or not, and three digits gave out at a
@@ -47,14 +48,17 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(ticket_code.normalize("1"), "000001")
         self.assertEqual(ticket_code.normalize("000123"), "000123")
 
-    def test_it_is_shown_with_a_hash(self):
-        self.assertEqual(ticket_code.ticket_no("000123"), "Ticket #000123")
+    def test_it_is_shown_with_a_hash_and_no_padding(self):
+        """Oct 1: "#00027" is just ticket 27 - the zeros are storage only."""
+        self.assertEqual(ticket_code.ticket_no("000123"), "Ticket #123")
+        self.assertEqual(ticket_code.ticket_no("000027"), "Ticket #27")
+        self.assertEqual(ticket_code.display_number("000027"), "27")
 
     def test_legacy_codes_read_as_the_same_number(self):
         """A row written before the change must format identically to one
         written after it, without waiting on the data migration."""
         self.assertEqual(ticket_code.normalize("TKT-012"), "000012")
-        self.assertEqual(ticket_code.ticket_no("TKT-012"), "Ticket #000012")
+        self.assertEqual(ticket_code.ticket_no("TKT-012"), "Ticket #12")
 
     def test_blank_stays_blank(self):
         """Not "Ticket #" - a ticket with no number should look like it has
@@ -73,6 +77,10 @@ class SequenceTests(unittest.TestCase):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
         self.db.query(models.TaskTicket).delete()
+        # The sequence lives in its own counter row now (code_sequence.py);
+        # clearing it makes each test start from the codes it adds, as the
+        # counter does on a database that has never issued one.
+        self.db.query(models.NexusCounter).delete()
         self.db.commit()
 
     def _add(self, code):
@@ -103,7 +111,7 @@ class SequenceTests(unittest.TestCase):
 
     def test_the_sequence_continues_past_legacy_codes(self):
         """Restarting at 000001 alongside TKT-005 would collide on display -
-        both render as Ticket #000001..#000005."""
+        both render as Ticket #1..#5."""
         for c in ("TKT-004", "TKT-005"):
             self._add(c)
         self.assertEqual(tickets._next_ticket_code(self.db), "000006")
@@ -131,13 +139,13 @@ class EmailTests(unittest.TestCase):
         import ticket_mail_templates as tmpl
         subject = tmpl._ticket_subject({"code": "000042", "subject": "VPN access",
                                         "status": "new", "companyName": "Greens"})
-        self.assertTrue(subject.startswith("Ticket #000042 - "), subject)
+        self.assertTrue(subject.startswith("Ticket #42 - "), subject)
 
     def test_a_legacy_coded_ticket_still_emails_correctly(self):
         import ticket_mail_templates as tmpl
         subject = tmpl._ticket_subject({"code": "TKT-042", "subject": "VPN access",
                                         "status": "new", "companyName": "Greens"})
-        self.assertTrue(subject.startswith("Ticket #000042 - "), subject)
+        self.assertTrue(subject.startswith("Ticket #42 - "), subject)
 
 
 if __name__ == "__main__":

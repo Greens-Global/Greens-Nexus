@@ -169,8 +169,8 @@ class ConflictAndBreakApiTests(unittest.TestCase):
 
     def test_a_placement_takes_the_presets_break_and_can_change_it(self):
         self.assertEqual(self._place()["breakMin"], 30)
-        self.assertEqual(self._place(break_min=45)["breakMin"], 45)
-        self.assertEqual(self._place(break_min=9999)["breakMin"], 480)   # clamped
+        self.assertEqual(self._place(break_min=45, start_hhmm="10:00")["breakMin"], 45)
+        self.assertEqual(self._place(break_min=9999, start_hhmm="11:00")["breakMin"], 480)   # clamped
 
     def test_a_break_change_on_a_published_shift_waits_for_publish(self):
         sid = self._place()["id"]
@@ -225,7 +225,8 @@ class ConflictAndBreakApiTests(unittest.TestCase):
 
     def test_saving_is_never_blocked_by_a_warning(self):
         self._place()
-        self.assertEqual(self._place()["email"], A)   # a second, overlapping shift still saves
+        # A second, overlapping shift still saves (the exact same one is a duplicate, Oct 2).
+        self.assertEqual(self._place(start_hhmm="10:00", end_hhmm="18:00")["email"], A)
 
 
 if __name__ == "__main__":

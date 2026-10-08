@@ -52,6 +52,176 @@ DEFAULT_APPROVAL_TYPES = frozenset({"service_request", "change_request", "access
 _TYPE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
+# "What do you need help with?" - the intake form's second question, driven by
+# the department picked above it (Neil, Sep 30: "if the department is IT, the
+# options should come up as they relate to IT. If the department is
+# construction, the options should come up as they relate to construction and
+# maintenance"). It replaced a single list of every External Links app, which
+# put a plumbing leak behind a scroll through finance and HR software.
+#
+# `departments` are matched against the ticket department's NAME, lowercased
+# (ticket departments are per-company rows an admin can rename, so a key
+# would not survive). A department with no group asks the question as a short
+# free-text answer instead. `area` is the service area the topic files under -
+# it decides the follow-up questions (Which facility? Which device?) and the
+# desk's triage buckets; see service_area_for in routers/tickets.py.
+# "Other" is not listed: the form always offers it, with a required short
+# answer (max TOPIC_MAX_LEN characters).
+TOPIC_MAX_LEN = 50
+
+# Sub-options (Neil, Oct 1 2026): a topic may carry an optional second level,
+# asked as "Which one?" once the topic is picked - IT -> Microsoft -> Outlook.
+# "We don't want hundreds of options. It should be IT, then what the issue is -
+# it should help filter to the exact issue quickly." So a short list, named the
+# way END USERS see the thing ("Microsoft 365 means something to us, nothing to
+# the end user - they see it as Outlook, Teams, OneDrive"). Optional for the
+# requester, and stored on the ticket as typeFields.svc_helpSubtopic.
+OPTIONS_MAX = 30
+
+# The Nexus modules, as the left navigation names them (Sidebar.jsx NAV) - the
+# Support page's Report a Bug flow is gone, so "Nexus -> which module" is how
+# a bug report says where it happened.
+NEXUS_MODULES = [
+    "Dashboard", "Workday (Time Clock, Time Sheet, Time Off)", "Shifts", "Tasks",
+    "Tickets or Support", "Files", "Knowledge Base", "Documents or Nexus Sign",
+    "Item Management", "Asset Management", "Accounting", "Investor Relations",
+    "People", "Construction", "Operations", "Marketing", "Business Intelligence",
+    "Credential Vault", "Workforce Analytics", "Notifications or Emails", "Settings",
+]
+
+DEFAULT_HELP_TOPICS = [
+    {"label": "IT Support", "departments": ["it", "it support", "information technology", "technology"],
+     "topics": [
+         {"name": "Nexus", "area": "tasks", "options": list(NEXUS_MODULES)},
+         {"name": "Microsoft (Outlook, Teams, OneDrive)", "area": "email",
+          "options": ["Outlook", "Teams", "OneDrive", "SharePoint", "Word", "Excel", "PowerPoint"]},
+         {"name": "Sage Intacct", "area": "finance",
+          "options": ["General Ledger", "Accounts Payable", "Accounts Receivable", "Cash Management",
+                      "Purchasing", "Order Entry", "Projects", "Fixed Assets", "Reporting"]},
+         {"name": "Egnyte", "area": "files"},
+         {"name": "Cubby", "area": "storageops"},
+         {"name": "Login or Password", "area": "email",
+          "options": ["Computer", "Microsoft (Outlook, Teams)", "Nexus", "Sage Intacct", "Egnyte", "Cubby"]},
+         {"name": "Access to a Nexus Module", "area": "tasks", "options": list(NEXUS_MODULES)},
+         {"name": "Computer or Laptop", "area": "hardware"},
+         {"name": "Printer or Scanner", "area": "hardware"},
+         {"name": "Phone", "area": "collab"},
+         {"name": "Internet or Wi-Fi", "area": "network"},
+         # Two different things (Neil, Oct 1) - used to be one topic.
+         {"name": "Cameras", "area": "security"},
+         {"name": "Gate Access", "area": "security"},
+     ]},
+    {"label": "Construction & Maintenance",
+     "departments": ["construction", "maintenance", "construction & maintenance",
+                     "construction and maintenance", "facilities", "facility maintenance"],
+     "topics": [{"name": n, "area": "facilities"} for n in (
+         "Lights or Electrical", "Plumbing or Water Leak", "Heating or Cooling (HVAC)",
+         "Doors, Gates or Locks", "Roof or Ceiling Leak", "Building Damage or Repair",
+         "Parking Lot or Paving", "Landscaping or Snow Removal", "Pest Control",
+         "Cleaning", "Signs",
+         # Walkthrough findings that had no home (Neil, 10/05: "it needs to
+         # get painted... broken handrail... the flooring is coming up").
+         "Painting", "Flooring or Tile", "Appliances", "Railings or Stairs",
+     )]},
+    {"label": "Admin", "departments": ["admin", "administration", "office admin"],
+     "topics": [{"name": n, "area": "general"} for n in (
+         "Office Supplies", "Mail or Deliveries", "Office Space or Furniture",
+         "Company Documents or Forms", "Travel", "Vendors or Contracts",
+     )]},
+    {"label": "Operations", "departments": ["operations", "ops", "storage operations"],
+     "topics": [
+         {"name": "Tenant or Unit Issue", "area": "storageops"},
+         {"name": "Move-In or Move-Out", "area": "storageops"},
+         {"name": "Rates or Pricing", "area": "storageops"},
+         {"name": "Gate Codes", "area": "security"},
+         {"name": "Site Supplies", "area": "general"},
+     ]},
+]
+
+# helpTopics saved before sub-options existed (version 1) are upgraded on read,
+# once, without clobbering what an admin chose: only the two default topics
+# Neil renamed/split change name, topics that never had a sub-option list get
+# the default one (matched by name), and a group that is a default group's
+# (shares a department name) gains the topics added in version 2 if missing.
+# Everything else - order, removals, custom topics, areas - is kept as saved.
+# Version 3 (Oct 2026) only adds the four maintenance topics below - a config
+# already at version 2 gets those and nothing else re-applied.
+HELP_TOPICS_VERSION = 3
+_LEGACY_TOPIC_NAMES = {
+    "microsoft 365 (outlook, teams, onedrive)": ["Microsoft (Outlook, Teams, OneDrive)"],
+    "cameras or gate access": ["Cameras", "Gate Access"],
+}
+_ADDED_IN_V2 = {"access to a nexus module"}
+_ADDED_IN_V3 = {"painting", "flooring or tile", "appliances", "railings or stairs"}
+
+
+def _default_topic(name: str) -> dict | None:
+    key = (name or "").strip().lower()
+    for g in DEFAULT_HELP_TOPICS:
+        for tp in g["topics"]:
+            if tp["name"].lower() == key:
+                return tp
+    return None
+
+
+def _upgrade_help_topics(groups: list, from_version: int = 1) -> list:
+    """v1 -> v2 renames/options/new topic as before; anything below v3 also
+    gains the four maintenance topics - and ONLY that, so a v2 admin who
+    removed a topic's sub-options does not get them put back."""
+    added = (_ADDED_IN_V2 if from_version < 2 else set()) | (_ADDED_IN_V3 if from_version < 3 else set())
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            continue
+        topics = []
+        for tp in g.get("topics") or []:
+            if not isinstance(tp, dict):
+                continue
+            if from_version >= 2:
+                topics.append(tp)
+                continue
+            renamed = _LEGACY_TOPIC_NAMES.get(str(tp.get("name") or "").strip().lower())
+            for name in renamed or [tp.get("name")]:
+                nt = {**tp, "name": name}
+                if "options" not in nt:
+                    d = _default_topic(name)
+                    if d and d.get("options"):
+                        nt["options"] = list(d["options"])
+                topics.append(nt)
+        depts = {str(d).strip().lower() for d in (g.get("departments") or [])}
+        have = {str(tp.get("name") or "").strip().lower() for tp in topics}
+        for dg in DEFAULT_HELP_TOPICS:
+            if depts & set(dg["departments"]):
+                for d in dg["topics"]:
+                    if d["name"].lower() in added and d["name"].lower() not in have:
+                        topics.append(json.loads(json.dumps(d)))
+        out.append({**g, "topics": topics})
+    return out
+
+
+# The five ticket types (Pranshu, Oct 1 2026) - the only ones Settings lists
+# and the only ones intake can switch on. Mirrors TICKET_TYPE_KEYS in
+# frontend/src/tickets/ticketMeta.js. Tickets already raised as a retired type
+# (service_request, change_request, task, question, request) keep it.
+TICKET_TYPES = ("incident", "bug", "feature_request", "access_request", "other")
+
+
+def _clean_type_order(order: Any):
+    """The intake order as saved: only the five, each once. None = default."""
+    if order is None:
+        return None
+    if not isinstance(order, list):
+        raise TaxonomyError("typeOrder must be a list.")
+    out = []
+    for k in order:
+        k = str(k or "").strip()
+        if k in TICKET_TYPES and k not in out:
+            out.append(k)
+    if not out:
+        raise TaxonomyError("Keep at least one ticket type on for Submit a Ticket.")
+    return out
+
+
 class TaxonomyError(ValueError):
     """A save patch the server refuses - the router turns it into a 400."""
 
@@ -78,6 +248,9 @@ _DEFAULTS = {
     # (same "nothing to choose from" fallback the department/application
     # pickers already use), not "every company".
     "companyField": {"enabled": False, "companyIds": []},
+    # See DEFAULT_HELP_TOPICS. Replaced wholesale by a saved list.
+    "helpTopics": DEFAULT_HELP_TOPICS,
+    "helpTopicsVersion": HELP_TOPICS_VERSION,
 }
 
 
@@ -104,6 +277,143 @@ def _validate_types_patch(types: Any) -> None:
             raise TaxonomyError(f"requiresApproval for ticket type {key!r} must be true or false.")
 
 
+def _clean_options(topic: str, options: Any) -> list:
+    """A topic's "Which one?" list: trimmed, blanks and repeats dropped."""
+    if options is None:
+        return []
+    if not isinstance(options, list):
+        raise TaxonomyError(f"The sub-options of {topic!r} must be a list.")
+    out, seen = [], set()
+    for o in options:
+        name = str(o or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        if len(name) > TOPIC_MAX_LEN:
+            raise TaxonomyError(f"Sub-option {name!r} is too long ({TOPIC_MAX_LEN} characters max).")
+        seen.add(name.lower())
+        out.append(name)
+    if len(out) > OPTIONS_MAX:
+        raise TaxonomyError(f"{topic!r} has too many sub-options ({OPTIONS_MAX} max) - keep the list short.")
+    return out
+
+
+# A topic's extra questions (Pranshu, Oct 1 2026): "Which facility?", "Which
+# camera or gate?" - added, edited and removed per topic in Help Topics. A
+# topic without `questions` asks its service area's compiled-in questions (the
+# frontend's SERVICE_FIELDS); with it, exactly these (an empty list = none).
+# Answers are stored on the ticket's typeFields under each `svc_` key.
+QUESTIONS_MAX = 6
+QUESTION_LABEL_MAX = 120
+QUESTION_KINDS = {"text", "textarea", "select", "site", "number", "date"}
+_KEY_RE = re.compile(r"^svc_[A-Za-z0-9_]{1,40}$")
+_RESERVED_KEYS = {"svc_helpSubtopic"}
+
+
+def _question_key(label: str, taken: set) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", label) or ["question"]
+    base = "svc_" + words[0].lower() + "".join(w.capitalize() for w in words[1:])
+    base = base[:44]
+    key, i = base, 2
+    while key in taken or key in _RESERVED_KEYS:
+        key, i = f"{base}{i}", i + 1
+    return key
+
+
+def _clean_questions(topic: str, questions: Any) -> list:
+    """A topic's extra questions, each {key, label, type, req, options?, types?}."""
+    if not isinstance(questions, list):
+        raise TaxonomyError(f"The questions of {topic!r} must be a list.")
+    out, taken = [], set()
+    for q in questions:
+        if not isinstance(q, dict):
+            raise TaxonomyError(f"Each question of {topic!r} must be an object.")
+        label = str(q.get("label") or "").strip()
+        if not label:
+            continue
+        if len(label) > QUESTION_LABEL_MAX:
+            raise TaxonomyError(f"The question {label[:40]!r}... is too long ({QUESTION_LABEL_MAX} characters max).")
+        kind = str(q.get("type") or "text").strip().lower()
+        if kind not in QUESTION_KINDS:
+            raise TaxonomyError(f"{label!r} has an unknown answer type {kind!r}.")
+        key = str(q.get("key") or "").strip()
+        if not _KEY_RE.match(key) or key in taken or key in _RESERVED_KEYS:
+            key = _question_key(label, taken)
+        taken.add(key)
+        clean = {"key": key, "label": label, "type": kind, "req": bool(q.get("req"))}
+        if kind == "select":
+            options = _clean_options(label, q.get("options") or [])
+            if not options:
+                raise TaxonomyError(f"The dropdown {label!r} needs at least one choice.")
+            clean["options"] = options
+        types = q.get("types")
+        if isinstance(types, list):
+            kept = [str(t).strip() for t in types if str(t).strip()][:20]
+            if kept:
+                clean["types"] = kept
+        placeholder = str(q.get("placeholder") or "").strip()
+        if placeholder:
+            clean["placeholder"] = placeholder[:QUESTION_LABEL_MAX]
+        out.append(clean)
+    if len(out) > QUESTIONS_MAX:
+        raise TaxonomyError(f"{topic!r} has too many questions ({QUESTIONS_MAX} max) - keep it quick to fill in.")
+    return out
+
+
+def question_label(db: Session, key: str) -> str:
+    """The label an admin gave a topic question, for the activity feed; "" if none."""
+    for g in get_config(db).get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            for q in tp.get("questions") or []:
+                if q.get("key") == key:
+                    return q.get("label") or ""
+    return ""
+
+
+def _clean_help_topics(groups: Any) -> list:
+    if not isinstance(groups, list):
+        raise TaxonomyError("helpTopics must be a list.")
+    out = []
+    for g in groups:
+        if not isinstance(g, dict):
+            raise TaxonomyError("Each help-topic group must be an object.")
+        depts = [str(d).strip().lower() for d in (g.get("departments") or []) if str(d).strip()]
+        topics = []
+        for tp in g.get("topics") or []:
+            name = str((tp or {}).get("name") or "").strip() if isinstance(tp, dict) else ""
+            if not name:
+                continue
+            if len(name) > TOPIC_MAX_LEN:
+                raise TaxonomyError(f"Help topic {name!r} is too long ({TOPIC_MAX_LEN} characters max).")
+            topic = {"name": name, "area": str(tp.get("area") or "general").strip().lower()}
+            options = _clean_options(name, tp.get("options"))
+            if options:
+                topic["options"] = options
+            if "questions" in tp and tp["questions"] is not None:
+                topic["questions"] = _clean_questions(name, tp["questions"])
+            topics.append(topic)
+        out.append({"label": str(g.get("label") or "").strip(), "departments": depts, "topics": topics})
+    return out
+
+
+def topic_area(db: Session, name: str) -> str:
+    """The service area of a curated help topic, or "" when `name` is not one
+    (an External Links app, or an "Other" answer typed by the requester)."""
+    key = (name or "").strip().lower()
+    if not key:
+        return ""
+    for g in get_config(db).get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            if (tp.get("name") or "").strip().lower() == key:
+                return tp.get("area") or "general"
+    # A ticket filed under a topic name from before the Oct 1 rename/split
+    # still files under the area that topic had.
+    for legacy in _LEGACY_TOPIC_NAMES.get(key, []):
+        area = topic_area(db, legacy)
+        if area:
+            return area
+    return ""
+
+
 def get_config(db: Session) -> dict:
     row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
     if not row or not row.value:
@@ -119,7 +429,15 @@ def get_config(db: Session) -> dict:
     merged["types"] = {k: dict(v) for k, v in (cfg.get("types") or {}).items() if isinstance(v, dict)}
     _fill_approval_defaults(merged["types"])
     if isinstance(cfg.get("typeOrder"), list):
-        merged["typeOrder"] = cfg["typeOrder"]
+        # An order saved before Oct 1 may name a retired type - read only the
+        # five back; none of them left means the default order.
+        kept = [k for i, k in enumerate(cfg["typeOrder"]) if k in TICKET_TYPES and k not in cfg["typeOrder"][:i]]
+        merged["typeOrder"] = kept or None
+    if isinstance(cfg.get("helpTopics"), list):
+        merged["helpTopics"] = cfg["helpTopics"]
+        saved_v = cfg.get("helpTopicsVersion") if isinstance(cfg.get("helpTopicsVersion"), int) else 1
+        if saved_v < HELP_TOPICS_VERSION:
+            merged["helpTopics"] = _upgrade_help_topics(cfg["helpTopics"], saved_v)
     cf = cfg.get("companyField") or {}
     merged["companyField"] = {
         "enabled": bool(cf.get("enabled")),
@@ -143,7 +461,9 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
         merged["types"] = {**merged["types"], **{k: dict(v) for k, v in patch["types"].items()}}
         _fill_approval_defaults(merged["types"])
     if "typeOrder" in patch:
-        merged["typeOrder"] = patch["typeOrder"]
+        merged["typeOrder"] = _clean_type_order(patch["typeOrder"])
+    if "helpTopics" in patch:
+        merged["helpTopics"] = _clean_help_topics(patch["helpTopics"])
     if "companyField" in patch and isinstance(patch["companyField"], dict):
         incoming = patch["companyField"]
         merged["companyField"] = {
