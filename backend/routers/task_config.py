@@ -9,8 +9,9 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
-import subprocess
 import httpx
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import models
 from database import get_db
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
@@ -693,25 +694,14 @@ def add_changelog_comment(entry_id: str, body: ChangelogCommentBody,
     return changelog_comment_to_dict(c)
 
 
-# ── Generate changelog drafts from git commits ───────────────────────────────
-# Admin clicks "Generate from git" in Manage → we pull recent commits (GitHub API
-# in prod, local `git log` in dev), ask Claude to cluster them into a few
-# user-facing, plain-English "What's New" entries, and file them as origin='pr'
-# / status='Pending Review'. They then flow through the normal review → publish.
-# Drafting stopped for months (Jul-Oct 2026) because the Anthropic account ran
-# out of credit and every refusal was swallowed - see _cluster_commits. The
-# model moved from claude-opus-4-8 to Opus 5 at the same time; set
-# NEXUS_CHANGELOG_MODEL to change it without a code change.
-# Opus 5 thinks by default and max_tokens covers thinking + the answer, so the
-# budget below is sized for both.
-_AI_MODEL = os.getenv("NEXUS_CHANGELOG_MODEL", "").strip() or "claude-opus-5"
-_AI_MAX_TOKENS = 16000
+# ── What's New from merged pull requests ─────────────────────────────────────
+# Every feature PR that reaches the branch this deployment tracks becomes one
+# PUBLISHED "What's New" entry - no review queue, no AI required (Oct 2026;
+# changelog_prs.py has the why). Claude only rewrites the wording when the
+# Anthropic key works. It used to cluster raw commits into Pending Review
+# drafts, which stopped entirely when the account ran out of credit, and
+# waited on an admin to publish when it didn't.
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-_GITHUB_REPO = os.getenv("GITHUB_REPO", "Greens-Global/Greens-Nexus")
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_CHANGE_TYPES = ["Bug Fix", "Performance", "New Feature", "Security Update",
-                 "Hotfix", "Maintenance", "Improvement"]
 
 
 def deployment_branch() -> str:
@@ -744,201 +734,88 @@ def tracked_branch() -> str:
     return deployment_branch() or "dev"
 
 
-def _is_noise(subject: str) -> bool:
-    s = (subject or "").strip().lower()
-    return not s or s.startswith("merge ")
-
-
-def _recent_commits(limit: int = 80) -> tuple[list[dict], str]:
-    """Return ([{sha, author, date, subject, body}], source). Prefers the GitHub
-    API (works on the deployed backend, which has no working tree); falls back to
-    a local `git log` when a repo is present (dev)."""
-    if _GITHUB_TOKEN:
-        try:
-            with httpx.Client(timeout=30) as client:
-                r = client.get(
-                    f"https://api.github.com/repos/{_GITHUB_REPO}/commits",
-                    params={"per_page": min(limit, 100), "sha": tracked_branch()},
-                    headers={"Authorization": f"Bearer {_GITHUB_TOKEN}",
-                             "Accept": "application/vnd.github+json"},
-                )
-                r.raise_for_status()
-            out = []
-            for row in r.json():
-                commit = row.get("commit", {}) or {}
-                subject, _, cbody = (commit.get("message", "") or "").partition("\n")
-                out.append({"sha": row.get("sha", ""),
-                            "author": (commit.get("author") or {}).get("name", ""),
-                            "date": (commit.get("author") or {}).get("date", ""),
-                            "subject": subject.strip(), "body": cbody.strip()})
-            return out, "github"
-        except Exception as e:  # noqa: BLE001
-            print(f"[changelog] GitHub fetch failed, trying local git: {e}")
-    try:
-        sep, rec = "\x1f", "\x1e"
-        fmt = sep.join(["%H", "%an", "%aI", "%s", "%b"]) + rec
-        raw = subprocess.check_output(
-            ["git", "-C", _REPO_ROOT, "log", f"-n{limit}", "--no-merges", f"--pretty=format:{fmt}"],
-            text=True, encoding="utf-8", errors="replace",
-        )
-        out = []
-        for chunk in raw.split(rec):
-            chunk = chunk.strip("\n")
-            if not chunk.strip():
-                continue
-            parts = chunk.split(sep)
-            if len(parts) < 4:
-                continue
-            out.append({"sha": parts[0], "author": parts[1], "date": parts[2],
-                        "subject": parts[3], "body": parts[4] if len(parts) > 4 else ""})
-        return out, "git"
-    except Exception as e:  # noqa: BLE001
-        print(f"[changelog] local git log failed: {e}")
-        return [], "none"
-
-
-def _known_shas(db: Session) -> set[str]:
-    """8-char prefixes of every commit already summarised into an entry."""
+def _known_changes(db: Session) -> set[str]:
+    """Keys (pr:480, merge:<sha8>, commit:<sha8>) that already have an entry."""
     seen: set[str] = set()
     for e in db.query(models.TaskChangelogEntry).all():
         payload = e.payload if isinstance(e.payload, dict) else {}
-        for s in (payload.get("commitShas") or []):
-            if s:
-                seen.add(s[:8])
+        if payload.get("sourceKey"):
+            seen.add(str(payload["sourceKey"]))
+        if isinstance(payload.get("prNumber"), int):
+            seen.add(f"pr:{payload['prNumber']}")
     return seen
 
 
-class ChangelogAIError(Exception):
-    """Claude could not draft the entries (refused, unreachable, unreadable).
-    Distinct from an empty answer, which means "nothing user-facing"."""
-
-
-def _api_error_text(r: httpx.Response) -> str:
+def _release_label() -> str:
+    """Version for the Version History tab: the day it went out, in Pacific
+    time (MM/DD/YYYY, the app-wide date format)."""
     try:
-        err = (r.json() or {}).get("error") or {}
-        msg = err.get("message") if isinstance(err, dict) else str(err)
-    except ValueError:
-        msg = ""
-    return f"HTTP {r.status_code}: {(msg or r.text or '').strip()[:200]}"
-
-
-def _cluster_commits(commits: list[dict]) -> list[dict]:
-    """Ask Claude to fold the commits into a few plain-English feature entries.
-    [] means Claude found nothing user-facing; any failure RAISES
-    ChangelogAIError - it used to return [] too, which made an Anthropic
-    billing refusal look like a quiet week (the auto-sweep logged "found nothing to draft" and
-    counted it a success, every day, for weeks)."""
-    if not commits:
-        return []
-    if not _ANTHROPIC_API_KEY:
-        raise ChangelogAIError("ANTHROPIC_API_KEY is missing.")
-    lines = []
-    for c in commits:
-        line = f"- [{c['sha'][:8]}] {c['subject']}"
-        if c.get("body"):
-            line += f" - {c['body'][:240].replace(chr(10), ' ')}"
-        lines.append(line)
-    commit_block = "\n".join(lines)
-    prompt = (
-        "You turn a list of git commits from the Nexus internal staff portal "
-        "(\"Nexus\") into a short changelog for NON-TECHNICAL business users.\n\n"
-        "Group related commits into a small number of user-facing updates (usually 1-6). "
-        "SKIP commits that are pure chores, refactors, tests, docs, build/CI, dependency "
-        "bumps, or internal plumbing with no visible effect - if nothing is user-facing, "
-        "return an empty array. Never use commit hashes, branch names, ticket IDs, code "
-        "identifiers, or engineering jargon in the text. Be concrete about the user-visible effect.\n\n"
-        f"Allowed \"type\" values: {', '.join(_CHANGE_TYPES)}.\n\n"
-        "Return ONLY a JSON array (no prose, no code fences). Each element:\n"
-        '{ "title": string (short, plain English, no jargon),\n'
-        '  "description": string (1-3 sentences a non-technical user understands),\n'
-        '  "type": one of the allowed values,\n'
-        '  "module": string (product area, e.g. HR, Dashboard, Tasks, Item Management),\n'
-        '  "businessImpact": string (one sentence: the plain-English payoff),\n'
-        '  "whatsChanged": string[] (2-5 short plain-English bullets),\n'
-        '  "commitShas": string[] (the 8-char hashes from the list you grouped into this entry) }\n\n'
-        f"COMMITS:\n{commit_block}"
-    )
-    try:
-        with httpx.Client(timeout=240) as client:
-            r = client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": _ANTHROPIC_API_KEY,
-                         "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": _AI_MAX_TOKENS,
-                      "messages": [{"role": "user", "content": prompt}]},
-            )
-    except httpx.HTTPError as e:
-        raise ChangelogAIError(f"Could not reach Claude ({type(e).__name__}).")
-    if r.status_code >= 400:
-        raise ChangelogAIError(f"Claude refused the request ({_AI_MODEL}) - {_api_error_text(r)}")
-    try:
-        data = r.json()
-    except ValueError:
-        raise ChangelogAIError("Claude's answer was not JSON.")
-    if data.get("stop_reason") == "max_tokens":
-        raise ChangelogAIError(f"Claude's answer was cut off at {_AI_MAX_TOKENS} tokens.")
-    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
-    if text.startswith("```"):
-        text = text.split("```", 2)[1].lstrip("json").strip() if "```" in text[3:] else text.strip("`")
-    start, end = text.find("["), text.rfind("]")
-    if start == -1 or end == -1:
-        raise ChangelogAIError("Claude's answer had no list of entries in it.")
-    try:
-        parsed = json.loads(text[start:end + 1])
-    except ValueError:
-        raise ChangelogAIError("Claude's list of entries could not be read.")
-    if not isinstance(parsed, list):
-        raise ChangelogAIError("Claude's answer was not a list of entries.")
-    return parsed
+        today = datetime.now(ZoneInfo("America/Los_Angeles"))
+    except Exception:  # noqa: BLE001 - no tz database: UTC is close enough
+        today = datetime.now(timezone.utc)
+    return today.strftime("%m/%d/%Y")
 
 
 def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict:
-    """Core of "Generate from git": pull recent commits, ask Claude to cluster
-    them into plain-English draft entries, file them as Pending Review. Shared
-    by the manual endpoint below and, since Sep 2026, the GitHub webhook
-    (routers/github_webhook.py), which calls this from a background thread
-    right after a dev/main merge - so it has no signed-in `user` to attribute
-    the drafts to (author_email defaults to "", which the UI shows as
-    "Unknown"), and returns an {"error": ...} dict instead of raising, since a
-    background caller has no HTTP response to attach an exception to."""
-    if not _ANTHROPIC_API_KEY:
-        return {"error": "AI is not configured (ANTHROPIC_API_KEY missing)."}
-    commits, source = _recent_commits()
-    if source == "none":
-        return {"error": "Could not read commit history (no GitHub token and no local repo)."}
-    known = _known_shas(db)
-    fresh = [c for c in commits if not _is_noise(c["subject"]) and c["sha"][:8] not in known]
-    if not fresh:
-        return {"created": 0, "scanned": len(commits), "source": source,
-                "message": "No new commits to summarise since the last update."}
+    """Publish one What's New entry per change that landed since the last run
+    (a merged PR, a branch merged locally and pushed, or a direct commit).
+    Shared by the Check for Updates button and the automatic sweep
+    (changelog_auto.py, which the GitHub webhook brings forward). Returns an
+    {"error": ...} dict instead of raising - the sweep has no HTTP response to
+    attach an exception to. Only an unreadable GitHub history is an error; a
+    failed Claude polish publishes the plain wording and says why in
+    "polishNote"."""
+    import changelog_auto
+    import changelog_prs
 
+    state = changelog_auto._read_state(db)
+    skipped_before = [str(k) for k in (state.get("skipped_keys") or [])]
     try:
-        drafts = _cluster_commits(fresh[:40])
-    except ChangelogAIError as e:
-        print(f"[changelog] cluster failed: {e}")
-        return {"error": f"Claude could not draft the update: {e}"}
+        prs, head = changelog_prs.fetch_merged_prs(
+            tracked_branch(), state.get("pr_cursor", ""), _known_changes(db) | set(skipped_before))
+    except changelog_prs.GitHubError as e:
+        print(f"[changelog] could not read merged PRs: {e}")
+        return {"error": f"Could not read merged pull requests: {e}"}
+
+    candidates, skipped = [], []
+    for pr in prs:
+        (skipped if changelog_prs.skip_reason(pr) else candidates).append(pr)
+    drafts = [changelog_prs.draft(pr) for pr in candidates]
+    polish_note = ""
+    if candidates:
+        try:
+            for d, p in zip(drafts, changelog_prs.polish(candidates, drafts)):
+                d["userFacing"] = p["userFacing"]
+                for k in ("title", "description", "type", "module", "businessImpact", "whatsChanged"):
+                    if p[k]:
+                        d[k] = p[k]
+        except changelog_prs.PolishError as e:
+            polish_note = str(e)
+            print(f"[changelog] publishing without AI wording: {e}")
+
+    now, version = now_iso(), _release_label()
+    environment = "Production" if tracked_branch() == "main" else "Staging"
     created = []
-    now = now_iso()
-    for d in drafts:
-        if not isinstance(d, dict) or not (d.get("title") and d.get("description")):
+    for pr, d in zip(candidates, drafts):
+        if d.pop("userFacing", True) is False:
+            skipped.append(pr)
             continue
-        ctype = d.get("type") if d.get("type") in _CHANGE_TYPES else "Improvement"
-        shas = [s[:8] for s in (d.get("commitShas") or []) if isinstance(s, str)]
         payload = {
-            "title": str(d["title"]).strip(),
-            "description": str(d["description"]).strip(),
-            "type": ctype,
-            "module": str(d.get("module") or "").strip(),
-            "version": "unreleased",
-            "environment": "Production",
-            "releasedAt": now[:16],
-            "authorId": (author_email or "").lower(),
-            "businessImpact": str(d.get("businessImpact") or "").strip() or None,
-            "whatsChanged": [str(x).strip() for x in (d.get("whatsChanged") or []) if str(x).strip()][:5],
-            "commitShas": shas,
+            **d,
+            "version": version,
+            "environment": environment,
+            "releasedAt": now,
+            # Developer(s) from GitHub only, never whoever ran this - stamping
+            # the clicker put Neil on every update. author_email stays in the
+            # signature for the callers.
+            "authorId": "",
+            "developers": pr.get("developers") or [],
+            "sourceKey": pr["key"],
+            # A PR keeps its number; a local merge or a direct commit links its commit.
+            **({"prNumber": pr["number"], "prRef": f"#{pr['number']}", "prUrl": pr.get("url", "")}
+               if pr.get("number") else {"commitShas": [x[:8] for x in pr.get("shas") or [pr.get("sha", "")]], "commitUrl": pr.get("url", "")}),
             "origin": "pr",
-            "status": "Pending Review",
+            "status": "Released",
         }
         e = models.TaskChangelogEntry(id=gen_id(), payload=payload, created_at=now, updated_at=now)
         db.add(e)
@@ -946,20 +823,32 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     db.commit()
     for e in created:
         db.refresh(e)
-    out = {"created": len(created), "scanned": len(fresh), "source": source,
+    changelog_auto._write_state(db, {
+        "pr_cursor": head,
+        "skipped_keys": (skipped_before + [pr["key"] for pr in skipped])[-300:],
+        "last_polish_error": polish_note,
+    })
+    out = {"created": len(created), "scanned": len(prs), "skipped": len(skipped),
+           "source": "github", "polishNote": polish_note,
            "entries": [changelog_entry_to_dict(e) for e in created]}
-    if not created:
-        # Claude read them and found nothing a user would notice - say so,
-        # rather than letting the screen fall back to "no new commits".
-        out["message"] = f"Nothing user-facing in the {len(fresh)} new commit{'' if len(fresh) == 1 else 's'}."
+    if not prs:
+        out["message"] = "No new changes since the last update."
+    elif not created:
+        out["message"] = f"Nothing user-facing in the {len(prs)} new change{'' if len(prs) == 1 else 's'}."
     return out
 
 
 @router.post("/task-changelog/generate")
 def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
-    result = generate_changelog_from_commits(db, user["email"])
+    import changelog_auto
+    lock = changelog_auto.try_lock(db)
+    if not lock:
+        raise HTTPException(409, "An update check is already running - try again in a minute.")
     try:
-        import changelog_auto
+        result = generate_changelog_from_commits(db, user["email"])
+    finally:
+        changelog_auto.unlock(lock)
+    try:
         changelog_auto.record_manual(db, result)
     except Exception as e:  # noqa: BLE001 - the status line must never fail the click
         db.rollback()
