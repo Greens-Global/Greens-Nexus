@@ -1071,6 +1071,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 /* â”€â”€ Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* A wide table scrolls inside its panel instead of being clipped by the
+   panel's overflow: hidden (phones, Oct 1). */
+.req-table-wrapper { overflow-x: auto; max-width: 100%; }
 .req-table th {
   text-align: left;
   font-size: 10px;
@@ -3694,6 +3697,12 @@ button, [role="button"], select { touch-action: manipulation; }
     margin-bottom: 20px;
     border-bottom: 1px solid var(--line);
     padding-bottom: 1px;
+    /* Pinned while the page scrolls (Oct 1, Neil: Accounting on a phone) -
+       every tab stays one tap away however long the statement below is. */
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    background: var(--bg-primary);
   }
 }
 
