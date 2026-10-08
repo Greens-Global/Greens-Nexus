@@ -142,7 +142,7 @@ class LifeEventCase(unittest.TestCase):
     # ── helpers ──
     def _inputs(self, **kw):
         base = {"job_title": "Senior Analyst", "start_date": "2026-11-02", "manager_email": MGR,
-                "employment_type": "full_time"}
+                "employment_type": "full_time", "offer_expires": "2026-10-30"}
         base.update(kw)
         return base
 
@@ -385,6 +385,56 @@ class HiringPacketTests(LifeEventCase):
         self.assertTrue(any("expired" in n.title for n in
                             self.db.query(models.NexusNotification).filter_by(recipient=HR).all()))
         self.assertEqual(self._send().status, "awaiting_sender")  # a new one can go out
+
+    def test_the_offer_expires_on_the_day_hr_gives(self):
+        for bad, msg in (("", "date the offer expires"), ("2020-01-01", "today or later"), ("2026-12-01", "on or before the start")):
+            with self.assertRaises(hle.PacketError) as e:
+                self._send(offer_expires=bad)
+            self.assertIn(msg, str(e.exception))
+        ev = self._send()
+        req = self.db.query(models.HrSignRequest).filter_by(id=ev.sign_request_id).first()
+        self.assertEqual(req.expires_on, "2026-10-30")
+        self._sign(self._party(ev.sign_request_id, HR))
+        self.assertIn("Please sign by Friday, October 30, 2026", self.mails[CAND_EMAIL][1])
+        # The day passes: the link is dead on open, the packet reads Expired, HR is told.
+        self.db.query(models.HrSignRequest).filter_by(id=req.id).update({"expires_on": "2000-01-01"})
+        self.db.commit()
+        token = self._party(ev.sign_request_id, CAND_EMAIL).token
+        r = self.client.get(f"/esign/public/{token}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._ev(ev.id).status, "expired")
+        self.assertEqual(self.client.post(f"/esign/public/{token}/consent", json={"agreed": True}).status_code, 409)
+
+    def test_a_former_employee_is_rehired_on_their_old_record(self):
+        self.db.add(models.NexusEmployee(id="id-old", employee_code="GG-042", work_email="jane.doe@greensglobal.com",
+                                         personal_email=CAND_EMAIL, first_name="Jane", last_name="Doe", company=ENTITY,
+                                         status="offboarded", job_title="Analyst"))
+        self.db.commit()
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", self._inputs(), None, None)
+        self.assertEqual(hle.preview_out(plan)["rehire"]["employeeCode"], "GG-042")
+        ev = self._send()
+        self.assertIn("rehire of GG-042", self.db.query(models.HrStageEvent).filter_by(candidate_id="cand-1")
+                      .order_by(models.HrStageEvent.created_at.desc()).first().note)
+        self._sign(self._party(ev.sign_request_id, HR))
+        self.assertIn("Welcome back", self.mails[CAND_EMAIL][0])
+        self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+        self.db.expire_all()
+        rows = self.db.query(models.NexusEmployee).filter_by(personal_email=CAND_EMAIL).all()
+        self.assertEqual([(r.id, r.status, r.job_title, r.employee_code) for r in rows],
+                         [("id-old", "onboarding", "Senior Analyst", "GG-042")])
+        self.assertEqual(rows[0].status_log[0]["reason"], "Rehired")
+        self.assertEqual(self.db.query(models.HrCandidate).filter_by(id="cand-1").first().employee_id, "id-old")
+        self.assertIn("rehired", self._ev(ev.id).apply_note)
+
+    def test_someone_still_active_cannot_be_hired_again(self):
+        self.db.add(models.NexusEmployee(id="id-cur", employee_code="GG-043", personal_email=CAND_EMAIL,
+                                         first_name="Jane", last_name="Doe", company=ENTITY, status="active"))
+        self.db.commit()
+        with self.assertRaises(hle.PacketError) as e:
+            self._send()
+        self.assertIn("already in People as active", str(e.exception))
+        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired"})     # Mark Hired By Hand
+        self.assertEqual(r.status_code, 409, r.text)
 
     def test_old_pay_is_only_shown_to_pay_holders(self):
         ev = self._send()
@@ -680,13 +730,14 @@ class EmailAndRoleTests(LifeEventCase):
         self.assertNotIn(HR, self.sealed)
 
     def test_role_sets_title_and_department(self):
-        plan = hle.plan_hire(self.db, HR_USER, "cand-1", {"role_id": "jr-an", "start_date": "2026-11-02"},
+        plan = hle.plan_hire(self.db, HR_USER, "cand-1", {"role_id": "jr-an", "start_date": "2026-11-02", "offer_expires": "2026-10-30"},
                              {"base": 1, "payBasis": "hourly"}, None)
         self.assertEqual((plan["details"]["job_title"], plan["details"]["department"]), ("Senior Analyst", "Accounting"))
 
     def test_other_adds_a_company_role_with_no_access_and_tells_the_admins(self):
         plan = hle.plan_hire(self.db, HR_USER, "cand-1",
-                             {"new_role_name": "Leasing Coordinator", "department": "Operations", "start_date": "2026-11-02"},
+                             {"new_role_name": "Leasing Coordinator", "department": "Operations", "start_date": "2026-11-02",
+                              "offer_expires": "2026-10-30"},
                              {"base": 1, "payBasis": "hourly"}, None)
         self.assertEqual(hle.preview_out(plan)["newRole"], "Leasing Coordinator")
         self.assertEqual(self.db.query(models.NexusGroup).filter_by(name="Leasing Coordinator").count(), 0)  # not at preview

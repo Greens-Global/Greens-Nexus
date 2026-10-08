@@ -410,23 +410,36 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                                ], green),
                                offer, _contact(sender, green)],
                            party=party, req=req, sender=sender, security=False))
-        return (f"Welcome to {company}, {first_name}! Your offer is ready to sign 🎉",
-                _shell(preheader=f"We're delighted to offer you the {title} role - review and sign to accept.",
+        back = bool(d.get("rehire_employee_id"))
+        expires = _long(getattr(req, "expires_on", "") or d.get("offer_expires") or "")
+        sign_by = (f'<div style="font-family:{FONT};font-size:13.5px;font-weight:700;color:{INK};margin-top:12px">'
+                   f'Please sign by {escape(expires)} - the offer and this link expire after that day.</div>'
+                   if expires else "")
+        return ((f"Welcome back to {company}, {first_name}! Your offer is ready to sign" if back else
+                 f"Welcome to {company}, {first_name}! Your offer is ready to sign 🎉"),
+                _shell(preheader=f"We're delighted to offer you the {title} role - review and sign to accept"
+                                 + (f" by {_short(d.get('offer_expires'))}" if d.get("offer_expires") else "") + ".",
                        company=company, accent=green, hero_bg="#14532d", hero_emoji="&#127881;",
-                       hero_title=f"Welcome to the team, {first}!",
+                       hero_title=(f"Welcome back, {first}!" if back else f"Welcome to the team, {first}!"),
                        hero_sub=(f"We're thrilled to offer you the <strong>{escape(title)}</strong> role at "
                                  f"{escape(company)}. Your offer and onboarding documents are ready for you."),
                        sections=[
-                           _p(f"Hi {first},<br><br>On behalf of everyone at {escape(company)}, we're excited to offer "
-                              f"you the role of <strong>{escape(title)}</strong>. We were impressed throughout the "
-                              f"process and think you'll be a great addition to the team. The details of your offer "
-                              f"are below, and your offer letter and onboarding documents are ready for your signature."),
+                           _p(f"Hi {first},<br><br>"
+                              + (f"It's a pleasure to welcome you back to {escape(company)}. We'd like to offer you the role of "
+                                 f"<strong>{escape(title)}</strong>, and your record with us picks up where it left off. "
+                                 if back else
+                                 f"On behalf of everyone at {escape(company)}, we're excited to offer "
+                                 f"you the role of <strong>{escape(title)}</strong>. We were impressed throughout the "
+                                 f"process and think you'll be a great addition to the team. ")
+                              + "The details of your offer are below, and your offer letter and onboarding documents "
+                                "are ready for your signature."),
                            offer,
                            _note(note, sender, green),
                            _docs(docs, green) + _signed_line(signed_by or [], company, green),
                            _button("Review &amp; Sign Your Offer", link, green)
                            + f'<div style="font-family:{FONT};font-size:13px;color:{MUTED};margin-top:10px">'
-                             f'Takes about 10 minutes and works on your phone. Signing is how you accept the offer.</div>',
+                             f'Takes about 10 minutes and works on your phone. Signing is how you accept the offer.</div>'
+                           + sign_by,
                            _steps("What happens next", [
                                ("Sign your offer", "Open the link, confirm the one-time code we email you, and sign each document."),
                                ("We get you set up", "Your work email and accounts are created before your first day."),
@@ -608,7 +621,7 @@ def completed_email(db: Session, req: HrSignRequest, party, sender: dict, link: 
 
 SAMPLE = {
     "hire": ({"job_title": "Senior Analyst", "department": "Accounting", "start_date": "2026-11-02",
-              "employment_type": "full_time"},
+              "employment_type": "full_time", "offer_expires": "2026-10-23"},
              {"base": 85000, "payBasis": "salary", "frequency": "annual", "currency": "USD"}),
     "promotion": ({"job_title": "Senior Analyst II", "old_title": "Senior Analyst", "department": "Accounting",
                    "effective_date": "2026-11-01", "change_type": "promotion",

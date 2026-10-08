@@ -297,6 +297,9 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
   const [f, setF] = useState({
     role_id: c.roleId || (c.roleTitle ? OTHER_ROLE : ''), new_role_name: c.roleId ? '' : (c.roleTitle || ''),
     department: c.department || '', start_date: (c.expectedStart || '').slice(0, 10),
+    // The offer stands until this day; the link dies after it. A week is the
+    // usual window - still HR's call.
+    offer_expires: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
     manager_email: '', employment_type: 'full_time', salary_text: '',
   });
   const [opts, setOpts] = useState({ roles: [], departments: [] });
@@ -383,6 +386,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
               </div></div>
           )}
           {input('Start Date *', 'start_date', { type: 'date' })}
+          {input('Offer Expires *', 'offer_expires', { type: 'date', max: f.start_date || undefined, title: 'They can review and sign through this day; after it the link stops working.' })}
           <div><label style={lbl}>Employment Type</label>
             <select className="form-input" style={{ width: '100%' }} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
               {EMPLOYMENT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -454,7 +458,13 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             </div>
             <div style={{ fontSize: 12.5, marginTop: 10 }}>
               Starts <b>{usDay(preview.startDate)}</b>{preview.salaryText ? <> at <b>{preview.salaryText}</b></> : null}.
+              {preview.expiresOn && <> They can sign through <b>{usDay(preview.expiresOn)}</b>; after that the link expires and the packet reads Expired.</>}
             </div>
+            {preview.rehire && (
+              <div style={{ fontSize: 12.5, marginTop: 8, padding: '8px 11px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)' }}>
+                <b>Rehire:</b> {preview.rehire.name} ({preview.rehire.employeeCode || 'no code'}) is already in People as {preview.rehire.status}. When they sign, that record is reactivated as Onboarding - no second record is created.
+              </div>
+            )}
             {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
               <span style={{ fontSize: 12.5 }}>{name} gets the welcome email with a link to sign.</span>
@@ -484,7 +494,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
       <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
         <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
         {!preview ? (
-          <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date}
+          <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date || !f.offer_expires}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Packet
           </button>
@@ -538,6 +548,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr }) {
           <button className="secondary-btn" onClick={() => act('cancel')} disabled={!!busy} style={{ fontSize: 11.5, padding: '3px 10px' }}>
             {busy === 'cancel' ? <Spinner size={12} /> : 'Cancel Offboarding'}
           </button>
+        </div>
+      )}
+      {ev.kind === 'hire' && ev.inputs?.offer_expires && ['awaiting_sender', 'sent'].includes(ev.status) && (
+        <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Clock size={13} style={{ color: 'var(--muted)' }} /> Offer open through {usDay(ev.inputs.offer_expires)} - the link expires after that day.
         </div>
       )}
       {ev.applyNote && (ev.status === 'completed' || ev.applyStatus) && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}

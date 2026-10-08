@@ -336,6 +336,9 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
         "department": ((role.department if role and role.department else "")
                        or inputs.get("department") or cand.department or "").strip(),
         "start_date": (inputs.get("start_date") or cand.expected_start or "").strip()[:10],
+        # The offer stands until this day (inclusive); after it the signing
+        # link is dead and the packet reads Expired (Pranshu, Oct 8).
+        "offer_expires": (inputs.get("offer_expires") or "").strip()[:10],
         "manager_email": (inputs.get("manager_email") or "").strip().lower(),
         "employment_type": (inputs.get("employment_type") or "full_time").strip(),
         "salary_text": (inputs.get("salary_text") or "").strip(),
@@ -355,6 +358,16 @@ def _hire_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
         raise PacketError("The start date is not a valid date.")
     if d["employment_type"] not in _EMPLOYMENT_TYPES:
         raise PacketError(f"Employment type must be one of {', '.join(_EMPLOYMENT_TYPES)}.")
+    if not d["offer_expires"]:
+        raise PacketError("Enter the date the offer expires - the signing link stops working after it.")
+    try:
+        datetime.strptime(d["offer_expires"], "%Y-%m-%d")
+    except ValueError:
+        raise PacketError("The offer expiry is not a valid date.")
+    if d["offer_expires"] < _today():
+        raise PacketError("The offer expiry must be today or later.")
+    if d["offer_expires"] > d["start_date"]:
+        raise PacketError("The offer must expire on or before the start date.")
     if d["manager_email"]:
         # People pickers are the curated Nexus People list - never a free email.
         if not db.query(NexusEmployee).filter(NexusEmployee.work_email == d["manager_email"]).first():
@@ -487,6 +500,12 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         clean = clean_pay(pay)
     except ValueError as e:
         raise PacketError(str(e))
+    former = rehire_record(db, cand)
+    if former is not None:
+        if former.status in ("active", "onboarding", "staged"):
+            raise PacketError(f"{former.first_name} {former.last_name} ({former.employee_code}) is already in People "
+                              f"as {former.status} with this email - this is not a new hire. Edit their record instead.", 409)
+        details["rehire_employee_id"] = former.id
     wt = worker_type_of(details["employment_type"])
     setting = resolve_setting(db, cand.company, "hire", wt)
     entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
@@ -510,11 +529,25 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
             "template": tpl, "merge": merge, "unresolved": unresolved, "parties": parties,
             "title": f"{EVENT_TITLES['hire']} - {name}", "subjectName": name,
             "subfolder": (setting.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS["hire"],
-            "company": company}
+            "company": company, "former": former}
+
+
+def rehire_record(db: Session, cand: HrCandidate) -> Optional[NexusEmployee]:
+    """The People record that already belongs to this email, if any - a
+    former employee coming back must land on their old record, never a
+    second one (Pranshu, Oct 8)."""
+    email = (cand.email or "").strip().lower()
+    if not email:
+        return None
+    from sqlalchemy import func, or_
+    return (db.query(NexusEmployee)
+            .filter(or_(func.lower(NexusEmployee.personal_email) == email,
+                        func.lower(NexusEmployee.work_email) == email))
+            .order_by(NexusEmployee.created_at.desc()).first())
 
 
 def preview_out(plan: dict) -> dict:
-    tpl = plan["template"]
+    tpl, former = plan["template"], plan.get("former")
     return {
         "title": plan["title"], "company": plan["company"],
         "templateId": tpl.id, "templateName": tpl.name,
@@ -523,8 +556,12 @@ def preview_out(plan: dict) -> dict:
                         "isSubject": p.kind == "external"} for p in plan["parties"]],
         "unresolved": plan["unresolved"], "emailMessage": plan["setting"].email_message or "",
         "egnyteSubfolder": plan["subfolder"], "startDate": plan["details"]["start_date"],
+        "expiresOn": plan["details"]["offer_expires"],
         "salaryText": plan["merge"].get("salary", ""),
         "jobTitle": plan["details"]["job_title"], "newRole": plan["details"]["new_role_name"],
+        "rehire": ({"employeeId": former.id, "employeeCode": former.employee_code or "",
+                    "name": f"{former.first_name} {former.last_name}".strip(), "status": former.status or ""}
+                   if former is not None else None),
     }
 
 
@@ -564,7 +601,8 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         out = envelope_from_template(
             db, user, plan["template"], parties=plan["parties"], title=plan["title"],
             candidate_id=cand.id, entity_id=cand.company, merge=plan["merge"],
-            message=plan["setting"].email_message or "", ip=ip, user_agent=user_agent,
+            message=plan["setting"].email_message or "", expires_on=plan["details"]["offer_expires"],
+            ip=ip, user_agent=user_agent,
             excluded_ack=excluded_ack, link_kind="life_event", link_id=ev.id,
             sender_signs_first=sender_first)
     except HTTPException as e:
@@ -574,7 +612,8 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         ev.status = "sent"
     db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage,
                         to_stage=cand.stage, by_email=user["email"], created_at=now,
-                        note=f"Hiring packet sent to {ev.subject_email}"))
+                        note=f"Hiring packet sent to {ev.subject_email} - offer expires {us_date(plan['details']['offer_expires'])}"
+                        + (f" - rehire of {plan['former'].employee_code}" if plan.get("former") is not None else "")))
     db.commit()
     return ev
 
@@ -710,7 +749,8 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     details = ev.inputs or {}
     if emp is None:
         emp = create_employee_from_candidate(db, cand, ev.created_by, details=details)
-        note = "Hiring packet signed - hired automatically"
+        note = ("Hiring packet signed - rehired on their existing record" if details.get("rehire_employee_id")
+                else "Hiring packet signed - hired automatically")
     else:
         note = "Hiring packet signed (already hired)"
     if cand.stage != "hired":

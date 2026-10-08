@@ -1110,7 +1110,8 @@ export const DOCS = [
         title: 'Send a Hiring Packet',
         steps: [
           'Move the candidate to Offer, open them and click Send Hiring Packet.',
-          'Enter the job title, start date, employment type, supervisor and pay, then click Review Packet. Check the documents, the signing order and the Egnyte folder; fill in anything the template still needs.',
+          'Enter the job title, start date, the date the offer expires (they can review and sign through that day; after it the link stops working and the packet reads Expired), employment type, supervisor and pay, then click Review Packet. Check the documents, the signing order and the Egnyte folder; fill in anything the template still needs.',
+          'A former employee applying again with the same email is a rehire: the review says so, and when they sign their old People record is reactivated as Onboarding - no second record. Someone still active with that email cannot be hired again; edit their record instead.',
           'Tick the confirmation and click Send And Sign. You sign for the company right away; the new hire is then emailed at their personal address and signs last.',
           'The new hire needs no Nexus login: the email carries their own signing link, they confirm a one-time code sent to the same address, and sign. The email says who already signed for the company.',
           'The candidate card shows who has signed. Void stops a packet; after a decline, void or expiry you can send a new one. While a packet is out you cannot reject the candidate or schedule another interview round - void it first. Correcting the candidate\'s email re-sends the packet to the new address and kills the old link.',

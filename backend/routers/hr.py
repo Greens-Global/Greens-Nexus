@@ -722,20 +722,44 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
     employment_type. The caller sets the candidate's stage and commits."""
     d = details or {}
     now = datetime.now(timezone.utc).isoformat()
-    emp = NexusEmployee(
-        id=str(uuid.uuid4()), employee_code=_next_code(db),
-        first_name=cand.first_name, last_name=cand.last_name,
-        personal_email=cand.email, phone=cand.phone,
-        job_title=d.get("job_title") or cand.role_title,
-        department=d.get("department") or cand.department,
-        company=(cand.company or "").strip(),
-        start_date=d.get("start_date") or cand.expected_start,
-        manager_email=(d.get("manager_email") or "").strip().lower(),
-        employment_type=d.get("employment_type") or "full_time",
-        status="onboarding",
-        created_by=actor, created_at=now, updated_at=now,
-    )
-    db.add(emp)
+    # A former employee coming back (same email) lands on their OLD record -
+    # one person, one record, the history intact (Pranshu, Oct 8). Someone
+    # who is still active with that email is not a hire at all.
+    import hr_life_events as hle
+    former = hle.rehire_record(db, cand)
+    if former is not None and former.status in ("active", "onboarding", "staged"):
+        raise HTTPException(409, f"{former.first_name} {former.last_name} ({former.employee_code}) is already in "
+                                 f"People as {former.status} with this email - edit their record instead of hiring.")
+    if former is not None:
+        emp = former
+        log = list(emp.status_log or [])
+        log.insert(0, {"from": emp.status, "to": "onboarding", "reason": "Rehired", "effectiveDate": "",
+                       "by": actor, "at": now})
+        emp.status_log = log
+        emp.first_name, emp.last_name = cand.first_name or emp.first_name, cand.last_name or emp.last_name
+        emp.personal_email, emp.phone = cand.email or emp.personal_email, cand.phone or emp.phone
+        emp.job_title = d.get("job_title") or cand.role_title or emp.job_title
+        emp.department = d.get("department") or cand.department or emp.department
+        emp.company = (cand.company or "").strip() or emp.company
+        emp.start_date = d.get("start_date") or cand.expected_start or emp.start_date
+        emp.manager_email = (d.get("manager_email") or "").strip().lower() or emp.manager_email
+        emp.employment_type = d.get("employment_type") or emp.employment_type or "full_time"
+        emp.status, emp.updated_at = "onboarding", now
+    else:
+        emp = NexusEmployee(
+            id=str(uuid.uuid4()), employee_code=_next_code(db),
+            first_name=cand.first_name, last_name=cand.last_name,
+            personal_email=cand.email, phone=cand.phone,
+            job_title=d.get("job_title") or cand.role_title,
+            department=d.get("department") or cand.department,
+            company=(cand.company or "").strip(),
+            start_date=d.get("start_date") or cand.expected_start,
+            manager_email=(d.get("manager_email") or "").strip().lower(),
+            employment_type=d.get("employment_type") or "full_time",
+            status="onboarding",
+            created_by=actor, created_at=now, updated_at=now,
+        )
+        db.add(emp)
     cand.employee_id = emp.id
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists

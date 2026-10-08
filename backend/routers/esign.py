@@ -663,7 +663,11 @@ def _check_expiry(db: Session, req: HrSignRequest) -> None:
             datetime.strptime(exp, "%Y-%m-%d")
         except ValueError:
             return
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # The date is a calendar day where the company works: a signer may
+        # sign through the whole of that day, not until 5 PM Pacific when UTC
+        # rolls over.
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
         if today > exp:
             req.status = "expired"
             _log(db, req.id, "expired", f"expired on {exp}")
