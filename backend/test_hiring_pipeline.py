@@ -226,5 +226,78 @@ class StageTests(PipelineCase):
         self.assertIn("email", e.exception.detail)
 
 
+class FollowupTests(PipelineCase):
+    """End Interview merges everything (Neil: "when we clicked end, it should
+    just take all of this stuff in and merge it all"); the transcript can be
+    late, so Nexus keeps trying."""
+
+    def setUp(self):
+        super().setUp()
+        self.db.add(models.HrInterviewTemplate(id="q-gen", name="General", is_general=True,
+                                               questions=[{"id": "q1", "q": "Last role?"}, {"id": "q2", "q": "Why us?"}]))
+        self.db.commit()
+        self.cid = self._cand("screening")
+        self.iv = self._schedule(self.cid, interviewer_emails=[NEIL])
+        self.transcript_ready = False
+        self.claude_calls = []
+        self._real_fetch, self._real_claude = hi._fetch_transcript, hi._claude
+
+        def fetch(db, iv):
+            if not self.transcript_ready:
+                raise HTTPException(404, "No transcript yet")
+            iv.transcript = "WEBVTT\n\nJane: I ran month-end close. I like your projects."
+
+        def claude(prompt, max_tokens=3000):
+            self.claude_calls.append(prompt)
+            if "transcribing" in prompt:
+                return '[{"qid": "q1", "answer": "AI: month-end close"}, {"qid": "q2", "answer": "AI: likes the projects"}]'
+            return '{"scores": [{"qid": "q1", "score": 7, "rationale": "ok"}, {"qid": "q2", "score": 6, "rationale": "ok"}], "total": 68, "summary": "Solid."}'
+        hi._fetch_transcript, hi._claude = fetch, claude
+
+    def tearDown(self):
+        hi._fetch_transcript, hi._claude = self._real_fetch, self._real_claude
+        super().tearDown()
+
+    def _finish(self, answers):
+        return hi.finish_interview(self.iv["id"], hi.FinishIn(answers=answers), user=HR_USER, db=self.db)
+
+    def _step(self):
+        iv = self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+        hi.followup_step(self.db, iv)
+        self.db.commit()
+        self.db.expire_all()
+        return self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+
+    def test_end_waits_for_the_transcript_then_fills_only_blanks_and_scores(self):
+        typed = [{"qid": "q1", "q": "Last role?", "answer": "Typed: ran the close", "score": None, "rationale": ""},
+                 {"qid": "q2", "q": "Why us?", "answer": "", "score": None, "rationale": ""}]
+        out = self._finish(typed)
+        self.assertEqual((out["status"], out["followupStatus"]), ("completed", "waiting"))
+        iv = self._step()                                   # Teams has not published yet
+        self.assertEqual(iv.followup_status, "waiting")
+        self.assertGreater(iv.followup_next_at, out["createdAt"])
+        self.transcript_ready = True
+        iv = self._step()
+        self.assertEqual((iv.status, iv.followup_status, iv.total_score), ("scored", "done", 68.0))
+        answers = {a["qid"]: a["answer"] for a in iv.answers}
+        self.assertEqual(answers, {"q1": "Typed: ran the close", "q2": "AI: likes the projects"})
+        self.assertTrue(any("Interview scored" in n.title for n in
+                            self.db.query(models.NexusNotification).filter_by(recipient=NEIL).all()))
+
+    def test_a_setup_problem_still_scores_the_typed_answers(self):
+        hi._fetch_transcript = lambda db, iv: (_ for _ in ()).throw(HTTPException(502, "Graph denied reading the meeting"))
+        self._finish([{"qid": "q1", "q": "Last role?", "answer": "Typed", "score": None, "rationale": ""}])
+        iv = self._step()
+        self.assertEqual((iv.status, iv.followup_status), ("scored", "done"))
+        self.assertIn("Graph denied", iv.followup_note)
+
+    def test_nothing_to_score_fails_with_a_reason_after_the_retries(self):
+        self._finish([])
+        for _ in range(len(hi.FOLLOWUP_BACKOFF_MIN) + 1):
+            iv = self._step()
+        self.assertEqual(iv.followup_status, "failed")
+        self.assertIn("paste the transcript", iv.followup_note)
+
+
 if __name__ == "__main__":
     unittest.main()

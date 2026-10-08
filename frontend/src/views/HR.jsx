@@ -2181,7 +2181,11 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         }} />
       {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
-      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr} />}
+      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
+        onDecision={(kind, cand) => {
+          if (kind === 'another') setScheduling({ candidate: cand, replace: null });
+          else moveStage(cand, kind === 'offer' ? 'offer' : 'rejected', kind === 'offer' ? 'After the interview' : 'Not a fit after the interview');
+        }} />}
     </div>
   );
 }

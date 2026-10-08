@@ -147,7 +147,9 @@ def _ser_iv(i: HrInterview, cand: HrCandidate = None) -> dict:
             "organizerEmail": i.organizer_email or "", "interviewerEmails": i.interviewer_emails or [],
             "joinUrl": i.join_url, "hasTranscript": bool(i.transcript),
             "answers": i.answers or [], "totalScore": i.total_score or 0,
-            "summary": i.summary or "", "createdAt": i.created_at}
+            "summary": i.summary or "", "createdAt": i.created_at,
+            "followupStatus": i.followup_status or "", "followupNote": i.followup_note or "",
+            "followupAttempts": i.followup_attempts or 0}
 
 
 # ── Questionnaire templates ───────────────────────────────────────────────────
@@ -435,6 +437,15 @@ def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(requir
 @router.post("/interviews/{iid}/pull-transcript")
 def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
+    _fetch_transcript(db, iv)
+    db.commit()
+    return {"ok": True, "chars": len(iv.transcript)}
+
+
+def _fetch_transcript(db: Session, iv: HrInterview) -> None:
+    """Download the Teams transcript onto the interview (not committed).
+    Raises HTTPException: 404 = not there YET (retry later), 400/502 = a
+    setup problem a retry will not fix."""
     if not iv.join_url:
         raise HTTPException(400, "No Teams meeting on this interview - paste the transcript instead")
     token = _graph_token()
@@ -488,8 +499,6 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
         raise HTTPException(502, f"Could not download the transcript: {r.text[:200]}")
     iv.transcript = r.text[:200000]
     iv.updated_at = _now()
-    db.commit()
-    return {"ok": True, "chars": len(iv.transcript)}
 
 
 # ── AI: auto-fill answers from the transcript, then calibrate scores ─────────
@@ -501,7 +510,19 @@ def autofill(iid: str, user: dict = Depends(require_hr_write), db: Session = Dep
         raise HTTPException(400, "No transcript yet - pull it from Teams or paste it first")
     if not iv.answers:
         raise HTTPException(400, "This interview has no questionnaire attached")
-    qs = [{"qid": a["qid"], "q": a["q"]} for a in iv.answers]
+    _autofill(iv, only_blank=False)
+    db.commit()
+    return _ser_iv(iv)
+
+
+def _autofill(iv: HrInterview, only_blank: bool) -> None:
+    """Claude extracts each answer from the transcript. only_blank (End
+    Interview's merge) keeps whatever the interviewer typed during the call
+    and fills only what they left empty."""
+    qs = [{"qid": a["qid"], "q": a["q"]} for a in iv.answers
+          if not (only_blank and (a.get("answer") or "").strip())]
+    if not qs:
+        return
     text = _claude(
         "You are transcribing interview answers. Below is an interview transcript and the "
         "interviewer's questionnaire. For each question, extract the CANDIDATE's answer in their "
@@ -510,15 +531,20 @@ def autofill(iid: str, user: dict = Depends(require_hr_write), db: Session = Dep
         f"QUESTIONS (JSON): {json.dumps(qs)}\n\nTRANSCRIPT:\n{iv.transcript[:60000]}\n\n"
         "Reply with ONLY a JSON array: [{\"qid\": ..., \"answer\": ...}]", 4000)
     filled = {a["qid"]: a.get("answer", "") for a in _json_block(text) if isinstance(a, dict)}
-    iv.answers = [{**a, "answer": filled.get(a["qid"], a.get("answer", ""))} for a in iv.answers]
+    iv.answers = [{**a, "answer": (a.get("answer") if only_blank and (a.get("answer") or "").strip()
+                                   else filled.get(a["qid"], a.get("answer", "")))} for a in iv.answers]
     iv.updated_at = _now()
-    db.commit()
-    return _ser_iv(iv)
 
 
 @router.post("/interviews/{iid}/calibrate")
 def calibrate(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
+    cand = _calibrate(db, iv, user["email"])
+    db.commit()
+    return _ser_iv(iv, cand)
+
+
+def _calibrate(db: Session, iv: HrInterview, by: str) -> HrCandidate:
     answered = [a for a in (iv.answers or []) if (a.get("answer") or "").strip()]
     if not answered:
         raise HTTPException(400, "No answers to score - auto-fill from the transcript or type them in")
@@ -538,9 +564,159 @@ def calibrate(iid: str, user: dict = Depends(require_hr_write), db: Session = De
     iv.summary = str(data.get("summary", ""))[:2000]
     iv.status = "scored"
     iv.updated_at = _now()
-    _advance_to_interview(db, cand, user["email"], f"Interview scored - {round(iv.total_score)}/100")
+    _advance_to_interview(db, cand, by, f"Interview scored - {round(iv.total_score)}/100")
+    return cand
+
+
+# ── End Interview: take everything in and merge it (Neil, Oct 8) ─────────────
+# "when we clicked end, it should just take all of this stuff in and merge it
+# all" - and the transcript "might take a few minutes to publish". So End
+# saves what the interviewer typed and hands the rest to Nexus: the follow-up
+# keeps pulling the Teams transcript until it is published, fills the answers
+# nobody typed, scores the interview and tells the interviewers. HR does not
+# babysit buttons. Runs off the event loop (interview_followup_loop).
+
+# Minutes before each transcript attempt (~2 hours in all). Teams usually
+# publishes within minutes of the call ending.
+FOLLOWUP_BACKOFF_MIN = (1, 2, 3, 5, 10, 15, 20, 30, 30)
+
+
+class FinishIn(BaseModel):
+    answers: Optional[list] = None
+
+
+def _when(minutes: float) -> str:
+    return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+
+
+@router.post("/interviews/{iid}/finish")
+def finish_interview(iid: str, body: FinishIn, user: dict = Depends(require_hr_write),
+                     db: Session = Depends(get_db)):
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).with_for_update().first(), user, db)
+    if iv.status not in ("scheduled", "live", "completed"):
+        raise HTTPException(409, f"This interview is already {iv.status}")
+    if body.answers is not None:
+        iv.answers = body.answers
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    if iv.status != "completed":
+        iv.status = "completed"
+        iv.started_at = iv.started_at or _now()
+        iv.completed_at = _now()
+        _advance_to_interview(db, cand, user["email"], "Interview completed")
+    iv.followup_status = "waiting"
+    iv.followup_attempts = 0
+    iv.followup_next_at = _now()
+    iv.followup_note = ("Waiting for Teams to publish the transcript" if iv.join_url and not iv.transcript
+                        else "Scoring the answers")
+    iv.updated_at = _now()
     db.commit()
     return _ser_iv(iv, cand)
+
+
+@router.post("/interviews/{iid}/followup")
+def followup_now(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Retry Now - one follow-up step immediately instead of at the next tick."""
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).with_for_update().first(), user, db)
+    if iv.followup_status not in ("waiting", "failed"):
+        raise HTTPException(409, "Nothing is waiting on this interview")
+    iv.followup_status = "waiting"
+    followup_step(db, iv)
+    db.commit()
+    return _ser_iv(iv)
+
+
+def _tell(db: Session, iv: HrInterview, title: str, body: str) -> None:
+    for to in {(iv.organizer_email or "").lower(), *[(e or "").lower() for e in (iv.interviewer_emails or [])]} - {""}:
+        _hr_notify(db, to, title, body, ref_id=iv.candidate_id, requested_by="nexus",
+                   action={"view": "hr", "sub": "hr-hiring"})
+
+
+def followup_step(db: Session, iv: HrInterview) -> None:
+    """One step of the merge. Never raises; leaves the interview either done,
+    failed (with why) or waiting with the next try scheduled. Not committed."""
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    name = f"{cand.first_name} {cand.last_name}".strip() if cand else "the candidate"
+    attempts = (iv.followup_attempts or 0) + 1
+    iv.followup_attempts = attempts
+    out_of_time = attempts > len(FOLLOWUP_BACKOFF_MIN)
+    setup_problem = ""
+    if iv.join_url and not iv.transcript:
+        try:
+            _fetch_transcript(db, iv)
+        except HTTPException as e:
+            if e.status_code == 404 and not out_of_time:
+                iv.followup_note = "Waiting for Teams to publish the transcript"
+                iv.followup_next_at = _when(FOLLOWUP_BACKOFF_MIN[attempts - 1])
+                return
+            setup_problem = str(e.detail)
+        except Exception as e:     # network - try again later
+            if not out_of_time:
+                iv.followup_note = f"Teams did not answer ({type(e).__name__}) - trying again"
+                iv.followup_next_at = _when(FOLLOWUP_BACKOFF_MIN[attempts - 1])
+                return
+            setup_problem = f"Teams did not answer ({type(e).__name__})"
+    try:
+        if iv.transcript and iv.answers:
+            _autofill(iv, only_blank=True)
+        if any((a.get("answer") or "").strip() for a in (iv.answers or [])):
+            _calibrate(db, iv, "nexus")
+            iv.followup_status, iv.followup_next_at = "done", ""
+            iv.followup_note = ("Scored from the transcript and your notes" if iv.transcript
+                                else f"Scored from the typed answers - no transcript ({setup_problem or 'none'})")
+            _tell(db, iv, f"Interview scored - {name}",
+                  f"{name}: {round(iv.total_score)}/100. {iv.summary[:300]}")
+            return
+        if iv.transcript and not iv.answers:
+            iv.followup_status, iv.followup_next_at = "done", ""
+            iv.followup_note = "Transcript saved - this round had no questionnaire to score"
+            _tell(db, iv, f"Interview transcript saved - {name}", "The Teams transcript is on the interview.")
+            return
+    except HTTPException as e:
+        setup_problem = setup_problem or str(e.detail)
+    except Exception as e:         # the AI call failed - retry
+        if not out_of_time:
+            iv.followup_note = f"Scoring did not finish ({type(e).__name__}) - trying again"
+            iv.followup_next_at = _when(FOLLOWUP_BACKOFF_MIN[attempts - 1])
+            return
+        setup_problem = f"Scoring did not finish ({type(e).__name__})"
+    iv.followup_status, iv.followup_next_at = "failed", ""
+    iv.followup_note = (setup_problem or "No transcript and no typed answers to score") + \
+        " - paste the transcript or type the answers, then Retry."
+    _tell(db, iv, f"Interview not scored - {name}", iv.followup_note)
+
+
+def process_followups(limit: int = 10) -> int:
+    from database import SessionLocal
+    db = SessionLocal()
+    n = 0
+    try:
+        now = _now()
+        ids = [r.id for r in db.query(HrInterview).filter(HrInterview.followup_status == "waiting",
+                                                           HrInterview.followup_next_at != "",
+                                                           HrInterview.followup_next_at <= now)
+               .order_by(HrInterview.followup_next_at).limit(limit).all()]
+        for iid in ids:
+            iv = (db.query(HrInterview).filter(HrInterview.id == iid, HrInterview.followup_status == "waiting")
+                  .with_for_update().first())
+            if iv:
+                followup_step(db, iv)
+                db.commit()
+                n += 1
+    finally:
+        db.close()
+    return n
+
+
+async def interview_followup_loop():
+    """Off the event loop: Graph + Claude calls block (CLAUDE.md)."""
+    import asyncio
+    await asyncio.sleep(80)
+    while True:
+        try:
+            await asyncio.to_thread(process_followups)
+        except Exception as e:
+            print(f"[interviews] follow-up pass failed: {e}")
+        await asyncio.sleep(45)
 
 
 # ── Leaderboard + final round ─────────────────────────────────────────────────

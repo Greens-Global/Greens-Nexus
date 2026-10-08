@@ -2657,6 +2657,10 @@ class HrInterview(Base):
     duration_min    = Column(Integer, default=45)
     organizer_email = Column(String, default="")
     interviewer_emails = Column(JSON, default=list)   # who the interview is with (Nexus People) - invited with the candidate
+    followup_status = Column(String, default="")      # '' | waiting | done | failed - End Interview's merge (transcript -> fill -> score)
+    followup_attempts = Column(Integer, default=0)
+    followup_next_at = Column(String, default="", index=True)
+    followup_note   = Column(String, default="")      # what it is waiting for / why it stopped
     event_id        = Column(String, default="")          # Graph calendar event
     join_url        = Column(String, default="")          # Teams join link
     answers         = Column(JSON, default=list)          # [{qid, q, answer, score, rationale}]

@@ -904,6 +904,11 @@ def _run_migrations():
             # Questionnaire tied to the role (Neil, Oct 8), plus the General fallback. models.HrInterviewTemplate.
             "ALTER TABLE hr_interview_templates ADD COLUMN role_ids JSON",
             "ALTER TABLE hr_interview_templates ADD COLUMN is_general BOOLEAN DEFAULT 0",
+            # End Interview merges everything (Neil, Oct 8): transcript retries, fill, score. models.HrInterview.followup_*.
+            "ALTER TABLE hr_interviews ADD COLUMN followup_status VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN followup_attempts INTEGER DEFAULT 0",
+            "ALTER TABLE hr_interviews ADD COLUMN followup_next_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN followup_note VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2031,6 +2036,11 @@ def _run_migrations():
         # Questionnaire tied to the role (Neil, Oct 8), plus the General fallback. models.HrInterviewTemplate.
         "ALTER TABLE hr_interview_templates ADD COLUMN IF NOT EXISTS role_ids JSON",
         "ALTER TABLE hr_interview_templates ADD COLUMN IF NOT EXISTS is_general BOOLEAN DEFAULT FALSE",
+        # End Interview merges everything (Neil, Oct 8): transcript retries, fill, score. models.HrInterview.followup_*.
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS followup_status VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS followup_attempts INTEGER DEFAULT 0",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS followup_next_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS followup_note VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2605,6 +2615,11 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(shift_reminder_loop()))
         except Exception as e:
             print(f"[startup] shift reminder loop skipped: {e}")
+        try:
+            from routers.hr_interviews import interview_followup_loop
+            _tasks.append(_a.create_task(interview_followup_loop()))
+        except Exception as e:
+            print(f"[startup] interview follow-up loop skipped: {e}")
         try:
             from hr_life_events import life_events_loop
             _tasks.append(_a.create_task(life_events_loop()))

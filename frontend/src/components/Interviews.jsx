@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   X, Plus, Trash2, Video, Sparkles, Trophy, Send, FileText,
-  CheckCircle, Play, ClipboardList, RefreshCw,
+  CheckCircle, Play, ClipboardList, RefreshCw, Save, ChevronRight, XCircle, CalendarDays, Clock, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -150,7 +150,12 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 }
 
 // ── Interview room for one candidate ──────────────────────────────────────────
-export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
+// The room (Neil, Oct 8): the questions on screen during the call, and at the
+// bottom right ONE clear way out - End Interview takes everything in (the
+// answers typed now, the Teams transcript once it is published, the AI fill
+// and the score) and Nexus finishes the merge by itself. Once scored, the
+// decision is made right here: Move To Offer, Another Round, or Reject.
+export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toastErr }) {
   const [list, setList] = useState(null);
   const [sel, setSel] = useState(null);             // selected interview object
   const [busy, setBusy] = useState('');
@@ -176,13 +181,35 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
   };
   const refreshSel = (updated) => { setSel(updated); setList(l => l.map(x => x.id === updated.id ? updated : x)); };
 
-  const setAnswer = (qid, answer) => refreshSel({ ...sel, answers: sel.answers.map(a => a.qid === qid ? { ...a, answer } : a) });
+  const setAnswer = (qid, answer) => { setTyped(true); refreshSel({ ...sel, answers: sel.answers.map(a => a.qid === qid ? { ...a, answer } : a) }); };
+  const [typed, setTyped] = useState(false);      // answers changed since the last save
+
+  // While Nexus is merging (waiting on the Teams transcript, scoring), keep the
+  // room current so HR sees it land without pressing anything.
+  const waiting = sel?.followupStatus === 'waiting';
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const id = sel.id;
+    const t = setInterval(() => {
+      api.ivList(c.id).then(all => { const u = all.find(x => x.id === id); if (u) refreshSel(u); }).catch(() => {});
+    }, 15000);
+    return () => clearInterval(t);
+  }, [waiting, sel?.id, c.id]);
+
+  const saveAnswers = run('save', async () => { refreshSel({ ...(await api.ivPatch(sel.id, { answers: sel.answers })), followupStatus: sel.followupStatus }); setTyped(false); }, 'Answers saved');
+  const endInterview = run('end', async () => {
+    const u = await api.ivFinish(sel.id, { answers: sel.answers });
+    refreshSel(u); setTyped(false);
+    toastOk?.(u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.');
+  });
+  const retryNow = run('retry', async () => refreshSel(await api.ivFollowupNow(sel.id)));
+  const decide = (kind) => { if (onDecision) { onClose(); onDecision(kind, c); } };
 
   // A pending "schedule a round" draft or a pasted-but-unsaved transcript would
   // otherwise be silently lost on an overlay click - per-question answers are
   // excluded since those already auto-save onBlur (see onBlur below).
-  const dirty = !!paste.trim();
-  const guard = useUnsavedGuard(dirty, onClose, undefined);
+  const dirty = !!paste.trim() || typed;
+  const guard = useUnsavedGuard(dirty, onClose, typed && sel ? saveAnswers : undefined);
 
   return (
     <Overlay onClose={guard.requestClose} wide>
@@ -213,24 +240,29 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                   <Video size={13} /> Join Teams meeting
                 </a>
               )}
-              {sel.status === 'scheduled' && (
-                <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-                  onClick={run('live', async () => refreshSel(await api.ivPatch(sel.id, { status: 'live' })), 'Interview started - questionnaire is live')}>
-                  <Play size={13} /> Interview started
-                </button>
-              )}
-              {sel.status === 'live' && (
-                <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-                  onClick={run('done', async () => refreshSel(await api.ivPatch(sel.id, { status: 'completed', answers: sel.answers })), 'Marked completed')}>
-                  <CheckCircle size={13} /> End Interview
-                </button>
-              )}
               <div style={{ flex: 1 }} />
               {sel.status === 'scored' && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
             </div>
 
+            {sel.followupStatus && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 12.5,
+                background: sel.followupStatus === 'failed' ? 'hsla(var(--color-red),0.08)' : sel.followupStatus === 'done' ? 'hsla(var(--color-green),0.08)' : 'hsla(var(--color-blue),0.08)' }}>
+                {sel.followupStatus === 'waiting' ? <Clock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  : sel.followupStatus === 'failed' ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-red))' }} />
+                    : <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />}
+                <span style={{ flex: 1 }}>
+                  {sel.followupStatus === 'waiting' ? `${sel.followupNote || 'Working on it'}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.` : sel.followupNote}
+                </span>
+                {['waiting', 'failed'].includes(sel.followupStatus) && (
+                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={retryNow} disabled={!!busy}>
+                    {busy === 'retry' ? <Spinner size={12} /> : 'Retry Now'}
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Transcript + AI actions */}
-            {(sel.status === 'live' || sel.status === 'completed' || sel.status === 'scored') && (
+            {(sel.status === 'completed' || sel.status === 'scored') && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
@@ -273,7 +305,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                 <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 6, fontSize: 12.5, resize: 'vertical' }}
                   value={a.answer || ''} placeholder="Their answer - type it, or let AI fill it from the transcript"
                   onChange={e => setAnswer(a.qid, e.target.value)}
-                  onBlur={() => api.ivPatch(sel.id, { answers: sel.answers }).catch(() => {})} />
+                  onBlur={() => { if (sel.status !== 'live') api.ivPatch(sel.id, { answers: sel.answers }).then(() => setTyped(false)).catch(() => {}); }} />
                 {a.rationale && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
               </div>
             )) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No questionnaire attached to this round.</div>}
@@ -286,10 +318,49 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
           </div>
         )}
       </div>
+      <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+        {sel?.status === 'scored' && <span style={{ marginRight: 'auto', fontSize: 12.5, fontWeight: 700 }}>
+          <Trophy size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: 'hsl(var(--color-green))' }} />Scored {Math.round(sel.totalScore)}/100 - what next?</span>}
+        <button className="secondary-btn" onClick={guard.requestClose}>Close</button>
+        {sel?.status === 'scheduled' && (
+          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={!!busy}
+            onClick={run('live', async () => refreshSel(await api.ivPatch(sel.id, { status: 'live' })), 'Interview started - the questions are live')}>
+            {busy === 'live' ? <Spinner size={14} /> : <Play size={14} />} Start Interview
+          </button>
+        )}
+        {sel?.status === 'live' && <>
+          <button className="secondary-btn" onClick={saveAnswers} disabled={!!busy || !typed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'save' ? <Spinner size={13} /> : <Save size={13} />} Save
+          </button>
+          <button className="primary-btn" onClick={endInterview} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'end' ? <Spinner size={14} /> : <CheckCircle size={14} />} End Interview
+          </button>
+        </>}
+        {sel?.status === 'completed' && !sel.followupStatus && (
+          <button className="primary-btn" onClick={endInterview} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'end' ? <Spinner size={14} /> : <Sparkles size={14} />} Score Interview
+          </button>
+        )}
+        {sel?.status === 'completed' && typed && (
+          <button className="secondary-btn" onClick={saveAnswers} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Save size={13} /> Save
+          </button>
+        )}
+        {sel?.status === 'scored' && onDecision && <>
+          <button onClick={() => decide('reject')}
+            style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
+            <XCircle size={13} /> Reject
+          </button>
+          <button className="secondary-btn" onClick={() => decide('another')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Another Round</button>
+          <button className="primary-btn" onClick={() => decide('offer')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ChevronRight size={14} /> Move To Offer</button>
+        </>}
+      </div>
       {guard.confirming && (
         <UnsavedChangesPrompt
           onKeepEditing={guard.keepEditing}
           onDiscard={() => { setPaste(''); onClose(); }}
+          onSave={typed && sel ? guard.saveAndClose : undefined}
+          saving={busy === 'save'}
         />
       )}
     </Overlay>
