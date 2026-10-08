@@ -21,6 +21,7 @@ import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 import { HiringPacketStatus, packetIsActive, usDay } from './HiringPacket';
+import { RecordingLine } from './Interviews';
 
 export const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
 export const STAGE_META = {
@@ -206,6 +207,7 @@ export default function CandidateDetailModal({
                       With {(r.interviewerNames || r.interviewerEmails || []).join(', ') || 'no one set'} · {r.durationMin} minutes
                       {r.templateName ? ` · Questionnaire: ${r.templateName}` : ' · No questionnaire'}
                     </div>
+                    <div style={{ marginTop: 6 }}><RecordingLine iv={r} toastErr={toastErr} compact /></div>
                   </div>
                 );
               })}

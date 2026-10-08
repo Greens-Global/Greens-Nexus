@@ -67,7 +67,16 @@ class PipelineCase(unittest.TestCase):
         self.db.commit()
         # Graph is a side effect: record the invites instead of sending them.
         self.invites = []
+        self.recorded, self.files = [], {}      # auto-record calls; hr-docs objects written
+        self.record_problem = ""
         self._real_meet, self._real_cancel = hi._graph_create_meeting, hi._graph_cancel_meeting
+        self._real_enable, self._real_put = hi._graph_enable_recording, hi._put_file
+
+        def enable(iv):
+            self.recorded.append(iv.join_url)
+            return self.record_problem
+        hi._graph_enable_recording = enable
+        hi._put_file = lambda path, content, ctype: self.files.__setitem__(path, (len(content), ctype))
 
         def meet(*a, **k):
             self.invites.append((a, k))
@@ -80,6 +89,7 @@ class PipelineCase(unittest.TestCase):
 
     def tearDown(self):
         hi._graph_create_meeting, hi._graph_cancel_meeting = self._real_meet, self._real_cancel
+        hi._graph_enable_recording, hi._put_file = self._real_enable, self._real_put
         self.db.close()
 
     def _add(self, **kw):
@@ -171,6 +181,20 @@ class StageTests(PipelineCase):
         rounds = hi.candidate_interviews(cid, user=HR_USER, db=self.db)
         self.assertEqual(rounds[0]["interviewerNames"], ["Neil K"])
 
+    def test_scheduling_turns_auto_recording_on(self):
+        cid = self._cand("screening")
+        out = self._schedule(cid)
+        self.assertEqual((out["autoRecord"], self.recorded), ("on", ["https://teams/x"]))
+        notes = [e.note for e in self.db.query(models.HrStageEvent).filter_by(candidate_id=cid).all()]
+        self.assertTrue(any("auto-recording on" in n for n in notes))
+
+    def test_auto_recording_that_cannot_be_turned_on_does_not_stop_the_interview(self):
+        self.record_problem = "Graph denied changing the meeting"
+        cid = self._cand("screening")
+        out = self._schedule(cid)
+        self.assertTrue(out["autoRecord"].startswith("failed: Graph denied"))
+        self.assertEqual(self._stage(cid).stage, "interview")
+
     def test_interviewers_must_be_nexus_people(self):
         cid = self._cand("screening")
         with self.assertRaises(HTTPException):
@@ -239,13 +263,23 @@ class FollowupTests(PipelineCase):
         self.cid = self._cand("screening")
         self.iv = self._schedule(self.cid, interviewer_emails=[NEIL])
         self.transcript_ready = False
+        self.recording_ready = False
         self.claude_calls = []
         self._real_fetch, self._real_claude = hi._fetch_transcript, hi._claude
+        self._real_fetch_rec = hi._fetch_recording
 
         def fetch(db, iv):
             if not self.transcript_ready:
                 raise HTTPException(404, "No transcript yet")
             iv.transcript = "WEBVTT\n\nJane: I ran month-end close. I like your projects."
+            hi._save_transcript_file(db, iv)
+
+        def fetch_rec(db, iv):
+            if not self.recording_ready:
+                raise HTTPException(404, "No recording yet")
+            iv.recording_path, iv.recording_size = f"interviews/{iv.id}/recording.mp4", 123456
+            hi._attach_to_employee(db, iv)
+        hi._fetch_recording = fetch_rec
 
         def claude(prompt, max_tokens=3000):
             self.claude_calls.append(prompt)
@@ -256,7 +290,62 @@ class FollowupTests(PipelineCase):
 
     def tearDown(self):
         hi._fetch_transcript, hi._claude = self._real_fetch, self._real_claude
+        hi._fetch_recording = self._real_fetch_rec
         super().tearDown()
+
+    def _rec_step(self):
+        iv = self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+        hi.recording_step(self.db, iv)
+        self.db.commit()
+        self.db.expire_all()
+        return self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+
+    def test_the_recording_is_pulled_and_lands_on_the_employee_once_hired(self):
+        out = self._finish([])
+        self.assertEqual(out["recordingStatus"], "waiting")
+        iv = self._rec_step()                               # not published yet
+        self.assertEqual((iv.recording_status, iv.recording_attempts), ("waiting", 1))
+        self.transcript_ready = True
+        self._step()                                        # transcript -> file saved
+        iv = self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+        self.assertEqual(iv.transcript_path, f"interviews/{iv.id}/transcript.vtt")
+        self.assertIn(iv.transcript_path, self.files)
+        self.recording_ready = True
+        iv = self._rec_step()
+        self.assertEqual((iv.recording_status, iv.recording_path), ("done", f"interviews/{iv.id}/recording.mp4"))
+        self.assertTrue(any("recording saved" in n.title.lower() for n in
+                            self.db.query(models.NexusNotification).filter_by(recipient=NEIL).all()))
+        # Not an employee yet - nothing on a profile. Hire -> both files on their Documents.
+        self.assertEqual(self.db.query(models.HrDocument).filter(
+            models.HrDocument.storage_path.in_([iv.recording_path, iv.transcript_path])).count(), 0)
+        cand = self.db.query(models.HrCandidate).filter_by(id=self.cid).first()
+        emp = hr.create_employee_from_candidate(self.db, cand, HR_USER["email"])
+        self.db.commit()
+        docs = {d.file_name: d.storage_path for d in self.db.query(models.HrDocument).filter_by(employee_id=emp.id).all()}
+        self.assertEqual(set(docs.values()), {iv.recording_path, iv.transcript_path})
+        self.assertTrue(all(n.startswith("Interview 11/02/2026 - ") for n in docs))
+        # Hiring again never duplicates; the profile lists the round with its files.
+        hi.attach_interview_files(self.db, cand)
+        self.assertEqual(self.db.query(models.HrDocument).filter_by(employee_id=emp.id).count(), 2)
+        rows = hi.employee_interviews(emp.id, user=HR_USER, db=self.db)
+        self.assertEqual((len(rows), rows[0]["hasRecording"], rows[0]["hasTranscriptFile"]), (1, True, True))
+
+    def test_a_recording_that_arrives_after_the_hire_still_lands_on_the_profile(self):
+        cand = self.db.query(models.HrCandidate).filter_by(id=self.cid).first()
+        emp = hr.create_employee_from_candidate(self.db, cand, HR_USER["email"])
+        self.db.commit()
+        self._finish([])
+        self.recording_ready = True
+        self._rec_step()
+        self.assertEqual([d.file_name for d in self.db.query(models.HrDocument).filter_by(employee_id=emp.id).all()],
+                         ["Interview 11/02/2026 - Recording.mp4"])
+
+    def test_recording_setup_problem_fails_with_the_reason(self):
+        hi._fetch_recording = lambda db, iv: (_ for _ in ()).throw(HTTPException(502, "Graph denied reading the recording"))
+        self._finish([])
+        iv = self._rec_step()
+        self.assertEqual(iv.recording_status, "failed")
+        self.assertIn("Graph denied", iv.recording_note)
 
     def _finish(self, answers):
         return hi.finish_interview(self.iv["id"], hi.FinishIn(answers=answers), user=HR_USER, db=self.db)

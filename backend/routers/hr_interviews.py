@@ -8,10 +8,21 @@ auto-fills the candidate's answers, then "Calibrate" scores every answer against
 the question and builds a per-role leaderboard. Winner gets a one-click
 "final round / offer discussion" invite.
 
+Recording (Pranshu, Oct 8): the meeting is set to record and transcribe
+itself from the moment it starts (onlineMeeting.recordAutomatically), so
+nobody has to remember to press Record. After End Interview, Nexus pulls the
+transcript (scoring) AND the recording (mp4) from Teams into the private
+hr-docs bucket; both show on the candidate and, once they are hired, on the
+employee's profile (Interviews tab + Documents). Teams keeps auto-recordings
+for a limited time, which is why the copy is taken.
+
 Graph requirements (same app registration as provisioning):
   - Calendars.ReadWrite  (application) → create the meeting invites
-  - OnlineMeetingTranscript.Read.All + a Teams application access policy
-    (New-CsApplicationAccessPolicy … -Identity <organizer>) → pull transcripts
+  - OnlineMeetings.ReadWrite.All (application) + the Teams application access
+    policy (New-CsApplicationAccessPolicy … -Identity <organizer>) → find the
+    meeting and switch auto-recording on
+  - OnlineMeetingTranscript.Read.All → pull transcripts
+  - OnlineMeetingRecording.Read.All → pull recordings
 Endpoints degrade with clear error messages when a permission is missing;
 the questionnaire + paste-transcript + AI flow works regardless.
 """
@@ -149,7 +160,11 @@ def _ser_iv(i: HrInterview, cand: HrCandidate = None) -> dict:
             "answers": i.answers or [], "totalScore": i.total_score or 0,
             "summary": i.summary or "", "createdAt": i.created_at,
             "followupStatus": i.followup_status or "", "followupNote": i.followup_note or "",
-            "followupAttempts": i.followup_attempts or 0}
+            "followupAttempts": i.followup_attempts or 0,
+            "autoRecord": i.auto_record or "",
+            "recordingStatus": i.recording_status or "", "recordingNote": i.recording_note or "",
+            "hasRecording": bool(i.recording_path), "recordingSize": i.recording_size or 0,
+            "hasTranscriptFile": bool(i.transcript_path)}
 
 
 # ── Questionnaire templates ───────────────────────────────────────────────────
@@ -247,6 +262,80 @@ def _graph_create_meeting(organizer: str, subject: str, body_text: str,
     ev = r.json()
     return {"eventId": ev.get("id", ""),
             "joinUrl": ((ev.get("onlineMeeting") or {}).get("joinUrl", ""))}
+
+
+def _graph_meeting_ids(h: dict, iv: HrInterview, db: Optional[Session] = None) -> tuple:
+    """(organizer object id, onlineMeeting id) for this interview's Teams
+    meeting, remembered on the row once found. Raises HTTPException: 404 =
+    not found (yet), 502 = a permission or setup problem."""
+    org = iv.organizer_email
+    # /onlineMeetings rejects UPNs ("userId is not a GUID") - resolve the
+    # organizer's directory object id first.
+    u = httpx.get(f"{_GRAPH}/users/{org}", params={"$select": "id"}, headers=h, timeout=20)
+    if not u.is_success:
+        raise HTTPException(502, f"Could not resolve the organizer account: {u.text[:150]}")
+    oid = u.json().get("id", "")
+    if iv.online_meeting_id:
+        return oid, iv.online_meeting_id
+    if not iv.join_url:
+        raise HTTPException(400, "No Teams meeting on this interview")
+
+    def _find(join_url: str):
+        rr = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings",
+                       params={"$filter": f"JoinWebUrl eq '{join_url}'"}, headers=h, timeout=30)
+        if rr.status_code == 403:
+            raise HTTPException(502, "Graph denied reading the meeting - this needs "
+                                     "'OnlineMeetings.ReadWrite.All' (+ 'OnlineMeetingTranscript.Read.All' and "
+                                     "'OnlineMeetingRecording.Read.All') AND a Teams application access policy for "
+                                     "the organizer (New-CsApplicationAccessPolicy / Grant-CsApplicationAccessPolicy "
+                                     "- takes ~30 min to apply).")
+        if not rr.is_success:
+            raise HTTPException(502, f"Meeting lookup failed ({rr.status_code}): {rr.text[:200]}")
+        return rr.json().get("value", [])
+
+    meetings = _find(iv.join_url)
+    if not meetings and iv.event_id:
+        # The joinUrl stored at scheduling time can drift from Graph's canonical
+        # one (encoding/context) - re-read it from the calendar event and retry.
+        ev = httpx.get(f"{_GRAPH}/users/{org}/events/{iv.event_id}",
+                       params={"$select": "onlineMeeting"}, headers=h, timeout=30)
+        if ev.is_success:
+            fresh = ((ev.json().get("onlineMeeting") or {}).get("joinUrl") or "").strip()
+            if fresh and fresh != iv.join_url:
+                iv.join_url = fresh
+                if db is not None:
+                    db.commit()
+                meetings = _find(fresh)
+    if not meetings:
+        raise HTTPException(404, "Could not find the Teams meeting under the organizer's account. "
+                                 "If you granted the permissions/access policy recently, wait up to 30 minutes "
+                                 "and retry.")
+    iv.online_meeting_id = meetings[0]["id"]
+    return oid, iv.online_meeting_id
+
+
+def _graph_enable_recording(iv: HrInterview) -> str:
+    """Make the Teams meeting record and transcribe itself from the first
+    second (recordAutomatically). '' = on, else why it could not be - the
+    interview goes ahead either way; the interviewer can still press Record."""
+    try:
+        h = {"Authorization": f"Bearer {_graph_token()}", "Content-Type": "application/json"}
+        oid, mid = _graph_meeting_ids(h, iv)
+        body = {"recordAutomatically": True, "allowRecording": True, "allowTranscription": True}
+        r = httpx.patch(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}", headers=h, json=body, timeout=30)
+        if r.status_code == 400:        # a tenant whose Graph does not know the two allow* options yet
+            r = httpx.patch(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}", headers=h,
+                            json={"recordAutomatically": True}, timeout=30)
+        if r.status_code == 403:
+            return ("Graph denied changing the meeting - grant 'OnlineMeetings.ReadWrite.All' and the Teams "
+                    "application access policy for the organizer")
+        if not r.is_success:
+            return f"Teams did not accept auto-recording ({r.status_code}): {r.text[:160]}"
+        return ""
+    except HTTPException as e:
+        return str(e.detail)
+    except Exception as e:              # network - not worth failing the schedule over
+        return f"Teams did not answer ({type(e).__name__})"
 
 
 class ScheduleIn(BaseModel):
@@ -365,6 +454,13 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
         iv.join_url = meeting["joinUrl"]
     except HTTPException as e:
         graph_error = str(e.detail)
+    record_note = ""
+    if iv.join_url:
+        # Record + transcribe from the first second, so nobody has to press
+        # Record on the call. Best-effort: the invite is already out.
+        why = _graph_enable_recording(iv)
+        iv.auto_record = "on" if not why else f"failed: {why}"[:400]
+        record_note = " - auto-recording on" if not why else " - auto-recording could not be turned on"
 
     if replaced:
         _cancel_round(db, replaced, cand, user["email"], "Interview rescheduled")
@@ -372,7 +468,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
     cand.updated_at = _now()
     _advance_to_interview(db, cand, user["email"],
                           f"Interview {'rescheduled' if replaced else 'scheduled'} with {with_whom}"
-                          + (" - Teams invite sent" if iv.event_id else ""), pull_back=True)
+                          + (" - Teams invite sent" if iv.event_id else "") + record_note, pull_back=True)
     for e in who:
         if e != me:
             _hr_notify(db, e, f"Interview - {cand_name}",
@@ -434,6 +530,7 @@ def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(requir
         iv.answers = body.answers
     if body.transcript is not None:
         iv.transcript = body.transcript[:200000]
+        _save_transcript_file(db, iv)
     iv.updated_at = _now()
     db.commit()
     return _ser_iv(iv)
@@ -455,46 +552,8 @@ def _fetch_transcript(db: Session, iv: HrInterview) -> None:
     setup problem a retry will not fix."""
     if not iv.join_url:
         raise HTTPException(400, "No Teams meeting on this interview - paste the transcript instead")
-    token = _graph_token()
-    h = {"Authorization": f"Bearer {token}"}
-    org = iv.organizer_email
-    # /onlineMeetings rejects UPNs ("userId is not a GUID") - resolve the
-    # organizer's directory object id first.
-    u = httpx.get(f"{_GRAPH}/users/{org}", params={"$select": "id"}, headers=h, timeout=20)
-    if not u.is_success:
-        raise HTTPException(502, f"Could not resolve the organizer account: {u.text[:150]}")
-    oid = u.json().get("id", "")
-
-    def _find(join_url: str):
-        rr = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings",
-                       params={"$filter": f"JoinWebUrl eq '{join_url}'"}, headers=h, timeout=30)
-        if rr.status_code == 403:
-            raise HTTPException(502, "Graph denied reading the meeting - this needs "
-                                     "'OnlineMeetings.Read.All' + 'OnlineMeetingTranscript.Read.All' AND a Teams "
-                                     "application access policy for the organizer (New-CsApplicationAccessPolicy / "
-                                     "Grant-CsApplicationAccessPolicy - takes ~30 min to apply). Until then, turn on "
-                                     "transcription in Teams and use Paste transcript.")
-        if not rr.is_success:
-            raise HTTPException(502, f"Meeting lookup failed ({rr.status_code}): {rr.text[:200]}")
-        return rr.json().get("value", [])
-
-    meetings = _find(iv.join_url)
-    if not meetings and iv.event_id:
-        # The joinUrl stored at scheduling time can drift from Graph's canonical
-        # one (encoding/context) - re-read it from the calendar event and retry.
-        ev = httpx.get(f"{_GRAPH}/users/{org}/events/{iv.event_id}",
-                       params={"$select": "onlineMeeting"}, headers=h, timeout=30)
-        if ev.is_success:
-            fresh = ((ev.json().get("onlineMeeting") or {}).get("joinUrl") or "").strip()
-            if fresh and fresh != iv.join_url:
-                iv.join_url = fresh
-                db.commit()
-                meetings = _find(fresh)
-    if not meetings:
-        raise HTTPException(404, "Could not find the Teams meeting under the organizer's account. "
-                                 "If you granted the permissions/access policy recently, wait up to 30 minutes "
-                                 "and retry - or use Paste transcript.")
-    mid = meetings[0]["id"]
+    h = {"Authorization": f"Bearer {_graph_token()}"}
+    oid, mid = _graph_meeting_ids(h, iv, db)
     r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/transcripts", headers=h, timeout=30)
     if not r.is_success or not r.json().get("value"):
         raise HTTPException(404, "No transcript yet - make sure transcription was started in the meeting "
@@ -506,6 +565,166 @@ def _fetch_transcript(db: Session, iv: HrInterview) -> None:
         raise HTTPException(502, f"Could not download the transcript: {r.text[:200]}")
     iv.transcript = r.text[:200000]
     iv.updated_at = _now()
+    _save_transcript_file(db, iv)
+
+
+# ── Recording + transcript as files (hr-docs, private) ───────────────────────
+# The transcript text lives on the row for scoring; the files are what HR
+# opens and what lands on the employee's profile once they are hired.
+
+RECORDING_BACKOFF_MIN = (2, 5, 10, 15, 30, 30, 60, 60)    # Teams publishes a recording a while after the call
+_MAX_RECORDING_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _put_file(path: str, content: bytes, content_type: str) -> None:
+    """Into the private hr-docs bucket (local files when storage is not
+    configured, like Nexus Sign). Raises on failure. Long timeout: a
+    recording is hundreds of MB."""
+    from routers import esign
+    from routers.hr import _DOC_BUCKET, _SUPABASE_URL, _storage_headers
+    if esign._storage_configured():
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                       headers={**_storage_headers(), "Content-Type": content_type, "x-upsert": "true"},
+                       content=content, timeout=900)
+        if not r.is_success:
+            raise HTTPException(502, f"Storage refused the file ({r.status_code}): {r.text[:160]}")
+        return
+    esign._storage_put(_DOC_BUCKET, path, content, content_type, upsert=True)
+
+
+def _save_transcript_file(db: Session, iv: HrInterview) -> None:
+    """The transcript as a .vtt next to the recording. Never raises - the text
+    on the row is what scoring needs; the file is the record."""
+    if not (iv.transcript or "").strip():
+        return
+    try:
+        path = f"interviews/{iv.id}/transcript.vtt"
+        _put_file(path, iv.transcript.encode("utf-8"), "text/vtt")
+        iv.transcript_path = path
+        _attach_to_employee(db, iv)
+    except Exception as e:      # noqa: BLE001 - best effort by design
+        print(f"[interviews] transcript file not saved for {iv.id}: {type(e).__name__}: {e}")
+
+
+def _fetch_recording(db: Session, iv: HrInterview) -> None:
+    """Copy the Teams recording onto the interview (not committed). Raises
+    HTTPException: 404 = not published YET (retry later), 400/502 = a setup
+    problem a retry will not fix."""
+    if not iv.join_url:
+        raise HTTPException(400, "No Teams meeting on this interview")
+    h = {"Authorization": f"Bearer {_graph_token()}"}
+    oid, mid = _graph_meeting_ids(h, iv, db)
+    r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/recordings", headers=h, timeout=30)
+    if r.status_code == 403:
+        raise HTTPException(502, "Graph denied reading the recording - grant 'OnlineMeetingRecording.Read.All' "
+                                 "(application) and consent.")
+    if not r.is_success:
+        raise HTTPException(502, f"Recording lookup failed ({r.status_code}): {r.text[:200]}")
+    rows = r.json().get("value", [])
+    if not rows:
+        raise HTTPException(404, "No recording yet - Teams publishes it a few minutes after the call ends.")
+    rid = rows[-1]["id"]
+    with httpx.stream("GET", f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/recordings/{rid}/content",
+                      headers=h, timeout=600, follow_redirects=True) as resp:
+        if not resp.is_success:
+            raise HTTPException(502, f"Could not download the recording ({resp.status_code})")
+        chunks, size = [], 0
+        for chunk in resp.iter_bytes():
+            size += len(chunk)
+            if size > _MAX_RECORDING_BYTES:
+                raise HTTPException(502, "The recording is larger than 2 GB - keep it in Teams/OneDrive instead.")
+            chunks.append(chunk)
+    blob = b"".join(chunks)
+    if not blob:
+        raise HTTPException(404, "The recording is still being processed - trying again later.")
+    path = f"interviews/{iv.id}/recording.mp4"
+    _put_file(path, blob, "video/mp4")
+    iv.recording_path, iv.recording_size = path, len(blob)
+    iv.updated_at = _now()
+    _attach_to_employee(db, iv)
+
+
+def _attach_to_employee(db: Session, iv: HrInterview) -> int:
+    """Once the candidate is an employee, the recording and transcript are on
+    their profile's Documents too (same object, no copy). Called when a file
+    lands and when the hire happens, so the order never matters."""
+    from models import HrDocument
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    if not cand or not cand.employee_id:
+        return 0
+    day = (iv.at or iv.created_at or "")[:10]
+    try:
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        label = day
+    added = 0
+    for path, name, size in ((iv.recording_path, f"Interview {label} - Recording.mp4", iv.recording_size or 0),
+                             (iv.transcript_path, f"Interview {label} - Transcript.vtt",
+                              len((iv.transcript or "").encode("utf-8")))):
+        if not path:
+            continue
+        if db.query(HrDocument).filter(HrDocument.employee_id == cand.employee_id,
+                                       HrDocument.storage_path == path).first():
+            continue
+        db.add(HrDocument(id=str(uuid.uuid4()), employee_id=cand.employee_id, kind="other", file_name=name,
+                          storage_path=path, size_bytes=size, uploaded_by="interviews", created_at=_now()))
+        added += 1
+    return added
+
+
+def attach_interview_files(db: Session, cand: HrCandidate) -> int:
+    """Hook for the hire (routers/hr.create_employee_from_candidate): every
+    round's recording and transcript onto the new employee's Documents."""
+    n = 0
+    for iv in db.query(HrInterview).filter(HrInterview.candidate_id == cand.id).all():
+        n += _attach_to_employee(db, iv)
+    return n
+
+
+@router.get("/interviews/{iid}/file")
+def interview_file(iid: str, kind: str = "recording", user: dict = Depends(require_hr_read),
+                   db: Session = Depends(get_db)):
+    """A short-lived link to the recording or the transcript file - the
+    bucket is private."""
+    from routers import esign
+    from routers.hr import _DOC_BUCKET
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
+    path = iv.recording_path if kind == "recording" else iv.transcript_path
+    if not path:
+        raise HTTPException(404, "Not on this interview yet")
+    got = esign._storage_signed_url(_DOC_BUCKET, path, expires_in=600)
+    if not got.is_success:
+        raise HTTPException(502, f"Could not sign the link: {got.text[:160]}")
+    return {"url": got.json()["url"], "expiresIn": 600, "size": iv.recording_size if kind == "recording" else 0}
+
+
+@router.post("/interviews/{iid}/pull-recording")
+def pull_recording(iid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
+    _fetch_recording(db, iv)
+    iv.recording_status, iv.recording_next_at, iv.recording_note = "done", "", "Recording saved"
+    db.commit()
+    return _ser_iv(iv)
+
+
+@router.get("/employees/{eid}/interviews")
+def employee_interviews(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The rounds the person went through before they were hired - the
+    profile's Interviews tab."""
+    from models import NexusEmployee
+    from routers.hr import _assert_scope
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(emp, hr_scope(user, db))
+    cands = [c.id for c in db.query(HrCandidate).filter(HrCandidate.employee_id == eid).all()]
+    if not cands:
+        return []
+    rows = (db.query(HrInterview).filter(HrInterview.candidate_id.in_(cands), HrInterview.status != "canceled")
+            .order_by(HrInterview.at.desc()).all())
+    names = _names(db, list({e for i in rows for e in (i.interviewer_emails or [])}))
+    return [_ser_iv(i) | {"interviewerNames": [names.get(e, e) for e in (i.interviewer_emails or [])]}
+            for i in rows]
 
 
 # ── AI: auto-fill answers from the transcript, then calibrate scores ─────────
@@ -615,6 +834,11 @@ def finish_interview(iid: str, body: FinishIn, user: dict = Depends(require_hr_w
     iv.followup_next_at = _now()
     iv.followup_note = ("Waiting for Teams to publish the transcript" if iv.join_url and not iv.transcript
                         else "Scoring the answers")
+    if iv.join_url and not iv.recording_path:
+        # The recording comes a while after the transcript - its own wait,
+        # so scoring never holds for it and it never holds for scoring.
+        iv.recording_status, iv.recording_attempts, iv.recording_next_at = "waiting", 0, _now()
+        iv.recording_note = "Waiting for Teams to publish the recording"
     iv.updated_at = _now()
     db.commit()
     return _ser_iv(iv, cand)
@@ -693,6 +917,39 @@ def followup_step(db: Session, iv: HrInterview) -> None:
     _tell(db, iv, f"Interview not scored - {name}", iv.followup_note)
 
 
+def recording_step(db: Session, iv: HrInterview) -> None:
+    """One try at the recording. Never raises; leaves it done, failed (with
+    why) or waiting with the next try scheduled. Not committed."""
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    name = f"{cand.first_name} {cand.last_name}".strip() if cand else "the candidate"
+    attempts = (iv.recording_attempts or 0) + 1
+    iv.recording_attempts = attempts
+    out_of_time = attempts > len(RECORDING_BACKOFF_MIN)
+    try:
+        _fetch_recording(db, iv)
+    except HTTPException as e:
+        if e.status_code == 404 and not out_of_time:
+            iv.recording_note = "Waiting for Teams to publish the recording"
+            iv.recording_next_at = _when(RECORDING_BACKOFF_MIN[attempts - 1])
+            return
+        why = str(e.detail)
+    except Exception as e:
+        if not out_of_time:
+            iv.recording_note = f"Teams did not answer ({type(e).__name__}) - trying again"
+            iv.recording_next_at = _when(RECORDING_BACKOFF_MIN[attempts - 1])
+            return
+        why = f"Teams did not answer ({type(e).__name__})"
+    else:
+        iv.recording_status, iv.recording_next_at = "done", ""
+        iv.recording_note = "Recording saved"
+        _tell(db, iv, f"Interview recording saved - {name}",
+              "The Teams recording and transcript are on the interview" + (" and on their profile." if cand and cand.employee_id else "."))
+        return
+    iv.recording_status, iv.recording_next_at = "failed", ""
+    iv.recording_note = why + " - fix that, then Pull Recording."
+    _tell(db, iv, f"Interview recording not saved - {name}", iv.recording_note)
+
+
 def process_followups(limit: int = 10) -> int:
     from database import SessionLocal
     db = SessionLocal()
@@ -708,6 +965,17 @@ def process_followups(limit: int = 10) -> int:
                   .with_for_update().first())
             if iv:
                 followup_step(db, iv)
+                db.commit()
+                n += 1
+        ids = [r.id for r in db.query(HrInterview).filter(HrInterview.recording_status == "waiting",
+                                                           HrInterview.recording_next_at != "",
+                                                           HrInterview.recording_next_at <= now)
+               .order_by(HrInterview.recording_next_at).limit(limit).all()]
+        for iid in ids:
+            iv = (db.query(HrInterview).filter(HrInterview.id == iid, HrInterview.recording_status == "waiting")
+                  .with_for_update().first())
+            if iv:
+                recording_step(db, iv)
                 db.commit()
                 n += 1
     finally:

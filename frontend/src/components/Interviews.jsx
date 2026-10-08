@@ -39,6 +39,88 @@ const STATUS_CHIP = {
 };
 const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.scheduled; return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em', background: bg, color: fg }}>{s}</span>; };
 
+// Open a recording / transcript through its short-lived link (private bucket).
+async function openInterviewFile(iv, kind, toastErr) {
+  try { const { url } = await api.ivFile(iv.id, kind); window.open(url, '_blank', 'noopener'); }
+  catch (e) { toastErr?.(e?.message || 'Could not open the file.'); }
+}
+const fmtMb = b => (b > 0 ? ` (${(b / 1048576).toFixed(b > 10485760 ? 0 : 1)} MB)` : '');
+
+// Where the recording stands for one round (Pranshu, Oct 8: the meeting
+// records itself; afterwards the recording and transcript are kept).
+export function RecordingLine({ iv, onPull, busy, toastErr, compact }) {
+  const links = (
+    <>
+      {iv.hasRecording && (
+        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          onClick={() => openInterviewFile(iv, 'recording', toastErr)}><Play size={11} /> Play Recording{fmtMb(iv.recordingSize)}</button>
+      )}
+      {iv.hasTranscriptFile && (
+        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          onClick={() => openInterviewFile(iv, 'transcript', toastErr)}><FileText size={11} /> Transcript</button>
+      )}
+    </>
+  );
+  if (['scheduled', 'live'].includes(iv.status)) {
+    if (!iv.joinUrl) return null;
+    const on = iv.autoRecord === 'on';
+    return (
+      <div style={{ fontSize: 12, color: on ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <Video size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>{on ? 'Auto-recording on - the call records and transcribes itself from the start.'
+          : `Auto-recording is off${iv.autoRecord ? ` (${iv.autoRecord.replace(/^failed: /, '')})` : ''} - press Record in Teams when the call starts.`}</span>
+      </div>
+    );
+  }
+  if (iv.hasRecording || iv.hasTranscriptFile) {
+    return <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>{links}</div>;
+  }
+  if (!iv.recordingStatus || compact) return null;
+  const failed = iv.recordingStatus === 'failed';
+  return (
+    <div style={{ fontSize: 12, color: failed ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      {failed ? <AlertTriangle size={13} /> : <Clock size={13} />}
+      <span style={{ flex: 1 }}>{iv.recordingNote || 'Waiting for the Teams recording'}</span>
+      {onPull && (
+        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onPull} disabled={!!busy}>
+          {busy ? <Spinner size={12} /> : 'Pull Recording'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The rounds a person went through before they were hired - the profile's
+// Interviews tab. Read only: the decision was made in the pipeline.
+export function EmployeeInterviews({ employeeId, toastErr }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => { api.getEmployeeInterviews(employeeId).then(setRows).catch(() => setRows([])); }, [employeeId]);
+  if (rows === null) return <div style={{ marginTop: 18 }}><Spinner size={15} /></div>;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+        <Video size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Interviews
+      </div>
+      {rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No interview rounds on record - they were added to People directly.</div>
+        : rows.map(iv => (
+          <div key={iv.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <b style={{ fontSize: 13 }}>{iv.at ? formatDateTime(iv.at) : 'Unscheduled'}</b>
+              <Chip s={iv.status} />
+              {iv.status === 'scored' && <span style={{ fontSize: 12, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(iv.totalScore)}/100</span>}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              With {(iv.interviewerNames || iv.interviewerEmails || []).join(', ') || 'no one set'} · {iv.durationMin} minutes
+              {iv.templateName ? ` · Questionnaire: ${iv.templateName}` : ''}
+            </div>
+            {iv.summary && <div style={{ fontSize: 12.5, marginTop: 6 }}><strong>AI verdict:</strong> {iv.summary}</div>}
+            <div style={{ marginTop: 8 }}><RecordingLine iv={iv} toastErr={toastErr} compact /></div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 // ── Questionnaire templates ───────────────────────────────────────────────────
 export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
   const [tpls, setTpls] = useState(null);
@@ -242,6 +324,10 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
               )}
               <div style={{ flex: 1 }} />
               {sel.status === 'scored' && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <RecordingLine iv={sel} busy={busy === 'rec'} toastErr={toastErr}
+                onPull={run('rec', async () => refreshSel(await api.ivPullRecording(sel.id)), 'Recording saved')} />
             </div>
 
             {sel.followupStatus && (

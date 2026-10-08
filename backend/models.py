@@ -2672,6 +2672,19 @@ class HrInterview(Base):
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+    # Recording (Pranshu, Oct 8): the Teams meeting records and transcribes
+    # itself from the first second; afterwards the recording and transcript
+    # are pulled into the private hr-docs bucket and, once hired, onto the
+    # employee's profile Documents.
+    online_meeting_id  = Column(String, default="")      # Graph onlineMeeting id (recordings/transcripts hang off it)
+    auto_record        = Column(String, default="")      # '' | on | failed: <why>
+    recording_status   = Column(String, default="")      # '' | waiting | done | failed
+    recording_attempts = Column(Integer, default=0)
+    recording_next_at  = Column(String, default="", index=True)
+    recording_note     = Column(String, default="")
+    recording_path     = Column(String, default="")      # hr-docs object (mp4)
+    recording_size     = Column(Integer, default=0)
+    transcript_path    = Column(String, default="")      # hr-docs object (vtt) - the transcript as a file
 
 
 class HrSelfRequest(Base):

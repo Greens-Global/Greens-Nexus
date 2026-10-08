@@ -740,6 +740,13 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
     # Their onboarding checklist starts with the hire (hr_checklists.py).
     import hr_checklists
     hr_checklists.start_on_hire(db, emp, actor)
+    # Their interview recordings and transcripts come with them onto the
+    # profile's Documents (routers/hr_interviews.py).
+    try:
+        from routers.hr_interviews import attach_interview_files
+        attach_interview_files(db, cand)
+    except Exception as e:   # noqa: BLE001 - never block the hire
+        print(f"[hr] interview files not attached for {emp.id}: {type(e).__name__}: {e}")
     return emp
 
 

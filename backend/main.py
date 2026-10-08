@@ -911,6 +911,16 @@ def _run_migrations():
             "ALTER TABLE hr_interviews ADD COLUMN followup_note VARCHAR DEFAULT ''",
             # Offboarding scheduled for the last day (Pranshu, Oct 8). models.HrLifeEvent.apply_status.
             "ALTER TABLE hr_life_events ADD COLUMN apply_status VARCHAR DEFAULT ''",
+            # Interview recording + transcript files (Pranshu, Oct 8). models.HrInterview.
+            "ALTER TABLE hr_interviews ADD COLUMN online_meeting_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN auto_record VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN recording_status VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN recording_attempts INTEGER DEFAULT 0",
+            "ALTER TABLE hr_interviews ADD COLUMN recording_next_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN recording_note VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN recording_path VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_interviews ADD COLUMN recording_size INTEGER DEFAULT 0",
+            "ALTER TABLE hr_interviews ADD COLUMN transcript_path VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2045,6 +2055,16 @@ def _run_migrations():
         "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS followup_note VARCHAR DEFAULT ''",
         # Offboarding scheduled for the last day (Pranshu, Oct 8). models.HrLifeEvent.apply_status.
         "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS apply_status VARCHAR DEFAULT ''",
+        # Interview recording + transcript files (Pranshu, Oct 8). models.HrInterview.
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS online_meeting_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS auto_record VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS recording_status VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS recording_attempts INTEGER DEFAULT 0",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS recording_next_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS recording_note VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS recording_path VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS recording_size INTEGER DEFAULT 0",
+        "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS transcript_path VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
