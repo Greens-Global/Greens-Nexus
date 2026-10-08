@@ -251,7 +251,10 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                   : sel.followupStatus === 'failed' ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-red))' }} />
                     : <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />}
                 <span style={{ flex: 1 }}>
-                  {sel.followupStatus === 'waiting' ? `${sel.followupNote || 'Working on it'}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.` : sel.followupNote}
+                  {sel.followupStatus !== 'waiting' ? sel.followupNote
+                    : (sel.followupNote || '').startsWith('Waiting for Teams')
+                      ? `${sel.followupNote}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.`
+                      : `${sel.followupNote || 'Working on it'} - you'll get a bell when it's scored.`}
                 </span>
                 {['waiting', 'failed'].includes(sel.followupStatus) && (
                   <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={retryNow} disabled={!!busy}>

@@ -250,6 +250,14 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState('');
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setPreview(null); };
+  // The role's default manager is the likely supervisor - prefilled, still changeable.
+  useEffect(() => {
+    if (!c.roleId || !c.company) return;
+    api.hiringOptions(c.company).then(o => {
+      const r = (o.roles || []).find(x => x.id === c.roleId);
+      if (r?.defaultManagerEmail) setF(p => (p.manager_email ? p : { ...p, manager_email: r.defaultManagerEmail }));
+    }).catch(() => {});
+  }, [c.roleId, c.company]);
   const setP = (k, v) => { setPay(p => ({ ...p, [k]: v })); setPreview(null); };
   const manager = people.find(p => p.email === f.manager_email);
   const body = () => ({

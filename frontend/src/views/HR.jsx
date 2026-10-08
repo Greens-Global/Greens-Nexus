@@ -2045,7 +2045,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
-        {((c.interview && ['scheduled', 'live'].includes(c.interview.status)) || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
+        {(c.interview || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
           <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
               <span title={c.interview.interviewers?.length ? `With ${c.interview.interviewers.join(', ')}` : ''}
@@ -2055,6 +2055,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
                 <CalendarDays size={10} />
                 {c.interview.status === 'live' ? 'In Progress' : formatDateTime(c.interview.at)}
                 {c.interview.interviewers?.length ? ` · ${c.interview.interviewers.map(n => n.split(' ')[0]).join(', ')}` : ''}
+              </span>
+            )}
+            {c.interview?.status === 'completed' && (
+              <span title="Interview done - waiting on the transcript or the score"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
+                <CheckCircle size={10} /> Interviewed
               </span>
             )}
             {c.interviewScore != null && (

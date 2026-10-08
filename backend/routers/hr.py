@@ -613,7 +613,8 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
             depts.append(r.department)
     names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
     return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
-                       "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", "")}
+                       "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
+                       "defaultManagerEmail": (r.default_manager_email or "").lower()}
                       for r in roles],
             "departments": depts, "sources": list(HIRING_SOURCES)}
 

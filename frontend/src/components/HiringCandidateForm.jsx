@@ -149,7 +149,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? 'Edit Candidate' : 'Add Candidate'}</h3>
           <button onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 14 }}>
           {input('First Name *', 'first_name', { autoFocus: !editing })}
           {input('Last Name', 'last_name')}
           {input('Personal Email', 'email', { type: 'email', placeholder: 'Where interview invites and the hiring packet go' })}

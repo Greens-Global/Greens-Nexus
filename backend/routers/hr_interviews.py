@@ -680,8 +680,9 @@ def followup_step(db: Session, iv: HrInterview) -> None:
             return
         setup_problem = f"Scoring did not finish ({type(e).__name__})"
     iv.followup_status, iv.followup_next_at = "failed", ""
+    nothing = not iv.transcript and not any((a.get("answer") or "").strip() for a in (iv.answers or []))
     iv.followup_note = (setup_problem or "No transcript and no typed answers to score") + \
-        " - paste the transcript or type the answers, then Retry."
+        (" - paste the transcript or type the answers, then Retry." if nothing else " - fix that, then Retry.")
     _tell(db, iv, f"Interview not scored - {name}", iv.followup_note)
 
 
