@@ -1237,6 +1237,9 @@ export const api = {
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
   // Office & contact both ways with Microsoft 365, for one person, now (Oct 7).
   syncEmployeeM365:  (empId)        => req(`/hr/employees/${empId}/m365-sync`, { method: 'POST', timeoutMs: 30000 }),
+  // Support > Implementation Guide: one shared done-list for administrators (Oct 7).
+  getImplementationProgress: ()           => req('/implementation/progress'),
+  setImplementationCheck:    (id, done)   => req(`/implementation/progress/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ done }) }),
 
   // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),

@@ -3151,3 +3151,5 @@ from routers import announcements, my_work, my_team  # noqa: E402
 app.include_router(announcements.router)           # Dashboard > Announcements tile: company / department notices, read + acknowledge marks (Oct 7)
 app.include_router(my_work.router)                 # Dashboard > My Work tile: the caller's open work by due bucket (Oct 7)
 app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
+from routers import implementation  # noqa: E402
+app.include_router(implementation.router)          # Support > Implementation Guide: the shared setup checklist (Neil, 10/06)

@@ -67,6 +67,7 @@ const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
+const Legal               = lazy(() => import("./views/Legal"));   // Privacy Policy + Terms & Conditions, one page (Neil, 10/06)
 // My HR and Time Clock merged into one module (Visesh, Sep 3) - TimeClock.jsx
 // now owns both, as Overview/Clock/Time Sheet/Time Off tabs. Both view ids
 // still resolve so old links/nav events keep working (same pattern as
@@ -84,7 +85,7 @@ const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal' };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -289,6 +290,8 @@ function TaskPrefetch() {
 // useRole(). Even if navigate() is called externally (nexus:navigate event,
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
+const LEGAL_VIEWS = new Set(['legal', 'privacy-policy', 'terms-conditions']);
+
 function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   const { can, myGrantedModules, isExternal } = useRole();
   const minRole = VIEW_MIN_ROLES[activeView];
@@ -303,8 +306,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // baseline employee screens are internal-only. The backend enforces the
   // same boundary per request (auth.apply_external_policy).
   const grantKey = VIEW_GRANT[activeView] || activeView;
+  // Legal is open to everyone who signs in, externals included - they
+  // accepted these terms too (Oct 7).
   const hasAccess = isExternal
-    ? myGrantedModules.has(grantKey)
+    ? (myGrantedModules.has(grantKey) || LEGAL_VIEWS.has(activeView))
     : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(grantKey)));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
@@ -362,8 +367,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
-    case "privacy-policy":     return <PrivacyPolicy embedded />;
-    case "terms-conditions":   return <TermsConditions embedded />;
+    case "legal":              return <Legal activeSub={activeSub} onSubChange={onSubChange} />;
+    // Old links to the two separate pages open their tab of Legal.
+    case "privacy-policy":     return <Legal activeSub="privacy" onSubChange={(sub) => onNavigate("legal", sub)} />;
+    case "terms-conditions":   return <Legal activeSub="terms" onSubChange={(sub) => onNavigate("legal", sub)} />;
     case "briefing":           return <MyBriefing />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
