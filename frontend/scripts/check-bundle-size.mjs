@@ -186,7 +186,13 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // grids, Dashboard Customize, Reports drill chips and Ledger Search
 // operators, the property Financing section. CI measured 10947 KB. No new
 // dependency. Deliberate.
-const TOTAL_KB     = 11050;
+// Oct 10, 2026: 11050 -> 11300. Two Pranshu PRs landing on top of the #465
+// batch (dev measured 11024 KB): Legal + the Implementation Guide (#464,
+// Neil 10/06, ~+60 KB) and hiring packets / interview recordings / packets
+// per role (#477, Neil 10/08, ~+120 KB). CI measured 11083 and 11143 KB
+// separately; together ~11200. No new dependency. Same lines in both PRs so
+// the second to merge does not conflict. Deliberate.
+const TOTAL_KB     = 11300;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
