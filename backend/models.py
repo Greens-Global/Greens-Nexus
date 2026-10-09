@@ -947,6 +947,7 @@ class HrCandidate(Base):
     interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
     company        = Column(String, default="")               # HrEntity.id hiring for ('' = untagged; company-scoped admins see only their companies' pipeline)
+    role_id        = Column(String, default="")               # NexusGroup.id (job role) applied for; '' = "Other" (role_title is free text)
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
@@ -2636,6 +2637,8 @@ class HrInterviewTemplate(Base):
     id         = Column(String, primary_key=True)   # uuid
     name       = Column(String, nullable=False)     # role, e.g. "Site Manager"
     questions  = Column(JSON, default=list)         # [{id, q}]
+    role_ids   = Column(JSON, default=list)         # job roles (NexusGroup.id) this questionnaire is FOR - picked automatically at scheduling
+    is_general = Column(Boolean, default=False)     # the fallback for a role with no questionnaire of its own
     created_by = Column(String, default="")
     created_at = Column(String, default="")
     updated_at = Column(String, default="")
@@ -2653,6 +2656,11 @@ class HrInterview(Base):
     at              = Column(String, default="")          # ISO start
     duration_min    = Column(Integer, default=45)
     organizer_email = Column(String, default="")
+    interviewer_emails = Column(JSON, default=list)   # who the interview is with (Nexus People) - invited with the candidate
+    followup_status = Column(String, default="")      # '' | waiting | done | failed - End Interview's merge (transcript -> fill -> score)
+    followup_attempts = Column(Integer, default=0)
+    followup_next_at = Column(String, default="", index=True)
+    followup_note   = Column(String, default="")      # what it is waiting for / why it stopped
     event_id        = Column(String, default="")          # Graph calendar event
     join_url        = Column(String, default="")          # Teams join link
     answers         = Column(JSON, default=list)          # [{qid, q, answer, score, rationale}]
@@ -2664,6 +2672,19 @@ class HrInterview(Base):
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+    # Recording (Pranshu, Oct 8): the Teams meeting records and transcribes
+    # itself from the first second; afterwards the recording and transcript
+    # are pulled into the private hr-docs bucket and, once hired, onto the
+    # employee's profile Documents.
+    online_meeting_id  = Column(String, default="")      # Graph onlineMeeting id (recordings/transcripts hang off it)
+    auto_record        = Column(String, default="")      # '' | on | failed: <why>
+    recording_status   = Column(String, default="")      # '' | waiting | done | failed
+    recording_attempts = Column(Integer, default=0)
+    recording_next_at  = Column(String, default="", index=True)
+    recording_note     = Column(String, default="")
+    recording_path     = Column(String, default="")      # hr-docs object (mp4)
+    recording_size     = Column(Integer, default=0)
+    transcript_path    = Column(String, default="")      # hr-docs object (vtt) - the transcript as a file
 
 
 class HrSelfRequest(Base):
@@ -5612,3 +5633,68 @@ class AnnouncementRead(Base):
     email           = Column(String, default="", index=True)
     read_at         = Column(String, default="")
     acknowledged_at = Column(String, default="")
+
+
+class HrPacketSetting(Base):
+    """Which Nexus Sign template a company sends for an HR life event
+    (Neil/Pranshu call, Oct 8): the hiring packet, a promotion letter, a
+    separation package. One row per (company, event, worker type); entity_id ''
+    is the default every company falls back to, worker_type 'any' covers both
+    employees and contractors. The template carries the merged PDFs and the
+    signer roles; `subject_role` is the role the person signs as - every other
+    role is signed by the HR sender, who signs at send so the person signs last.
+    New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
+    __tablename__ = "hr_packet_settings"
+    id               = Column(String, primary_key=True)           # uuid
+    entity_id        = Column(String, default="", index=True)     # HrEntity.id ('' = every company)
+    event            = Column(String, nullable=False)             # hire | promotion | separation
+    worker_type      = Column(String, default="any")              # any | employee | contractor
+    template_id      = Column(String, default="")                 # HrSignTemplate.id
+    subject_role     = Column(String, default="employee")         # template role the person signs as
+    email_message    = Column(Text, default="")                   # welcome / cover note shown in the signing email
+    egnyte_subfolder = Column(String, default="")                 # under the person folder ('' = event default)
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+    created_at       = Column(String, default="")
+    # The company's job roles this packet is for (NexusGroup ids); [] = every
+    # role the company has no role-specific packet for. A company hiring for
+    # IT and Accounting sends each its own packet (Pranshu, Oct 8).
+    role_ids         = Column(JSON, default=list)
+
+
+class HrLifeEvent(Base):
+    """One HR life event run through Nexus Sign (hire, promotion, separation):
+    what HR entered, the envelope, what was applied when it was signed, and
+    where the signed packet was filed in Egnyte. hr_life_events.py drives it;
+    Nexus Sign moves it along through HrSignRequest.link_kind 'life_event'.
+    `pay` is salary data - only ever returned to hr_comp holders.
+    New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
+    __tablename__ = "hr_life_events"
+    id              = Column(String, primary_key=True)            # uuid
+    kind            = Column(String, nullable=False, index=True)  # hire | promotion | separation
+    status          = Column(String, default="awaiting_sender")   # awaiting_sender | sent | completed | declined | voided | expired
+    entity_id       = Column(String, default="", index=True)      # HrEntity.id
+    candidate_id    = Column(String, default="", index=True)      # hire: HrCandidate.id
+    employee_id     = Column(String, default="", index=True)      # NexusEmployee.id (set at hire completion for a hire)
+    subject_name    = Column(String, default="")
+    subject_email   = Column(String, default="")                  # where the packet went
+    setting_id      = Column(String, default="")                  # HrPacketSetting.id used
+    template_id     = Column(String, default="")
+    sign_request_id = Column(String, default="", index=True)      # HrSignRequest.id
+    inputs          = Column(JSON, default=dict)                  # non-pay details (title, start date, supervisor, ...)
+    pay             = Column(JSON, default=dict)                  # RESTRICTED: {base, payBasis, frequency, currency}
+    effective_date  = Column(String, default="")                  # YYYY-MM-DD (start date / promotion date / last day)
+    applied_at      = Column(String, default="")
+    apply_status    = Column(String, default="", index=True)  # separation: scheduled | applied | canceled
+    apply_note      = Column(String, default="")
+    flags           = Column(JSON, default=list)                  # [{code, message}] for HR to review (e.g. signed timesheet periods)
+    filing_status   = Column(String, default="")                  # '' | pending | filed | failed
+    filing_path     = Column(String, default="")
+    filing_error    = Column(String, default="")
+    filing_attempts = Column(Integer, default=0)
+    filing_next_at  = Column(String, default="", index=True)      # ISO UTC; the filing loop picks rows due
+    decline_reason  = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+    completed_at    = Column(String, default="")

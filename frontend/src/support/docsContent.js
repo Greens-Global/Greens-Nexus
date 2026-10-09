@@ -1087,7 +1087,64 @@ export const DOCS = [
         steps: [
           'Click the Hiring tab, then Add Candidate.',
           'Move them through Screening, Interview and Offer as things progress.',
-          'At Offer, send the offer letter for signature. Mark them Hired to start onboarding.',
+          'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
+          'Only for an offer signed on paper: Mark Hired By Hand. Nothing is sent or filed that way.',
+        ],
+      },
+      {
+        title: 'Interview a Candidate',
+        steps: [
+          'From Screening, click Schedule Interview: pick the date, time, who interviews, and the questionnaire (the role\'s own, or General). The candidate and the interviewers get a Teams invite.',
+          'The Teams meeting is set to record and transcribe itself from the moment it starts - nobody needs to press Record. The round shows "Auto-recording on"; if Teams refused (a permission is missing), it says so and the interviewer records by hand.',
+          'When they join, open the Interview Room: the questions are on screen, Start Interview marks it live, and you type what you want. End Interview hands the rest to Nexus.',
+          'Nexus pulls the Teams transcript, fills the answers nobody typed, scores the round, and keeps pulling the recording until Teams publishes it (up to a few hours). Play Recording and Transcript appear on the round, on the candidate, and in the room. Pull Recording retries by hand.',
+          'Once they are hired, the recording and transcript are on their profile: the Interviews tab (every round with its score) and Documents (the files).',
+        ],
+      },
+      {
+        title: 'Set Up a Hiring Packet',
+        steps: [
+          'In People > Hiring, click Packets. Pick the company, or leave All Companies to see every packet with its company and add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Name the packet and pick the job role it is for from the dropdown, which lists every role the company has - IT gets one packet, Accounting another. A packet made for a role is always used for that role, even when the company also has an "Every role" packet; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
+          "Upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several. Click Place Fields: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so one packet serves every pay; Start Date, Job Title and the others work the same way.",
+          'Check the signers (Company Representative, then Employee / Candidate - the new hire signs last), write the welcome note for the email, set the Egnyte subfolder (blank uses Hiring Documents), and click Save Packet.',
+        ],
+      },
+      {
+        title: 'Send a Hiring Packet',
+        steps: [
+          'Move the candidate to Offer, open them and click Send Hiring Packet.',
+          'The card says which packet will go - Nexus matches the company and the job role. Enter the job title, start date, the date the offer expires (they can review and sign through that day; after it the link stops working and the packet reads Expired), employment type, supervisor and pay; the Packet dropdown is pre-filled with the match and can be changed for this hire. Then click Review Packet. Check the documents, the signing order and the Egnyte folder; fill in anything the template still needs. Pay is typed per offer - two people hired for the same role on the same packet can be paid differently - and prints wherever the template says {{salary}}; the review warns if the letter never shows it. A packet that is already out is never edited: void it and send a new one with the new values.',
+          'A former employee applying again with the same email is a rehire: the review says so, and when they sign their old People record is reactivated as Onboarding - no second record. Someone still active with that email cannot be hired again; edit their record instead.',
+          'Tick the confirmation and click Review And Sign. Nothing has gone to the candidate yet: the finished packet opens with this offer printed in, you read it and sign for the company, and only then is the new hire emailed at their personal address to sign last. If something is wrong, decline on that screen and send a corrected packet. If you close it without signing, the candidate card shows Sign & Offer next to Mark Hired By Hand until you do.',
+          'The new hire needs no Nexus login: the email carries their own signing link, they confirm a one-time code sent to the same address, and sign. The email says who already signed for the company.',
+          'The candidate card shows who has signed. Void stops a packet; after a decline, void or expiry you can send a new one. While a packet is out you cannot reject the candidate or schedule another interview round - void it first. Correcting the candidate\'s email re-sends the packet to the new address and kills the old link.',
+          "When the new hire signs, Nexus adds them to People as Onboarding, sets their pay from the start date, starts the onboarding checklist and files the signed packet in their Egnyte folder (Human Resources > Employees > their name), which they see in My HR > My Documents. If Egnyte is down it retries; use Retry Filing on the candidate if it says Not Filed.",
+          'If a signed packet could not be applied (the card says Signed, but not applied), the signatures are safe in Nexus Sign - click Retry; if it keeps failing, send the message shown to support.',
+        ],
+      },
+      {
+        title: "Promote or Change Someone's Role",
+        steps: [
+          'Set up the letter once in People > Hiring > Packets under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
+          'Open the person in People and click Promote (or Change Role).',
+          "Pick the new role, the title in the letter, the effective date (it can be in the past), their new responsibilities and their new pay, then click Review Letter.",
+          'Check the change, the signing order and the Egnyte folder. Any timesheet already signed from that date is listed - it is flagged for review, not repriced.',
+          'Tick the confirmation and click Send For Signature. The employee signs first, then their manager. Each gets an email whose button opens their signing screen in Nexus directly.',
+          "When both have signed, the new role (and its access), the title and the pay take effect - the pay dated from the effective date - and the letter is filed in their Egnyte folder under Promotion Documents, where they see it in My HR > My Documents. The employee, their manager and the company's HR contact get a bell.",
+          'Settings > Access no longer changes an employee\'s role - it sends you to their People profile. The roles themselves are still set up in Settings.',
+        ],
+      },
+      {
+        title: 'Offboard Someone',
+        steps: [
+          "Set up the separation package once in People > Hiring > Packets under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
+          'Open the person in People and click Offboard.',
+          'Enter their last day and why they are leaving. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist.',
+          'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email; they keep their access through their last day and Nexus marks them Left the morning after by itself.',
+          'Tick the confirmation and click Offboard Now (or Schedule Offboarding). You sign the package first; they sign last. Untick the package to offboard without documents.',
+          'Leaving does what changing their status to Left always did: items returned, tasks handed over, Microsoft 365 sign-in blocked and sessions ended. If the package is still unsigned when their account closes, it moves to their personal email (add one on their profile first) so they can still sign. The signed package is filed in their Egnyte folder under Separation Documents.',
+          'A scheduled offboarding shows on their profile until the day - Cancel Offboarding keeps them active and voids any paperwork still out. Voiding the package in Nexus Sign does not cancel the offboarding. If the package was declined or voided, running Offboard again replaces the scheduled one.',
         ],
       },
       {

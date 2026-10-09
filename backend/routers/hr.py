@@ -322,6 +322,8 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             changes[key] = (before, value)
         setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    if "work_email" in changes and not changes["work_email"][0]:
+        adopt_pending_pay(db, row, user["email"])
     db.commit()
     db.refresh(row)
     # Field-level audit (Sep 22, 2026). The request-level audit row only says
@@ -476,6 +478,23 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
 from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, NexusNotification
 
 _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
+# Moves HR makes by hand (Neil, Oct 8: each stage has its own action). Into
+# Interview only by SCHEDULING one (hr_interviews.schedule_interview) - "the
+# action should not be moved to interview. It should be schedule an interview"
+# - which is also how an Offer goes back for another round. Hired by hand only
+# from Offer (the hiring packet hires by itself when signed).
+_STAGE_MOVES = {
+    "applied":   {"screening", "rejected"},
+    "screening": {"applied", "rejected"},
+    "interview": {"offer", "screening", "rejected"},
+    "offer":     {"hired", "rejected"},
+    "rejected":  {"applied", "screening"},     # reopen
+    "hired":     set(),
+}
+_STAGE_HINTS = {
+    "interview": "Schedule the interview - that moves them to Interview.",
+    "hired": "Hire from Offer - send the hiring packet, or Mark Hired By Hand.",
+}
 
 
 def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
@@ -506,6 +525,7 @@ class CandidateIn(BaseModel):
     source:         Optional[str] = ""
     company:        Optional[str] = ""
     notes:          Optional[str] = ""
+    role_id:        Optional[str] = ""     # job role applied for; '' = Other (role_title + department typed)
 
 
 class CandidateUpdate(BaseModel):
@@ -522,6 +542,7 @@ class CandidateUpdate(BaseModel):
     stage:          Optional[str] = None
     stage_note:     Optional[str] = None
     interview_at:   Optional[str] = None   # ISO datetime; '' clears
+    role_id:        Optional[str] = None
 
 
 def _ser_candidate(c: HrCandidate) -> dict:
@@ -530,11 +551,72 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
         "expectedStart": c.expected_start, "source": c.source,
-        "company": c.company or "",
+        "company": c.company or "", "roleId": c.role_id or "",
         "interviewAt": c.interview_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
+
+
+# Where candidates come from (Neil, Oct 8: "Source should be a drop-down ...
+# referral, LinkedIn, Indeed"). A typed "Other - ..." is kept as written.
+HIRING_SOURCES = ("Referral", "LinkedIn", "Indeed", "Company Website", "Job Fair",
+                  "Recruiter / Agency", "Walk-In", "Other")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _job_role_for(db: Session, role_id: str, company: str):
+    """The job role a candidate applies for - a real role of the hiring company
+    (or a shared one). The role decides the title and the department, so they
+    can never disagree with what Settings > Access says the role is."""
+    from models import NexusGroup
+    role = db.query(NexusGroup).filter(NexusGroup.id == role_id, NexusGroup.is_job_role == 1).first()
+    if not role:
+        raise HTTPException(400, "That role no longer exists - pick another or choose Other.")
+    if (role.company_id or "") and (role.company_id or "") != (company or ""):
+        raise HTTPException(400, "That role belongs to a different company.")
+    return role
+
+
+def _check_candidate_email(email: str) -> str:
+    email = (email or "").strip().lower()
+    if email and not _EMAIL_RE.match(email):
+        raise HTTPException(400, "That email address doesn't look right.")
+    return email
+
+
+@router.get("/hiring/options")
+def hiring_options(company_id: str = "", all_roles: bool = False,
+                   user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """What the Add Candidate form offers for a company: its job roles (and the
+    shared ones) with their departments, its departments, and the sources.
+    /jobroles is administrator-only; HR picks a role without that grant."""
+    from models import NexusGroup
+    scope = hr_scope(user, db)
+    company_id = (company_id or "").strip()
+    if company_id and scope is not None and company_id not in scope:
+        raise HTTPException(404, "Company not found")
+    q = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1)
+    roles = [r for r in q.order_by(NexusGroup.name).all()
+             if all_roles or not (r.company_id or "") or (r.company_id or "") == company_id]
+    if all_roles and scope is not None:        # questionnaire links: every role HR can see
+        roles = [r for r in roles if not (r.company_id or "") or r.company_id in scope]
+    depts = []
+    if company_id:
+        entity = db.query(HrEntity).filter(HrEntity.id == company_id).first()
+        if entity:
+            _ensure_departments(db, entity)
+            depts = [d.name for d in db.query(HrDepartment).filter(HrDepartment.company_id == company_id)
+                     .order_by(HrDepartment.sort_order, HrDepartment.name).all()]
+    for r in roles:          # a role's department is always offered, even if the list lacks it
+        if r.department and r.department not in depts:
+            depts.append(r.department)
+    names = {e.id: e.name for e in db.query(HrEntity).all()} if all_roles else {}
+    return {"roles": [{"id": r.id, "name": r.name, "department": r.department or "",
+                       "companyId": r.company_id or "", "companyName": names.get(r.company_id or "", ""),
+                       "defaultManagerEmail": (r.default_manager_email or "").lower()}
+                      for r in roles],
+            "departments": depts, "sources": list(HIRING_SOURCES)}
 
 
 def _cand_in_scope(c: Optional[HrCandidate], scope) -> HrCandidate:
@@ -556,10 +638,35 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
     for iv in db.query(HrInterview).filter(HrInterview.status == "scored").all():
         if (iv.total_score or 0) >= best.get(iv.candidate_id, -1):
             best[iv.candidate_id] = iv.total_score or 0
+    # The round that matters on the card: the next one coming up (scheduled or
+    # live), else the latest - with who it is with (Neil, Oct 8: the Interview
+    # column is "the candidates that are up for interview. Here's date and time").
+    ids = [c.id for c in rows]
+    rounds: dict = {}
+    if ids:
+        for iv in (db.query(HrInterview).filter(HrInterview.candidate_id.in_(ids),
+                                                HrInterview.status != "canceled")
+                   .order_by(HrInterview.at).all()):
+            cur = rounds.get(iv.candidate_id)
+            cur_upcoming = cur is not None and cur.status in ("scheduled", "live")
+            if iv.status in ("scheduled", "live"):
+                if not cur_upcoming:          # rows are oldest first: the soonest upcoming wins
+                    rounds[iv.candidate_id] = iv
+            elif not cur_upcoming:            # no upcoming round: the latest one
+                rounds[iv.candidate_id] = iv
+    people = {}
+    emails = {e for iv in rounds.values() for e in (iv.interviewer_emails or [])}
+    if emails:
+        people = {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip()
+                  for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()}
     out = []
     for c in rows:
         d = _ser_candidate(c)
         d["interviewScore"] = round(best[c.id]) if c.id in best else None
+        iv = rounds.get(c.id)
+        d["interview"] = None if not iv else {
+            "id": iv.id, "at": iv.at, "status": iv.status, "templateName": iv.template_name or "",
+            "interviewers": [people.get(e, e) for e in (iv.interviewer_emails or [])]}
         out.append(d)
     return out
 
@@ -581,11 +688,16 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
     now = datetime.now(timezone.utc).isoformat()
+    role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
+    role_id = (body.role_id or "").strip()
+    if role_id:
+        role = _job_role_for(db, role_id, (body.company or "").strip())
+        role_title, department = role.name, (role.department or department)
     row = HrCandidate(
-        id=str(uuid.uuid4()),
+        id=str(uuid.uuid4()), role_id=role_id,
         first_name=body.first_name.strip(), last_name=(body.last_name or "").strip(),
-        email=(body.email or "").strip().lower(), phone=(body.phone or "").strip(),
-        role_title=(body.role_title or "").strip(), department=(body.department or "").strip(),
+        email=_check_candidate_email(body.email), phone=(body.phone or "").strip(),
+        role_title=role_title, department=department,
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
         company=(body.company or "").strip(),
         notes=body.notes or "", created_by=user["email"], created_at=now, updated_at=now,
@@ -596,6 +708,70 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
     db.commit()
     db.refresh(row)
     return _ser_candidate(row)
+
+
+def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
+                                   details: Optional[dict] = None) -> NexusEmployee:
+    """The ONE place a hired candidate becomes an employee master record
+    (status onboarding) and their onboarding checklist starts. Mark Hired in
+    the pipeline and a signed hiring packet (hr_life_events.py) both come
+    here, so the two paths can never build a different employee.
+
+    `details` (from the hiring packet's offer) wins over what the candidate
+    card says: job_title, department, start_date, manager_email,
+    employment_type. The caller sets the candidate's stage and commits."""
+    d = details or {}
+    now = datetime.now(timezone.utc).isoformat()
+    # A former employee coming back (same email) lands on their OLD record -
+    # one person, one record, the history intact (Pranshu, Oct 8). Someone
+    # who is still active with that email is not a hire at all.
+    import hr_life_events as hle
+    former = hle.rehire_record(db, cand)
+    if former is not None and former.status in ("active", "onboarding", "staged"):
+        raise HTTPException(409, f"{former.first_name} {former.last_name} ({former.employee_code}) is already in "
+                                 f"People as {former.status} with this email - edit their record instead of hiring.")
+    if former is not None:
+        emp = former
+        log = list(emp.status_log or [])
+        log.insert(0, {"from": emp.status, "to": "onboarding", "reason": "Rehired", "effectiveDate": "",
+                       "by": actor, "at": now})
+        emp.status_log = log
+        emp.first_name, emp.last_name = cand.first_name or emp.first_name, cand.last_name or emp.last_name
+        emp.personal_email, emp.phone = cand.email or emp.personal_email, cand.phone or emp.phone
+        emp.job_title = d.get("job_title") or cand.role_title or emp.job_title
+        emp.department = d.get("department") or cand.department or emp.department
+        emp.company = (cand.company or "").strip() or emp.company
+        emp.start_date = d.get("start_date") or cand.expected_start or emp.start_date
+        emp.manager_email = (d.get("manager_email") or "").strip().lower() or emp.manager_email
+        emp.employment_type = d.get("employment_type") or emp.employment_type or "full_time"
+        emp.status, emp.updated_at = "onboarding", now
+    else:
+        emp = NexusEmployee(
+            id=str(uuid.uuid4()), employee_code=_next_code(db),
+            first_name=cand.first_name, last_name=cand.last_name,
+            personal_email=cand.email, phone=cand.phone,
+            job_title=d.get("job_title") or cand.role_title,
+            department=d.get("department") or cand.department,
+            company=(cand.company or "").strip(),
+            start_date=d.get("start_date") or cand.expected_start,
+            manager_email=(d.get("manager_email") or "").strip().lower(),
+            employment_type=d.get("employment_type") or "full_time",
+            status="onboarding",
+            created_by=actor, created_at=now, updated_at=now,
+        )
+        db.add(emp)
+    cand.employee_id = emp.id
+    # Their onboarding checklist starts with the hire (hr_checklists.py).
+    import hr_checklists
+    hr_checklists.start_on_hire(db, emp, actor)
+    # Their interview recordings and transcripts come with them onto the
+    # profile's Documents (routers/hr_interviews.py).
+    try:
+        from routers.hr_interviews import attach_interview_files
+        attach_interview_files(db, cand)
+    except Exception as e:   # noqa: BLE001 - never block the hire
+        print(f"[hr] interview files not attached for {emp.id}: {type(e).__name__}: {e}")
+    return emp
 
 
 @router.patch("/candidates/{cid}")
@@ -613,27 +789,22 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
     if body.stage is not None and body.stage != row.stage:
         if body.stage not in _STAGES:
             raise HTTPException(400, f"stage must be one of {_STAGES}")
+        if body.stage not in _STAGE_MOVES.get(row.stage, set()):
+            raise HTTPException(409, _STAGE_HINTS.get(body.stage)
+                                or f"A candidate in {row.stage} can't move to {body.stage}.")
+        if body.stage == "rejected":
+            # A hiring packet still out would hire them the moment they sign.
+            import hr_life_events as hle
+            if hle.active_hire_event(db, row.id):
+                raise HTTPException(409, "Their hiring packet is still out for signature - void it first "
+                                         "(on the packet card), then reject.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))
         row.stage = body.stage
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
-            emp = NexusEmployee(
-                id=str(uuid.uuid4()), employee_code=_next_code(db),
-                first_name=row.first_name, last_name=row.last_name,
-                personal_email=row.email, phone=row.phone,
-                job_title=row.role_title, department=row.department,
-                company=(row.company or "").strip(),
-                start_date=row.expected_start, status="onboarding",
-                created_by=user["email"], created_at=now, updated_at=now,
-            )
-            db.add(emp)
-            row.employee_id = emp.id
-            created_employee = emp
-            # Their onboarding checklist starts with the hire (hr_checklists.py).
-            import hr_checklists
-            hr_checklists.start_on_hire(db, emp, user["email"])
+            created_employee = create_employee_from_candidate(db, row, user["email"])
 
         # One notification per stage move, to the candidate's owner (unless
         # they made the move themselves) - mirrors the items.py convention
@@ -661,6 +832,20 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                        ref_id=row.id, requested_by=user["email"],
                        action={"view": "hr", "sub": "hr-hiring"})
 
+    if body.email is not None:
+        body.email = _check_candidate_email(body.email)
+        if body.email and body.email != (row.email or "").lower():
+            # The packet out for signature follows the corrected address.
+            import hr_life_events as hle
+            hle.reroute_hire_packet(db, row, body.email, user["email"])
+    if body.first_name is not None and not body.first_name.strip():
+        raise HTTPException(400, "First name can't be empty.")
+    if body.role_id is not None:
+        rid = body.role_id.strip()
+        if rid:
+            role = _job_role_for(db, rid, (body.company if body.company is not None else row.company) or "")
+            body.role_title, body.department = role.name, (role.department or body.department or row.department)
+        row.role_id = rid
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "company", "notes"):
         value = getattr(body, key)
@@ -685,24 +870,35 @@ def delete_candidate(cid: str, user: dict = Depends(require_hr_delete), db: Sess
     return {"ok": True}
 
 
+_RESUME_TYPES = (".pdf", ".doc", ".docx")
+
+
 @router.post("/candidates/{cid}/resume")
 async def upload_resume(cid: str, file: UploadFile = File(...),
                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Resume / any candidate doc - private hr-docs bucket, path on the record."""
+    """Resume - private hr-docs bucket, path on the record. Same storage
+    helpers as Nexus Sign, so it also works on a local backend without
+    Supabase (files under Generated File/). The upload is a blocking HTTP
+    call, so it runs in a thread - never on the event loop (CLAUDE.md)."""
+    from routers import esign as _es
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
         raise HTTPException(404, "Candidate not found")
     _cand_in_scope(row, hr_scope(user, db))
+    name = file.filename or "resume.pdf"
+    if not name.lower().endswith(_RESUME_TYPES):
+        raise HTTPException(400, "Resumes can be PDF or Word files.")
     data = await file.read()
+    if not data:
+        raise HTTPException(400, "That file is empty.")
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
-    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "resume.pdf")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
     path = f"candidates/{cid}/{uuid.uuid4()}-{safe}"
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                      headers={**_storage_headers(), "Content-Type": file.content_type or "application/octet-stream"},
-                      content=data, timeout=60)
-    if not resp.is_success:
-        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    up = await asyncio.to_thread(_es._storage_put, _DOC_BUCKET, path, data,
+                                 file.content_type or "application/octet-stream")
+    if not up.is_success:
+        raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row.resume_url = path
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
@@ -711,6 +907,7 @@ async def upload_resume(cid: str, file: UploadFile = File(...),
 
 @router.get("/candidates/{cid}/resume-url")
 def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    from routers import esign as _es
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row or not row.resume_url:
         raise HTTPException(404, "No resume on file")
@@ -718,11 +915,10 @@ def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Se
     # Legacy rows may hold a full external URL rather than a storage path.
     if row.resume_url.startswith("http"):
         return {"url": row.resume_url, "expiresIn": 0}
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.resume_url}",
-                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
-    if not resp.is_success:
-        raise HTTPException(502, "Could not sign URL")
-    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+    got = _es._storage_signed_url(_DOC_BUCKET, row.resume_url, 300)
+    if not got.is_success:
+        raise HTTPException(502, "Could not open the resume - try uploading it again.")
+    return got.json()
 
 
 # ── Leave tracker (Phase 6) ───────────────────────────────────────────────────
@@ -1385,6 +1581,7 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
             user_id = resp.json()["id"]
             emp.m365_id = user_id
             emp.work_email = upn
+            adopt_pending_pay(db, emp, user["email"])
             steps["m365_user"].status = "ok"
             steps["m365_user"].detail = f"Account {upn} created"
         else:
@@ -1741,6 +1938,7 @@ def _pull_from_m365(db: Session, actor_email: str) -> dict:
                 emp.m365_id = g["id"]; linked += 1; changed = True
             if not emp.work_email and addr:
                 emp.work_email = addr; changed = True
+                adopt_pending_pay(db, emp, actor_email)
             for local, remote in (("phone", "mobilePhone"), ("job_title", "jobTitle"),
                                   ("location", "officeLocation"), ("department", "department")):
                 if not getattr(emp, local) and (g.get(remote) or "").strip():
@@ -3564,6 +3762,51 @@ def ensure_rate_history(db: Session, email: str, by: str = "") -> None:
     db.flush()
 
 
+def adopt_pending_role(db: Session, emp: NexusEmployee, by: str, ev=None) -> None:
+    """A new hire's job role (picked in their hiring packet) is held until
+    they have a work email - role membership is keyed by it. Applied here
+    when the email lands, only if they have no role yet (never overrides a
+    role someone set by hand)."""
+    if not emp or not emp.work_email:
+        return
+    from models import HrLifeEvent, NexusGroup, NexusGroupMember
+    email = emp.work_email.lower()
+    has_role = (db.query(NexusGroupMember).join(NexusGroup, NexusGroup.id == NexusGroupMember.group_id)
+                .filter(NexusGroupMember.email == email, NexusGroup.is_job_role == 1).first())
+    if has_role:
+        return
+    if ev is None:
+        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "hire",
+                                           HrLifeEvent.status == "completed")
+              .order_by(HrLifeEvent.completed_at.desc()).first())
+    role_id = ((ev.inputs or {}).get("role_id") if ev else "") or ""
+    jr = db.query(NexusGroup).filter(NexusGroup.id == role_id, NexusGroup.is_job_role == 1).first() if role_id else None
+    if jr:
+        from routers.jobroles import apply_job_role
+        apply_job_role(db, jr, email, by)
+
+
+def adopt_pending_pay(db: Session, emp: NexusEmployee, by: str) -> None:
+    """A hire's offer pay waits on the employee record (compensation) because
+    the timecard rate is keyed by WORK email, which a new hire does not have
+    until their Microsoft 365 account exists. Called the moment a work email
+    first lands on the record: if the record carries pay and there is no
+    timecard rate yet, create it, dated from the compensation's effective date
+    (the start date for a hire). A person who already has a rate is left alone
+    - Pay & Benefits stays the only thing that changes an existing rate."""
+    if not emp or not emp.work_email:
+        return
+    adopt_pending_role(db, emp, by)
+    comp = emp.compensation or {}
+    if not str(comp.get("base") or "").strip() or not comp.get("payBasis"):
+        return
+    if db.query(PayrollRate).filter(PayrollRate.employee_email == emp.work_email.lower()).first():
+        return
+    sync_rate_from_comp(db, emp)
+    db.flush()
+    append_rate_history(db, emp, str(comp.get("effectiveDate") or ""), by=by)
+
+
 def append_rate_history(db: Session, emp: NexusEmployee, effective_date: str, by: str) -> None:
     """One row per compensation save that changes the pay or its effective
     date. Saving the same effective date twice corrects that row in place (a
@@ -3936,6 +4179,15 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     _assert_scope(row, hr_scope(user, db))
     if body.status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
+    return apply_status_change(db, row, body, user["email"])
+
+
+def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
+    """The whole status change - the log entry, and for a leaver: items
+    force-returned, tasks handed over, M365 sign-in blocked / sessions ended /
+    licenses freed / mailbox export, Nexus sessions ended. Commits. The
+    endpoint above and Offboard (hr_life_events.py - now, or on the last day)
+    both come here, so an offboarding is the same whichever way it runs."""
     now = datetime.now(timezone.utc).isoformat()
     did_change = body.status != row.status
     log = list(row.status_log or [])
@@ -3962,7 +4214,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     if did_change:
         entry = {
             "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
-            "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
+            "effectiveDate": (body.effectiveDate or "").strip(), "by": actor, "at": now,
         }
         if off_block:
             entry["offboarding"] = off_block
@@ -3973,7 +4225,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     handover = None
     if did_change and body.status == "offboarded" and row.work_email:
         from routers.items import force_return_person
-        items_returned = force_return_person(db, row.work_email, user["email"])
+        items_returned = force_return_person(db, row.work_email, actor)
         if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
             entry["itemsReturned"] = items_returned
         # Task work moves at the same moment equipment does, in this same
@@ -3990,7 +4242,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         if to_email:
             handover = handover_person(db, row.work_email, to_email,
                                        include_completed=bool((off_block or {}).get("handoverIncludeCompleted")),
-                                       actor=user["email"])
+                                       actor=actor)
             if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
                 entry["taskHandover"] = handover
     row.status = body.status
@@ -4024,7 +4276,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
             if off_block.get("freeUpLicense"):
                 m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
-                job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=user["email"],
+                job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=actor,
                                       status="pending", created_at=now, updated_at=now)
                 db.add(job); db.commit()
                 threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id), daemon=True).start()

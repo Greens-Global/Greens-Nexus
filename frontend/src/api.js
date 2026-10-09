@@ -1204,6 +1204,29 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
+  hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
+
+  // HR - life events through Nexus Sign (hiring packet, Oct 2026)
+  getPackets:          ()         => req('/hr/packets'),
+  savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
+  savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
+  deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
+  hiringPacketOptions: (cid, params = {}) => req(`/hr/candidates/${cid}/hiring-packet/options?${new URLSearchParams(params)}`),
+  previewHiringPacket: (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  sendHiringPacket:    (cid, data) => req(`/hr/candidates/${cid}/hiring-packet`, { method: 'POST', body: JSON.stringify(data) }),
+  packetEmailPreview:  ({ event, entityId = '', templateId = '', note = '', role = 'subject', stage = 'invite' }) =>
+    req(`/hr/packets/email-preview?event=${encodeURIComponent(event)}&entity_id=${encodeURIComponent(entityId)}&template_id=${encodeURIComponent(templateId)}&role=${encodeURIComponent(role)}&stage=${encodeURIComponent(stage)}&note=${encodeURIComponent(note)}`),
+  getLifeEvents:       ({ candidateId = '', employeeId = '' } = {}) =>
+    req(`/hr/life-events?candidate_id=${encodeURIComponent(candidateId)}&employee_id=${encodeURIComponent(employeeId)}`),
+  retryLifeEventFiling: (id)      => req(`/hr/life-events/${id}/retry-filing`, { method: 'POST' }),
+  retryLifeEventApply: (id)       => req(`/hr/life-events/${id}/retry-apply`, { method: 'POST' }),
+  previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
+  previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
+  cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),
+  voidLifeEvent:       (id)       => req(`/hr/life-events/${id}/void`, { method: 'POST' }),
 
   // HR - AI-assisted interviews (Teams invite + questionnaire + scoring)
   ivTemplates:       ()           => req('/hr/interview-templates'),
@@ -1213,7 +1236,13 @@ export const api = {
   ivSchedule:        (cid, data)  => req(`/hr/candidates/${cid}/interviews`, { method: 'POST', body: JSON.stringify(data) }),
   ivList:            (cid)        => req(`/hr/candidates/${cid}/interviews`),
   ivPatch:           (iid, data)  => req(`/hr/interviews/${iid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  ivCancel:          (iid)        => req(`/hr/interviews/${iid}/cancel`, { method: 'POST' }),
+  ivFinish:          (iid, data)  => req(`/hr/interviews/${iid}/finish`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  ivFollowupNow:     (iid)        => req(`/hr/interviews/${iid}/followup`, { method: 'POST' }),
   ivPullTranscript:  (iid)        => req(`/hr/interviews/${iid}/pull-transcript`, { method: 'POST' }),
+  ivPullRecording:   (iid)        => req(`/hr/interviews/${iid}/pull-recording`, { method: 'POST' }),
+  ivFile:            (iid, kind)  => req(`/hr/interviews/${iid}/file?kind=${encodeURIComponent(kind)}`),
+  getEmployeeInterviews: (eid)    => req(`/hr/employees/${eid}/interviews`),
   ivAutofill:        (iid)        => req(`/hr/interviews/${iid}/autofill`, { method: 'POST' }),
   ivCalibrate:       (iid)        => req(`/hr/interviews/${iid}/calibrate`, { method: 'POST' }),
   ivLeaderboard:     (tid)        => req(`/hr/interviews/leaderboard?template_id=${tid || ''}`),

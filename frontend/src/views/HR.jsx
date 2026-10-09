@@ -1,14 +1,19 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
-import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
+import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
+import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
+import { PromoteModal, OffboardModal } from '../components/HrPersonActions';
+import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
+import { ScheduleInterviewModal } from '../components/HiringSchedule';
+import CandidateFormModal from '../components/HiringCandidateForm';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp, LogOut,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw,
+  ListChecks, RefreshCw, Video,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -1345,7 +1350,7 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged }) {
+function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged, onChangeRole }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1390,9 +1395,18 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
             </div>
           ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
           {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
-          <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
-            <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
-          </button>
+          {/* Neil, Oct 8: changing someone's role is an HR action with a
+              letter (Promote / Change Role), not a silent switch. Setting the
+              FIRST role on a new record stays a direct pick. */}
+          {data.job_role && onChangeRole ? (
+            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={onChangeRole}>
+              <Shield size={13} /> Change Role
+            </button>
+          ) : (
+            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
+              <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
+            </button>
+          )}
         </div>
         <div style={_accBox}>
           <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
@@ -1633,6 +1647,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [personalOpen, setPersonalOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
+  const [roleAction, setRoleAction] = useState(null);      // 'promotion' | 'role_change'
+  const [offboardOpen, setOffboardOpen] = useState(false);
+  const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
+  const [eventsKey, setEventsKey] = useState(0);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState(initialTab);
@@ -1696,6 +1715,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['documents', 'Documents', FileText],
+    ['interviews', 'Interviews', Video],
     ['checklist', 'Checklist', ListChecks],
     isAdmin && ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
@@ -1717,7 +1737,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             <Camera size={11} />
           </span>
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* min width: with HR's actions in the header (Promote / Change Role /
+            Offboard) the buttons wrap to a second line instead of squeezing
+            the name into a one-word column. */}
+        <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
           <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {fullName(e)}
             {e.identityType && e.identityType !== 'internal' && (
@@ -1761,6 +1784,25 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
+          <>
+            <button className="secondary-btn" onClick={() => setRoleAction('promotion')}
+              title="Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <TrendingUp size={13} /> Promote
+            </button>
+            <button className="secondary-btn" onClick={() => setRoleAction('role_change')}
+              title="Move them to a different role, with a letter they and their manager sign"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <Shield size={13} /> Change Role
+            </button>
+            <button className="secondary-btn" onClick={() => setOffboardOpen(true)}
+              title="Last day, the separation package through Nexus Sign, and everything that happens when they leave"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
+              <LogOut size={13} /> Offboard
+            </button>
+          </>
+        )}
         {isAdmin && (
           <button className="secondary-btn" onClick={removeFromNexus}
             title="Remove this person's Nexus record only - does not touch Microsoft 365"
@@ -1813,6 +1855,29 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
+      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
+      {roleAction && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
+        onClose={() => setRoleAction(null)}
+        onSent={ev => {
+          setRoleAction(null); setEventsKey(n => n + 1);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
+        }} />}
+      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
+        onClose={() => setOffboardOpen(false)}
+        onSent={ev => {
+          setOffboardOpen(false); setEventsKey(n => n + 1);
+          if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
+          const m = ev.result?.m365 || {};
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          toastOk(ev.applyStatus === 'applied'
+            ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
+            : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+        }} />}
+      <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
+        onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
@@ -1923,11 +1988,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('role_change') : undefined} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
         {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
+
+        {tab === 'interviews' && <EmployeeInterviews employeeId={e.id} toastErr={toastErr} />}
 
         {tab === 'documents' && (
           <>
@@ -1971,238 +2039,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 }
 
 // ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
-const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
-const STAGE_META = {
-  applied:   { label: 'Applied',   hue: '215,15%,55%' },
-  screening: { label: 'Screening', hue: '215,75%,45%' },
-  interview: { label: 'Interview', hue: '30,80%,48%' },
-  offer:     { label: 'Offer',     hue: '271,60%,48%' },
-  hired:     { label: 'Hired',     hue: '142,60%,35%' },
-  rejected:  { label: 'Rejected',  hue: '350,65%,48%' },
-};
-const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
-
-function CandidateFormModal({ onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', company: '', notes: '' });
-  const [busy, setBusy] = useState(false);
-  // Companies come server-filtered: a company-scoped admin only sees (and can
-  // only pick) their own, and the backend refuses anything else anyway.
-  const [entities, setEntities] = useState([]);
-  useEffect(() => { api.getEntities().then(setEntities).catch(() => {}); }, []);
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
-  async function save() {
-    if (!f.first_name.trim() || busy) return;
-    setBusy(true);
-    try { onSaved(await api.createCandidate(f)); onClose(); }
-    catch (err) { toastErr(err?.message || 'Could not add candidate.'); setBusy(false); }
-  }
-  const input = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
-  );
-  const dirty = Object.values(f).some(v => (v || '').trim() !== '');
-  const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add Candidate</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {input('FIRST NAME *', 'first_name', { autoFocus: true })}
-          {input('LAST NAME', 'last_name')}
-          {input('EMAIL', 'email', { type: 'email' })}
-          {input('PHONE', 'phone')}
-          {input('ROLE APPLYING FOR', 'role_title')}
-          {input('DEPARTMENT', 'department', { placeholder: 'target area - set for real on hire' })}
-          {input('EXPECTED START', 'expected_start', { type: 'date' })}
-          {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
-          <div><label style={FL}>HIRING COMPANY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-              <option value="">- pick a company -</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select></div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} /></div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />} Add Candidate
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.first_name.trim() ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
-}
-
-function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy }) {
-  const [history, setHistory] = useState(null);
-  const [note, setNote] = useState('');
-  const [ivEdit, setIvEdit] = useState(false);
-  const [ivAt, setIvAt] = useState(c.interviewAt ? c.interviewAt.slice(0, 16) : '');
-  const [ivBusy, setIvBusy] = useState(false);
-  const [resumeBusy, setResumeBusy] = useState(false);
-  const resumeRef = useRef(null);
-  useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
-  const idx = STAGES.indexOf(c.stage);
-  const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
-  const terminal = c.stage === 'hired' || c.stage === 'rejected';
-  const sm = STAGE_META[c.stage];
-
-  const saveInterview = async (value) => {
-    setIvBusy(true);
-    try { const u = await api.updateCandidate(c.id, { interview_at: value }); onUpdated?.(u); setIvEdit(false); }
-    catch { /* keep editor open */ }
-    finally { setIvBusy(false); }
-  };
-  const uploadResume = async (file) => {
-    if (!file) return;
-    setResumeBusy(true);
-    try { const u = await api.candidateResumeUpload(c.id, (() => { const f = new FormData(); f.append('file', file); return f; })()); onUpdated?.(u); }
-    catch { /* noop */ }
-    finally { setResumeBusy(false); if (resumeRef.current) resumeRef.current.value = ''; }
-  };
-  const viewResume = async () => {
-    try { const { url } = await api.candidateResumeUrl(c.id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
-  };
-  const prettyIv = c.interviewAt ? (() => {
-    try { return new Date(c.interviewAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-    catch { return c.interviewAt; }
-  })() : '';
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{candName(c)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>{[c.roleTitle, c.department, c.source].filter(Boolean).join(' · ')}</div>
-          </div>
-          <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: `hsla(${sm.hue},0.12)`, color: `hsl(${sm.hue})`, flexShrink: 0 }}>{sm.label}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
-          <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {c.email && <span><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.email}</span>}
-            {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
-            {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
-            {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
-          </div>
-          {/* Interview + resume */}
-          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              {!ivEdit ? (
-                <>
-                  <span style={{ fontSize: 12.5, color: c.interviewAt ? 'var(--ink)' : 'var(--muted)', fontWeight: c.interviewAt ? 600 : 400 }}>
-                    {c.interviewAt ? `Interview: ${prettyIv}` : 'No interview scheduled'}
-                  </span>
-                  {!terminal && (
-                    <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => { setIvAt(c.interviewAt ? c.interviewAt.slice(0, 16) : ''); setIvEdit(true); }}>
-                      {c.interviewAt ? 'Reschedule' : 'Schedule interview'}
-                    </button>
-                  )}
-                  {c.interviewAt && !terminal && (
-                    <button onClick={() => saveInterview('')} disabled={ivBusy}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                      Clear
-                    </button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <input type="datetime-local" className="form-input" value={ivAt} onChange={e => setIvAt(e.target.value)}
-                    style={{ fontSize: 12.5, padding: '5px 9px', height: 'auto' }} />
-                  <button className="primary-btn" style={{ fontSize: 11.5, padding: '5px 12px' }} disabled={!ivAt || ivBusy} onClick={() => saveInterview(ivAt)}>
-                    {ivBusy ? 'Saving…' : 'Save'}
-                  </button>
-                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setIvEdit(false)}>Cancel</button>
-                </>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              {c.resumeUrl ? (
-                <button onClick={viewResume}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                  View Resume
-                </button>
-              ) : (
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No resume on file</span>
-              )}
-              <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => uploadResume(e.target.files?.[0])} />
-              <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} disabled={resumeBusy} onClick={() => resumeRef.current?.click()}>
-                {resumeBusy ? 'Uploading…' : c.resumeUrl ? 'Replace' : 'Upload resume'}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            {onOpenInterviews && !['rejected', 'hired'].includes(c.stage) && (
-              <button className="primary-btn" onClick={() => onOpenInterviews(c)}
-                title="Teams invite, live questionnaire, AI answer fill and calibrated scoring"
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CalendarDays size={13} /> Interview Room
-              </button>
-            )}
-            {c.email && onSendForSignature && c.stage !== 'rejected' && (
-              <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
-                title="Send an offer letter or other document to this candidate via a secure Nexus Sign link (no login needed)"
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <FileText size={13} /> Send for Signature
-              </button>
-            )}
-          </div>
-          {/* Stage history timeline */}
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-              <History size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Stage history
-            </div>
-            {history === null ? (
-              <Spinner size={16} />
-            ) : history.map((h, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--line)' }}>
-                <span style={{ fontWeight: 700, color: `hsl(${(STAGE_META[h.toStage] || STAGE_META.applied).hue})`, flexShrink: 0 }}>
-                  {(STAGE_META[h.toStage] || { label: h.toStage }).label}
-                </span>
-                <span style={{ color: 'var(--muted)', flex: 1 }}>{h.note}</span>
-                <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{new Date(h.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-              </div>
-            ))}
-          </div>
-          {!terminal && (
-            <div style={{ marginTop: 16 }}>
-              <label style={FL}>NOTE FOR THIS MOVE (optional)</label>
-              <input className="form-input" style={{ width: '100%' }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Round 2 cleared, strong references" />
-            </div>
-          )}
-        </div>
-        {!terminal && (
-          <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
-            <button onClick={() => onStage(c, 'rejected', note)} disabled={busy}
-              style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
-              <XCircle size={13} /> Reject
-            </button>
-            {next && (
-              <button className="primary-btn" onClick={() => onStage(c, next, note)} disabled={busy}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: next === 'hired' ? 'hsl(var(--color-green))' : undefined }}>
-                {busy ? <Spinner size={14} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
-                {next === 'hired' ? 'Mark Hired' : `Move to ${STAGE_META[next].label}`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature }) {
   const [candidates, setCandidates] = useState(null);
@@ -2214,20 +2051,33 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
+  const [editing, setEditing] = useState(null);            // candidate open in the edit form
+  const [scheduling, setScheduling] = useState(null);      // { candidate, replace } - the one scheduling path
+  const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
+  const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
+  const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
+  const [packetRefresh, setPacketRefresh] = useState(0);
+  const { canAccessModule } = useRole();
+  const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
 
   const loadCandidates = useCallback(() => {
     setLoadErr(false); setCandidates(null);
     api.getCandidates().then(setCandidates).catch(() => setLoadErr(true));
   }, []);
   useEffect(() => { loadCandidates(); }, [loadCandidates]);
+  // Refresh the board (and the open card) without the full-page spinner.
+  const refreshBoard = useCallback(() => api.getCandidates().then(rows => {
+    setCandidates(rows);
+    setDetail(d => (d ? rows.find(x => x.id === d.id) || d : d));
+  }).catch(() => {}), []);
 
   async function moveStage(c, stage, note) {
     if (busy) return;
     setBusy(true);
     try {
       const updated = await api.updateCandidate(c.id, { stage, stage_note: note || '' });
-      setCandidates(prev => prev.map(x => x.id === c.id ? updated : x));
-      setDetail(null);
+      setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, ...updated } : x));
+      setDetail(stage === 'hired' ? null : { ...c, ...updated });
       if (stage === 'hired') {
         toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
         if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
@@ -2259,12 +2109,22 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
-        {(c.interviewAt || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
+        {(c.interview || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
           <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-            {c.interviewAt && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'hsla(var(--color-purple),0.1)', color: 'hsl(var(--color-purple))' }}>
+            {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
+              <span title={c.interview.interviewers?.length ? `With ${c.interview.interviewers.join(', ')}` : ''}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
+                  background: c.interview.status === 'live' ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-purple),0.1)',
+                  color: c.interview.status === 'live' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-purple))' }}>
                 <CalendarDays size={10} />
-                {(() => { try { return new Date(c.interviewAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return c.interviewAt; } })()}
+                {c.interview.status === 'live' ? 'In Progress' : formatDateTime(c.interview.at)}
+                {c.interview.interviewers?.length ? ` · ${c.interview.interviewers.map(n => n.split(' ')[0]).join(', ')}` : ''}
+              </span>
+            )}
+            {c.interview?.status === 'completed' && (
+              <span title="Interview done - waiting on the transcript or the score"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
+                <CheckCircle size={10} /> Interviewed
               </span>
             )}
             {c.interviewScore != null && (
@@ -2286,6 +2146,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setPacketsOpen(true)}>Packets</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
             {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
@@ -2299,7 +2160,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {/* Pipeline stats */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
         {[['card-blue', 'In pipeline', open.length, 'Applied → Offer'],
-          ['card-orange', 'Interviews booked', candidates.filter(c => c.interviewAt && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
+          ['card-orange', 'Interviews booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
           ['card-purple', 'Offers out', byStage('offer').length, 'Awaiting decision'],
           ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
           <div key={label} className={`kpi-card ${cls}`}>
@@ -2359,14 +2220,42 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         </div>
       )}
 
-      {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
-        onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
+      {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastOk={toastOk} toastErr={toastErr}
+        onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); refreshBoard(); }} />}
       {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
-        onOpenInterviews={cand => { setDetail(null); setIvFor(cand); }}
-        onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }} />}
+        refreshKey={packetRefresh}
+        onUpdated={u => { if (u) { setCandidates(prev => prev.map(x => x.id === u.id ? { ...x, ...u } : x)); setDetail(d => d && d.id === u.id ? { ...d, ...u } : d); } else refreshBoard(); }}
+        onEdit={cand => setEditing(cand)}
+        onSchedule={(cand, replace) => setScheduling({ candidate: cand, replace: replace || null })}
+        onOpenRoom={cand => { setDetail(null); setIvFor(cand); }}
+        onSendPacket={cand => setPacketFor(cand)} onSignPacket={setSignParty}
+        toastOk={toastOk} toastErr={toastErr} />}
+      {scheduling && <ScheduleInterviewModal candidate={scheduling.candidate} replace={scheduling.replace}
+        onClose={() => setScheduling(null)} toastOk={toastOk} toastErr={toastErr}
+        onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
+      {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
+        onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
+      {packetsOpen && <PacketsModal onClose={() => setPacketsOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
+        onClose={() => setPacketFor(null)}
+        onSent={ev => {
+          setPacketFor(null); setPacketRefresh(n => n + 1);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
+        }} />}
+      <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => { setSignParty(null); setPacketRefresh(n => n + 1); }}
+        onDone={() => {
+          setSignParty(null); setPacketRefresh(n => n + 1);
+          toastOk('Signed - the new hire has been emailed the packet to sign.');
+        }} />
       {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
-      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); api.getCandidates().then(setCandidates).catch(() => {}); }} toastOk={toastOk} toastErr={toastErr} />}
+      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
+        onDecision={(kind, cand) => {
+          if (kind === 'another') setScheduling({ candidate: cand, replace: null });
+          else moveStage(cand, kind === 'offer' ? 'offer' : 'rejected', kind === 'offer' ? 'After the interview' : 'Not a fit after the interview');
+        }} />}
     </div>
   );
 }

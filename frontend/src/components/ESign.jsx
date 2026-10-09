@@ -5,7 +5,7 @@ import {
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
   RefreshCw, Ban, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
   CalendarDays, CheckSquare, ALargeSmall, Copy, Search,
-  User, CircleDot, Check, Paperclip, Printer, Cloud, Save, FilePlus2,
+  User, CircleDot, Check, Paperclip, Printer, Cloud, Save, FilePlus2, Briefcase,
 } from 'lucide-react';
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
@@ -90,7 +90,21 @@ const FIELD_META = {
   // check, a scanned license. The file is stored against the envelope and
   // hashed onto the certificate; the page itself records the filename.
   upload:   { label: 'File upload',  Icon: Paperclip,    w: 0.22, h: 0.04, labeled: true },
+  // An Offer Field belongs to no signer: it is printed at send from the offer
+  // HR typed (pay, start date, title...). Only a packet template's documents
+  // can carry one - a one-off PDF send has nothing to print in it.
+  merge:    { label: 'Offer Field',  Icon: Briefcase,    w: 0.2,  h: 0.032, merge: true },
 };
+// Mirrors routers/esign.py MERGE_FIELD_KEYS - the server is the authority.
+export const MERGE_FIELDS = [
+  ['salary', 'Salary'], ['start_date', 'Start Date'], ['job_title', 'Job Title'],
+  ['department', 'Department'], ['employment_type', 'Employment Type'], ['supervisor', 'Supervisor'],
+  ['effective_date', 'Effective Date'], ['full_name', 'Full Name'], ['first_name', 'First Name'],
+  ['last_name', 'Last Name'], ['email', 'Email'], ['phone', 'Phone'], ['employee_code', 'Employee Code'],
+  ['company', 'Company'], ['company_legal', 'Company Legal Name'], ['company_address', 'Company Address'],
+  ['today', 'Date Sent'], ['old_title', 'Previous Title'], ['new_title', 'New Title'],
+];
+const MERGE_LABEL = Object.fromEntries(MERGE_FIELDS);
 
 // Mirrors services/sign_uploads.ALLOWED - the server is the authority and
 // rejects anything else, but the file picker should not offer what will bounce.
@@ -148,8 +162,9 @@ function NameCombo({ value, employees, onChange, onPick, placeholder, style }) {
 // dropdown, and a 2-column field grid (drag onto the page, or select + click).
 // Shared by the template-attachment placer and the send wizard's field step.
 // `recipientsSlot` swaps the static list for an editable recipients section.
-function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType, placed, recipientsSlot, width = 330 }) {
+function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType, placed, recipientsSlot, width = 330, offerFields = false }) {
   const c = (recipients[activeIdx] || recipients[0] || { color: rcolor(0) }).color;
+  const types = Object.entries(FIELD_META).filter(([, M]) => offerFields || !M.merge);
   const initials = (s) => (s || '?').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   return (
     <div style={{ width, borderLeft: '1px solid var(--line)', background: 'var(--card)', overflowY: 'auto', padding: '16px 18px', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
@@ -175,7 +190,7 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
         {recipients.map((r, i) => <option key={i} value={i}>{r.label}</option>)}
       </select>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
-        {Object.entries(FIELD_META).map(([ft, M]) => (
+        {types.map(([ft, M]) => (
           <button key={ft} draggable onDragStart={e => e.dataTransfer.setData('field', ft)} onClick={() => setActiveType(ft)}
             title="Drag onto the document, or select and click the page"
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 7, borderRadius: 10, cursor: 'grab', textAlign: 'left', fontFamily: 'Inter,sans-serif',
@@ -193,6 +208,7 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
       </div>
       <p style={{ fontSize: 10.5, color: 'var(--muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
         Drag placed fields to move · corner handle resizes · × removes · ✎ edits choices.
+        {offerFields && ' An Offer Field is printed from the offer at send (pay, start date, title) - it belongs to no signer.'}
       </p>
     </div>
   );
@@ -240,6 +256,35 @@ function FieldOptionsModal({ field, onSave, onClose }) {
           onSave={clean.length >= 2 ? guard.saveAndClose : undefined}
         />
       )}
+    </div>
+  );
+}
+// Which offer value an Offer Field prints. Picked at placement so the box
+// never sits on the page meaning nothing.
+const MERGE_COLOR = { solid: '#0f766e', soft: 'rgba(15,118,110,0.10)' };
+function MergeFieldModal({ field, onSave, onClose }) {
+  const [key, setKey] = useState(field.merge || 'salary');
+  return (
+    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={cardStyle(460)}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Offer Field</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '14px 20px' }}>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.5 }}>
+            This box is printed from the offer when the packet is sent - nobody types into it. Pick what it shows.
+          </p>
+          <select className="form-input" value={key} onChange={e => setKey(e.target.value)} style={{ width: '100%' }} autoFocus>
+            {MERGE_FIELDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          {key === 'salary' && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>Printed the way the typed pay reads, e.g. "$85,000.00 per year" or "₹7,00,000.00 per year".</p>}
+        </div>
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" onClick={() => { onSave(key); onClose(); }}>Use This Field</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1419,6 +1464,11 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
       {(docFields || []).filter(f => f.page === pageIdx).map(f => {
         const mine = f.role === myRole;
         const st = { position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` };
+        if (f.type === 'merge') {
+          // Printed from the offer at send; the same for every signer, never typed.
+          return <span key={f.id} title={MERGE_LABEL[f.merge] || 'Offer field'}
+            style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10.5, color: '#111827', paddingLeft: 3, whiteSpace: 'nowrap', overflow: 'hidden', fontFamily: 'Helvetica,Arial,sans-serif' }}>{f.value || ''}</span>;
+        }
         if (f.type === 'sign' && mine) {
           return (
             <button key={f.id} ref={el => { fieldRefs.current[f.id] = el; }} onClick={() => payload.myTurn && setPadOpen(true)}
@@ -1840,12 +1890,16 @@ export function SigningDoc({ payload, busy, onSubmit, onAct, onDecline, gateApi,
               style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
           </div>
         )}
+        {/* A packet whose template has no typed letter is only its PDFs - no
+            empty white page in front of them. */}
+        {(!isTemplate || (payload.body || []).length > 0) && (
         <div ref={docRef} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
           {isTemplate
             ? (payload.body || []).map(renderPara)
             : <PdfDoc url={payload.pdfUrl} zoom={zoom} onPageCount={setDocPages}
                 renderOverlay={signingOverlay(payload.fields)} onPageSeen={notePageSeen} />}
         </div>
+        )}
         {/* Packet documents - attached PDFs signed in the same session */}
         {(payload.documents || []).map((d, di) => (
           <div key={di} style={{ marginTop: 16 }}>
@@ -2074,13 +2128,14 @@ function MergePara({ text, onChange, onFocus, innerRef }) {
 
 // Place fields on an attached PDF - same interaction as the send wizard's
 // editor, but saved onto the template so every send reuses the placement.
-function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
+export function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const [url, setUrl] = useState('');
   const [fields, setFields] = useState(attachment.fields || []);
   const [activeRole, setActiveRole] = useState(0);
   const [activeType, setActiveType] = useState('sign');
   const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
   const [labelFor, setLabelFor] = useState(null); // upload field whose label is being edited
+  const [mergeFor, setMergeFor] = useState(null); // offer field whose value is being picked
   const dragState = useRef(null);
 
   useEffect(() => {
@@ -2092,11 +2147,13 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   function place(page, x, y, type = activeType) {
     const meta = FIELD_META[type] || FIELD_META.sign;
     const id = `a${Date.now()}`;
-    setFields(fs => [...fs, { id, role: roleKey(activeRole), type, page,
+    setFields(fs => [...fs, { id, role: meta.merge ? '' : roleKey(activeRole), type, page,
       x: Math.min(0.98 - meta.w, Math.max(0, x - meta.w / 2)),
-      y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)), w: meta.w, h: meta.h, required: true,
-      ...(meta.opts ? { options: ['Option 1', 'Option 2'] } : {}) }]);
+      y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)), w: meta.w, h: meta.h, required: !meta.merge,
+      ...(meta.opts ? { options: ['Option 1', 'Option 2'] } : {}),
+      ...(meta.merge ? { merge: 'salary' } : {}) }]);
     if (meta.opts) setOptsFor(id); // choices matter more than position - edit them right away
+    if (meta.merge) setMergeFor(id);
   }
   const onDrag = useCallback((e) => {
     const s = dragState.current; if (!s) return;
@@ -2121,19 +2178,20 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
       onDragOver={e => e.preventDefault()}
       onDrop={(e) => { e.preventDefault(); const t = e.dataTransfer.getData('field'); if (t) { const r = e.currentTarget.getBoundingClientRect(); place(pageIdx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, t); } }}>
       {fields.filter(f => f.page === pageIdx).map(f => {
-        const c = rcolor(roleIdx(f.role));
         const M = FIELD_META[f.type];
+        const c = M.merge ? MERGE_COLOR : rcolor(roleIdx(f.role));
         return (
           <div key={f.id} onPointerDown={(e) => startDrag(e, f, 'move')} onClick={e => e.stopPropagation()}
             style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
-              border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
+              border: `2px ${M.merge ? 'dashed' : 'solid'} ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-              <M.Icon size={10} /> {(M.labeled && f.label) || M.label}
+              <M.Icon size={10} /> {M.merge ? (MERGE_LABEL[f.merge] || 'Offer Field') : ((M.labeled && f.label) || M.label)}
             </span>
-            {(M.opts || M.labeled) && (
-              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); (M.labeled ? setLabelFor : setOptsFor)(f.id); }}
-                title={M.labeled ? (f.label ? `"${f.label}" - click to edit` : 'Name this attachment')
+            {(M.opts || M.labeled || M.merge) && (
+              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); (M.merge ? setMergeFor : M.labeled ? setLabelFor : setOptsFor)(f.id); }}
+                title={M.merge ? `Prints ${MERGE_LABEL[f.merge] || 'an offer value'} - click to change`
+                  : M.labeled ? (f.label ? `"${f.label}" - click to edit` : 'Name this attachment')
                   : `Edit choices (${(f.options || []).length})`}
                 style={{ position: 'absolute', top: -9, right: 12, width: 18, height: 18, borderRadius: '50%', background: '#fff', color: c.solid, border: `2px solid ${c.solid}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                 <Pencil size={9} />
@@ -2179,10 +2237,14 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
                : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>}
         </div>
         <FieldsPanel recipients={roles.map((r, i) => ({ label: r.label || r.key, sub: `Signs ${_ord(i + 1)}`, color: rcolor(i) }))}
-          activeIdx={activeRole} onPick={setActiveRole}
+          activeIdx={activeRole} onPick={setActiveRole} offerFields
           activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
       </div>
       </div>
+      {mergeFor && fields.find(f => f.id === mergeFor) && (
+        <MergeFieldModal field={fields.find(f => f.id === mergeFor)} onClose={() => setMergeFor(null)}
+          onSave={(merge) => setFields(fs => fs.map(f => f.id === mergeFor ? { ...f, merge } : f))} />
+      )}
       {labelFor && fields.find(f => f.id === labelFor) && (
         <FieldLabelModal field={fields.find(f => f.id === labelFor)} onClose={() => setLabelFor(null)}
           onSave={(patch) => setFields(fs => fs.map(f => f.id === labelFor ? { ...f, ...patch } : f))} />
@@ -3611,11 +3673,17 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   // section 16). The param is consumed once and stripped, so a refresh or a
   // Back doesn't keep reopening the same modal.
   useEffect(() => {
-    const rid = new URLSearchParams(window.location.search).get('request');
-    if (!rid) return;
-    setDetailId(rid);
+    const params = new URLSearchParams(window.location.search);
+    const rid = params.get('request');
+    // ?sign=<party> is a signer's own invite (an HR letter emailed to a
+    // teammate): straight into their signing screen, not the inbox list.
+    const pid = params.get('sign');
+    if (!rid && !pid) return;
+    if (rid) setDetailId(rid);
+    if (pid) setSignParty(pid);
     const url = new URL(window.location.href);
     url.searchParams.delete('request');
+    url.searchParams.delete('sign');
     window.history.replaceState(window.history.state, '', url.pathname + url.search);
   }, []);
   useEffect(() => { if (prefill) setSendOpen(true); }, [prefill]);

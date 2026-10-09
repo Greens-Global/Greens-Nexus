@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   X, Plus, Trash2, Video, Sparkles, Trophy, Send, FileText,
-  CheckCircle, Play, ClipboardList, RefreshCw,
+  CheckCircle, Play, ClipboardList, RefreshCw, Save, ChevronRight, XCircle, CalendarDays, Clock, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -16,7 +16,7 @@ import { Spinner } from './AsyncState';
 const Overlay = ({ children, onClose, wide }) => (
   <div onClick={e => e.target === e.currentTarget && onClose()}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 'clamp(680px, 68vw, 1100px)' : 'clamp(520px, 60vw, 900px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 1100px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -39,22 +39,108 @@ const STATUS_CHIP = {
 };
 const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.scheduled; return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em', background: bg, color: fg }}>{s}</span>; };
 
+// Open a recording / transcript through its short-lived link (private bucket).
+async function openInterviewFile(iv, kind, toastErr) {
+  try { const { url } = await api.ivFile(iv.id, kind); window.open(url, '_blank', 'noopener'); }
+  catch (e) { toastErr?.(e?.message || 'Could not open the file.'); }
+}
+const fmtMb = b => (b > 0 ? ` (${(b / 1048576).toFixed(b > 10485760 ? 0 : 1)} MB)` : '');
+
+// Where the recording stands for one round (Pranshu, Oct 8: the meeting
+// records itself; afterwards the recording and transcript are kept).
+export function RecordingLine({ iv, onPull, busy, toastErr, compact }) {
+  const links = (
+    <>
+      {iv.hasRecording && (
+        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          onClick={() => openInterviewFile(iv, 'recording', toastErr)}><Play size={11} /> Play Recording{fmtMb(iv.recordingSize)}</button>
+      )}
+      {iv.hasTranscriptFile && (
+        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          onClick={() => openInterviewFile(iv, 'transcript', toastErr)}><FileText size={11} /> Transcript</button>
+      )}
+    </>
+  );
+  if (['scheduled', 'live'].includes(iv.status)) {
+    if (!iv.joinUrl) return null;
+    const on = iv.autoRecord === 'on';
+    return (
+      <div style={{ fontSize: 12, color: on ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <Video size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>{on ? 'Auto-recording on - the call records and transcribes itself from the start.'
+          : `Auto-recording is off${iv.autoRecord ? ` (${iv.autoRecord.replace(/^failed: /, '')})` : ''} - press Record in Teams when the call starts.`}</span>
+      </div>
+    );
+  }
+  if (iv.hasRecording || iv.hasTranscriptFile) {
+    return <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>{links}</div>;
+  }
+  if (!iv.recordingStatus || compact) return null;
+  const failed = iv.recordingStatus === 'failed';
+  return (
+    <div style={{ fontSize: 12, color: failed ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      {failed ? <AlertTriangle size={13} /> : <Clock size={13} />}
+      <span style={{ flex: 1 }}>{iv.recordingNote || 'Waiting for the Teams recording'}</span>
+      {onPull && (
+        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onPull} disabled={!!busy}>
+          {busy ? <Spinner size={12} /> : 'Pull Recording'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The rounds a person went through before they were hired - the profile's
+// Interviews tab. Read only: the decision was made in the pipeline.
+export function EmployeeInterviews({ employeeId, toastErr }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => { api.getEmployeeInterviews(employeeId).then(setRows).catch(() => setRows([])); }, [employeeId]);
+  if (rows === null) return <div style={{ marginTop: 18 }}><Spinner size={15} /></div>;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+        <Video size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Interviews
+      </div>
+      {rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No interview rounds on record - they were added to People directly.</div>
+        : rows.map(iv => (
+          <div key={iv.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <b style={{ fontSize: 13 }}>{iv.at ? formatDateTime(iv.at) : 'Unscheduled'}</b>
+              <Chip s={iv.status} />
+              {iv.status === 'scored' && <span style={{ fontSize: 12, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(iv.totalScore)}/100</span>}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              With {(iv.interviewerNames || iv.interviewerEmails || []).join(', ') || 'no one set'} · {iv.durationMin} minutes
+              {iv.templateName ? ` · Questionnaire: ${iv.templateName}` : ''}
+            </div>
+            {iv.summary && <div style={{ fontSize: 12.5, marginTop: 6 }}><strong>AI verdict:</strong> {iv.summary}</div>}
+            <div style={{ marginTop: 8 }}><RecordingLine iv={iv} toastErr={toastErr} compact /></div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 // ── Questionnaire templates ───────────────────────────────────────────────────
 export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
   const [tpls, setTpls] = useState(null);
-  const [editing, setEditing] = useState(null);   // {id?, name, text}
+  const [editing, setEditing] = useState(null);   // {id?, name, text, roleIds, isGeneral}
   const [busy, setBusy] = useState(false);
-  useEffect(() => { api.ivTemplates().then(setTpls).catch(() => setTpls([])); }, []);
+  const [roles, setRoles] = useState([]);
+  const loadTpls = () => api.ivTemplates().then(setTpls).catch(() => setTpls([]));
+  useEffect(() => { loadTpls(); api.hiringAllRoles().then(o => setRoles(o.roles || [])).catch(() => {}); }, []);
+  const roleName = id => { const r = roles.find(x => x.id === id); return r ? r.name + (r.companyName ? ` (${r.companyName})` : '') : 'A removed role'; };
 
   const save = async () => {
     const questions = editing.text.split('\n').map(s => s.trim()).filter(Boolean);
     if (!editing.name.trim() || !questions.length) return;
     setBusy(true);
     try {
-      const saved = editing.id
-        ? await api.ivTemplateUpdate(editing.id, { name: editing.name, questions })
-        : await api.ivTemplateCreate({ name: editing.name, questions });
-      setTpls(ts => editing.id ? ts.map(t => t.id === saved.id ? saved : t) : [...ts, saved]);
+      const body = { name: editing.name, questions, role_ids: editing.roleIds || [], is_general: !!editing.isGeneral };
+      editing.id ? await api.ivTemplateUpdate(editing.id, body) : await api.ivTemplateCreate(body);
+      // A role belongs to one questionnaire and there is one General - the
+      // server may have moved links off another one, so reload them all.
+      await loadTpls();
       setEditing(null);
       toastOk?.('Questionnaire saved');
     } catch (e) { toastErr?.(e?.message || 'Could not save'); }
@@ -66,19 +152,39 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={guard.requestClose}>
-      <Head title="Interview Questionnaires" sub="One per role - the questions you ask in the call; AI fills the answers from the transcript" onClose={guard.requestClose} />
+      <Head title="Interview Questionnaires" sub="Linked to roles - an interview uses its role's questionnaire, or the General one, automatically" onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         {editing ? (
           <div>
-            <label style={lbl}>Role name</label>
-            <input className="form-input" style={{ width: '100%' }} value={editing.name} onChange={e => setEditing(ed => ({ ...ed, name: e.target.value }))} placeholder='e.g. "Site Manager"' />
+            <label style={lbl}>Name</label>
+            <input className="form-input" style={{ width: '100%' }} value={editing.name} onChange={e => setEditing(ed => ({ ...ed, name: e.target.value }))} placeholder='e.g. "Site Manager" or "General"' />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '12px 0 2px', fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!editing.isGeneral} onChange={e => setEditing(ed => ({ ...ed, isGeneral: e.target.checked }))} style={{ accentColor: 'var(--pine)' }} />
+              General - used for any role that has no questionnaire of its own
+            </label>
+            <label style={lbl}>Used For These Roles</label>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 180, overflowY: 'auto', padding: '6px 10px' }}>
+              {roles.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)', padding: 4 }}>No job roles yet - they are set up in Settings &gt; Access.</div>
+                : roles.map(r => {
+                  const on = (editing.roleIds || []).includes(r.id);
+                  const other = (tpls || []).find(t => t.id !== editing.id && (t.roleIds || []).includes(r.id));
+                  return (
+                    <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', fontSize: 12.5, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} style={{ accentColor: 'var(--pine)' }}
+                        onChange={e => setEditing(ed => ({ ...ed, roleIds: e.target.checked ? [...(ed.roleIds || []), r.id] : (ed.roleIds || []).filter(x => x !== r.id) }))} />
+                      <span style={{ flex: 1 }}>{r.name}{r.companyName ? <span style={{ color: 'var(--muted)' }}> - {r.companyName}</span> : null}</span>
+                      {other && !on && <span style={{ fontSize: 11, color: 'var(--muted)' }}>now: {other.name}</span>}
+                    </label>
+                  );
+                })}
+            </div>
             <label style={lbl}>Questions - one per line</label>
             <textarea className="form-input" rows={10} style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
               value={editing.text} onChange={e => setEditing(ed => ({ ...ed, text: e.target.value }))}
               placeholder={'Walk me through your last role.\nHow would you handle an overdue vendor?\n…'} />
             <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save questionnaire'}</button>
+              <button className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save Questionnaire'}</button>
             </div>
           </div>
         ) : (
@@ -90,10 +196,14 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                   <ClipboardList size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{t.questions.length} question{t.questions.length !== 1 ? 's' : ''}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {t.questions.length} question{t.questions.length !== 1 ? 's' : ''}
+                      {' · '}{t.isGeneral ? 'General' : ''}{t.isGeneral && (t.roleIds || []).length ? ' + ' : ''}
+                      {(t.roleIds || []).length ? (t.roleIds || []).map(roleName).join(', ') : t.isGeneral ? '' : 'Not linked to a role yet'}
+                    </div>
                   </div>
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 12px' }}
-                    onClick={() => setEditing({ id: t.id, name: t.name, text: t.questions.map(q => q.q).join('\n') })}>Edit</button>
+                    onClick={() => setEditing({ id: t.id, name: t.name, text: t.questions.map(q => q.q).join('\n'), roleIds: t.roleIds || [], isGeneral: !!t.isGeneral })}>Edit</button>
                   <button onClick={async () => {
                       if (!await dialog.confirm(`Delete "${t.name}"?`, { title: 'Delete template', confirmText: 'Delete', danger: true })) return;
                       try { await api.ivTemplateDelete(t.id); setTpls(ts => ts.filter(x => x.id !== t.id)); toastOk?.('Template deleted.'); }
@@ -103,8 +213,8 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                 </div>
               ))}
             <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
-              onClick={() => setEditing({ name: '', text: '' })}>
-              <Plus size={14} /> New questionnaire
+              onClick={() => setEditing({ name: '', text: '', roleIds: [], isGeneral: false })}>
+              <Plus size={14} /> New Questionnaire
             </button>
           </>
         )}
@@ -122,18 +232,27 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 }
 
 // ── Interview room for one candidate ──────────────────────────────────────────
-export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
-  const [tpls, setTpls] = useState([]);
+// The room (Neil, Oct 8): the questions on screen during the call, and at the
+// bottom right ONE clear way out - End Interview takes everything in (the
+// answers typed now, the Teams transcript once it is published, the AI fill
+// and the score) and Nexus finishes the merge by itself. Once scored, the
+// decision is made right here: Move To Offer, Another Round, or Reject.
+export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toastErr }) {
   const [list, setList] = useState(null);
   const [sel, setSel] = useState(null);             // selected interview object
-  const [sched, setSched] = useState({ template_id: '', at: '', duration_min: 45 });
   const [busy, setBusy] = useState('');
   const [paste, setPaste] = useState('');
   const [showPaste, setShowPaste] = useState(false);
 
   useEffect(() => {
-    api.ivTemplates().then(setTpls).catch(() => {});
-    api.ivList(c.id).then(l => { setList(l); if (l.length) setSel(l[0]); }).catch(() => setList([]));
+    api.ivList(c.id).then(all => {
+      // Canceled rounds stay in the candidate's history, not in the room. Open
+      // on the round happening now, else the next one, else the latest.
+      const l = all.filter(x => x.status !== 'canceled');
+      setList(l);
+      const pick = l.find(x => x.status === 'live') || [...l].reverse().find(x => x.status === 'scheduled') || l[0];
+      if (pick) setSel(pick);
+    }).catch(() => setList([]));
   }, [c.id]);
 
   const run = (key, fn, okMsg) => async () => {
@@ -144,56 +263,45 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
   };
   const refreshSel = (updated) => { setSel(updated); setList(l => l.map(x => x.id === updated.id ? updated : x)); };
 
-  const schedule = run('sched', async () => {
-    if (!sched.at) return;
-    const created = await api.ivSchedule(c.id, { ...sched, at: new Date(sched.at).toISOString() });
-    setList(l => [created, ...(l || [])]);
-    setSel(created);
-    if (created.inviteSent) toastOk?.('Teams invite sent to the candidate ✓');
-    else toastErr?.(created.graphError || 'Interview saved, but the Teams invite could not be sent');
-  });
+  const setAnswer = (qid, answer) => { setTyped(true); refreshSel({ ...sel, answers: sel.answers.map(a => a.qid === qid ? { ...a, answer } : a) }); };
+  const [typed, setTyped] = useState(false);      // answers changed since the last save
 
-  const setAnswer = (qid, answer) => refreshSel({ ...sel, answers: sel.answers.map(a => a.qid === qid ? { ...a, answer } : a) });
+  // While Nexus is merging (waiting on the Teams transcript, scoring), keep the
+  // room current so HR sees it land without pressing anything.
+  const waiting = sel?.followupStatus === 'waiting';
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const id = sel.id;
+    const t = setInterval(() => {
+      api.ivList(c.id).then(all => { const u = all.find(x => x.id === id); if (u) refreshSel(u); }).catch(() => {});
+    }, 15000);
+    return () => clearInterval(t);
+  }, [waiting, sel?.id, c.id]);
+
+  const saveAnswers = run('save', async () => { refreshSel({ ...(await api.ivPatch(sel.id, { answers: sel.answers })), followupStatus: sel.followupStatus }); setTyped(false); }, 'Answers saved');
+  const endInterview = run('end', async () => {
+    const u = await api.ivFinish(sel.id, { answers: sel.answers });
+    refreshSel(u); setTyped(false);
+    toastOk?.(u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.');
+  });
+  const retryNow = run('retry', async () => refreshSel(await api.ivFollowupNow(sel.id)));
+  const decide = (kind) => { if (onDecision) { onClose(); onDecision(kind, c); } };
 
   // A pending "schedule a round" draft or a pasted-but-unsaved transcript would
   // otherwise be silently lost on an overlay click - per-question answers are
   // excluded since those already auto-save onBlur (see onBlur below).
-  const dirty = !!(sched.at || paste.trim());
-  const guard = useUnsavedGuard(dirty, onClose, undefined);
+  const dirty = !!paste.trim() || typed;
+  const guard = useUnsavedGuard(dirty, onClose, typed && sel ? saveAnswers : undefined);
 
   return (
     <Overlay onClose={guard.requestClose} wide>
       <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px', flex: 1 }}>
 
-        {/* Schedule a new round */}
-        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14, background: 'var(--mist)' }}>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <label style={lbl}>Questionnaire</label>
-              <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={sched.template_id} onChange={e => setSched(s => ({ ...s, template_id: e.target.value }))}>
-                <option value="">No Questionnaire</option>
-                {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>When</label>
-              <input type="datetime-local" className="form-input" style={{ fontSize: 12.5 }} value={sched.at} onChange={e => setSched(s => ({ ...s, at: e.target.value }))} />
-            </div>
-            <div>
-              <label style={lbl}>Minutes</label>
-              <input type="number" className="form-input" style={{ width: 76, fontSize: 12.5 }} min={15} max={240} value={sched.duration_min} onChange={e => setSched(s => ({ ...s, duration_min: +e.target.value || 45 }))} />
-            </div>
-            <button className="primary-btn" onClick={schedule} disabled={busy === 'sched' || !sched.at}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-              {busy === 'sched' ? <Spinner size={13} /> : <Video size={14} />} Send Teams invite
-            </button>
-          </div>
-          <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>The candidate gets a calendar invite with the Teams link on {c.email || 'their email'}.</p>
-        </div>
-
         {/* Rounds */}
-        {list === null ? <Spinner size={16} /> : list.length > 0 && (
+        {list === null ? <Spinner size={16} /> : list.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No interview scheduled yet - schedule it from the candidate.</div>
+        ) : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {list.map(iv => (
               <button key={iv.id} onClick={() => setSel(iv)}
@@ -214,24 +322,36 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                   <Video size={13} /> Join Teams meeting
                 </a>
               )}
-              {sel.status === 'scheduled' && (
-                <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-                  onClick={run('live', async () => refreshSel(await api.ivPatch(sel.id, { status: 'live' })), 'Interview started - questionnaire is live')}>
-                  <Play size={13} /> Interview started
-                </button>
-              )}
-              {sel.status === 'live' && (
-                <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-                  onClick={run('done', async () => refreshSel(await api.ivPatch(sel.id, { status: 'completed', answers: sel.answers })), 'Marked completed')}>
-                  <CheckCircle size={13} /> End Interview
-                </button>
-              )}
               <div style={{ flex: 1 }} />
               {sel.status === 'scored' && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
             </div>
+            <div style={{ marginBottom: 12 }}>
+              <RecordingLine iv={sel} busy={busy === 'rec'} toastErr={toastErr}
+                onPull={run('rec', async () => refreshSel(await api.ivPullRecording(sel.id)), 'Recording saved')} />
+            </div>
+
+            {sel.followupStatus && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 12.5,
+                background: sel.followupStatus === 'failed' ? 'hsla(var(--color-red),0.08)' : sel.followupStatus === 'done' ? 'hsla(var(--color-green),0.08)' : 'hsla(var(--color-blue),0.08)' }}>
+                {sel.followupStatus === 'waiting' ? <Clock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                  : sel.followupStatus === 'failed' ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-red))' }} />
+                    : <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />}
+                <span style={{ flex: 1 }}>
+                  {sel.followupStatus !== 'waiting' ? sel.followupNote
+                    : (sel.followupNote || '').startsWith('Waiting for Teams')
+                      ? `${sel.followupNote}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.`
+                      : `${sel.followupNote || 'Working on it'} - you'll get a bell when it's scored.`}
+                </span>
+                {['waiting', 'failed'].includes(sel.followupStatus) && (
+                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={retryNow} disabled={!!busy}>
+                    {busy === 'retry' ? <Spinner size={12} /> : 'Retry Now'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Transcript + AI actions */}
-            {(sel.status === 'live' || sel.status === 'completed' || sel.status === 'scored') && (
+            {(sel.status === 'completed' || sel.status === 'scored') && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
@@ -274,7 +394,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
                 <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 6, fontSize: 12.5, resize: 'vertical' }}
                   value={a.answer || ''} placeholder="Their answer - type it, or let AI fill it from the transcript"
                   onChange={e => setAnswer(a.qid, e.target.value)}
-                  onBlur={() => api.ivPatch(sel.id, { answers: sel.answers }).catch(() => {})} />
+                  onBlur={() => { if (sel.status !== 'live') api.ivPatch(sel.id, { answers: sel.answers }).then(() => setTyped(false)).catch(() => {}); }} />
                 {a.rationale && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
               </div>
             )) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No questionnaire attached to this round.</div>}
@@ -287,10 +407,49 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
           </div>
         )}
       </div>
+      <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+        {sel?.status === 'scored' && <span style={{ marginRight: 'auto', fontSize: 12.5, fontWeight: 700 }}>
+          <Trophy size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: 'hsl(var(--color-green))' }} />Scored {Math.round(sel.totalScore)}/100 - what next?</span>}
+        <button className="secondary-btn" onClick={guard.requestClose}>Close</button>
+        {sel?.status === 'scheduled' && (
+          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={!!busy}
+            onClick={run('live', async () => refreshSel(await api.ivPatch(sel.id, { status: 'live' })), 'Interview started - the questions are live')}>
+            {busy === 'live' ? <Spinner size={14} /> : <Play size={14} />} Start Interview
+          </button>
+        )}
+        {sel?.status === 'live' && <>
+          <button className="secondary-btn" onClick={saveAnswers} disabled={!!busy || !typed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'save' ? <Spinner size={13} /> : <Save size={13} />} Save
+          </button>
+          <button className="primary-btn" onClick={endInterview} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'end' ? <Spinner size={14} /> : <CheckCircle size={14} />} End Interview
+          </button>
+        </>}
+        {sel?.status === 'completed' && !sel.followupStatus && (
+          <button className="primary-btn" onClick={endInterview} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'end' ? <Spinner size={14} /> : <Sparkles size={14} />} Score Interview
+          </button>
+        )}
+        {sel?.status === 'completed' && typed && (
+          <button className="secondary-btn" onClick={saveAnswers} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Save size={13} /> Save
+          </button>
+        )}
+        {sel?.status === 'scored' && onDecision && <>
+          <button onClick={() => decide('reject')}
+            style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
+            <XCircle size={13} /> Reject
+          </button>
+          <button className="secondary-btn" onClick={() => decide('another')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Another Round</button>
+          <button className="primary-btn" onClick={() => decide('offer')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ChevronRight size={14} /> Move To Offer</button>
+        </>}
+      </div>
       {guard.confirming && (
         <UnsavedChangesPrompt
           onKeepEditing={guard.keepEditing}
-          onDiscard={() => { setSched(s => ({ ...s, at: '' })); setPaste(''); onClose(); }}
+          onDiscard={() => { setPaste(''); onClose(); }}
+          onSave={typed && sel ? guard.saveAndClose : undefined}
+          saving={busy === 'save'}
         />
       )}
     </Overlay>
