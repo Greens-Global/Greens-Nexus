@@ -4,7 +4,7 @@ import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, C
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
-import { WIDGETS, widgetAllowed } from './widgets.jsx';
+import { WIDGETS, widgetAllowed, widgetHidden } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import DeskHome, { DeskGreeting } from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
@@ -66,11 +66,17 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
 // tier widgets today (see jobroles.py) without requiring the Manager role
 // itself. A widget with no minRole is open to everyone.
 export default function CustomDashboard() {
-  const { can, myEmail, myGrantedModules, canAccessModule } = useRole();
+  const { can, myEmail, myGrantedModules, canAccessModule, timeTrackingExempt } = useRole();
   const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
   // Module-gated tiles (Find a Transaction needs the Accounting grant) go
   // through the same helper - see widgetAllowed in widgets.jsx.
   const canSeeWidget = (def) => widgetAllowed(def, { can, myGrantedModules, canAccessModule });
+  // Not for this person at all (a punch tile for a salaried person): out of
+  // the grid and the gallery, but never out of the saved layout - a shared
+  // view still carries it for the people it is for. Distinct from
+  // canSeeWidget, which renders an inert "needs access" card instead.
+  const isHiddenWidget = (def) => widgetHidden(def, { timeTrackingExempt });
+  const offerWidget = (def) => canSeeWidget(def) && !isHiddenWidget(def);
   // 'manager' | 'supervisor' | 'employee' - same access layer as canSeeWidget
   // above, just collapsed to one tier label. Drives which role-tiered widgets
   // seed a pristine board and whether team-wide KPIs get fetched (see
@@ -100,6 +106,11 @@ export default function CustomDashboard() {
 
   const flash = (t, ok = true) => { setToast({ t, ok }); setTimeout(() => setToast(null), 3000); };
   const wrap = (fn, okMsg) => async (...a) => { try { await fn(...a); if (okMsg) flash(okMsg); } catch (e) { flash(e?.message || 'Something went wrong', false); } };
+
+  // The grid shows the layout minus the tiles that are not for this person;
+  // the hidden ones ride along unchanged on every layout change and save.
+  const hiddenItems = d.layout.filter(it => isHiddenWidget(WIDGETS[it.type]));
+  const shownLayout = hiddenItems.length ? d.layout.filter(it => !isHiddenWidget(WIDGETS[it.type])) : d.layout;
 
   const isOwnPersonal  = d.activeView?.scope === 'personal';
   const canEditInPlace = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
@@ -333,9 +344,9 @@ export default function CustomDashboard() {
               </p>
             )}
             <DashboardGrid
-              layout={d.layout}
+              layout={shownLayout}
               editing={d.editing}
-              onLayoutChange={d.setLayout}
+              onLayoutChange={(next) => d.setLayout(hiddenItems.length ? [...next, ...hiddenItems] : next)}
               renderWidget={renderWidget}
               onRemove={d.removeWidget}
               onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
@@ -367,7 +378,7 @@ export default function CustomDashboard() {
         </div>
       )}
 
-      {gallery && <WidgetGallery canSee={canSeeWidget} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
+      {gallery && <WidgetGallery canSee={offerWidget} layout={d.layout} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}
       {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
     </div>

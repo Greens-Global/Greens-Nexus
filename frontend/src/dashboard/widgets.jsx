@@ -797,7 +797,7 @@ export const WIDGETS = {
   // A two-row stat tile since Sep 29 (was 3x3 with its own header + button):
   // maxH 2 so every saved board shrinks with it on load, minW 3 so today
   // and the week fit on one baseline.
-  'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 2 }, limits: { minW: 3, minH: 2, maxW: 4, maxH: 2 }, render: TimeClockWidget },
+  'time-clock':  { title: 'Time Clock',      cat: 'Workday',   icon: Clock,        size: { w: 3, h: 2 }, limits: { minW: 3, minH: 2, maxW: 4, maxH: 2 }, render: TimeClockWidget, timeTracked: true },
   'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget },
   'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget },
   'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget },
@@ -842,7 +842,11 @@ export const WIDGETS = {
   // "Unknown widget" card, never a crash.
   'my-day':        { title: 'My Day',        cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget },
   'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget },
-  'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 6, maxH: 8 },  render: MyTimeWidget },
+  // My Time (Oct 8, Neil): the simple punch tile - status, Punch In / Out /
+  // Start Break / End Break, today's hours; the card opens Workday for the
+  // rest. `timeTracked`: only for people who are time-tracked - a salaried
+  // (exempt) person never sees it placed or offered (see widgetHidden).
+  'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 3, h: 3 }, limits: { minW: 3, minH: 3, maxW: 4, maxH: 4 },  render: MyTimeWidget, timeTracked: true },
   announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget },
   'my-team':       { title: 'My Team',       cat: 'Team',    icon: Users,      size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 12, maxH: 8 }, render: MyTeamWidget, minRole: 'supervisor' },
   // Oct 1: a module-gated tile - `module` names the Access Group grant that
@@ -858,6 +862,15 @@ export const WIDGETS = {
 export function widgetAllowed(def, { can, myGrantedModules, canAccessModule }) {
   if (def.module && !canAccessModule?.(def.module, 'administrator', def.moduleLevel || 'viewer')) return false;
   return !def.minRole || can(def.minRole) || !!myGrantedModules?.has('manager-dashboard');
+}
+
+// Is this widget simply not for this person - not a matter of access, but of
+// relevance? A `timeTracked` tile (the punch clock) is nothing to a salaried,
+// time-tracking-exempt person (Neil, Oct 8): it is left out of their grid
+// (kept in the saved layout, so a shared view still carries it for the
+// hourly people) and out of the gallery. Unknown (null) counts as tracked.
+export function widgetHidden(def, { timeTrackingExempt }) {
+  return !!def?.timeTracked && timeTrackingExempt === true;
 }
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).

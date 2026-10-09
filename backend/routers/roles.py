@@ -81,10 +81,15 @@ def get_my_role(
     # hr_team (Oct 6): the manager tier sees their own team in People - People
     # and Time only, five read-only profile tabs, no pay. hr_scope is then [].
     from auth import hr_scope, is_team_scope
+    # time_tracking_exempt (Oct 8): salaried people have no time clock, so the
+    # dashboard must know it the moment it knows the role - before any time
+    # widget is placed or offered - rather than after /timeclock/status.
+    from routers.timeclock import is_time_tracking_exempt
     scope = hr_scope(user, db)
     return {"email": user["email"], "role": role, "is_external": False,
             "hr_scope": sorted(scope) if scope is not None else None,
-            "hr_team": is_team_scope(scope)}
+            "hr_team": is_team_scope(scope),
+            "time_tracking_exempt": is_time_tracking_exempt(db, user["email"])}
 
 
 @router.get("")
