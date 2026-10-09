@@ -26,6 +26,7 @@ import os
 import secrets
 import re
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -430,12 +431,17 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     if not graph_configured():
         return
     lat, lng = (row.lat or "").strip(), (row.lng or "").strip()
-    maps = f"https://www.google.com/maps?q={lat},{lng}" if lat and lng else ""
+    # The link opens the punch on the person's timecard in Nexus - the map
+    # there shows it against the geofence (Neil, 10/08: "needs to link to her
+    # location punch page on Nexus rather than opening Google Maps").
+    link = _timecard_url(db, emp.work_email, row.local_date)
     html = (f"<p>{who} <b>{verb}</b> at <b>{when}</b> outside the geofence.</p>"
             f"<p>Nearest location: <b>{site}</b> - {_us_distance(dist)} away"
             f"{' (GPS accuracy ±' + _us_distance(row.accuracy_m) + ')' if row.accuracy_m else ''}.</p>"
-            + (f"<p>Location: <a href='{maps}'>{lat}, {lng}</a></p>" if maps else "<p>No coordinates were captured.</p>")
-            + "<p>Open Nexus - People - Time to review the punch on the map.</p>")
+            + (f"<p>Location: {lat}, {lng}</p>" if lat and lng else "<p>No coordinates were captured.</p>")
+            + f"<p><a href='{link}' style='display:inline-block;padding:9px 16px;background:#166534;color:#fff;"
+              f"border-radius:8px;text-decoration:none;font-weight:600'>Review the Punch in Nexus</a></p>"
+            + f"<p style='color:#6b7280;font-size:12px'>Or open Nexus - People - Time - {who}'s timecard.</p>")
     subject = f"Out-of-fence punch: {who} {verb} at {when}"
     to = [emp.manager_email]
 
@@ -1425,12 +1431,43 @@ def _exceptions_409(exc: list, can_override: bool = True):
         "exceptions": exc})
 
 
+def _people_meta(db: Session, emails) -> dict:
+    """{email: {name, department}} for the People Action Log's filters (Neil,
+    10/06: "filters by department, so HR can handle everything in Ops")."""
+    ems = {(e or "").lower() for e in emails if e}
+    if not ems:
+        return {}
+    out = {}
+    for e in db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(ems)).all():
+        nm = (e.display_name or f"{e.first_name or ''} {e.last_name or ''}").strip()
+        out[(e.work_email or "").lower()] = {"name": nm, "department": (e.department or "").strip()}
+    return out
+
+
+def _clocked_in_now(db: Session, email: str):
+    """The local date of the shift this person is working RIGHT NOW (last punch
+    is a clock-in or a break, inside the 16-hour pairing guard), else None.
+    That shift has no clock-out yet because it has not ended - it is not a
+    missing punch (Neil, 10/06: "she's working today, this should not pop up")."""
+    last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc(), TimePunch.created_at.desc()).first())
+    if not last or last.kind == "out" or _stale_open_shift(last):
+        return None
+    # The open shift's date is its clock-in's, which can be the day before an
+    # overnight break punch.
+    opened = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0,
+                                         TimePunch.kind == "in", TimePunch.at <= last.at)
+              .order_by(TimePunch.at.desc()).first())
+    return (opened or last).local_date
+
+
 @router.get("/exceptions")
 def list_exceptions(start: str, end: str, user: dict = Depends(require_team_write),
                     db: Session = Depends(get_db)):
     """SwipeClock 'Show Missing Only': every unresolved punch exception across the
     manager's team for a period, so they get fixed before payroll runs. Team-scoped
-    (a manager sees their reports; an admin sees everyone with punches in range)."""
+    (a manager sees their reports; an admin sees everyone with punches in range).
+    A shift still in progress is not reported as missing its clock-out."""
     scope = _visible_emails(db, user)
     _hi = (date.fromisoformat(end) + timedelta(days=2)).isoformat()
     q = (db.query(TimePunch.employee_email)
@@ -1441,9 +1478,17 @@ def list_exceptions(start: str, end: str, user: dict = Depends(require_team_writ
     out = []
     for (em,) in q.all():
         exc = _period_exceptions(db, em, start, end)
+        live = _clocked_in_now(db, em) if exc else None
+        if live:
+            exc = [e for e in exc if not (e["date"] == live and e["type"] == "missing_out")]
         if exc:
             out.append({"email": em, "exceptions": exc,
                         "blocking": sum(1 for e in exc if e["blocking"])})
+    meta = _people_meta(db, [r["email"] for r in out])
+    for r in out:
+        m = meta.get((r["email"] or "").lower(), {})
+        r["name"] = m.get("name") or r["email"]
+        r["department"] = m.get("department", "")
     out.sort(key=lambda r: (-r["blocking"], r["email"]))
     return out
 
@@ -1805,6 +1850,19 @@ def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
         return action   # no usable date: the person's card, current period
     action.update(start=start, payType=pay_type)
     return action
+
+
+def _timecard_url(db: Session, employee_email: str, local_date: str) -> str:
+    """The email form of _timecard_action: People > Time with that person's
+    card open on the period holding the punch (TimeAdmin reads
+    ?timecard=<email>&start=<date>&type=<pay type> on mount)."""
+    from urllib.parse import urlencode
+    from app_url import app_url
+    a = _timecard_action(db, employee_email, local_date)
+    q = {"timecard": a.get("timecard", "")}
+    if a.get("start"):
+        q.update(start=a["start"], type=a.get("payType", ""))
+    return f"{app_url()}/hr/hr-time?{urlencode(q)}"
 
 
 def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: str,
@@ -2218,6 +2276,19 @@ def _company_of(db: Session, email: str) -> str:
     return (row[0] if row else "") or ""
 
 
+def _ago_words(seconds) -> str:
+    """'12 min ago' / '3 hr 20 min ago' / '1 day 4 hr ago' - never '1637 min ago'."""
+    s = max(0, int(seconds or 0))
+    m = s // 60
+    if m < 60:
+        return f"{m} min ago"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h} hr {m} min ago" if m else f"{h} hr ago"
+    d, h = divmod(h, 24)
+    return f"{d} day{'s' if d != 1 else ''} {h} hr ago" if h else f"{d} day{'s' if d != 1 else ''} ago"
+
+
 def _policy_for_email(db: Session, email: str, cache: dict) -> MonitoringPolicy:
     """Per-request memo so a roster loop over many employees resolves each
     distinct COMPANY's policy once, not once per employee."""
@@ -2491,6 +2562,8 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
         pol = _policy_for_email(db, email, pol_cache)
         if not pol.enabled:
             continue   # this employee's company has monitoring off entirely
+        if _is_monitoring_exempt(db, email):
+            continue   # leadership: never captured, so never "not captured" (Neil, 10/08)
         interval_min = max(1, int(pol.interval_minutes or 5))
         # Heartbeat is ~1/min; treat an enrolled agent as "quiet" after 5 min or
         # two capture intervals, whichever is longer. Screenshot gap ~2.5 intervals.
@@ -2515,12 +2588,19 @@ def monitoring_alerts(user: dict = Depends(require_tracking_read), db: Session =
                 reason, severity = "No agent reporting", "high"
                 detail = "Clocked in with no enrolled agent and no recent capture."
         elif seen_age is None or seen_age > stale_sec:
-            reason, severity = "Agent stopped reporting", "high"
-            detail = (f"Last checked in {int(seen_age // 60)} min ago."
-                      if seen_age is not None else "Agent has never checked in.")
+            # A quiet agent whose person is being captured anyway (the
+            # in-browser share took over - the Coverage tab shows them as
+            # "browser") is not a gap. Neil, 10/08: Arnav sat in this list for
+            # a day with "last checked in 1637 min ago" while covered.
+            if pol.track_screens and shot_age is not None and shot_age <= shot_gap_sec:
+                pass
+            else:
+                reason, severity = "Agent stopped reporting", "high"
+                detail = (f"Last checked in {_ago_words(seen_age)}."
+                          if seen_age is not None else "Agent has never checked in.")
         elif pol.track_screens and (shot_age is None or shot_age > shot_gap_sec):
             reason, severity = "No recent screenshots", "warning"
-            detail = (f"Agent is reporting but last frame was {int(shot_age // 60)} min ago."
+            detail = (f"Agent is reporting but last frame was {_ago_words(shot_age)}."
                       if shot_age is not None else "Agent is reporting but no frames yet.")
 
         if reason:
@@ -2689,6 +2769,14 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         local_date = tp.local_date
     _guard_review(db, email, local_date, email)
     if action == "add":
+        # The same fix asked for twice (same punch, same minute) is one fix:
+        # employees re-filed when nothing seemed to happen, and every copy
+        # after the first one approved then failed for HR (Charmi, Oct 7).
+        probe = PunchRequest(employee_email=email, action="add", punch_kind=body.punch_kind, at=at_utc)
+        if _pr_dupes(db, probe, lock=False):
+            raise HTTPException(409, "You already asked for this fix.")
+        if _same_live_punch(db, probe) is not None:
+            raise HTTPException(409, "That punch is already on your timecard.")
         # The employee's other pending add requests count as if real: asking
         # for an in, then for its out, is how a missing pair gets requested.
         from types import SimpleNamespace
@@ -2707,7 +2795,13 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     db.add(req)
     # Notify the approver - the employee's manager, or ALL managers if none is set,
     # so a no-manager employee's request still reaches someone.
-    what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
+    # Plain English, not field names (Neil, 10/08: "add a break_end punch"
+    # -> "add a break end punch at 1:20 PM"): the kind's label plus the time
+    # the fix is about, so the approver reads it without opening the request.
+    if action == "add":
+        what = f"add a {_kind_label(body.punch_kind)} punch at {_us_time(at_utc, body.tz_offset_min or 0)}"
+    else:
+        what = f"remove their {_kind_label(tp.kind)} punch at {_us_time(tp.at, tp.tz_offset_min or 0)}"
     # Open lands on the request itself - People > Time > Punch requests with
     # this row highlighted (Neil, 10/02: "doesn't take me to Amy's approval,
     # it just takes me to the time card area"). The timecard keys stay so an
@@ -2740,7 +2834,11 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_te
         if not visible:
             return []
         q = q.filter(PunchRequest.employee_email.in_(visible))
-    return [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+    rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+    meta = _people_meta(db, [r["employeeEmail"] for r in rows])
+    for r in rows:
+        r["department"] = meta.get((r["employeeEmail"] or "").lower(), {}).get("department", "")
+    return rows
 
 
 class PunchRequestDecision(BaseModel):
@@ -2766,56 +2864,229 @@ def _punch_neighbors(db: Session, email: str, at: str):
     return p_, n_
 
 
-def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
-    """Insert the punches a run of pending 'add' requests ask for (sorted by
-    time), after checking that the whole run keeps the punch sequence legal
-    between the real punches on either side. Nothing is inserted unless every
-    step passes. Raises 409 otherwise. Returns the times of any stray
-    clock-outs voided on the way (see below)."""
-    first, last = reqs[0], reqs[-1]
-    prev, _ = _punch_neighbors(db, first.employee_email, first.at)
-    _, nxt = _punch_neighbors(db, last.employee_email, last.at)
-    # Stray-aware (Sep 8): when the ONLY thing in the way of a clock-out
-    # request is a stray clock-out - one pressed a day later for the very
-    # shift this request closes - void the stray and apply the request.
-    # A stray carries no worked time (its pair already exceeds the 16h
-    # guard), so voiding it changes nothing on the timesheet except
-    # letting the real clock-out land. Anything else still gets refused.
-    voided_strays = []
-    if any(q.punch_kind == "out" for q in reqs):
-        for cand in (nxt, prev):
-            if cand is not None and _is_stray_out(db, cand):
-                cand.voided = 1
-                cand.adjusted_by = user["email"]
-                cand.adjusted_at = now
-                cand.adjust_note = ("Voided while approving a punch-fix request: stray clock-out "
-                                    "pressed more than 16 hours after the shift's clock-in.")
-                voided_strays.append(cand.at)
-                db.flush()
-        if voided_strays:
-            prev, _ = _punch_neighbors(db, first.employee_email, first.at)
-            _, nxt = _punch_neighbors(db, last.employee_email, last.at)
-    last_kind = prev.kind if prev else None
+def _pr_minute(at: str) -> str:
+    """A requested punch time to the minute - the duplicate key's clock part."""
+    return (at or "")[:16].replace(" ", "T")
+
+
+def _pr_dupes(db: Session, r, lock: bool = True) -> list:
+    """The employee's OTHER pending 'add' requests for the very same punch
+    (same kind, same minute). They are one fix: approving or rejecting one
+    closes the rest (Charmi, Oct 7 - 3x the same clock-out, 2x the same
+    break end; approving one left every copy failing)."""
+    if getattr(r, "action", "add") != "add" or not r.at:
+        return []
+    q = db.query(PunchRequest).filter(PunchRequest.employee_email == r.employee_email,
+                                      PunchRequest.status == "pending", PunchRequest.action == "add",
+                                      PunchRequest.punch_kind == r.punch_kind)
+    if r.id:
+        q = q.filter(PunchRequest.id != r.id)
+    if lock:
+        q = q.with_for_update()
+    key = _pr_minute(r.at)
+    return [d for d in q.all() if _pr_minute(d.at) == key]
+
+
+def _same_live_punch(db: Session, r):
+    """A real (non-voided) punch of the requested kind already at the
+    requested minute - the fix is already on the timecard."""
+    if not r.at:
+        return None
+    key = _pr_minute(r.at)
+    rows = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                    TimePunch.kind == r.punch_kind, TimePunch.at >= key, TimePunch.at < key + ":60")
+            .all())
+    return next((p for p in rows if _pr_minute(p.at) == key), None)
+
+
+def _close_dupes(db: Session, reqs: list, user: dict, now: str, note: str) -> int:
+    """Close the pending copies of each request in `reqs` as duplicates.
+    No bell or email to the employee - the request they meant was decided."""
+    done = {q.id for q in reqs}
+    closed = 0
     for q in reqs:
-        if q.punch_kind not in _allowed_kinds(last_kind):
-            raise HTTPException(409,
-                f"Approving this would place a '{q.punch_kind}' after a "
-                f"'{last_kind or 'clock-out'}', which isn't a valid punch sequence. "
-                f"Ask the employee to correct the request, or edit the punches directly.")
-        last_kind = q.punch_kind
-    if nxt and nxt.kind not in _allowed_kinds(last_kind):
-        raise HTTPException(409,
-            f"Approving this '{last_kind}' would make the following '{nxt.kind}' "
-            f"punch invalid. Edit the punches directly instead.")
+        for d in _pr_dupes(db, q):
+            if d.id in done:
+                continue
+            done.add(d.id)
+            d.status = "rejected"
+            d.decided_by, d.decided_at, d.decision_note = user["email"], now, note
+            closed += 1
+    return closed
+
+
+_DUPE_APPROVED = "Duplicate of an approved request"
+_DUPE_REJECTED = "Duplicate of a rejected request"
+_DUPE_ON_CARD = "Duplicate of a punch already on the timecard"
+
+
+def _punch_when(p) -> tuple:
+    """(time, date) of a punch or request in the employee's local time, US
+    format: ('4:00 PM', '09/23/2026')."""
+    dt = _parse_iso(p.at or "")
+    if not dt:
+        return (p.at or "", "")
+    loc = dt - timedelta(minutes=getattr(p, "tz_offset_min", 0) or 0)
+    return (f"{loc.hour % 12 or 12}:{loc:%M} {'AM' if loc.hour < 12 else 'PM'}", loc.strftime("%m/%d/%Y"))
+
+
+_PROBLEM_WORDS = {
+    "missing_out":       "a shift with no clock-out",
+    "out_without_in":    "a clock-out with no clock-in before it",
+    "missing_break_end": "a break that never ended",
+    "inverted":          "a clock-out earlier than its clock-in",
+}
+
+
+def _first_name(db: Session, email: str) -> str:
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    if emp and (emp.first_name or "").strip():
+        return emp.first_name.strip()
+    return (email or "").split("@")[0].split(".")[0].title() or "the employee"
+
+
+def _punch_list_text(punches: list, day: str) -> str:
+    """'Clock In 8:00 AM, Break Start 12:00 PM, Clock Out 5:00 PM' for one day."""
+    names = {"in": "Clock In", "out": "Clock Out", "break_start": "Break Start", "break_end": "Break End"}
+    parts = [f"{names.get(p.kind, p.kind)} {_punch_when(p)[0]}" for p in punches if p.local_date == day]
+    return ", ".join(parts) if parts else "no punches"
+
+
+def _day_problems(db: Session, email: str, punches: list, days: set) -> set:
+    """(local_date, problem) pairs that block sign-off - judged by the SAME
+    engine the timesheet, Submit and HR sign-off use (_day_summaries), plus a
+    clock-out earlier than its clock-in (_inverted_days)."""
+    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email))
+    out = {(d, f) for d, v in summ.items() if d in days for f in v.get("flags", []) if f in _BLOCKING_EXCEPTIONS}
+    return out | {(d, "inverted") for d in _inverted_days(punches, days)}
+
+
+def _cannot_apply_msg(db: Session, reqs: list, problems: set, punches_after: list) -> str:
+    """Plain words for the one case approving really cannot go ahead, e.g.
+    "Vicki's break start at 5:32 PM on 09/15/2026 can't be added as it stands:
+    the timecard for 09/15/2026 would then have a break that never ended. With
+    it, that day reads: Clock In 9:00 AM, Break Start 5:32 PM, Clock Out
+    9:10 PM. Ask Vicki for the missing time, or open the timecard and set the
+    times there." (Visesh, Oct 7: the old wording - "would place a 'break_end'
+    after a 'in'" - meant nothing to HR and kept sign-off blocked.)"""
+    r = reqs[0]
+    who = _first_name(db, r.employee_email)
+    t, d = _punch_when(r)
+    if len(reqs) > 1:
+        what = " and ".join(f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs)
+    else:
+        what = f"{_kind_label(r.punch_kind)} at {t}"
+    day, prob = sorted(problems)[0]
+    try:
+        us_day = datetime.strptime(day, "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        us_day = d
+    return (f"{who}'s {what} on {d} can't be added as it stands: the timecard for {us_day} would then have "
+            f"{_PROBLEM_WORDS.get(prob, 'a punch out of order')}. With it, that day reads: "
+            f"{_punch_list_text(punches_after, day)}. Ask {who} for the missing time, or open the timecard "
+            f"and set the times there.")
+
+
+def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
+    """Insert the punches a run of pending 'add' requests ask for.
+
+    Judged by what actually matters - the timesheet the employee and HR sign
+    (Visesh, Oct 7: HR could not approve plain fixes like "my break ended at
+    2:01 PM" because a later break end already sat on the card, so sign-off
+    stayed blocked). The day is run through the same engine that pays and that
+    blocks sign-off (_day_problems); the fix goes in unless it would leave the
+    day with a NEW blocking problem (a shift with no clock-out, a clock-out
+    with no clock-in, a break that never ended, an out before its in). A day
+    that is already messy never blocks a fix that does not make it worse.
+
+    A fix often REPLACES a punch pressed by mistake - Break instead of Clock
+    Out, or a clock-out a few minutes off. When the only thing in the way is
+    one punch of the same kind on the same day, that punch is set aside
+    (voided, kept for audit with who and why) and the employee's time is used:
+    HR approving the request is the sign-off for that change.
+
+    Returns human descriptions of anything replaced ("the clock-out at
+    5:00 PM"). Raises 409 with a plain-English message otherwise."""
+    from types import SimpleNamespace
+    email = reqs[0].employee_email
+    req_ids = {q.id for q in reqs}
+    req_days = {q.local_date for q in reqs if q.local_date}
+    days = set()
+    for dd in req_days:
+        base = date.fromisoformat(dd[:10])
+        days |= {(base + timedelta(days=k)).isoformat() for k in (-1, 0, 1)}
+    live = _live_punches(db, email, min(days), max(days)) if days else []
+    cols = [c.key for c in TimePunch.__table__.columns]
+
+    def copy(p):
+        return SimpleNamespace(**{c: getattr(p, c) for c in cols})
+
+    def requested(q):
+        blank = {k: None for k in cols}
+        blank.update(id=q.id, employee_email=email, kind=q.punch_kind, at=(q.at or "")[:19], local_date=q.local_date,
+                     tz_offset_min=q.tz_offset_min or 0, voided=0, source="manual", geo_status="no_location")
+        return SimpleNamespace(**blank)
+
+    def simulate(skip: set) -> list:
+        rows = [copy(p) for p in live if p.id not in skip] + [requested(q) for q in reqs]
+        # A requested punch at the same second as a real one goes first, so a
+        # break end typed for 2:23 PM ends the break that started at 2:23 PM.
+        return sorted(rows, key=lambda c: ((c.at or "")[:19], 0 if c.id in req_ids else 1))
+
+    before = _day_problems(db, email, [copy(p) for p in live], days)
+    after_rows = simulate(set())
+    new = _day_problems(db, email, after_rows, days) - before
+    replaced = []
+    pick = None
+    if new:
+        kinds = {q.punch_kind for q in reqs}
+        times = [t for t in (_parse_iso(q.at or "") for q in reqs) if t]
+
+        def distance(p):
+            t = _parse_iso(p.at or "")
+            return min((abs((t - x).total_seconds()) for x in times), default=1e12) if t else 1e12
+
+        cands = sorted((p for p in live if p.local_date in req_days and p.kind in kinds), key=distance)
+        pick = next((c for c in cands if not (_day_problems(db, email, simulate({c.id}), days) - before)), None)
+        if pick is None:
+            raise HTTPException(409, _cannot_apply_msg(db, reqs, new, after_rows))
+        pick.voided = 1
+        pick.adjusted_by, pick.adjusted_at = user["email"], now
+        pick.adjust_note = ("Replaced by an approved punch fix: " + ", ".join(
+            f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs) + f" (approved by {user['email']}).")
+        replaced.append(f"the {_kind_label(pick.kind)} at {_punch_when(pick)[0]}")
+        db.flush()
+    # A break punch the fix makes redundant - the old break end pressed at
+    # the end of the day once the real one is in (Michael, 09/30: break end
+    # 2:01 PM approved, the 6:29 PM one left over), or a second break start
+    # right after the first - is cleared off the card. Pay already ignored it,
+    # so totals do not move; the timecard just stops showing two in a row.
+    final = simulate({pick.id} if replaced else set())
+    gone = {pick.id} if replaced else set()
+    for i, c in enumerate(final):
+        if (i and c.id not in req_ids and c.kind in ("break_start", "break_end")
+                and c.local_date in req_days and final[i - 1].kind == c.kind
+                and (final[i - 1].id in req_ids or final[i - 1].id in gone)):
+            row = next((p for p in live if p.id == c.id), None)
+            if row is not None and not row.voided:
+                row.voided = 1
+                row.adjusted_by, row.adjusted_at = user["email"], now
+                row.adjust_note = (f"No longer needed: the approved punch fix set this {_kind_label(c.kind)} "
+                                   f"at {_punch_when(final[i - 1])[0]} (approved by {user['email']}).")
+                replaced.append(f"the extra {_kind_label(c.kind)} at {_punch_when(c)[0]}")
+                gone.add(c.id)
+    db.flush()
     for q in reqs:
         tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
                        at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
                        geo_status="no_location", source="manual", note=(q.reason or "")[:300],
                        created_by=user["email"], created_at=now,
                        adjust_note=f"Approved punch-fix request by {user['email']}")
-        db.add(tp); db.flush()
+        db.add(tp)
+        db.flush()
         q.applied_punch_id = tp.id
-    return voided_strays
+    return replaced
 
 
 def _pending_partners(db: Session, r) -> list:
@@ -2832,8 +3103,17 @@ def _pending_partners(db: Session, r) -> list:
     if nxt is not None:
         q = q.filter(PunchRequest.at <= nxt.at)
     rows = [p for p in q.all() if p.at and p.punch_kind in _KIND_RANK]
-    rows.sort(key=lambda p: (p.at, _KIND_RANK[p.punch_kind]))
-    return rows
+    rows.sort(key=lambda p: (p.at, _KIND_RANK[p.punch_kind], p.created_at or ""))
+    # Copies of the same fix are one fix: never chain a punch in twice (the
+    # copies are closed as duplicates once the chain is applied).
+    seen = {(r.punch_kind, _pr_minute(r.at))}
+    out = []
+    for p in rows:
+        key = (p.punch_kind, _pr_minute(p.at))
+        if key not in seen:
+            seen.add(key)
+            out.append(p)
+    return out
 
 
 @router.patch("/punch-requests/{req_id}")
@@ -2842,54 +3122,75 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     r = db.query(PunchRequest).filter(PunchRequest.id == req_id).with_for_update().first()
     if not r:
         raise HTTPException(404, "Request not found")
-    if r.status != "pending":
-        raise HTTPException(409, f"This request was already {r.status}.")
     visible = _visible_emails(db, user)
     if visible is not None and r.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
-    _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
+    if r.status != "pending":
+        # A copy already closed as a duplicate (its twin was decided first):
+        # nothing to do, so a bulk "Approve selected" skips it instead of failing.
+        # Same for one already decided the way it is asked again (approved
+        # together with its partner earlier in the same "Approve selected").
+        if (r.decision_note or "").startswith("Duplicate of") or r.status == body.status:
+            return _pr_dict(r)
+        raise HTTPException(409, f"This request was already {r.status}.")
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
+    if decision == "approved":
+        _recall_signing_for_fix(db, r.employee_email, r.local_date, user["email"],
+                                f"punch fix approved: {_kind_label(r.punch_kind)} punch "
+                                f"{'added' if r.action == 'add' else 'removed'} on {_us_day(r.local_date)}")
+        _guard_review(db, r.employee_email, r.local_date, user["email"], employee_request=True)
     now = _now_iso()
     note = (body.note or "").strip()
+    if decision == "approved" and r.action == "add":
+        # The punch this asks for is already on the timecard (a copy of it was
+        # approved before duplicates were closed automatically): close this one
+        # and its copies as duplicates instead of refusing - quietly, the fix
+        # the employee asked for is in.
+        if _same_live_punch(db, r) is not None:
+            _close_dupes(db, [r], user, now, _DUPE_ON_CARD)
+            r.status = "rejected"
+            r.decided_by, r.decided_at, r.decision_note = user["email"], now, _DUPE_ON_CARD
+            db.commit()
+            return _pr_dict(r)
+    partners = []
     if decision == "approved":
         if r.action == "add":
             # Re-validate the sequence at approval time: inserting this punch must
             # not create an illegal transition (e.g. two 'in's with no 'out'
             # between), which would corrupt the FIFO worked-minute pairing.
-            try:
-                voided_strays = _apply_add_chain(db, [r], user, now)
-            except HTTPException as first_err:
-                if first_err.status_code != 409:
-                    raise
-                # Requests arrive in pairs (clock-in + clock-out, break start + break
-                # end) and the approver usually clicks the later one first, so the
-                # earlier partner is still pending and the sequence looks broken
-                # (Charmi, Sep 9: "out after out"). Validate and apply the pending
-                # partners that sit between the neighboring real punches together
-                # with this request, as one chain. If the chain is still invalid
-                # the original refusal stands and nothing is applied.
-                partners = _pending_partners(db, r)
-                if not partners:
-                    raise
+            # Requests arrive in pairs (clock-in + clock-out, break start + break
+            # end) and the approver usually clicks the later one first (Charmi,
+            # Sep 9). The pending partners between the neighboring real punches
+            # go in together with this one as one chain; if that chain cannot
+            # go in, this request is tried on its own. Nothing is half applied.
+            partners = _pending_partners(db, r)
+            voided_strays = None
+            if partners:
                 chain = sorted(partners + [r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9)))
                 try:
+                    # _apply_add_chain writes nothing until every check passed.
                     voided_strays = _apply_add_chain(db, chain, user, now)
-                except HTTPException:
-                    raise first_err
+                except HTTPException as chain_err:
+                    if chain_err.status_code != 409:
+                        raise
+                    partners = []
+            if voided_strays is None:
+                voided_strays = _apply_add_chain(db, [r], user, now)
+            if partners:
                 for p in partners:
                     p.status = "approved"
                     p.decided_by, p.decided_at = user["email"], now
-                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} request "
-                                       f"at {r.at[:16].replace('T', ' ')} UTC.")
+                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} "
+                                       f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
                     _hr_notify(db, p.employee_email, "Timesheet fix approved",
                                "Your request to add a punch was approved.",
                                ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
-                note = (note + " " if note else "") + "Also applied the pending " + ", ".join(
-                    f"{_kind_label(p.punch_kind)} at {p.at[:16].replace('T', ' ')} UTC" for p in partners) + "."
+                note = (note + " " if note else "") + "Also added the " + ", ".join(
+                    f"{_kind_label(p.punch_kind)} at {_punch_when(p)[0]}" for p in partners) + " from the same fix."
             if voided_strays:
-                note = (note + " " if note else "") + f"Voided stray clock-out at {', '.join(v[:16].replace('T', ' ') for v in voided_strays)} UTC."
+                note = (note + " " if note else "") + f"Replaced {', '.join(voided_strays)} on the timecard."
         else:  # remove → void the target punch (kept for audit, excluded from totals)
             tp = db.query(TimePunch).filter(TimePunch.id == r.target_punch_id).first()
             if tp:
@@ -2902,11 +3203,14 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                    f"Your request to {'add' if r.action=='add' else 'remove'} a punch was approved."
                    + (f" Note: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
+        # Every copy of an applied fix is now a duplicate (no bell for those).
+        _close_dupes(db, [r] + partners, user, now, _DUPE_APPROVED)
     else:  # rejected
         _hr_notify(db, r.employee_email, "Timesheet fix rejected",
                    f"Your request to {'add' if r.action=='add' else 'remove'} a punch was not approved."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
+        _close_dupes(db, [r], user, now, _DUPE_REJECTED)
     r.status = decision
     r.decided_by, r.decided_at, r.decision_note = user["email"], now, note
     db.commit()
@@ -2916,6 +3220,16 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
 # ── Employee self-edit of a punch TIME (applies to display now, to pay only on
 #    approval). Separate from the manager's final `adjust_punch` (PATCH /punches)
 #    and from add/remove punch-requests. ────────────────────────────────────────
+
+def _recall_signing_for_fix(db: Session, email: str, local_date: str, actor: str, note: str) -> None:
+    """An approver applying the employee's own fix while the timesheet is out
+    for signature pulls the envelope back (timesheet_review.recall_for_change)
+    rather than being refused - see guard_edit's employee_request."""
+    import timesheet_review
+    r = timesheet_review.review_covering(db, (email or "").lower(), (local_date or "")[:10])
+    if r is not None and r.status == "signing":
+        timesheet_review.recall_for_change(db, r, actor, note)
+
 
 def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str,
                       ref_id: str = "", action: Optional[dict] = None) -> None:
@@ -2965,7 +3279,7 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
-                      body=f"{name} proposed a new time for their {row.kind} punch on {_us_day(row.local_date)}."
+                      body=f"{name} asked to adjust their {_kind_label(row.kind)} punch on {_us_day(row.local_date)}."
                       + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
                       ref_id=row.id, action=_timecard_action(db, email, row.local_date))
     db.commit()
@@ -2992,10 +3306,15 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     if visible is not None and row.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
-    _guard_review(db, row.employee_email, row.local_date, user["email"], employee_request=True)
     decision = body.status if body.status in ("approved", "rejected") else ""
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
+    if decision == "approved":
+        # The employee's own fix, applied by the approver: an envelope out for
+        # signature is recalled, never a refusal (Neil, 10/08).
+        _recall_signing_for_fix(db, row.employee_email, row.local_date, user["email"],
+                                f"punch edit approved: {_kind_label(row.kind)} punch on {_us_day(row.local_date)}")
+        _guard_review(db, row.employee_email, row.local_date, user["email"], employee_request=True)
     now = _now_iso()
     note = (body.note or "").strip()
     if decision == "approved":
@@ -4570,11 +4889,24 @@ def team_locations(user: dict = Depends(require_team_read), db: Session = Depend
     scope = _visible_emails(db, user)
     ents = {e.id: e for e in db.query(HrEntity).all()}
     people = []
-    emps = db.query(NexusEmployee).filter(NexusEmployee.status == "active").all()
-    for em in emps:
-        email = (em.work_email or "").lower()
-        if not email or (scope is not None and email not in scope):
+    # Keyed off the people who PUNCH, not the HR status (Neil, 10/08: an
+    # external staffer - a guest identity still "onboarding" in People - had
+    # clocked in and was nowhere on the map). Anyone with a located punch in
+    # the viewer's scope is shown unless they have left (offboarded /
+    # inactive); a punching person with no People row at all still appears,
+    # named by their email.
+    by_email = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    punchers = [r[0] for r in db.query(TimePunch.employee_email)
+                .filter(TimePunch.voided == 0, TimePunch.lat.isnot(None), TimePunch.lat != "")
+                .distinct().all()]
+    for email in sorted({(e or "").lower() for e in punchers if e}):
+        if scope is not None and email not in scope:
             continue
+        em = by_email.get(email)
+        if em is not None and (em.status or "active") in ("offboarded", "inactive"):
+            continue
+        if em is None:
+            em = SimpleNamespace(first_name="", last_name="", photo_url="", job_title="", department="", company="")
         # Latest punch WITH coordinates (for the pin), and latest punch OVERALL
         # (for the clocked-in dot). Usually the same row, but a manual +add punch
         # has no coords, so keep them separate.
@@ -5047,12 +5379,37 @@ def reorder_groups(body: GroupOrderIn, user: dict = Depends(require_shift_manage
     return {"ok": True}
 
 
+def _role_teams_target(db: Session, email: str) -> dict:
+    """The Teams destination set on this person's job role (Neil, 10/07: "it
+    isn't even based on the person, it's based on a role"). A person holding
+    several roles (one per company) gets the first, by name, that sets one."""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(func.lower(NexusGroupMember.email) == email).all()]
+    if not gids:
+        return {}
+    r = (db.query(NexusGroup)
+         .filter(NexusGroup.id.in_(gids), NexusGroup.is_job_role == 1, NexusGroup.bod_chat_id != "")
+         .order_by(NexusGroup.name).first())
+    if not r:
+        return {}
+    channel = (r.bod_target or "") == "channel"
+    if channel and not r.bod_team_id:
+        return {}
+    return {"type": "channel" if channel else "chat", "id": r.bod_chat_id, "name": r.bod_chat_name or "",
+            "teamId": (r.bod_team_id or "") if channel else "", "teamName": (r.bod_team_name or "") if channel else "",
+            "group": r.name, "source": "role"}
+
+
 def _resolve_group_target(db: Session, email: str) -> dict:
-    """Where this person's BOD/EOD/Break posts go: the Teams chat OR channel
-    bound to their first group that has one. The SERVER-SIDE source of truth,
-    so a client that couldn't fetch it (a network blip) never loses the
-    routing. {} when nothing is bound."""
+    """Where this person's BOD/EOD/Break posts go: the Teams chat or channel
+    set on their job role (Oct 7), else the one bound to their first shift
+    group that has one (the older setting, kept as the fallback). The
+    SERVER-SIDE source of truth, so a client that couldn't fetch it (a network
+    blip) never loses the routing. {} when nothing is bound."""
     email = (email or "").lower()
+    role = _role_teams_target(db, email)
+    if role:
+        return role
     group_ids = [m.group_id for m in db.query(ShiftGroupMember)
                  .filter(ShiftGroupMember.employee_email == email).all()]
     if not group_ids:
@@ -5063,7 +5420,8 @@ def _resolve_group_target(db: Session, email: str) -> dict:
     if not g:
         return {}
     return {"type": _target_of(g), "id": g.teams_chat_id, "name": g.teams_chat_name or "",
-            "teamId": g.teams_team_id or "", "teamName": g.teams_team_name or "", "group": g.name}
+            "teamId": g.teams_team_id or "", "teamName": g.teams_team_name or "", "group": g.name,
+            "source": "shift_group"}
 
 
 @router.get("/my-chat")
@@ -5073,7 +5431,8 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
     to wins. Empty chatId means no binding → the client falls back to a picker."""
     t = _resolve_group_target(db, user["email"])
     return {"chatId": t.get("id", ""), "chatName": t.get("name", ""), "groupName": t.get("group", ""),
-            "targetType": t.get("type", "chat"), "teamId": t.get("teamId", ""), "teamName": t.get("teamName", "")}
+            "targetType": t.get("type", "chat"), "teamId": t.get("teamId", ""), "teamName": t.get("teamName", ""),
+            "source": t.get("source", "")}
 
 
 @router.delete("/shift-groups/{group_id}")
@@ -8497,6 +8856,16 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
         except Exception:
             pass   # queued; the sweep owns it now
     queued = (not row.sent) and bool(row.channel_id and row.html)
+    # The team's first BOD of the day brings the "Out today" post with it
+    # (Neil, 10/08; off_today.py) - who on this chat/channel is on approved
+    # time off. Same person, same destination, same delivery queue. A failure
+    # here is its own: the BOD above has already committed.
+    if kind == "bod" and row.channel_id and row.message != "(sent outside Nexus)":
+        try:
+            import off_today
+            off_today.maybe_post(db, row)
+        except Exception as e:
+            print(f"[off-today] skipped for {row.channel_id[:12]}: {e}")
     return {"ok": True, "id": row.id, "sent": bool(row.sent), "queued": queued}
 
 
@@ -8913,6 +9282,16 @@ def _us_day(iso: str) -> str:
         return datetime.strptime((iso or "")[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
     except ValueError:
         return iso or ""
+
+
+def _us_time(utc_iso: str, tz_offset_min: int) -> str:
+    """A UTC punch time as the employee's own wall clock, '1:20 PM' - the
+    device's offset, the same way _local_date dates it."""
+    dt = _parse_iso(utc_iso)
+    if not dt:
+        return ""
+    local = dt - timedelta(minutes=tz_offset_min or 0)
+    return local.strftime("%I:%M %p").lstrip("0")
 
 
 def _us_span(a: str, b: str) -> str:

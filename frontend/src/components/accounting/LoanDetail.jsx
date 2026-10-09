@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, FileText, FolderOpen } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { folderName } from './LoanDialogs';
+import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 
 // Accounting -> Loans & Financing, one loan opened under its row (Charmi and
 // Neil, 10/03-10/04):
@@ -19,6 +22,13 @@ import { formatDate } from '../../lib/datetime';
 //     the trailing-12 NOI and debt service behind the DSCR, and the Egnyte
 //     folders.
 // Amortization schedules and stress tests plug in at the bottom (`extras`).
+//
+// Oct 7 (Charmi): Draws (the fact and the column) show only for a Line of
+// Credit; when the loan's interest account is shared with other loans (by
+// balance), the Interest Paid of each entry is this loan's share, so the
+// table's total is the row's Interest Paid (the table read the whole shared
+// account: 61,554.19 against the row's 38,891.83); an empty period says
+// "No payments posted <range>"; the Egnyte folders show by name.
 
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const muted = { color: 'var(--text-muted)' };
@@ -32,7 +42,7 @@ export const INTEREST_SOURCE = {
 
 /** The lines of the principal and interest accounts as one row per entry, newest first.
  *  `owedAtEnd` (optional): the balance owed at the window's end, for the balance after each entry. */
-export function paymentRows(history, { given = false, owedAtEnd = null } = {}) {
+export function paymentRows(history, { given = false, owedAtEnd = null, interestShare = 1 } = {}) {
   const by = new Map();
   const key = (l) => l.entryId || l.entryNo || `${l.date}|${l.description}`;
   const take = (l) => {
@@ -51,8 +61,9 @@ export function paymentRows(history, { given = false, owedAtEnd = null } = {}) {
   });
   (history?.interest || []).forEach((acct) => (acct.lines || []).forEach((l) => {
     const r = take(l);
-    r.interest += given ? l.credit - l.debit : l.debit - l.credit;
+    r.interest += (given ? l.credit - l.debit : l.debit - l.credit) * interestShare;
   }));
+  if (interestShare !== 1) by.forEach((r) => { r.interest = Math.round(r.interest * 100) / 100; });
   const rows = [...by.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : String(b.entryNo).localeCompare(String(a.entryNo), 'en-US', { numeric: true })));
   if (owedAtEnd != null && !history?.principal?.truncated) {
     let owed = owedAtEnd;
@@ -61,7 +72,7 @@ export function paymentRows(history, { given = false, owedAtEnd = null } = {}) {
   return rows;
 }
 
-function PaymentsTable({ rows, showBalance, onOpenEntry, empty }) {
+function PaymentsTable({ rows, showBalance, showDraws = true, shareNote = '', onOpenEntry, empty }) {
   if (!rows.length) return <div style={{ fontSize: '0.8rem', ...muted, padding: '6px 0' }}>{empty}</div>;
   const total = rows.reduce((t, r) => ({ principal: t.principal + r.principal, interest: t.interest + r.interest, draw: t.draw + r.draw }), { principal: 0, interest: 0, draw: 0 });
   return (
@@ -69,8 +80,8 @@ function PaymentsTable({ rows, showBalance, onOpenEntry, empty }) {
       <table className="acct-lines" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', '--acct-row-py': '5px' }}>
         <thead>
           <tr style={{ background: 'var(--bg-secondary)' }}>
-            {['Date', 'Entry', 'Description', 'Principal Paid', 'Interest Paid', 'Total Payment', 'Draws', ...(showBalance ? ['Balance After'] : [])].map((h, i) => (
-              <th key={h} style={{ padding: '6px 10px', textAlign: i >= 3 ? 'right' : 'left', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{h}</th>
+            {['Date', 'Entry', 'Description', 'Principal Paid', shareNote ? 'Interest Paid (Share)' : 'Interest Paid', 'Total Payment', ...(showDraws ? ['Draws'] : []), ...(showBalance ? ['Balance After'] : [])].map((h, i) => (
+              <th key={h} title={h.startsWith('Interest') && shareNote ? shareNote : undefined} style={{ padding: '6px 10px', textAlign: i >= 3 ? 'right' : 'left', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -83,7 +94,7 @@ function PaymentsTable({ rows, showBalance, onOpenEntry, empty }) {
               <td style={num}><Amount value={r.principal} zero="dash" /></td>
               <td style={num}><Amount value={r.interest} zero="dash" /></td>
               <td style={num}><Amount value={r.principal + r.interest} zero="dash" /></td>
-              <td style={num}><Amount value={r.draw} zero="dash" /></td>
+              {showDraws && <td style={num}><Amount value={r.draw} zero="dash" /></td>}
               {showBalance && <td style={num}><Amount value={Math.abs(r.balanceAfter ?? 0)} /></td>}
             </tr>
           ))}
@@ -92,7 +103,7 @@ function PaymentsTable({ rows, showBalance, onOpenEntry, empty }) {
             <td style={num}><Amount value={total.principal} zero="dash" /></td>
             <td style={num}><Amount value={total.interest} zero="dash" /></td>
             <td style={num}><Amount value={total.principal + total.interest} zero="dash" /></td>
-            <td style={num}><Amount value={total.draw} zero="dash" /></td>
+            {showDraws && <td style={num}><Amount value={total.draw} zero="dash" /></td>}
             {showBalance && <td />}
           </tr>
         </tbody>
@@ -115,14 +126,39 @@ function useHistory(loan, from, to, enabled) {
   return state.key === key ? state : { data: null, error: '' };
 }
 
-export default function LoanDetail({ loan, from, to, onOpenEntry, extras = null }) {
+export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null, extras = null, canEdit = false, onSaved = null }) {
+  // Wire a folder right here (Charmi, 10/07: "Browse" by "No documents
+  // folder") - the same Files picker and the same save as Change Loan.
+  const [picking, setPicking] = useState(null);       // 'docs' | 'statements'
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderError, setFolderError] = useState('');
+  const saveFolder = (which, path) => {
+    setPicking(null);
+    setFolderBusy(true);
+    setFolderError('');
+    api.updateLoan(loan.id, '', which === 'docs' ? { docsPath: path } : { statementsPath: path })
+      .then(() => onSaved?.())
+      .catch((e) => setFolderError(e?.message || 'Could not save the folder.'))
+      .finally(() => setFolderBusy(false));
+  };
+  const browse = (which, label) => (canEdit ? (
+    <button type="button" className="secondary-btn" disabled={folderBusy} onClick={() => setPicking(which)} aria-haspopup="dialog"
+      aria-label={`${label} - Browse Egnyte`} title="Pick the folder in Egnyte"
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', height: 24, padding: '0 8px' }}>
+      <FolderOpen size={12} /> Browse
+    </button>
+  ) : null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const ledger = loan.wiring === 'ok' || !!loan.interestAccount;
   const given = loan.kind === 'given';
   const period = useHistory(loan, from, to, ledger);
   const all = useHistory(loan, '', to, ledger && historyOpen);
-  const periodRows = useMemo(() => paymentRows(period.data, { given }), [period.data, given]);
-  const allRows = useMemo(() => paymentRows(all.data, { given, owedAtEnd: loan.wiring === 'ok' ? loan.owed : null }), [all.data, given, loan.wiring, loan.owed]);
+  const share = loan.interestShare > 0 && loan.interestShare < 1 ? loan.interestShare : 1;
+  const others = loan.interestSharedWith || 0;
+  const shareNote = share < 1 ? `GL ${(loan.interestAccounts || []).map((a) => a.code).join(', ')} is shared with ${others || 'other'} other ${others === 1 ? 'loan' : 'loans'} by balance: this loan's share is ${(share * 100).toFixed(1)}%.` : '';
+  const loc = !!loan.lineOfCredit;
+  const periodRows = useMemo(() => paymentRows(period.data, { given, interestShare: share }), [period.data, given, share]);
+  const allRows = useMemo(() => paymentRows(all.data, { given, interestShare: share, owedAtEnd: loan.wiring === 'ok' ? loan.owed : null }), [all.data, given, share, loan.wiring, loan.owed]);
   const interestText = loan.interestAccounts?.length
     ? loan.interestAccounts.map((a) => `GL ${a.code}${a.title ? ` ${a.title}` : ''}`).join(', ')
     : 'None';
@@ -133,21 +169,44 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, extras = null 
       <div style={{ fontSize: '0.82rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
+  // An account named here opens its ledger lines in Reports (item 33), up to
+  // the period's end - `onDrill({ account, accountName })`.
+  const accountLink = (code, title, text) => (onDrill && code
+    ? <button type="button" className="acct-drill" onClick={() => onDrill({ account: code, accountName: title || '', from: '' })} title="Open the ledger lines on this account" style={{ fontWeight: 600, textAlign: 'left' }}>{text}</button>
+    : text);
+  const principalText = loan.glAccount ? `GL ${loan.glAccount}${loan.glTitle ? ` ${loan.glTitle}` : ''}` : 'None - kept by hand';
+  const interestValue = loan.interestAccounts?.length
+    ? loan.interestAccounts.map((a, i) => <span key={a.code}>{i ? ', ' : ''}{accountLink(a.code, a.title, `GL ${a.code}${a.title ? ` ${a.title}` : ''}`)}</span>)
+    : interestText;
   return (
     <div style={{ display: 'grid', gap: 12, padding: '12px 14px 14px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }} aria-label={`Details of ${loan.lender || loan.loanNo}`}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 24px' }}>
-        {fact('Principal Account', loan.glAccount ? `GL ${loan.glAccount}${loan.glTitle ? ` ${loan.glTitle}` : ''}` : 'None - kept by hand', loan.wiring === 'missing' ? 'This account has no lines in this entity on the ledger - check the wiring under Change Loan.' : undefined)}
-        {fact('Interest Account', interestText, INTEREST_SOURCE[loan.interestSource] ? `From ${INTEREST_SOURCE[loan.interestSource]}.` : undefined)}
+        {fact('Principal Account', loan.wiring === 'ok' ? accountLink(loan.glAccount, loan.glTitle, principalText) : principalText, loan.wiring === 'missing' ? 'This account has no lines in this entity on the ledger - check the wiring under Change Loan.' : undefined)}
+        {fact('Interest Account', interestValue, INTEREST_SOURCE[loan.interestSource] ? `From ${INTEREST_SOURCE[loan.interestSource]}.` : undefined)}
+
         {fact('Original Principal', loan.originalPrincipal == null ? '-' : `${formatAmount(loan.originalPrincipal)}${loan.originalPrincipalEdited ? ' (edited)' : loan.originalPrincipalDate ? ` on ${formatDate(loan.originalPrincipalDate)}` : ''}`)}
-        {fact('Draws in Period', loan.draws == null ? '-' : formatAmount(loan.draws), 'Credits to the principal account in the period: new money borrowed, not payments.')}
+        {loc && fact('Draws in Period', loan.draws == null ? '-' : formatAmount(loan.draws), 'Credits to the principal account in the period: new money borrowed, not payments.')}
         {fact('NOI (T12)', formatAmount(loan.noiT12), `Income ${formatAmount(loan.incomeT12)} less operating expenses ${formatAmount(loan.operatingExpensesT12)}; interest, depreciation and amortization left out.`)}
         {fact('Debt Service (T12)', loan.debtServiceT12 == null ? '-' : formatAmount(loan.debtServiceT12), `This loan's principal and interest over the twelve months; the entity's whole debt service is ${formatAmount(loan.entityDebtServiceT12)}.`)}
         <div style={{ minWidth: 150 }}>
           <div style={{ fontSize: '0.7rem', ...muted }}>Egnyte</div>
-          <div style={{ display: 'flex', gap: 10, fontSize: '0.8rem' }}>
-            {loan.docsUrl ? <a href={loan.docsUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Loan Documents</a> : <span style={muted}>No documents folder</span>}
-            {loan.statementsUrl ? <a href={loan.statementsUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={13} /> Loan Statements</a> : <span style={muted}>No statements folder</span>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: '0.8rem' }}>
+            {loan.docsUrl ? <a href={loan.docsUrl} target="_blank" rel="noreferrer" title={loan.docsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Documents: {folderName(loan.docsPath) || 'Folder'}</a>
+              : loan.docsPath ? <span title={loan.docsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Documents: {folderName(loan.docsPath)}</span>
+                : <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>No documents folder {browse('docs', 'Documents Folder')}</span>}
+            {loan.statementsUrl ? <a href={loan.statementsUrl} target="_blank" rel="noreferrer" title={loan.statementsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={13} /> Statements: {folderName(loan.statementsPath) || 'Folder'}</a>
+              : loan.statementsPath ? <span title={loan.statementsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={13} /> Statements: {folderName(loan.statementsPath)}</span>
+                : <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>No statements folder {browse('statements', 'Statements Folder')}</span>}
           </div>
+          {folderBusy && <div style={{ fontSize: '0.72rem', ...muted }}>Saving the folder...</div>}
+          {folderError && <div role="alert" style={{ fontSize: '0.72rem', color: 'hsl(var(--color-red))' }}>{folderError}</div>}
+          {picking && createPortal(
+            <FolderPickModal startPath={(picking === 'docs' ? loan.docsPath : loan.statementsPath) || '/Shared'} showTree
+              title={`${picking === 'docs' ? 'Documents Folder' : 'Statements Folder'} - Pick a Folder`}
+              hint='Click through to the folder, then press "Use This Folder".'
+              onPick={(p) => saveFolder(picking, p)} onClose={() => setPicking(null)} />,
+            document.body,
+          )}
         </div>
       </div>
 
@@ -159,7 +218,7 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, extras = null 
             <div style={head}>Payments {from ? `${formatDate(from)} - ${formatDate(to)}` : `to ${formatDate(to)}`}</div>
             {period.error ? <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{period.error}</div>
               : !period.data ? <SkeletonBlocks count={1} height={60} borderRadius={8} />
-                : <PaymentsTable rows={periodRows} onOpenEntry={onOpenEntry} empty="No lines on the principal or interest account in this period." />}
+                : <PaymentsTable rows={periodRows} showDraws={loc} shareNote={shareNote} onOpenEntry={onOpenEntry} empty={`No payments posted ${from ? `${formatDate(from)} - ${formatDate(to)}` : `to ${formatDate(to)}`}.`} />}
             {(period.data?.notes || []).length > 0 && <div style={{ fontSize: '0.74rem', color: '#92400e' }}>{period.data.notes.join(' · ')}</div>}
           </section>
           <section style={{ display: 'grid', gap: 6 }}>
@@ -171,7 +230,7 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, extras = null 
               : !all.data ? <SkeletonBlocks count={1} height={80} borderRadius={8} />
                 : (
                   <>
-                    <PaymentsTable rows={allRows} showBalance={loan.wiring === 'ok' && !all.data.principal?.truncated} onOpenEntry={onOpenEntry} empty="No lines on the principal or interest account yet." />
+                    <PaymentsTable rows={allRows} showDraws={loc} shareNote={shareNote} showBalance={loan.wiring === 'ok' && !all.data.principal?.truncated} onOpenEntry={onOpenEntry} empty="No lines on the principal or interest account yet." />
                     {all.data.principal?.truncated && <div style={{ fontSize: '0.74rem', ...muted }}>The newest {all.data.principal.lines.length} of {all.data.principal.total} lines are shown.</div>}
                   </>
                 ))}

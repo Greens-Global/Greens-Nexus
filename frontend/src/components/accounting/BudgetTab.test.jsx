@@ -26,6 +26,8 @@ vi.mock('../../api', () => ({
     getAccountingBuckets: vi.fn(async () => buckets),
     getRolesDirectory: vi.fn(async () => []),
     getPeopleDirectory: vi.fn(async () => [{ email: 'charmi@greensglobal.com', name: 'Charmi Desai' }]),
+    getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
+    saveAccountingPrefs: vi.fn(async () => ({})),
   },
 }));
 vi.mock('../../ui/dialog', () => ({ dialog: { alert: vi.fn(async () => true), confirm: vi.fn(async () => true), prompt: vi.fn(async () => '') } }));
@@ -68,6 +70,15 @@ describe('BudgetTab', () => {
     const row = screen.getByText('Rental Income').closest('tr');
     expect(within(row).getByText('3,000.00')).toBeTruthy();
     expect(screen.getByText('Saved in Nexus', { exact: false })).toBeTruthy();
+  });
+
+  it('switches entity through the shared entity picker, searchable by number (Oct 7)', async () => {
+    render(<BudgetTab canEdit />);
+    await screen.findByText('Rental Income');
+    fireEvent.click(screen.getByRole('button', { name: 'Entity' }));
+    fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '15000' } });
+    fireEvent.click(screen.getByRole('option', { name: /Greens Escondido/ }));
+    await waitFor(() => expect(api.getAccountingBudget).toHaveBeenCalledWith('15000', new Date().getFullYear()));
   });
 
   it('saves an edited cell through the proxy', async () => {

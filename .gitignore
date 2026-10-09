@@ -66,3 +66,4 @@ backend/Generated File/
 # a signing key in the repo is a signing key everyone has.
 .seal-dev/
 *-seal-key.pem
+frontend/e2e/test-results/

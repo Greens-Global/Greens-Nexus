@@ -877,6 +877,25 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN deleted_at VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_task_tickets_deleted_at ON task_tickets (deleted_at)",
+            "ALTER TABLE pfs_affiliates ADD COLUMN roles JSON",   # PFS role per borrower (Neil, Oct 7)
+            # Accounting > Loans (Oct 7) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN loan_type VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN stress_excluded BOOLEAN DEFAULT 0",
+            # MRI: one list of every income source (Oct 7) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN income_type VARCHAR DEFAULT 'lease'",
+            # Job role -> Teams destination for BOD/EOD (Oct 7) - see the Postgres list.
+            "ALTER TABLE nexus_groups ADD COLUMN bod_target VARCHAR DEFAULT 'chat'",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_chat_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_chat_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN bod_team_name VARCHAR DEFAULT ''",
+            # Microsoft 365 contact info two-way (Oct 7) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN office_phone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN street_address VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN city VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN state VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN postal_code VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN m365_sync JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -1959,6 +1978,44 @@ def _run_migrations():
         # Ticket numbers / task codes that never repeat (Oct 2026): one row per
         # sequence, see code_sequence.py. New table - RLS per CLAUDE.md.
         "ALTER TABLE nexus_counters ENABLE ROW LEVEL SECURITY",
+        # PFS Affiliated Entities: a role per borrower (Neil, Oct 7). models.PfsAffiliate.roles.
+        "ALTER TABLE pfs_affiliates ADD COLUMN IF NOT EXISTS roles JSON",
+        # Accounting > Loans (Charmi, Oct 7): the loan's product (Line of Credit
+        # shows Draws) and the Stress Test's excluded loans; removed ledger
+        # loans and the Stress Test's per-entity NOI basis / Addback. New
+        # tables - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS loan_type VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS stress_excluded BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_loan_dismissed ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_loan_stress_entities ENABLE ROW LEVEL SECURITY",
+        # MRI (Charmi, Oct 7): one list of every recurring income source - a
+        # lease, interest, a loan payment received, other - with a Type column.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS income_type VARCHAR DEFAULT 'lease'",
+        # Accounting > AMA, Asset Management Agreements (Priyanka, Oct 7). New
+        # table - RLS per CLAUDE.md.
+        "ALTER TABLE accounting_ama_agreements ENABLE ROW LEVEL SECURITY",
+        # Job role -> Teams destination for BOD/EOD/break posts (Neil, Oct 7):
+        # set on the role in Access, wins over the shift group's binding.
+        # models.NexusGroup.bod_*.
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_target VARCHAR DEFAULT 'chat'",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_chat_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_chat_name VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS bod_team_name VARCHAR DEFAULT ''",
+        # Microsoft 365 contact info kept in step both ways (Neil, Oct 7):
+        # office phone, work street address, city, state, ZIP, plus the
+        # three-way-merge base in m365_sync. models.NexusEmployee, m365_profile_sync.py.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS office_phone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS street_address VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS city VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS postal_code VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS m365_sync JSON",
+        # Announcements (Essentials dashboard tiles, Oct 7). Two new tables -
+        # RLS per CLAUDE.md. models.Announcement / AnnouncementRead,
+        # routers/announcements.py.
+        "ALTER TABLE nexus_announcements ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_announcement_reads ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2614,6 +2671,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] nightly M365 writeback skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] nightly M365 writeback skipped: {e}")
+        # Microsoft 365 contact info both ways, every 15 minutes (Neil, Oct 7 -
+        # m365_profile_sync.py). Deployed worker only: a laptop must not poll
+        # the live directory, and Entra writes stay production-only inside.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from m365_profile_sync import m365_contact_sync_loop
+                _tasks.append(_a.create_task(m365_contact_sync_loop()))
+            else:
+                print("[startup] M365 contact sync skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] M365 contact sync skipped: {e}")
         # Google Business Profile mirror (Marketing, Oct 2026): locations and
         # reviews every 30 minutes. Deployed worker only - one connected Google
         # account, and a laptop must not spend its quota or race the deploy.
@@ -3074,5 +3143,13 @@ app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrou
 from routers import marketing_ads  # noqa: E402
 app.include_router(marketing_ads.router)           # Marketing > Google Ads: spend per campaign, budgets (read-only, Oct 2026)
 app.include_router(marketing_ads.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
+from routers import acct_scan  # noqa: E402
+app.include_router(acct_scan.router)               # Accounting: amount by entity x account x customer / vendor x month - the party-months aggregate, entity-scoped (Oct 7)
+from routers import accounting_ama  # noqa: E402
+app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)
+from routers import announcements, my_work, my_team  # noqa: E402
+app.include_router(announcements.router)           # Dashboard > Announcements tile: company / department notices, read + acknowledge marks (Oct 7)
+app.include_router(my_work.router)                 # Dashboard > My Work tile: the caller's open work by due bucket (Oct 7)
+app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
 from routers import implementation  # noqa: E402
 app.include_router(implementation.router)          # Support > Implementation Guide: the shared setup checklist (Neil, 10/06)

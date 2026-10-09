@@ -1,4 +1,4 @@
-// "Documentation & Changelog" - a company-wide feed of release notes, reached from
+// "What's New" (was "Documentation & Changelog") - a company-wide feed of release notes, reached from
 // the top-right profile dropdown (NOT the Tasks module). Standalone: it manages its
 // own state via api.js + useRole/useNameResolver, so it needs no TasksProvider.
 // Renders as a full-screen overlay.
@@ -115,6 +115,18 @@ function statusOf(entry) {
 function releasedKey(entry) {
   return entry?.releasedAt || entry?.createdAt || '';
 }
+// Latest on top. Entries published by one automatic run share a releasedAt,
+// so they fall back to when each change merged (mergedAt), then the PR number
+// for entries published before mergedAt existed.
+function instant(iso) {
+  const t = new Date(iso || '').getTime();
+  return isNaN(t) ? 0 : t;
+}
+function newestFirst(a, b) {
+  return (instant(releasedKey(b)) - instant(releasedKey(a)))
+    || (instant(b.mergedAt) - instant(a.mergedAt))
+    || ((b.prNumber || 0) - (a.prNumber || 0));
+}
 
 // ── Small badge (ported from NxBadge) ─────────────────────────────────────────
 function Badge({ label, color, tint }) {
@@ -176,18 +188,18 @@ export default function Changelog({ onClose }) {
     setEditing(null);
   };
 
-  // Pull recent git commits → Claude drafts plain-English entries into the
-  // Pending review queue. Returns silently-handled; surfaces a toast either way.
+  // Publish one entry per change merged since the last check (the same run
+  // the server does on its own after every merge). Surfaces a toast either way.
   const handleGenerate = async () => {
     try {
       const r = await api.generateTaskChangelog();
       await reload();
-      if (r?.created) flash(`Drafted ${r.created} update${r.created === 1 ? '' : 's'} from recent commits - review below.`);
-      else flash(r?.message || 'No new commits to summarise.');
+      if (r?.created) flash(`Published ${r.created} update${r.created === 1 ? '' : 's'} from merged work.`);
+      else flash(r?.message || 'No new changes since the last update.');
     } catch (e) {
-      // The server says why (a missing key, Claude refusing the model, ...) -
+      // The server says why (GitHub unreachable, a missing token, ...) -
       // pass it on rather than a generic line nobody can act on.
-      flash(e?.message || 'Could not generate from git.', true);
+      flash(e?.message || 'Could not check for updates.', true);
     }
   };
 
@@ -198,7 +210,7 @@ export default function Changelog({ onClose }) {
   }, [adding, editing, onClose]);
 
   const sorted = useMemo(
-    () => (entries || []).slice().sort((a, b) => String(releasedKey(b)).localeCompare(String(releasedKey(a)))),
+    () => (entries || []).slice().sort(newestFirst),
     [entries],
   );
   // Pending-review / draft entries stay out of the public-facing tabs.
@@ -218,7 +230,7 @@ export default function Changelog({ onClose }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Documentation &amp; Changelog</div>
+          <div style={{ fontSize: 20, fontWeight: 700 }}>What&apos;s New</div>
           <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
         </div>
         <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
@@ -279,24 +291,45 @@ export default function Changelog({ onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // What's New tab - latest single published entry + activity summary
 // ═══════════════════════════════════════════════════════════════════════════
+// The day an entry went out, in the viewer's time zone. Server-published
+// entries carry a UTC timestamp, so the date part of the string alone would
+// put an evening release on the next day.
+function localDayKey(iso) {
+  const d = new Date(iso || '');
+  if (isNaN(d)) return dateKey(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// What's New shows the whole latest release day, newest first. It showed one
+// entry, which was fine while updates were typed by hand - with every merged
+// PR published automatically, the next merge would push a hand-written
+// announcement off the tab within hours (Oct 2026).
 function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit }) {
-  const latest = entries[0];
+  const latestDay = useMemo(() => {
+    if (!entries.length) return [];
+    const day = localDayKey(releasedKey(entries[0]));
+    return entries.filter((e) => localDayKey(releasedKey(e)) === day);
+  }, [entries]);
+  const latest = latestDay[0];
   const [details, setDetails] = useState(null);
   return (
     <div style={{ padding: '20px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>What's New</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 13, color: NX.dim }}>The single most recent published update.</p>
+          <p style={{ margin: '2px 0 0', fontSize: 13, color: NX.dim }}>Everything published on the latest release day.</p>
         </div>
-        <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{latest ? '1 update' : '0 updates'}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{latestDay.length} update{latestDay.length === 1 ? '' : 's'}</span>
       </div>
 
       {latest ? (
         <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0, flex: '1 1 520px' }}>
-            <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{relativeDayLabel(releasedKey(latest))}</div>
-            <EntryCard entry={latest} nameOf={nameOf} onViewDetails={() => setDetails(latest)} />
+            <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{relativeDayLabel(localDayKey(releasedKey(latest)))}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {latestDay.map((e) => <EntryCard key={e.id} entry={e} nameOf={nameOf} onViewDetails={() => setDetails(e)} />)}
+            </div>
           </div>
           <div style={{ width: '100%', maxWidth: 320, flex: '1 1 280px' }}>
             <StatsPanel entries={entries} />
@@ -411,8 +444,17 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
           )}
 
           <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12, fontSize: 12, color: NX.dim }}>
-            {entry.authorId && <Avatar email={entry.authorId} name={nameOf(entry.authorId)} size={20} />}
-            <span>{entry.authorId ? nameOf(entry.authorId) : 'Unknown'}</span>
+            {entry.developers?.length ? (
+              <>
+                {entry.developers.map((d) => <Avatar key={d.login} name={d.name || d.login} size={20} />)}
+                <span>{entry.developers.map((d) => d.name || d.login).join(', ')}</span>
+              </>
+            ) : (
+              <>
+                {entry.authorId && <Avatar email={entry.authorId} name={nameOf(entry.authorId)} size={20} />}
+                <span>{entry.authorId ? nameOf(entry.authorId) : 'Unknown'}</span>
+              </>
+            )}
             {entry.ticketRef && (<><span>·</span><span>{entry.ticketRef}</span></>)}
             {entry.prRef && (<><span>·</span><span>{entry.prRef}</span></>)}
             {onViewDetails && (
@@ -609,7 +651,7 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
       if (!byVersion.has(v)) byVersion.set(v, { version: v, releasedAt: releasedKey(e), entries: [] });
       byVersion.get(v).entries.push(e);
     }
-    return [...byVersion.values()].sort((a, b) => (a.releasedAt < b.releasedAt ? 1 : -1));
+    return [...byVersion.values()].sort((a, b) => instant(b.releasedAt) - instant(a.releasedAt));
   }, [entries]);
 
   const [open, setOpen] = useState(groups[0]?.version || null);
@@ -689,8 +731,8 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
   );
 }
 
-// Automatic drafting's health (GET /task-changelog/auto-status). A failing
-// sweep used to leave no trace outside the server log, so the queue just
+// Automatic publishing's health (GET /task-changelog/auto-status). A failing
+// sweep used to leave no trace outside the server log, so What's New just
 // stopped filling and looked like a quiet few weeks (Oct 2026).
 function AutoDraftStatus({ refreshKey }) {
   const [st, setSt] = useState(null);
@@ -702,26 +744,35 @@ function AutoDraftStatus({ refreshKey }) {
   if (!st) return null;
   const line = { margin: '-12px 0 20px', fontSize: 12, display: 'flex', alignItems: 'flex-start', gap: 6 };
   if (!st.enabled) {
-    return <p style={{ ...line, color: NX.dim }}>Automatic drafting is turned off on this server.</p>;
+    return <p style={{ ...line, color: NX.dim }}>Automatic publishing is turned off on this server.</p>;
   }
   if (st.lastError) {
     return (
       <p role="alert" style={{ ...line, color: NX.red }}>
         <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
-          Automatic drafting failed {formatDateTime(st.lastErrorAt)}: {st.lastError}
+          Automatic publishing failed {formatDateTime(st.lastErrorAt)}: {st.lastError}
           {st.nextRunAt && <> Next try {formatDateTime(st.nextRunAt)}.</>}
         </span>
       </p>
     );
   }
   if (!st.lastRunAt) {
-    return <p style={{ ...line, color: NX.dim }}>Automatic drafting has not run on this server yet{st.nextRunAt ? ` - next run ${formatDateTime(st.nextRunAt)}` : ''}.</p>;
+    return <p style={{ ...line, color: NX.dim }}>Automatic publishing has not run on this server yet{st.nextRunAt ? ` - next run ${formatDateTime(st.nextRunAt)}` : ''}.</p>;
   }
   return (
-    <p style={{ ...line, color: NX.dim }}>
-      Automatic drafting last ran {formatDateTime(st.lastRunAt)} ({st.lastCreated} drafted) - next run {formatDateTime(st.nextRunAt)}.
-    </p>
+    <>
+      <p style={{ ...line, color: NX.dim }}>
+        Automatic publishing last ran {formatDateTime(st.lastRunAt)} ({st.lastCreated} published) - next run {formatDateTime(st.nextRunAt)}.
+      </p>
+      {/* Claude only rewrites the wording; when it can't, the PR's own words go out. */}
+      {st.polishNote && (
+        <p style={{ ...line, color: '#b45309' }}>
+          <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>Published with the pull request's own wording - AI rewording unavailable: {st.polishNote}</span>
+        </p>
+      )}
+    </>
   );
 }
 
@@ -749,16 +800,16 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
           {onGenerate && (
             <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1 }} disabled={generating} onClick={generate}>
               <GitBranch size={15} style={generating ? { animation: 'spin 0.9s linear infinite' } : undefined} />
-              {generating ? 'Generating…' : 'Generate from git'}
+              {generating ? 'Checking…' : 'Check for Updates'}
             </button>
           )}
           <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add New Update</button>
         </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, color: NX.dim }}>
-        Review updates that came in automatically from merged PRs (or submitted by teammates), edit them if needed, then
-        publish. Updates you add here from Manage publish immediately. Merged work is drafted into the review queue below a
-        few minutes after it lands - <strong>Generate from git</strong> runs that same draft now instead of waiting.
+        Everything merged into this site's branch - pull requests, branches merged by hand and commits pushed straight
+        to it - is published to What's New automatically a few minutes after it lands. Edit or remove any of them below. <strong>Check for Updates</strong> runs that now instead of waiting. Updates you add here
+        publish immediately; teammate submissions wait in Pending Review.
       </p>
       <AutoDraftStatus refreshKey={statusKey} />
 
@@ -769,7 +820,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
 
       {pending.length === 0 ? (
         <div style={{ marginBottom: 24, borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '40px 0', textAlign: 'center', fontSize: 13, color: NX.dim }}>
-          Nothing waiting on review. Incoming PR updates and teammate submissions will show up here.
+          Nothing waiting on review. Teammate submissions will show up here.
         </div>
       ) : (
         <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -973,10 +1024,12 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
                 </div>
               </div>
             )}
-            {(entry.authorId || entry.reviewerId || tags.length > 0) && (
+            {(entry.authorId || entry.developers?.length > 0 || entry.reviewerId || tags.length > 0) && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
                 <div style={{ display: 'flex', gap: 24 }}>
-                  {entry.authorId && <PersonInline label="Developer" email={entry.authorId} nameOf={nameOf} />}
+                  {entry.developers?.length > 0
+                    ? <GithubDevelopers developers={entry.developers} />
+                    : entry.authorId && <PersonInline label="Developer" email={entry.authorId} nameOf={nameOf} />}
                   {entry.reviewerId && <PersonInline label="Reviewer" email={entry.reviewerId} nameOf={nameOf} />}
                 </div>
                 {tags.length > 0 && (
@@ -1088,6 +1141,24 @@ function PersonInline({ label, email, nameOf }) {
   );
 }
 
+// Updates published from a merged PR name their developers as GitHub knows
+// them (the PR author, then other commit authors) - never the Nexus user who
+// ran the check or edited the entry.
+function GithubDevelopers({ developers }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: NX.faint }}>{developers.length > 1 ? 'Developers' : 'Developer'}</div>
+      {developers.map((d) => (
+        <a key={d.login} href={d.url} target="_blank" rel="noreferrer" title={`@${d.login} on GitHub`}
+          style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+          <Avatar name={d.name || d.login} size={24} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{d.name || d.login}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 // ── Slide-over wrapper (ported from ChangelogSlideOver) ───────────────────────
 function SlideOver({ entry, nameOf, myEmail, isAdmin, onClose, onSetStatus, onEdit }) {
   const [expanded, setExpanded] = useState(false);
@@ -1177,7 +1248,9 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
       version: version.trim(),
       environment,
       releasedAt: p.releasedAt || nowLocalISO(),
-      authorId: p.authorId || myEmail,
+      // A PR's developers come from GitHub; editing its wording must not make
+      // the editor its developer (that put Neil on every update).
+      authorId: p.authorId || (p.origin === 'pr' ? '' : myEmail),
       reviewerId: reviewerId || undefined,
       ticketRef: ticketRef.trim() || undefined,
       businessImpact: businessImpact.trim() || undefined,

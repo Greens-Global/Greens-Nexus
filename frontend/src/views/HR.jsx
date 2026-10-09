@@ -8,7 +8,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks,
+  ListChecks, RefreshCw,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -148,6 +148,11 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     status:          e?.status || 'active',
     location:        e?.location || '',
     country:         e?.country || '',
+    office_phone:    e?.officePhone || '',
+    street_address:  e?.streetAddress || '',
+    city:            e?.city || '',
+    state:           e?.state || '',
+    postal_code:     e?.postalCode || '',
     company:         e?.company || '',
     identity_type:   e?.identityType || 'internal',
     contractor:      e?.contractor || {},
@@ -291,7 +296,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('LAST NAME', 'last_name')}
           {input('WORK EMAIL', 'work_email', { type: 'email', placeholder: 'empty until provisioned' })}
           {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
-          {input('PHONE', 'phone')}
+          {input('MOBILE PHONE', 'phone')}
           {input('JOB TITLE', 'job_title')}
           {input('DESIGNATION', 'designation')}
           {/* Editable so Nexus codes can line up with the QuickBooks employee
@@ -359,14 +364,34 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
           </div>
-          {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
+          {/* Office and contact info, kept in step with Microsoft 365 both ways
+              (Neil, 10/07: HR updates these here instead of IT in the M365
+              admin center - the same fields as its contact info, minus fax). */}
+          <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>Office &amp; Contact</span>
+            <span title="Changes here update the person's Microsoft 365 account, and changes made in Microsoft 365 come back here"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 8px', borderRadius: 999 }}>
+              <RefreshCw size={10} /> Synced With Microsoft 365
+            </span>
+          </div>
           <div>
-            <label style={FL}>COUNTRY</label>
+            {input('OFFICE', 'location', { placeholder: 'e.g. San Clemente', list: 'hr-office-options' })}
+            <datalist id="hr-office-options">
+              {[...new Set(employees.map(x => (x.location || '').trim()).filter(Boolean))].sort().map(o => <option key={o} value={o} />)}
+            </datalist>
+          </div>
+          {input('OFFICE PHONE', 'office_phone', { type: 'tel' })}
+          <div style={{ gridColumn: '1 / -1' }}>{input('STREET ADDRESS', 'street_address', { placeholder: 'Work address - shown in Outlook and Teams' })}</div>
+          {input('CITY', 'city')}
+          {input('STATE OR PROVINCE', 'state')}
+          {input('ZIP OR POSTAL CODE', 'postal_code')}
+          <div>
+            <label style={FL}>COUNTRY OR REGION</label>
             <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
               <option value="">-</option>
               {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Where this person actually is - drives their email signature's phone country code.</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Where this person actually is - also drives their email signature's phone country code.</div>
           </div>
           <div>
             <label style={FL}>ACCOUNT TYPE</label>
@@ -1541,6 +1566,64 @@ function TeamAccessView({ employee }) {
   );
 }
 
+// Office and contact info as Microsoft 365 has it - kept in step both ways
+// (Neil, 10/07, m365_profile_sync.py): edits here go to Microsoft 365 on save,
+// edits made there come back within 15 minutes, or now with Sync Now.
+function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
+  const [busy, setBusy] = useState(false);
+  const linked = !!e.m365Id;
+  const sync = e.m365Sync || {};
+  const address = [e.streetAddress, [e.city, [e.state, e.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ')].filter(Boolean).join(', ');
+  async function syncNow() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const updated = await api.syncEmployeeM365(e.id);
+      onSynced?.(updated);
+      const r = updated?.m365Result || {};
+      const label = (k) => ({ phone: 'mobile phone', office_phone: 'office phone', location: 'office', street_address: 'street address',
+        city: 'city', state: 'state', postal_code: 'ZIP', country: 'country', job_title: 'job title', department: 'department' }[k] || k);
+      if (r.error) toastErr(`Microsoft 365 did not take the change: ${r.error}`);
+      else if (r.pulled?.length || r.pushed?.length) {
+        toastOk([r.pulled?.length ? `Updated from Microsoft 365: ${r.pulled.map(label).join(', ')}.` : '',
+          r.pushed?.length ? `Sent to Microsoft 365: ${r.pushed.length} field${r.pushed.length === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
+      } else if (r.waiting?.length && !r.writesEnabled) toastOk('Up to date from Microsoft 365. This environment does not write to Microsoft 365 - production does.');
+      else toastOk('Already in step with Microsoft 365.');
+    } catch (err) { toastErr(err?.message || 'Could not reach Microsoft 365.'); }
+    setBusy(false);
+  }
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Building2 size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Office &amp; contact
+        </span>
+        {linked && (
+          <span title={sync.error ? `Last attempt failed: ${sync.error}` : 'Kept in step with Microsoft 365 both ways'}
+            style={{ fontSize: 11.5, color: sync.error ? '#b45309' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {sync.error ? <AlertTriangle size={12} /> : <CheckCircle size={12} style={{ color: 'hsl(var(--color-green))' }} />}
+            {sync.error ? 'Microsoft 365 sync needs attention' : sync.at ? `Synced with Microsoft 365 ${formatDateTime(sync.at)}` : 'Synced with Microsoft 365'}
+          </span>
+        )}
+        {linked && canSync && (
+          <button className="secondary-btn" onClick={syncNow} disabled={busy}
+            title="Bring this person's details in step with Microsoft 365 now"
+            style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+            {busy ? <Spinner size={12} /> : <RefreshCw size={12} />} Sync Now
+          </button>
+        )}
+      </div>
+      <div>
+        {row(MapPin, 'Office', e.location)}
+        {row(Phone, 'Mobile phone', e.phone)}
+        {row(Phone, 'Office phone', e.officePhone)}
+        {row(MapPinned, 'Street address', address)}
+        {e.country && row(Globe2, 'Country or region', countryName(e.country))}
+      </div>
+    </>
+  );
+}
+
 function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
@@ -1556,6 +1639,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   // Checklist steps: HR editors start, cancel and reassign; viewers only read.
   const { canAccessModule: canAccessHr, myEmail: viewerEmail } = useRole();
   const canEditChecklist = canAccessHr('hr', 'administrator', 'editor');
+  const canEditProfile = canAccessHr('hr', 'manager', 'editor');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const [restoreBusy, setRestoreBusy] = useState(false);
   // Nexus-only removal - separate from offboarding (which deprovisions M365).
@@ -1763,13 +1847,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             <div>
               {row(Mail, 'Work email', e.workEmail)}
               {row(Mail, 'Personal', e.personalEmail)}
-              {row(Phone, 'Phone', e.phone)}
               {e.designation && row(Briefcase, 'Designation', e.designation)}
               {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
               {companyName && row(Building2, 'Company', companyName)}
               {row(CalendarOff, 'Start date', formatDate(e.startDate))}
-              {row(MapPin, 'Location', e.location)}
-              {e.country && row(Globe2, 'Country', countryName(e.country))}
               {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
@@ -1777,6 +1858,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
               {e.notes && row(FileText, 'Notes', e.notes)}
             </div>
+            <OfficeContact e={e} row={row} canSync={!teamView && canEditProfile && !isRemoved}
+              onSynced={onEmployeeUpdated} toastOk={toastOk} toastErr={toastErr} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px' }}>
               <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
                 <Contact size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Personal details
@@ -5699,7 +5782,7 @@ export default function HR({ activeSub, onSubChange }) {
   // hr-access moved to the Admin module (Pranshu, Sep 9) - old deep links
   // redirect there by the effect below, so it's not in this list any more.
   // Dashboard tiles open the Time tab on a specific inner list.
-  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-attendance': 'attendance', 'hr-time-requests': 'requests' };
+  const TIME_DEEP_LINKS = { 'hr-time-off': 'timeoff', 'hr-time-requests': 'actions', 'hr-time-actions': 'actions' };
   // The manager tier sees its own team in People (Oct 6): People and Time only.
   const { hrTeam } = useRole();
   const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-checklists'];
@@ -5714,6 +5797,9 @@ export default function HR({ activeSub, onSubChange }) {
     if (String(activeSub || '').startsWith('hr-esign')) {
       const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    } else if (activeSub === 'hr-time-attendance') {
+      // Who is on / off moved to Shifts > Schedule (Neil, 10/06).
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'schedule' } }));
     } else if (activeSub === 'hr-access') {
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
     }
@@ -5767,8 +5853,19 @@ export default function HR({ activeSub, onSubChange }) {
 
   // Stable across renders: children key their loaders on these, and a new
   // function per render made every toast reload the Time screens.
-  const toastErr = useCallback(msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); }, []);
-  const toastOk  = useCallback(msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); }, []);
+  // An error stays long enough to read (Neil, 10/06: the punch-sequence
+  // message "disappeared before I could read it"): 10s, plus time for a long
+  // message, paused while hovered, and closable. One timer - an older toast's
+  // timer can no longer cut a newer one short.
+  const toastTimer = useRef(null);
+  const showToast = useCallback((msg, kind, ms) => {
+    clearTimeout(toastTimer.current);
+    setToast({ msg, kind, ms });
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  }, []);
+  const toastErr = useCallback(msg => showToast(msg, 'error', Math.max(10000, String(msg || '').length * 70)), [showToast]);
+  const toastOk  = useCallback(msg => showToast(msg, 'ok', 4000), [showToast]);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   // Deep link from a person hover card anywhere in Nexus (openPersonProfile).
   // Two triggers, because this view may or may not be mounted when the jump
@@ -6255,8 +6352,15 @@ export default function HR({ activeSub, onSubChange }) {
           }} />
       )}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
-          {toast.msg}
+        <div role={toast.kind === 'error' ? 'alert' : 'status'}
+          onMouseEnter={() => clearTimeout(toastTimer.current)}
+          onMouseLeave={() => { clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 4000); }}
+          style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 10px 10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: 'min(640px, 90vw)', display: 'flex', alignItems: 'flex-start', gap: 10, lineHeight: 1.45 }}>
+          <span style={{ flex: 1 }}>{toast.msg}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => { clearTimeout(toastTimer.current); setToast(null); }}
+            style={{ background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', borderRadius: 6, width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <X size={13} />
+          </button>
         </div>
       )}
     </div>

@@ -50,7 +50,7 @@ describe('Access > Shared Roles', () => {
     render(<RolesAccess embedded />);
     fireEvent.click(screen.getByRole('button', { name: /Shared Roles/ }));
     fireEvent.click(await screen.findByRole('button', { name: /New Shared Role/ }));
-    expect(screen.getByRole('heading', { name: 'New job role' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'New Job Role' })).toBeInTheDocument();
   });
 
   it('opens straight on Shared Roles from the Company Settings link', async () => {

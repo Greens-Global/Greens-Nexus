@@ -73,6 +73,11 @@ class EmployeeIn(BaseModel):
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
     country:         Optional[str] = ""   # ISO 3166 alpha-2 - THIS person's own country, e.g. for signature phone formatting
+    office_phone:    Optional[str] = ""   # Microsoft 365 contact info (Oct 7) - see m365_profile_sync.py
+    street_address:  Optional[str] = ""
+    city:            Optional[str] = ""
+    state:           Optional[str] = ""
+    postal_code:     Optional[str] = ""
     company:         Optional[str] = ""
     identity_type:   Optional[str] = "internal"
     contractor:      Optional[dict] = None
@@ -96,6 +101,11 @@ class EmployeeUpdate(BaseModel):
     status:          Optional[str] = None
     location:        Optional[str] = None
     country:         Optional[str] = None
+    office_phone:    Optional[str] = None
+    street_address:  Optional[str] = None
+    city:            Optional[str] = None
+    state:           Optional[str] = None
+    postal_code:     Optional[str] = None
     company:         Optional[str] = None
     division:        Optional[str] = None
     identity_type:   Optional[str] = None
@@ -181,6 +191,12 @@ def _serialize(e: NexusEmployee) -> dict:
         "status":         e.status,
         "location":       e.location,
         "country":        e.country or "",
+        "officePhone":    e.office_phone or "",
+        "streetAddress":  e.street_address or "",
+        "city":           e.city or "",
+        "state":          e.state or "",
+        "postalCode":     e.postal_code or "",
+        "m365Sync":       {k: (e.m365_sync or {}).get(k, "") for k in ("at", "error")} if isinstance(e.m365_sync, dict) else {},
         "company":        e.company,
         "division":       e.division or "",
         "identityType":   e.identity_type or "internal",
@@ -252,6 +268,11 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         status=body.status or "active",
         location=(body.location or "").strip(),
         country=(body.country or "").strip().upper(),
+        office_phone=(body.office_phone or "").strip(),
+        street_address=(body.street_address or "").strip(),
+        city=(body.city or "").strip(),
+        state=(body.state or "").strip(),
+        postal_code=(body.postal_code or "").strip(),
         company=(body.company or "").strip(),
         identity_type=body.identity_type or "internal",
         contractor=body.contractor or {},
@@ -336,9 +357,44 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             token = _graph_token()
             written = _graph_writeback(token, row, db)
             manager = _graph_set_manager(token, row) if "manager_email" in fields else None
+            # The contact fields go through the two-way sync's push as well: it
+            # clears a field HR emptied (the writeback above never blanks one)
+            # and records the values as the new merge base, so the next pull
+            # does not mistake them for a change made in Microsoft 365.
+            import m365_profile_sync
+            contact = [k for k in changes if k in m365_profile_sync.CONTACT_COLUMNS]
+            if contact:
+                m365_profile_sync.push(token, row, contact)
+                db.commit()
+            out = _serialize(row)
             out["entra"] = {"synced": True, "written": written, "manager": manager}
         except Exception as e:
             out["entra"] = {"synced": False, "error": str(e)[:200]}
+    return out
+
+
+@router.post("/employees/{eid}/m365-sync")
+def sync_employee_m365(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Bring one person's Microsoft 365 contact info in step now (Refresh on
+    their profile): what changed in Microsoft 365 comes in, what HR changed
+    goes out. The 15-minute background pass does the same for everyone."""
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    _assert_scope(row, hr_scope(user, db))
+    if not (row.m365_id or "").strip():
+        raise HTTPException(400, "This person is not linked to a Microsoft 365 account.")
+    import m365_profile_sync
+    try:
+        result = m365_profile_sync.sync_person(db, row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Microsoft 365 did not answer: {str(e)[:160]}")
+    db.refresh(row)
+    out = _serialize(row)
+    out["m365Result"] = result
+    out["m365Result"]["writesEnabled"] = _entra_writes_enabled()
     return out
 
 
@@ -1139,7 +1195,9 @@ _EMPLOYEE_TYPE_LABEL = {"full_time": "Full-time", "part_time": "Part-time",
 # Nexus employee fields whose edit means the linked Entra user is now stale
 ENTRA_MAPPED_FIELDS = {"first_name", "last_name", "job_title", "department", "phone",
                        "location", "employee_code", "employment_type", "start_date",
-                       "company", "personal", "manager_email"}
+                       "company", "personal", "manager_email",
+                       # Microsoft 365 contact info (Oct 7, m365_profile_sync.py)
+                       "office_phone", "street_address", "city", "state", "postal_code", "country"}
 
 
 def _m365_job_title(title: str) -> str:
@@ -1176,16 +1234,23 @@ def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
         from models import HrEntity
         ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
         company_name = (ent.name if ent else "") or ""
-    street = " ".join(str((emp.personal or {}).get("currentAddress", "")).split())[:1024]
+    # streetAddress is the WORK address M365 shows in contact info (Oct 7) -
+    # it used to be filled from the HOME address in `personal`, which put
+    # people's home addresses in the company directory.
+    from countries import country_name
     for attr, value in (("jobTitle", _m365_job_title(emp.job_title)), ("department", emp.department),
                         ("mobilePhone", emp.phone), ("officeLocation", emp.location),
                         ("employeeId", emp.employee_code),
                         ("employeeType", _EMPLOYEE_TYPE_LABEL.get(emp.employment_type or "", "")),
                         ("companyName", company_name),
-                        ("streetAddress", street)):
+                        ("streetAddress", " ".join((emp.street_address or "").split())[:1024]),
+                        ("city", emp.city), ("state", emp.state), ("postalCode", emp.postal_code),
+                        ("country", country_name(emp.country or "") or (emp.country or ""))):
         v = (value or "").strip()
         if v:
             payload[attr] = v
+    if (emp.office_phone or "").strip():
+        payload["businessPhones"] = [emp.office_phone.strip()]
     # Graph wants a full DateTimeOffset for hire date, not a bare ISO date
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", (emp.start_date or "").strip()):
         payload["employeeHireDate"] = f"{emp.start_date.strip()}T00:00:00Z"

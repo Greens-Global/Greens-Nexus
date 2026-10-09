@@ -70,3 +70,85 @@ export function entitiesScannedText(data) {
   const hist = data?.historicalSkipped ?? 0;
   return hist ? `${base}; ${hist} historical (H) ${hist === 1 ? 'entity' : 'entities'} not read` : base;
 }
+
+// ── Oct 7 (Charmi): partial results and Retry ───────────────────────────────
+// MRI "Set Up From the Ledger" timed out on most entity batches and then said
+// "none had one"; MRE "Add From the Ledger" sat at 133 of 142 for 5+ minutes.
+// The scan now has a time limit and answers `failed` - [{code, name, reason}]
+// for every entity it could not read - with what it did read. The dialog
+// says "Read 37 of 142 entities - 105 could not be read", lists them, and
+// Retry reads just those again (the same GET with entities=...), merged in.
+
+/** The first scan with every Retry after it: proposals together (a later
+ *  read wins), and only the entities still not read as failed. */
+export function mergeScans(base, retries = [], keyOf = (p) => JSON.stringify(p)) {
+  if (!base) return null;
+  let failed = [...(base.failed || [])];
+  const by = new Map((base.proposals || []).map((p) => [keyOf(p), p]));
+  retries.forEach(({ codes, data }) => {
+    if (!data) return;
+    failed = failed.filter((f) => !codes.includes(f.code)).concat(data.failed || []);
+    (data.proposals || []).forEach((p) => by.set(keyOf(p), p));
+  });
+  const total = base.entitiesScanned ?? 0;
+  return { ...base, failed, proposals: [...by.values()], entitiesRead: Math.max(0, total - failed.length) };
+}
+
+export function scanStatusText(total, failed) {
+  const n = (k) => `${k} ${k === 1 ? 'entity' : 'entities'}`;
+  if (!failed) return `Read all ${n(total)}.`;
+  return `Read ${total - failed} of ${n(total)} - ${failed} could not be read.`;
+}
+
+/** Retry for the entities a scan could not read: `fetchFor(codes)` is the
+ *  scan's GET for just those codes (it answers 202 {scanning} until done).
+ *  Runs from the click, polls until the answer, keeps every answer. */
+export function useScanRetry(fetchFor, pollMs = POLL_MS) {
+  const [retries, setRetries] = useState([]);   // [{ codes, data }]
+  const [running, setRunning] = useState(null); // { done, total } while a retry reads
+  const [error, setError] = useState(null);
+  const run = async (codes) => {
+    if (!codes.length || running) return;
+    setError(null);
+    setRunning({ done: 0, total: codes.length });
+    try {
+      let d = await fetchFor(codes);
+      while (d && d.scanning) {
+        setRunning({ done: d.done || 0, total: d.total || codes.length });
+        await new Promise((r) => { setTimeout(r, pollMs); });
+        d = await fetchFor(codes);
+      }
+      setRetries((list) => [...list, { codes, data: d }]);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setRunning(null);
+    }
+  };
+  return { retries, running, error, run, reset: () => setRetries([]) };
+}
+
+/** "Read 37 of 142 entities - 105 could not be read." with the list and Retry. */
+export function ScanOutcome({ total, failed = [], onRetry, running = null, error = null }) {
+  if (!failed.length) return <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{scanStatusText(total, 0)}</div>;
+  return (
+    <div role="status" style={{ fontSize: '0.8rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '8px 10px', display: 'grid', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <strong style={{ flex: 1, minWidth: 220 }}>{scanStatusText(total, failed.length)}</strong>
+        {onRetry && (
+          <button type="button" className="secondary-btn" disabled={!!running} onClick={() => onRetry(failed.map((f) => f.code))} style={{ fontSize: '0.76rem' }}>
+            {running ? `Retrying... ${running.done} of ${running.total}` : `Retry ${failed.length} ${failed.length === 1 ? 'Entity' : 'Entities'}`}
+          </button>
+        )}
+      </div>
+      <span style={{ color: 'var(--text-secondary)' }}>What is below comes from the entities that were read. The others were not read in time, so nothing is known about them yet.</span>
+      {error && <span style={{ color: 'var(--bad-fg, #dc2626)' }}>{error.message || 'The retry could not run.'}</span>}
+      <details>
+        <summary style={{ cursor: 'pointer' }}>Not Read ({failed.length})</summary>
+        <ul style={{ margin: '6px 0 0', paddingLeft: 18, maxHeight: 160, overflowY: 'auto', color: 'var(--text-secondary)' }}>
+          {failed.map((f) => <li key={f.code}>{f.name} ({f.code}): {f.reason}</li>)}
+        </ul>
+      </details>
+    </div>
+  );
+}

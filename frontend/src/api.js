@@ -1098,17 +1098,17 @@ export const api = {
   // Finance Dashboard (Overview / Cash / Performance / Close) - the same
   // aggregates and shared tables the accounting app's own dashboard uses,
   // proxied by backend/routers/accounting_dashboard.py.
-  getAccountingDashLedger: (scope, from, to, book) =>
-    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}`),
-  getAccountingDashCashEntities: (scope, asof, book) =>
-    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
-  getAccountingDashBudget: (from, to, book) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}`),
+  getAccountingDashLedger: (scope, from, to, book, fresh) =>
+    req(`/accounting/dashboard/ledger?scope=${encodeURIComponent(scope)}&from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashCashEntities: (scope, asof, book, fresh) =>
+    req(`/accounting/dashboard/cash-entities?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashBudget: (from, to, book, fresh) => req(`/accounting/dashboard/budget?from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
   // Bank and card GL accounts per entity with their balance as of a date - the reconciliation list.
-  getAccountingDashReconAccounts: (scope, asof, book) =>
-    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}`),
-  getAccountingDashNoi: (from, to, book) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}`),
-  getAccountingDashEntities: () => req("/accounting/dashboard/entities"),
-  getAccountingDashTables: (period) => req(`/accounting/dashboard/tables?period=${period}`),
+  getAccountingDashReconAccounts: (scope, asof, book, fresh) =>
+    req(`/accounting/dashboard/recon-accounts?scope=${encodeURIComponent(scope)}&asof=${asof}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashNoi: (from, to, book, fresh) => req(`/accounting/dashboard/noi?from=${from}&to=${to}&book=${book}${fresh ? "&fresh=1" : ""}`),
+  getAccountingDashEntities: (fresh) => req(`/accounting/dashboard/entities${fresh ? "?fresh=1" : ""}`),
+  getAccountingDashTables: (period, fresh) => req(`/accounting/dashboard/tables?period=${period}${fresh ? "&fresh=1" : ""}`),
   accountingDashAction: (op, payload = {}) =>
     req("/accounting/dashboard/action", { method: "POST", body: JSON.stringify({ op, payload }) }),
 
@@ -1235,6 +1235,8 @@ export const api = {
   syncM365TwoWayStatus: () => req('/hr/employees/sync-m365-two-way/status'),
   pushToEntra:       (empId)        => req(`/hr/employees/${empId}/push-to-entra`, { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
+  // Office & contact both ways with Microsoft 365, for one person, now (Oct 7).
+  syncEmployeeM365:  (empId)        => req(`/hr/employees/${empId}/m365-sync`, { method: 'POST', timeoutMs: 30000 }),
   // Support > Implementation Guide: one shared done-list for administrators (Oct 7).
   getImplementationProgress: ()           => req('/implementation/progress'),
   setImplementationCheck:    (id, done)   => req(`/implementation/progress/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ done }) }),
@@ -1986,6 +1988,82 @@ export const api = {
   setAdBudgets: (budgets) => req('/marketing/ads/budgets', { method: 'PUT', body: JSON.stringify({ budgets }) }),
   // What's New automatic drafting: last run, last error, next run (changelog_auto.py).
   getTaskChangelogAutoStatus: () => req('/task-changelog/auto-status'),
+  // Accounting > Loans & Financing (Charmi, Oct 7): remove a loan (a ledger
+  // loan is remembered as removed), the open loans of one entity for Asset
+  // Management, NOI per entity for a window (Stress Test, Annualized YTD),
+  // and the Stress Test's kept inputs - per entity NOI basis / addback, loans
+  // left out of the run. The ledger reads behind these take longer than the
+  // 18s default, which also used to flag the API as down (see LoansTab).
+  deleteLoan:            (id)              => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 60_000 }),
+  getLoansByEntity:      (code, to = '')   => req(`/accounting/loans/by-entity/${encodeURIComponent(code)}${to ? `?to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  getLoanEntityNoi:      ({ entities = [], from = '', to = '' } = {}) => req(`/accounting/loans/noi?${new URLSearchParams({ entities: entities.join(','), ...(from ? { from } : {}), ...(to ? { to } : {}) })}`, { timeoutMs: 120_000 }),
+  getLoansReviewSlow:    ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`, { timeoutMs: 150_000 }),
+  getLoanAccountsSlow:   (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  getLoanStressSettings: ()                => req('/accounting/loan-plans/stress-settings'),
+  saveLoanStressEntity:  (entity, body)    => req(`/accounting/loan-plans/stress-settings/${encodeURIComponent(entity)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setLoanStressExcluded: (loanId, excluded) => req(`/accounting/loan-plans/${encodeURIComponent(loanId)}/stress-excluded`, { method: 'PUT', body: JSON.stringify({ excluded }) }),
+  // MRI > Set Up From the Ledger (Charmi, Oct 7): `entities` reads only those
+  // again (Retry of the ones the last scan could not read); `accounts` names
+  // the rent income accounts instead of the title rule.
+  getLeaseProposalsFor: ({ entities = [], accounts = [] } = {}) => req(`/accounting/leasing/from-ledger/proposals${(() => { const q = new URLSearchParams(); if (entities.length) q.set('entities', entities.join(',')); if (accounts.length) q.set('accounts', accounts.join(',')); const s = q.toString(); return s ? `?${s}` : ''; })()}`),
+  getLeaseIncomeAccounts: () => req('/accounting/leasing/from-ledger/income-accounts'),
+  // MRI: the interest and loan income accounts by month, for the entities picked.
+  getAccountingBucketsFor: ({ from, to, by = 'month', locations = [] }) => req(`/accounting/reports/buckets?to=${to}&by=${encodeURIComponent(by)}${from ? `&from=${from}` : ''}${locations.length === 1 ? `&location=${encodeURIComponent(locations[0])}` : locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}`),
+  // PFS, Neil's Oct 7 list (routers/pfs.py, routers/pfs_access.py): the share
+  // of an entity read from Affiliated Entities, lines whose % differs, the
+  // password-protected PDF (the password is never kept), and PFS access set
+  // from Accounting > Access (owners only).
+  getPfsAffiliatedShares: (id, entities = []) => req(`/pfs/profiles/${encodeURIComponent(id)}/affiliated-shares?entities=${encodeURIComponent(entities.join(','))}`),
+  getPfsShareMismatches:  (id) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`),
+  resolvePfsShareMismatches: (id, ids, action) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`, { method: 'POST', body: JSON.stringify({ ids, action }) }),
+  encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
+  getPfsAccessPeople:     () => req('/pfs-access/people'),
+  setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
+  // ── Accounting > Reports, Oct 7 (Charmi, item 35): the books a report can
+  //    read ({available, books: [{key, label, kind, journals}]}; available
+  //    false = the accounting app lists none yet), and one report read with
+  //    any params - a user-defined book (fmv, kje ...) travels as `book`.
+  //    kind: pnl | balance-sheet | trial-balance | buckets. Array params go
+  //    as comma-separated codes; empty ones are left out. ──
+  getAccountingBooks: () => req('/accounting/books'),
+  // The Intacct budget by account and month for a period ({available, budget_id,
+  // budgets, rows: [{account_no, title, section, month, amount}]}), for Actual vs
+  // Budget on the Income Statement (item 43).
+  getAccountingReportBudget: ({ from, to, location, locations, budgetId } = {}) => {
+    const qs = new URLSearchParams({ from, to });
+    if (location) qs.set('location', location);
+    if (locations?.length) qs.set('locations', locations.join(','));
+    if (budgetId) qs.set('budget_id', budgetId);
+    return req(`/accounting/reports/budget?${qs.toString()}`);
+  },
+  readAccountingReport: (kind, params = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      const val = Array.isArray(v) ? v.join(',') : v;
+      if (val !== undefined && val !== null && val !== '') qs.set(k, val);
+    });
+    return req(`/accounting/reports/${encodeURIComponent(kind)}?${qs.toString()}`);
+  },
+  // Accounting > Reporting > AMA, Asset Management Agreements (Oct 7,
+  // routers/accounting_ama.py): Billed YTD read from the ledger.
+  getAmaSummary:       (year)     => req(`/accounting/ama/summary${year ? `?year=${year}` : ''}`),
+  createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
+  updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
+  //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
+  //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
+  //    timeStatus / timeMy / timeMySchedule / timesheetReviewWaiting. ──
+  getMyWork:            ()         => req(`/me/work?tz_offset_min=${new Date().getTimezoneOffset()}`),
+  getMyTeamToday:       ()         => req(`/me/team/today?tz_offset_min=${new Date().getTimezoneOffset()}`),
+  getMyTeamOverdue:     ()         => req('/me/team/overdue'),
+  getAnnouncements:     ()         => req('/announcements'),
+  createAnnouncement:   (body)     => req('/announcements', { method: 'POST', body: JSON.stringify(body) }),
+  updateAnnouncement:   (id, body) => req(`/announcements/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteAnnouncement:   (id)       => req(`/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  markAnnouncementRead: (id)       => req(`/announcements/${encodeURIComponent(id)}/read`, { method: 'POST', body: '{}' }),
+  ackAnnouncement:      (id)       => req(`/announcements/${encodeURIComponent(id)}/ack`, { method: 'POST', body: '{}' }),
+  getAnnouncementReads: (id)       => req(`/announcements/${encodeURIComponent(id)}/reads`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

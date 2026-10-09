@@ -67,6 +67,8 @@ _full = require_module_grant("accounting", "full")
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
 STATUSES = ("active", "ended", "vacant")
+# Oct 7 (Charmi): MRI is one list of every recurring income source.
+INCOME_TYPES = ("lease", "interest", "loan_payment", "other")
 DEFAULT_INCOME_ACCOUNTS = ["41101"]
 _PAID_WITHIN = 0.5   # dollars: a payment this close to what was expected is paid in full
 
@@ -105,6 +107,7 @@ def _lease_out(l: models.Lease, rates: list[models.LeaseRate], names: Optional[d
         "rates": [_rate_out(r) for r in sorted(rates, key=lambda r: r.start_date or "")],
         "teamNote": {"text": getattr(l, "team_note", "") or "", "by": by, "byName": (names or {}).get(by, by), "at": getattr(l, "team_note_at", "") or ""},
         "linkSource": getattr(l, "link_source", "") or "",
+        "incomeType": (getattr(l, "income_type", "") or "lease") if (getattr(l, "income_type", "") or "lease") in INCOME_TYPES else "lease",
     }
 
 
@@ -139,6 +142,7 @@ class LeaseBody(BaseModel):
     status: Optional[str] = "active"
     notes: Optional[str] = ""
     rates: Optional[list[RateBody]] = None
+    incomeType: Optional[str] = "lease"
 
 
 def _clean(body: LeaseBody) -> dict:
@@ -151,8 +155,9 @@ def _clean(body: LeaseBody) -> dict:
     if body.leaseStart and body.leaseEnd and body.leaseEnd < body.leaseStart:
         raise HTTPException(status_code=400, detail="The lease ends before it starts.")
     status = body.status if body.status in STATUSES else "active"
+    kind = body.incomeType if body.incomeType in INCOME_TYPES else "lease"
     if status != "vacant" and not (body.tenantName or "").strip():
-        raise HTTPException(status_code=400, detail="Name the tenant, or mark the space vacant.")
+        raise HTTPException(status_code=400, detail="Name the tenant, or mark the space vacant." if kind == "lease" else "Name who pays it.")
     due = int(body.dueDay or 1)
     if not 1 <= due <= 28:
         raise HTTPException(status_code=400, detail="The due day is between 1 and 28.")
@@ -165,7 +170,7 @@ def _clean(body: LeaseBody) -> dict:
         "mailing_address": (body.mailingAddress or "")[:300], "lease_start": body.leaseStart or "", "lease_end": body.leaseEnd or "",
         "security_deposit": float(body.securityDeposit or 0), "lease_terms": (body.leaseTerms or "")[:200], "late_fee": float(body.lateFee or 0),
         "due_day": due, "grace_days": max(0, min(int(body.graceDays if body.graceDays is not None else 5), 60)),
-        "status": status, "notes": (body.notes or "")[:1000],
+        "status": status, "notes": (body.notes or "")[:1000], "income_type": kind,
     }
 
 
@@ -378,7 +383,14 @@ def expected_for_month(lease: dict, year: int, month: int) -> Optional[float]:
     """What the lease expects for one calendar month, or None when the lease is
     not in force at all that month. Pro-rated by the day: a lease that starts
     on the 16th of a 30-day month expects half, and a rent that goes up on the
-    1st of April is the new rent for all of April."""
+    1st of April is the new rent for all of April.
+
+    Oct 7 (Charmi: Expected 2,201.61 against Received 22,750.00 for a 2,275 a
+    month lease paid January to October): the first rent applies from the
+    lease start even when its own start date is later. New Lease used to
+    default the first rent's start to the day the lease was typed in, so a
+    lease in force since January expected nothing until that day and 30/31
+    of a month after it."""
     start, end = _d(lease["leaseStart"]), _d(lease["leaseEnd"])
     rates = lease["rates"]
     if not rates:
@@ -393,6 +405,8 @@ def expected_for_month(lease: dict, year: int, month: int) -> Optional[float]:
         for r in rates:                                   # sorted by start date
             if r["startDate"] <= today.isoformat():
                 rate = r
+        if rate is None and start:
+            rate = rates[0]                               # in force from the lease start
         if rate is None:
             continue
         in_force += 1
@@ -423,15 +437,27 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
     rows = []
     totals = [{"month": f"{year}-{m:02d}", "expected": 0.0, "received": 0.0} for m in range(1, 13)]
     for lease in leases:
-        cells, to_date = [], 0.0
+        cells, to_date, outside = [], 0.0, []
         for m in range(1, 13):
             key = f"{year}-{m:02d}"
             extra = months.get(f"{lease['id']}:{key}") or {"adjustment": 0, "note": ""}
             base = expected_for_month(lease, year, m)
             posted = receipts.get((lease["customerId"], key), {}) if lease["customerId"] else {}
-            received = _r2(sum(v for code, v in posted.items() if code in lease["incomeAccounts"]))
+            by_account = {code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]}
+            received = _r2(sum(by_account.values()))
             if base is None and abs(received) <= _PAID_WITHIN and not extra["note"]:
                 cells.append({"month": key, "inForce": False})
+                continue
+            if base is None:
+                # Oct 7: money posted in a month the lease is not in force
+                # (before its start, after its end) is shown, never counted -
+                # it used to count as received against nothing expected and
+                # read as a 20.5K "prepayment" credit. It usually means the
+                # Lease Start is wrong; the row says so.
+                if abs(received) > _PAID_WITHIN:
+                    outside.append({"month": key, "received": received})
+                cells.append({"month": key, "inForce": True, "outside": True, "expected": 0, "received": received, "byAccount": by_account, "balance": 0,
+                              "status": "outside", "adjustment": extra["adjustment"], "note": extra["note"], "lateFee": 0})
                 continue
             expected = _r2(max(0.0, (base or 0) - extra["adjustment"]))
             status = month_status(expected, received, lease, year, m, today)
@@ -440,12 +466,13 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
                 to_date = _r2(to_date + balance)
                 totals[m - 1]["expected"] = _r2(totals[m - 1]["expected"] + expected)
                 totals[m - 1]["received"] = _r2(totals[m - 1]["received"] + received)
-            cells.append({"month": key, "inForce": True, "expected": expected, "received": received, "balance": balance, "status": status,
+            cells.append({"month": key, "inForce": True, "expected": expected, "received": received, "byAccount": by_account, "balance": balance, "status": status,
                           "adjustment": extra["adjustment"], "note": extra["note"],
                           "lateFee": _r2(lease["lateFee"]) if status in ("late", "short", "unpaid") and lease["lateFee"] else 0})
         behind = [c for c in cells if c.get("status") in ("late", "short", "unpaid")]
         rows.append({"lease": lease, "months": cells, "balanceToDate": to_date, "monthsBehind": len(behind),
-                     "owed": _r2(sum(c["balance"] for c in behind)), "lateFees": _r2(sum(c["lateFee"] for c in behind))})
+                     "owed": _r2(sum(c["balance"] for c in behind)), "lateFees": _r2(sum(c["lateFee"] for c in behind)),
+                     "outsideLease": {"months": [o["month"] for o in outside], "received": _r2(sum(o["received"] for o in outside))}})
     return {"year": year, "asOf": today.isoformat(), "rows": rows, "totals": totals,
             "summary": {"leases": len([r for r in rows if r["lease"]["status"] == "active"]),
                         "behind": len([r for r in rows if r["monthsBehind"]]),

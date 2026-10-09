@@ -700,6 +700,14 @@ def run_m365_pushback() -> dict:
     if not _entra_writes_enabled():
         print("[m365-pushback] skipped - Entra writes are off on this environment")
         return {"pushed": 0, "failed": 0, "skipped": True}
+    # Merge first (Oct 7): this push sends every profile with Nexus winning,
+    # so a change someone made in Microsoft 365 since the last 15-minute pass
+    # must come into Nexus before it, not be pushed over.
+    try:
+        import m365_profile_sync
+        m365_profile_sync.sync_all()
+    except Exception as e:   # noqa: BLE001 - the push still runs
+        print(f"[m365-pushback] contact merge skipped: {type(e).__name__}: {e}")
     db = SessionLocal()
     pushed = failed = 0
     try:

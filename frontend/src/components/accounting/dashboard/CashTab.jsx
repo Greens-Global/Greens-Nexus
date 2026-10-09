@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { CASH_CATS, cashPlan, SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
 import { monthLabel, monthLong, mShort } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
@@ -42,7 +43,8 @@ export default function CashTab() {
   const six = plan ? plan.fc[5] : null;
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 14 };
   const half = { gridColumn: 'span 12' };
-  const halfWide = typeof window !== 'undefined' && window.innerWidth >= 1000 ? { gridColumn: 'span 6' } : half;
+  const wide = useMedia('(min-width: 1000px)');   // follows the viewport, so a phone turned sideways re-lays out
+  const halfWide = wide ? { gridColumn: 'span 6' } : half;
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -53,9 +55,9 @@ export default function CashTab() {
       } />
       {loading || !plan ? <LoadingBox height={84} /> : (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-          <Tile label="Cash on hand" value={m(cashSplit.ctl, { compact: true })} sub={cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : 'controllable'} />
+          <Tile label="Cash on hand" value={m(cashSplit.onHand, { compact: true })} sub={cashSplit.ncOnly ? `non-controllable · ${cashSplit.onHandEntities.length} partner ${cashSplit.onHandEntities.length === 1 ? 'entity' : 'entities'}` : cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : 'controllable'} />
           <Tile label="Investments" value={m(mv, { compact: true })} sub="stocks and bonds" />
-          <Tile label="Net debt" value={m(debt - cashSplit.ctl - mv, { compact: true })} sub="debt less cash and investments" />
+          <Tile label="Net debt" value={m(debt - cashSplit.onHand - mv, { compact: true })} sub="debt less cash and investments" />
           <Tile label="Runway" value={fixed ? `${run.toFixed(1)} mo` : '-'} sub="vs fixed obligations" />
           <Tile label="Total cash in 6 months" value={six ? m(six.end, { compact: true }) : '-'} sub={six && last ? `${S.name} · ${six.end >= last.end ? '+' : ''}${m(six.end - last.end, { compact: true })} vs today` : undefined} subColor={six && last ? toneColor(six.end >= last.end) : undefined} />
         </div>

@@ -3,6 +3,7 @@ import { Maximize2, Minimize2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
+import { useIsMobile } from '../../lib/useIsMobile';
 import { useAccountingPrefs } from './prefs';
 import Amount, { formatAmount } from './Amount';
 
@@ -42,14 +43,24 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [prefs, setPrefs] = useAccountingPrefs();
-  const full = !!prefs.entryFull;
+  // A phone (Oct 1) always gets the whole screen, and the lines as stacked
+  // cards instead of the 1,180 px table; the fill-screen toggle is moot there.
+  const isPhone = useIsMobile('(max-width: 640px)');
+  const full = isPhone || !!prefs.entryFull;
 
   useEffect(() => {
     let alive = true;
     setData(null);
     setError('');
     api.getAccountingEntry(entryId)
-      .then((d) => { if (alive) setData(d); })
+      // An answer without totals (an older app, or a partial read) adds its
+      // own lines up rather than crashing the panel.
+      .then((d) => {
+        if (!alive) return;
+        const ls = d?.lines || [];
+        const totals = d?.totals || { debit: ls.reduce((t, l) => t + (Number(l.debit) || 0), 0), credit: ls.reduce((t, l) => t + (Number(l.credit) || 0), 0) };
+        setData({ ...(d || {}), lines: ls, totals });
+      })
       .catch((e) => { if (alive) setError(e?.message || 'Could not load the entry.'); });
     return () => { alive = false; };
   }, [entryId]);
@@ -99,27 +110,57 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
         style={full ? { maxWidth: '100vw', width: '100vw', height: '100vh', maxHeight: '100vh', borderRadius: 0, resize: 'none' } : { maxWidth: '98vw', width: 'min(1720px, 96vw)', maxHeight: '94vh' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <h3 style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isPhone ? 'normal' : 'nowrap', fontSize: isPhone ? '0.98rem' : undefined }}>
               {entry ? `${formatDate(entry.entry_date)}${journal ? ` · ${journal}` : ''}${title ? ` · ${title}` : ''}` : `Journal Entry ${entryNo || ''}`}
             </h3>
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>{entry ? quiet : 'Loading the entry...'}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <button type="button" onClick={() => setPrefs({ entryFull: !full })} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 5 }}>
-              {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
+            {!isPhone && (
+              <button type="button" onClick={() => setPrefs({ entryFull: !full })} aria-pressed={full} aria-label={full ? 'Back to window size' : 'Fill the screen'} title={full ? 'Back to window size' : 'Fill the screen'}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 5 }}>
+                {full ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+            )}
             <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}>
               <X size={18} />
             </button>
           </div>
         </div>
-        <div style={{ padding: '12px 18px 16px' }}>
+        <div style={{ padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
           {!data && !error && <SkeletonBlocks count={3} />}
+          {data && isPhone && (
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+              {lines.map((l) => {
+                const g = intacct.find((x) => x.record_no && x.record_no === l.intacct_record_no);
+                const facts = COLUMNS.filter((c) => !['account', 'debit', 'credit'].includes(c.key)).map((c) => [c.label, cell(l, g, c.key)]).filter(([, v]) => v);
+                return (
+                  <div key={l.id} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600 }}>{cell(l, g, 'account')}</span>
+                      <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                        {Number(l.debit) > 0 ? formatAmount(l.debit) : Number(l.credit) > 0 ? `(${formatAmount(l.credit)})` : '0.00'}
+                      </span>
+                    </div>
+                    {facts.map(([label, v]) => (
+                      <div key={label} style={{ display: 'flex', gap: 8, fontSize: '0.76rem', marginTop: 3 }}>
+                        <span style={{ color: 'var(--text-muted)', flex: '0 0 88px' }}>{label}</span>
+                        <span style={{ color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 12px', fontSize: '0.84rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', background: 'var(--bg-secondary)' }}>
+                <span>Total</span>
+                <span>{formatAmount(data.totals.debit)} debit · {formatAmount(data.totals.credit)} credit</span>
+              </div>
+            </div>
+          )}
           {data && (
             <>
-              <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
+              {!isPhone && <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
                 <table className="acct-lines acct-entry-lines" style={{ width: '100%', minWidth: 1180 }}>
                   <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
                   <thead>
@@ -142,7 +183,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                     </tr>
                   </tbody>
                 </table>
-              </div>
+              </div>}
               {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
                 <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
               )}
@@ -152,7 +193,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                 </div>
               )}
               <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}. Drag the corner of this window to resize it.
+                From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}.{isPhone ? '' : ' Drag the corner of this window to resize it.'}
               </div>
             </>
           )}

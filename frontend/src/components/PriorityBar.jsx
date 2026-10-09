@@ -9,10 +9,11 @@ import { openNotificationTarget } from '../lib/openTarget';
 // Priority notices (Neil, call of 09/29; adjusted 10/01): two categories of
 // notification. FYI ones sit in the bell. The ones that need action (a
 // timecard due, a timesheet waiting on you, a punch fix to approve) are
-// this yellow bar: it sticks to the top of the person's screen and STAYS -
-// opening the item does not clear it - until they click it off. Clicked
-// off, it moves to the bell's Closed list like any other notification
-// (kept 30 days, restorable). The system raises them on those flows
+// this yellow bar: it sticks to the top of the person's screen until they
+// act on it - Open takes them to the item AND clears the notice (Neil, 10/08:
+// "once you click on open, it should remove the notification"), or they
+// click it off. Either way it moves to the bell's Closed list like any other
+// notification (kept 30 days, restorable), so nothing is lost. The system raises them on those flows
 // (notifications with priority = 1); a manager can raise one for a person
 // from the bell's megaphone. Never company-wide: each goes to one person.
 //
@@ -40,8 +41,11 @@ export default function PriorityBar({ onNavigate }) {
     else if (item.action?.view) window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: item.action.view, sub: item.action.sub } }));
     // The task, ticket or timecard the notice names opens too, not just its module.
     openNotificationTarget(item.action);
-    // Seen, but still owed: the bar stays until it is clicked off.
+    // Opened = handled: the notice leaves the bar (Neil, 10/08) and sits in
+    // the bell's Closed list, where it can still be read or restored.
     ctx.markRead(item.id);
+    ctx.dismiss(item.id);
+    setAt(0);
   };
   if (!n) return null;
   return (

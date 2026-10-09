@@ -87,11 +87,11 @@ const LINES_TABLE = {
 };
 vi.mock('./LedgerSearch', async () => {
   const { useEffect } = await import('react');
-  function LedgerSearchMock({ drill, term, onBusy, onExport }) {
+  function LedgerSearchMock({ drill, term, onBusy, onExport, initialEntry }) {
     onBusy?.(false);
     // The real grid hands the report's Export menu a builder for its lines.
     useEffect(() => { onExport?.({ build: async () => LINES_TABLE, lines: 1, name: 'Ledger Lines - 61000 Repairs', title: 'Ledger Lines - 61000 Repairs' }); return () => onExport?.(null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-    return <div data-testid="ledger-search" data-from={drill?.from}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
+    return <div data-testid="ledger-search" data-from={drill?.from} data-drill-dims={JSON.stringify(drill?.dims || null)} data-party={drill?.party?.code || ''} data-entry={initialEntry?.id || ''}>{drill ? `drill:${drill.account}:${drill.to}:${drill.book}` : `search:${term}`}</div>;
   }
   return { default: LedgerSearchMock };
 });
@@ -106,7 +106,7 @@ vi.mock('../../egnyte/EgnyteFolderPick', () => ({
 
 import ReportsTab from './ReportsTab';
 import { api } from '../../api';
-import { requestReportDrill } from './drill';
+import { requestReportDrill, requestLedgerSearch } from './drill';
 import { resetAccountingPrefs } from './prefs';
 
 beforeEach(() => { localStorage.clear(); resetAccountingPrefs(); vi.clearAllMocks(); window.scrollTo = vi.fn(); });
@@ -161,6 +161,28 @@ describe('ReportsTab statement table', () => {
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('drill:11452:2026-08-31:accrual'));
   });
+
+  it('opens the search the dashboard\'s Find a Transaction tile handed over, with the tapped entry on top', async () => {
+    // Parked before Reports mounts (the tile lives on the dashboard).
+    requestLedgerSearch({ q: 'sunbelt 2840', entryId: 'e1', entryNo: 'IA-1293173' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:sunbelt 2840'));
+    expect(screen.getByTestId('ledger-search').dataset.entry).toBe('e1');
+    expect(screen.getByLabelText('Search the ledger').value).toBe('sunbelt 2840');
+    // Already on screen: the event alone carries the next one, words only.
+    requestLedgerSearch({ q: 'amazon' });
+    await waitFor(() => expect(screen.getByTestId('ledger-search').textContent).toBe('search:amazon'));
+    expect(screen.getByTestId('ledger-search').dataset.entry).toBe('');
+  });
+});
+
+describe('Cross-tab drill with filters (Oct 7)', () => {
+  it('carries a party and the report filters from another tab into the lines', async () => {
+    requestReportDrill({ accountName: 'Rent', from: '2026-01-01', to: '2026-01-31', entity: '32000', party: { kind: 'customer', code: 'C1', name: 'Tenant One' }, dims: { departments: ['9500'], journals: ['ARJ'] } });
+    render(<ReportsTab />);
+    await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('C1'));
+    expect(JSON.parse(screen.getByTestId('ledger-search').dataset.drillDims)).toEqual({ departments: ['9500'], journals: ['ARJ'] });
+  });
 });
 
 describe('ReportsTab controls', () => {
@@ -169,7 +191,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -229,12 +251,12 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
     const names = () => within(screen.getByRole('listbox', { name: 'Entities' })).getAllByRole('option').map((o) => o.textContent);
-    expect(names()).toEqual(['Greens Escondido15000', 'Escondido North15020', 'Greens Capital32000']);
+    expect(names()).toEqual(['15000Greens Escondido', '15020Escondido North', '32000Greens Capital']);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show historical entities/));
+    fireEvent.click(screen.getByLabelText(/Show historical entities/i));
     fireEvent.click(screen.getByRole('button', { name: 'Entities' }));
-    expect(names()).toEqual(['Greens Escondido15000', 'Escondido North15020', '(H) Old EscondidoH15001', 'Greens Capital32000']);
+    expect(names()).toEqual(['15000Greens Escondido', '15020Escondido North', 'H15001(H) Old Escondido', '32000Greens Capital']);
   });
 
   it('shows the filters in force as chips that come off in one click', async () => {
@@ -362,7 +384,7 @@ describe('ReportsTab controls', () => {
     expect(screen.getByLabelText('Summary').textContent).toBe('Revenue 1,500.00Expenses 400.00Net Income 1,100.00Net Margin 73.3%');
     expect(screen.getByText('Net Profit Margin %').closest('tr').textContent).toContain('73.3%');
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show zero balances/));
+    fireEvent.click(screen.getByLabelText(/Show zero balances/i));
     fireEvent.click(screen.getByRole('button', { name: /Memorize/ }));
     fireEvent.change(screen.getByLabelText('What would you like to name it?'), { target: { value: 'With Zeros' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -476,7 +498,7 @@ describe('ReportsTab controls', () => {
     expect(within(screen.getByRole('listbox', { name: 'Accounts' })).queryByText(/hidden/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show historical accounts/));
+    fireEvent.click(screen.getByLabelText(/Show historical accounts/i));
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
     expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Old Income (H)49000', 'Repairs61000']);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
@@ -559,13 +581,12 @@ describe('ReportsTab controls', () => {
     expect((await screen.findByLabelText('Active filters')).textContent).toContain('Journal: Accounts Payable (APJ)');
   });
 
-  it('shows Not available yet for Journals until the accounting app lists them (R7)', async () => {
+  it('hides Journals until the accounting app lists them (R7; item 35, 10/07)', async () => {
     api.getAccountingJournals.mockResolvedValue({ available: false, journals: [] });
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
-    fireEvent.click(screen.getByRole('button', { name: /^Journals/ }));
-    await screen.findByText('Not available yet.');
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Journals/ })).toBeNull());
     // Everything else still works.
     fireEvent.click(screen.getByRole('button', { name: /^Department/ }));
     await screen.findByRole('option', { name: /Property Management/ });
@@ -589,17 +610,38 @@ describe('ReportsTab controls', () => {
     expect(within(repairs).getByText('Review')).toBeTruthy();
     // Rental Income moved by nothing: no flag.
     expect(screen.getByText('Rental Income').closest('tr').className).not.toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1');
-    // The kept explanation shows; a new one is saved for this entity set and period.
+    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1 to review · 0 explained');
+    // The kept explanation shows; a new one is written in the cell itself (item 26a), no dialog.
     await screen.findByText('New tenant in suite B.');
     fireEvent.click(within(repairs).getByRole('button', { name: /Add explanation for 61000/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Explanation' });
-    fireEvent.change(within(dialog).getByLabelText('Why did this account move?'), { target: { value: 'Roof repair last year, one-time.' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Save Explanation' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const box = within(screen.getByText('Repairs').closest('tr')).getByLabelText('Explanation for 61000 Repairs');
+    fireEvent.change(box, { target: { value: 'Roof repair last year, one-time.' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalled());
     expect(api.saveAccountingFluxNote.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', note: 'Roof repair last year, one-time.' });
     expect(api.saveAccountingFluxNote.mock.calls[0][0].period).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/);
     await screen.findByText('Roof repair last year, one-time.');
+    // Explained = answered (item 26b): the flag reads Explained, still a flagged line.
+    const done = screen.getByText('Repairs').closest('tr');
+    expect(within(done).getByText('Explained')).toBeTruthy();
+    expect(within(done).queryByText('Review')).toBeNull();
+    expect(done.className).toContain('acct-flag');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 0 to review · 1 explained');
+    // Esc leaves an edit without saving; the trash asks Remove / Keep in place.
+    fireEvent.click(within(done).getByRole('button', { name: /Edit explanation for 61000/ }));
+    const again = within(screen.getByText('Repairs').closest('tr')).getByLabelText('Explanation for 61000 Repairs');
+    fireEvent.change(again, { target: { value: 'Changed my mind' } });
+    fireEvent.keyDown(again, { key: 'Escape' });
+    expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Remove explanation for 61000/ }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: 'Keep' }));
+    expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Remove explanation for 61000/ }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(2));
+    expect(api.saveAccountingFluxNote.mock.calls[1][0]).toMatchObject({ accountNo: '61000', note: '' });
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Review')).toBeTruthy());
     // Customize carries the thresholds; a looser one takes the flag off.
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.change(screen.getByLabelText('Flux variance amount threshold'), { target: { value: '6000' } });

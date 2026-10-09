@@ -25,6 +25,11 @@ export const REPORTS = [
   // account, with the variance over a threshold flagged and an explanation
   // kept per account and period (accounting_flux_notes).
   { key: 'flux', label: 'Flux Analysis', period: 'range' },
+  // Statement of Cash Flows (Charmi's Friday list, item 26c, 10/07): the
+  // indirect method, v1 - net income, the non-cash add-backs, the working
+  // capital moves between two balance sheets, investing and financing; the
+  // ending cash ties to Cash Position. Mapping by account type and title.
+  { key: 'cash-flow', label: 'Statement of Cash Flows', period: 'range' },
 ];
 /** The flag thresholds a Flux Analysis starts with: both must be passed for a line to be flagged. */
 export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
@@ -57,6 +62,9 @@ const PNL_COLUMNS = [
   ['total', 'Total Only'], ['month', 'By Month'], ['quarter', 'By Quarter'], ['year', 'By Year'], ['entity', 'By Entity'],
   ['department', 'By Department'], ['vendor', 'By Vendor'], ['customer', 'By Customer'], ['employee', 'By Employee'],
   ['project', 'By Project-Job'], ['item', 'By Item'], ['prior_period', 'vs Prior Period'], ['prior_year', 'vs Prior Year'],
+  // Item 43 (Charmi, 10/02): Actual, Budget, Variance $ and Variance % - the
+  // Intacct budget, or the budget saved in Nexus (labeled so) until there is one.
+  ['budget', 'Actual vs Budget'],
 ];
 const BS_COLUMNS = [
   ['total', 'Total Only'], ['entity', 'By Entity'], ['department', 'By Department'], ['month', 'Last 12 Month-Ends'],
@@ -104,7 +112,22 @@ export const BOOKS = [
   { key: 'cash', label: 'Cash' },
   { key: 'both', label: 'Accrual and Cash' },
 ];
-export const bookLabel = (key) => BOOKS.find((b) => b.key === key)?.label || 'Accrual';
+// Oct 7 (Charmi, item 35): Intacct's user-defined books ("Fair Market
+// Journal", "KJECA - Greens Global") - accrual plus their own journals - as
+// the accounting app lists them (GET /accounting/books). Until it does, the
+// selector keeps Accrual / Cash / both. A memorized report keeps its book key.
+const BOOK_KEY = /^[a-z0-9_-]{1,24}$/;
+let userBooks = [];
+/** A user-defined book key (fmv, kje ...): not accrual, cash or the two side by side. */
+export const isUserBook = (b) => typeof b === 'string' && BOOK_KEY.test(b) && !BOOKS.some((x) => x.key === b);
+/** The books the accounting app lists ([{ key, label }]); standard ones are left to BOOKS. */
+export function setUserBooks(list) {
+  userBooks = (Array.isArray(list) ? list : []).filter((b) => b && isUserBook(String(b.key || '').toLowerCase()))
+    .map((b) => ({ key: String(b.key).toLowerCase(), label: String(b.label || b.key).trim() || String(b.key).toUpperCase() }));
+}
+/** The Book selector's options: Accrual, Cash, the user books, then Accrual and Cash. */
+export const bookOptions = () => [BOOKS[0], BOOKS[1], ...userBooks, BOOKS[2]];
+export const bookLabel = (key) => BOOKS.find((b) => b.key === key)?.label || userBooks.find((b) => b.key === key)?.label || (isUserBook(key) ? key.toUpperCase() : 'Accrual');
 
 // The dimensions a report can be narrowed by, in the order Charmi listed
 // them. Entities have their own dropdown; every other dimension, department
@@ -251,7 +274,7 @@ export function resolveConfig(config, now = new Date()) {
   }
   if (c.from > c.to) c.to = c.from;
   if (c.asofToday !== false || !ISO.test(c.asof || '')) { c.asof = iso(now); c.asofToday = c.asofToday !== false; }
-  c.book = BOOKS.some((b) => b.key === c.book) ? c.book : 'accrual';
+  c.book = BOOKS.some((b) => b.key === c.book) || userBooks.some((b) => b.key === c.book) ? c.book : 'accrual';
   c.entities = Array.isArray(c.entities) ? c.entities.filter((x) => typeof x === 'string' && x) : [];
   c.accounts = Array.isArray(c.accounts) ? c.accounts.filter((x) => typeof x === 'string' && x) : [];
   // Zero balances are hidden unless asked for (Charmi, 09/29 call: "the
@@ -274,8 +297,10 @@ export function resolveConfig(config, now = new Date()) {
 
 /** The layout in force: two books side by side leave no room for columns. */
 export const activeColumns = (config) => (config.book === 'both' && canPickBook(config) ? 'total' : config.cols);
-export const canPickBook = (config) => config.report !== 'cash-position';
-export const canUseDims = (config) => config.report !== 'cash-position';
+// The Statement of Cash Flows ties to Cash Position, which reads the accrual
+// book for whole entities - so neither a book nor the dimension filters apply.
+export const canPickBook = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
+export const canUseDims = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
 export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux'].includes(config.report);
 
 export const periodText = (config) => {
@@ -330,12 +355,24 @@ function placeOf(config) {
   return { location, dims: any ? dims : null };
 }
 
+// A user-defined book (fmv, kje ...) goes through the generic report read,
+// which passes `book` as it is; accrual and cash keep their own calls.
+const flatDims = (dims) => Object.fromEntries(Object.entries(dims || {}).filter(([, v]) => Array.isArray(v) && v.length).map(([k, v]) => [k, v.join(',')]));
+const viaUserBook = (api, book) => isUserBook(book) && typeof api.readAccountingReport === 'function';
+function readTrialBalance(api, from, to, location, dims, book) {
+  if (viaUserBook(api, book)) return api.readAccountingReport('trial-balance', { from, to, location, ...flatDims(dims), book });
+  return api.getAccountingTrialBalance(from, to, location, dims, book);
+}
 function fetchStatement(api, config, range, book) {
   const { location, dims } = placeOf(config);
+  if (config.report === 'cash-position') return api.getAccountingCashPosition(range.asof, location, config.entities.length > 1 ? config.entities : undefined);
+  if (viaUserBook(api, book)) {
+    if (config.report === 'pnl') return api.readAccountingReport('pnl', { from: range.from, to: range.to, location, ...flatDims(dims), book });
+    if (config.report === 'balance-sheet') return api.readAccountingReport('balance-sheet', { asof: range.asof, location, ...flatDims(dims), book });
+  }
   if (config.report === 'pnl') return api.getAccountingPnl(range.from, range.to, location, dims, book);
   if (config.report === 'balance-sheet') return api.getAccountingBalanceSheet(range.asof, location, dims, book);
-  if (config.report === 'cash-position') return api.getAccountingCashPosition(range.asof, location, config.entities.length > 1 ? config.entities : undefined);
-  return api.getAccountingTrialBalance(range.from, range.to, location, dims, book);
+  return readTrialBalance(api, range.from, range.to, location, dims, book);
 }
 function fetchBuckets(api, config, range, by, book, entities = []) {
   // One entity picked and split By Entity: its sub-entities are the columns
@@ -348,6 +385,7 @@ function fetchBuckets(api, config, range, by, book, entities = []) {
     if (kids.length) cfg = { ...config, entities: [config.entities[0], ...kids] };
   }
   const { location, dims } = placeOf(cfg);
+  if (viaUserBook(api, book)) return api.readAccountingReport('buckets', { from: range.from, to: range.to, by, location, ...flatDims(dims), book });
   return api.getAccountingBuckets({ from: range.from, to: range.to, by, book, location, dims });
 }
 
@@ -474,6 +512,50 @@ export function balanceAsOf(rows, asof) {
   ];
 }
 
+// ── The budget beside the actuals (item 43) ──────────────────────────────────
+// The Intacct budget, as the accounting app pulls it, for the period and the
+// entities on the report (GET /accounting/reports/budget); until the app has
+// one, the budget saved in Nexus for the one picked entity, labeled
+// "Budget (Nexus)". A month counts in full when the period covers part of it.
+async function readBudget(api, config) {
+  const bySection = new Map();
+  const add = (section, code, title, amount) => {
+    if (!PL_KEYS.includes(section) || !Number.isFinite(Number(amount))) return;
+    const list = bySection.get(section) || [];
+    const at = list.find((a) => a.account_no === code);
+    if (at) at.amount = round2(at.amount + Number(amount));
+    else list.push({ account_no: code || '', title: title || code || '', amount: round2(amount) });
+    bySection.set(section, list);
+  };
+  const partial = !isMonthStart(config.from) || !isMonthEnd(config.to) ? ' Months the period covers in part count in full.' : '';
+  const location = config.entities.length === 1 ? config.entities[0] : undefined;
+  try {
+    if (typeof api.getAccountingReportBudget === 'function') {
+      const d = await api.getAccountingReportBudget({ from: config.from, to: config.to, location, locations: config.entities.length > 1 ? config.entities : undefined });
+      if (d && d.available !== false && (d.rows || []).length) {
+        d.rows.forEach((r) => add(r.section, r.account_no, r.title, r.amount));
+        return { label: 'Budget', sections: asSections('pnl', bySection), note: `Budget: ${d.budget_id ? `Intacct budget ${d.budget_id}` : 'the Intacct budget'}.${partial}` };
+      }
+    }
+  } catch { /* no Intacct budget yet: the one saved in Nexus below */ }
+  if (!location) {
+    return { label: 'Budget (Nexus)', sections: asSections('pnl', null), note: 'No Intacct budget for this selection yet, and a budget saved in Nexus is kept per entity - pick one entity to compare with it.' };
+  }
+  let any = false;
+  for (let y = Number(config.from.slice(0, 4)); y <= Number(config.to.slice(0, 4)); y += 1) {
+    const d = await api.getAccountingBudget(location, y).catch(() => null);
+    if (!d || d.source === 'none') continue;
+    (d.rows || []).forEach((r) => (r.months || []).forEach((v, m) => {
+      const start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      const end = iso(endOfMonth(y, m));
+      if (start > config.to || end < config.from || !Number(v)) return;
+      any = true;
+      add(r.section, r.accountNo, r.title, v);
+    }));
+  }
+  return { label: 'Budget (Nexus)', sections: asSections('pnl', bySection), note: any ? `Budget: saved in Nexus - no Intacct budget yet.${partial}` : 'No budget is saved for this entity and period yet (Accounting > Budget).' };
+}
+
 // ── Reading the ledger ───────────────────────────────────────────────────────
 async function readColumns(api, config, entities = []) {
   const { report } = config;
@@ -492,6 +574,10 @@ async function readColumns(api, config, entities = []) {
   if (both) {
     const cols = await Promise.all([one(range, 'Accrual', 'accrual'), one(range, 'Cash', 'cash')]);
     return { cols, derived: null, mode: 'books' };
+  }
+  if (mode === 'budget' && !isBs) {
+    const [actual, budget] = await Promise.all([one(range, 'Actual', book, 'cur'), readBudget(api, config)]);
+    return { cols: [actual, { key: 'budget', label: budget.label, drill: null, sections: budget.sections }], derived: 'compare', mode: 'compare', otherLabel: budget.label, budgetNote: budget.note };
   }
   if (isCompare(mode)) {
     let prior;
@@ -602,12 +688,15 @@ function layout(config, read) {
   const pickable = [];
   const totals = {};
   const rows = [];
+  let activeKnown = false;
   SECTIONS[report].forEach(([key, label]) => {
     const byAccount = new Map();
     cols.forEach((c, i) => {
       (c.sections.find((s) => s.key === key)?.accounts || []).forEach((a) => {
         const cur = byAccount.get(keyOf(a)) || { code: a.account_no || '', title: a.title, values: new Array(n).fill(0) };
         cur.values[i] = round2(cur.values[i] + (a.amount || 0));
+        if (a.active === false) cur.inactive = true;
+        if ('active' in a) activeKnown = true;
         byAccount.set(keyOf(a), cur);
       });
     });
@@ -625,7 +714,7 @@ function layout(config, read) {
     const shown = config.showZero ? accounts : accounts.filter((a) => a.values.some((v) => Math.abs(v) >= 0.005));
     if (!shown.length && totals[key].every((v) => Math.abs(v) < 0.005)) return;
     rows.push({ kind: 'section', section: key, label, count: shown.length, values: across(totals[key]) });
-    shown.forEach((a) => rows.push({ kind: 'account', section: key, code: a.code, title: a.title, values: across(a.values) }));
+    shown.forEach((a) => rows.push({ kind: 'account', section: key, code: a.code, title: a.title, values: across(a.values), ...(a.inactive ? { inactive: true } : {}) }));
   });
   const zero = new Array(n).fill(0);
   const t = (k) => totals[k] || zero;
@@ -668,7 +757,7 @@ function layout(config, read) {
       { label: 'Equity', value: money(across(t('equity'))[at]), amount: across(t('equity'))[at] },
     ];
   }
-  return { columns, rows, summary, pickable };
+  return { columns, rows, summary, pickable, activeKnown };
 }
 
 /**
@@ -707,20 +796,26 @@ export async function runReport(api, config, entities = []) {
     let rows = codes.map((code) => {
       const r = byCode.get(code);
       const c = cash.get(code);
-      return { kind: 'account', code, title: (r || c).title, values: [r?.opening || 0, r?.debit || 0, r?.credit || 0, r?.closing || 0, ...(both ? [c?.closing || 0] : [])] };
+      return { kind: 'account', code, title: (r || c).title, values: [r?.opening || 0, r?.debit || 0, r?.credit || 0, r?.closing || 0, ...(both ? [c?.closing || 0] : [])], ...((r || c).active === false ? { inactive: true } : {}) };
     });
     if (!config.showZero) rows = rows.filter((r) => r.values.some((v) => Math.abs(v) >= 0.005));
     rows.push({ kind: 'grand', label: 'Total', values: [a.totals.opening, a.totals.debit, a.totals.credit, a.totals.closing, ...(both ? [b.totals.closing] : [])] });
-    const columns = ['Opening', 'Debit', 'Credit', 'Closing'].map((label, i) => ({ key: label.toLowerCase(), label: both && i === 3 ? 'Closing (Accrual)' : label, type: 'amount', drill: drillCur }));
-    if (both) columns.push({ key: 'cash-closing', label: 'Closing (Cash)', type: 'amount', drill: { ...drillCur, book: 'cash' } });
-    return { ...base, org: a.org || '', generatedAt: a.generated_at || '', mode: both ? 'books' : 'single', columns, rows };
+    // Item 33: the Opening figure opens every line up to the day before the
+    // period, the Closing figure every line through its end, the movement the period's.
+    const opening = { ...drillCur, from: '', to: dayBefore(config.from) };
+    const closing = { ...drillCur, from: '' };
+    const columns = ['Opening', 'Debit', 'Credit', 'Closing'].map((label, i) => ({ key: label.toLowerCase(), label: both && i === 3 ? 'Closing (Accrual)' : label, type: 'amount', drill: i === 0 ? opening : i === 3 ? closing : drillCur }));
+    if (both) columns.push({ key: 'cash-closing', label: 'Closing (Cash)', type: 'amount', drill: { ...closing, book: 'cash' } });
+    const activeKnown = (a.rows || []).some((r) => 'active' in r);
+    return { ...base, org: a.org || '', generatedAt: a.generated_at || '', mode: both ? 'books' : 'single', columns, rows, activeKnown };
   }
 
   if (config.report === 'general-ledger') return { ...base, ...(await generalLedger(api, config, book, drillCur)) };
+  if (config.report === 'cash-flow') return { ...base, ...(await cashFlowReport(api, config)) };
   if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
 
   const read = await readColumns(api, config, entities);
-  return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read) };
+  return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read), ...(read.budgetNote ? { notes: [read.budgetNote] } : {}) };
 }
 
 // ── The General Ledger ───────────────────────────────────────────────────────
@@ -731,77 +826,222 @@ export async function runReport(api, config, entities = []) {
 // account, so the detail is listed for up to GL_MAX_ACCOUNTS accounts at a
 // time - more than that, or nothing picked on a busy ledger, and the accounts
 // are listed with their opening, activity and closing only, with a note to
-// pick the ones to open. Entities narrow the lines; the other filters narrow
-// the balances only (the line search does not know them), and the report
-// says so.
+// pick the ones to open.
+//
+// Oct 7 (Charmi, items 20 / 22 / 31 / 33 / 34):
+// - The report's filters narrow the LINES, not only the balances: the vendor,
+//   customer, employee, department, Project-Job, item and journal picks go
+//   into every line search (one vendor or customer also as the search's own
+//   party). Wunderlin Engineering on 12000 listed 1,763 payments to other
+//   payees, and on All entities the run timed out. Should the accounting
+//   service not narrow them yet, the lines read are narrowed here.
+// - Accounts sit under their Intacct groups (Bank, Credit Card, then the
+//   account categories in the chart's order, from the payload's `group`;
+//   failing that the statement section), each group folding with a subtotal.
+// - The line counter is always there: the searches' own counts, never 0
+//   while there are lines.
+// - A search that does not finish leaves its account listed with the
+//   balances and says so in plain words, instead of an empty page.
+// - Opening and Closing balances drill into the lines behind them; an entry
+//   number opens the journal entry.
 const glSigned = (r) => round2((r.debit || 0) - (r.credit || 0));
+const GL_CLASS_RANK = { Bank: 1, 'Credit Card': 2, Assets: 3, Liabilities: 4, Equity: 5, Income: 6, Expenses: 7, Other: 8 };
+const SECTION_CLASS = { asset: 'Assets', liability: 'Liabilities', equity: 'Equity', revenue: 'Income', other_income: 'Income', cogs: 'Expenses', expense: 'Expenses', other_expense: 'Expenses' };
+/**
+ * The group an account sits under on the General Ledger: { key, label, rank }
+ * from the account row's `group` (category, or Bank / Credit Card) and
+ * `class` / `class_rank`; failing those, the statement section. Null when
+ * the row says nothing about it.
+ */
+export function glGroupOf(r) {
+  const text = (v) => (typeof v === 'string' ? v.trim() : '');
+  const cls = text(r?.class) || (r?.bank_kind === 'card' ? 'Credit Card' : r?.bank_kind === 'checking' || r?.bank_kind === 'savings' ? 'Bank' : SECTION_CLASS[text(r?.section).toLowerCase()] || '');
+  const label = text(r?.group) || cls;
+  if (!label) return null;
+  const rank = r?.class_rank != null && Number.isFinite(Number(r.class_rank)) ? Number(r.class_rank) : GL_CLASS_RANK[cls] || 9;
+  return { key: label, label, rank };
+}
+
+// The report's filters as line-search params (contract of 10/07: the same
+// names the report reads take, comma-separated codes).
+const LINE_DIMS = ['departments', 'vendor', 'customer', 'employee', 'project', 'item', 'journals'];
+const PARTY_KINDS = ['vendor', 'customer', 'employee'];
+/** The line-search params for the report's filters: each kind as a code list, and one vendor / customer / employee as the search's party too. */
+export function glLineParams(dims) {
+  const out = {};
+  if (!dims) return out;
+  LINE_DIMS.forEach((k) => { if (Array.isArray(dims[k]) && dims[k].length) out[k] = dims[k].join(','); });
+  const parties = PARTY_KINDS.filter((k) => dims[k]?.length);
+  if (parties.length === 1 && dims[parties[0]].length === 1) { out.party_kind = parties[0]; out.party = dims[parties[0]][0]; }
+  return out;
+}
+// Where a line carries each kind. Departments are left out of the check made
+// here: a picked department includes the ones under it, which a line cannot tell.
+const LINE_FIELD = { vendor: 'vendor_id', customer: 'customer_id', employee: 'employee_id', project: 'project_id', item: 'item_id', journals: 'journal' };
+/**
+ * Whether one ledger line passes the report's filters (the check made here
+ * when the accounting service did not narrow the lines). A line that does not
+ * carry a field at all cannot be judged and passes; one that carries it empty
+ * does not.
+ */
+export function lineMatchesDims(line, dims) {
+  return Object.entries(LINE_FIELD).every(([k, field]) => {
+    const want = dims?.[k];
+    if (!Array.isArray(want) || !want.length) return true;
+    if (!line || !(field in line)) return true;
+    const v = String(line[field] ?? '').trim();
+    if (!v) return false;
+    return k === 'journals' ? want.some((w) => String(w).toUpperCase() === v.toUpperCase()) : want.includes(v);
+  });
+}
+const hasLineDims = (dims) => Object.keys(LINE_FIELD).some((k) => dims?.[k]?.length);
+
+// At most `limit` reads at once: 25 line searches side by side over every
+// entity is what tipped the ledger over its time limit.
+async function settleAll(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      try { out[i] = { ok: true, value: await fn(items[i], i) }; } catch (e) { out[i] = { ok: false, error: e }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+const TOO_BIG = 'Too many lines for one run - pick an entity or a shorter period.';
+
 async function generalLedger(api, config, book, drillCur) {
   const { location, dims } = placeOf(config);
-  const tb = await api.getAccountingTrialBalance(config.from, config.to, location, dims, book);
+  const tb = await readTrialBalance(api, config.from, config.to, location, dims, book);
   const wanted = config.accounts?.length ? new Set(config.accounts) : null;
   let accounts = (tb.rows || []).filter((r) => !wanted || wanted.has(r.account_no));
   if (!config.showZero) accounts = accounts.filter((r) => [r.opening, r.debit, r.credit, r.closing].some((v) => Math.abs(v || 0) >= 0.005));
-  accounts.sort((a, b) => a.account_no.localeCompare(b.account_no, 'en-US', { numeric: true }));
+  const grouped = accounts.some((a) => glGroupOf(a));
+  const rankOf = (a) => glGroupOf(a)?.rank ?? 99;
+  accounts.sort((a, b) => (grouped ? rankOf(a) - rankOf(b) || (glGroupOf(a)?.key || '').localeCompare(glGroupOf(b)?.key || '') : 0) || a.account_no.localeCompare(b.account_no, 'en-US', { numeric: true }));
   const pickable = (tb.rows || []).map((r) => ({ code: r.account_no, title: r.title, section: 'Accounts' }));
+  const activeKnown = (tb.rows || []).some((r) => 'active' in r);
   const detail = accounts.length > 0 && accounts.length <= GL_MAX_ACCOUNTS;
   const place = config.entities.length === 1 ? { location: config.entities[0] } : config.entities.length ? { locations: config.entities.join(',') } : {};
-  const lines = detail
-    ? await Promise.all(accounts.map((a) => api.searchAccountingLedger({ account: a.account_no, from: config.from, to: config.to, book: book === 'cash' ? 'cash' : 'accrual', ...place, limit: GL_MAX_LINES, offset: 0 })))
-    : [];
+  const lineDims = canUseDims(config) ? config.dims : null;
+  const filters = glLineParams(lineDims);
+  const searchBook = isUserBook(book) ? book : book === 'cash' ? 'cash' : 'accrual';
+  const ask = (extra) => api.searchAccountingLedger({ from: config.from, to: config.to, book: searchBook, ...place, ...filters, ...extra });
+  const reads = detail ? await settleAll(accounts, 4, (a) => ask({ account: a.account_no, limit: GL_MAX_LINES, offset: 0 })) : [];
+
   // An account heading's or a total's figure opens the lines behind it (Charmi, 10/02); a line is already a line.
   const columns = [
     { key: 'entry', label: 'Entry', type: 'text' }, { key: 'description', label: 'Description', type: 'text' }, { key: 'entity', label: 'Entity', type: 'text' },
     { key: 'debit', label: 'Debit', type: 'amount', drill: drillCur }, { key: 'credit', label: 'Credit', type: 'amount', drill: drillCur }, { key: 'balance', label: 'Balance', type: 'amount', drill: drillCur },
   ];
+  // The balance column of an Opening row opens every line before the period; of a Closing row, every line through its end.
+  const openingDrill = { 5: { ...drillCur, from: '', to: dayBefore(config.from) } };
+  const closingDrill = { 5: { ...drillCur, from: '' } };
   const rows = [];
   let totalDebit = 0;
   let totalCredit = 0;
   let cut = 0;
-  accounts.forEach((a, i) => {
+  let narrowedHere = false;
+  let failed = 0;
+  let lineCount = 0;
+  let countPartial = false;
+  const blocks = accounts.map((a, i) => {
     const key = a.account_no;
-    const got = lines[i];
-    // Lines come newest first from the search; a ledger reads oldest first.
-    const list = [...(got?.rows || [])].sort((x, y) => (x.entry_date || '').localeCompare(y.entry_date || '') || (x.entry_no || '').localeCompare(y.entry_no || '', 'en-US', { numeric: true }));
-    if (got && got.total > list.length) cut += got.total - list.length;
-    // Oct 2 (Charmi): with no lines listed an account is a plain banded row -
-    // not a bold heading with a fold arrow that opens nothing - and its balance
-    // is the closing one. With lines, the heading folds them.
-    if (!detail) {
-      rows.push({ kind: 'account', code: key, title: a.title, values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
-      totalDebit = round2(totalDebit + (a.debit || 0));
-      totalCredit = round2(totalCredit + (a.credit || 0));
-      return;
+    const read = reads[i];
+    const group = grouped ? glGroupOf(a) || { key: 'Other', label: 'Other', rank: 99 } : null;
+    const inactive = a.active === false ? { inactive: true } : {};
+    const g = group ? { group: group.key } : {};
+    totalDebit = round2(totalDebit + (a.debit || 0));
+    totalCredit = round2(totalCredit + (a.credit || 0));
+    const plain = { kind: 'account', code: key, title: a.title, ...g, ...inactive, values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)], drills: closingDrill };
+    if (!detail) return { a, group, rows: [plain] };
+    if (read && !read.ok) {
+      failed += 1;
+      countPartial = true;
+      return { a, group, rows: [{ ...plain, failed: true }] };
     }
-    rows.push({ kind: 'section', section: key, code: key, title: a.title, label: `${key} ${a.title}`, count: list.length, values: ['', 'Opening balance', '', round2(a.debit), round2(a.credit), round2(a.opening)], drill: drillCur });
+    const got = read?.value;
+    let list = [...(got?.rows || [])];
+    let total = Number(got?.total ?? list.length) || 0;
+    // The accounting service narrows the lines by the filters (10/07); one that
+    // does not yet hands back lines of other payees - narrowed here then.
+    if (hasLineDims(lineDims) && list.some((l) => !lineMatchesDims(l, lineDims))) {
+      narrowedHere = true;
+      const kept = list.filter((l) => lineMatchesDims(l, lineDims));
+      if (total > list.length) countPartial = true;
+      total = kept.length;
+      list = kept;
+    } else if (total > list.length) cut += total - list.length;
+    lineCount += total;
+    // Lines come newest first from the search; a ledger reads oldest first.
+    list.sort((x, y) => (x.entry_date || '').localeCompare(y.entry_date || '') || (x.entry_no || '').localeCompare(y.entry_no || '', 'en-US', { numeric: true }));
+    // Oct 2 (Charmi): with no lines listed an account is a plain banded row -
+    // not a heading with a fold arrow that opens nothing - and its balance is
+    // the closing one. With lines, the heading folds them.
+    if (!list.length) return { a, group, rows: [plain] };
+    const out = [{ kind: 'section', section: key, code: key, title: a.title, ...g, ...inactive, label: `${key} ${a.title}`, count: list.length, values: ['', 'Opening balance', '', round2(a.debit), round2(a.credit), round2(a.opening)], drill: drillCur, drills: openingDrill }];
     let running = round2(a.opening || 0);
     list.forEach((l) => {
       running = round2(running + glSigned(l));
-      rows.push({ kind: 'line', section: key, label: formatDate(l.entry_date), entryId: l.entry_id, values: [l.entry_no || '', l.description || l.memo || '', l.location_name || l.location || '', round2(l.debit), round2(l.credit), running] });
+      out.push({ kind: 'line', section: key, ...g, label: formatDate(l.entry_date), entryId: l.entry_id, entryNo: l.entry_no || '', values: [l.entry_no || '', l.description || l.memo || '', l.location_name || l.location || '', round2(l.debit), round2(l.credit), running] });
     });
-    rows.push({ kind: 'subtotal', section: key, code: key, title: a.title, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)] });
-    totalDebit = round2(totalDebit + (a.debit || 0));
-    totalCredit = round2(totalCredit + (a.credit || 0));
+    out.push({ kind: 'subtotal', section: key, code: key, title: a.title, ...g, label: 'Closing balance', values: ['', '', '', round2(a.debit), round2(a.credit), round2(a.closing)], drills: closingDrill });
+    return { a, group, rows: out };
   });
+  // Group heading -> its accounts -> "Total <group>".
+  let at = 0;
+  while (at < blocks.length) {
+    const group = blocks[at].group;
+    let end = at;
+    while (end < blocks.length && (blocks[end].group?.key || null) === (group?.key || null)) end += 1;
+    const mine = blocks.slice(at, end);
+    if (group) {
+      const sum = (f) => round2(mine.reduce((s, b) => s + (Number(b.a[f]) || 0), 0));
+      const values = ['', '', '', sum('debit'), sum('credit'), sum('closing')];
+      // The heading carries no figures (exports print them once, on the
+      // Total row); folded, the screen shows the totals on the heading.
+      rows.push({ kind: 'group', group: group.key, label: group.label, count: mine.length, values: ['', '', '', '', '', ''], totals: values, noDrill: true });
+      mine.forEach((b) => rows.push(...b.rows));
+      rows.push({ kind: 'subtotal', group: group.key, label: `Total ${group.label}`, values, noDrill: true });
+    } else mine.forEach((b) => rows.push(...b.rows));
+    at = end;
+  }
   rows.push({ kind: 'grand', label: `Total - ${accounts.length} ${accounts.length === 1 ? 'account' : 'accounts'}`, values: ['', '', '', totalDebit, totalCredit, round2(tb.totals?.closing || 0)] });
+
+  // The line counter (Charmi, 10/02 and 10/06: "line counter needs to be
+  // there"): every posted line behind the report, listed or not.
+  if (!detail && accounts.length) {
+    const probe = async (extra) => {
+      const c = await ask({ ...extra, limit: hasLineDims(lineDims) ? 25 : 1, offset: 0 });
+      // A count the service did not narrow by the filters would overstate it.
+      if (hasLineDims(lineDims) && (c?.rows || []).some((l) => !lineMatchesDims(l, lineDims))) return null;
+      return Number(c?.total) || 0;
+    };
+    if (!wanted) {
+      try { lineCount = await probe({}); } catch { lineCount = null; }
+    } else {
+      // More accounts picked than the listing opens: one count per account.
+      const counts = await settleAll(accounts, 4, (a) => probe({ account: a.account_no }));
+      lineCount = 0;
+      counts.forEach((c) => { if (c.ok && c.value != null) lineCount += c.value; else countPartial = true; });
+      if (counts.every((c) => !c.ok || c.value == null)) lineCount = null;
+    }
+    // Activity on the balances and no lines counted cannot both be right.
+    if (lineCount === 0 && accounts.some((a) => Math.abs(a.debit || 0) >= 0.005 || Math.abs(a.credit || 0) >= 0.005)) lineCount = null;
+  }
   const notes = [];
+  if (failed) notes.push(`${TOO_BIG} ${failed} of ${accounts.length} accounts could not list their lines in time; they show their balances only.`);
   if (!detail && accounts.length) notes.push(`${accounts.length} accounts have activity - the lines are listed for up to ${GL_MAX_ACCOUNTS} accounts at a time. Pick the accounts to open under Accounts.`);
   if (cut) notes.push(`${cut.toLocaleString('en-US')} more lines were not listed (${GL_MAX_LINES.toLocaleString('en-US')} per account at most). Narrow the period for the whole run.`);
-  if (dimsText({ ...config, accounts: [] }).length) notes.push('Department, vendor, customer, employee, Project-Job and item filters narrow the balances; the lines listed are the account\'s whole activity for the entities and period.');
-  // Oct 2 (Charmi): no Debits / Credits up top (the Total row has them); the
-  // line counter counts every posted line behind the report, listed or not.
-  // With lines listed that is the searches' totals; without, one count of the
-  // period's lines (when no accounts are picked - more than the listing limit
-  // picked has no single count, so the counter is left out).
-  let lineCount = null;
-  if (detail) lineCount = lines.reduce((n, g) => n + (g?.total || 0), 0);
-  else if (accounts.length && !wanted) {
-    try {
-      const c = await api.searchAccountingLedger({ from: config.from, to: config.to, book: book === 'cash' ? 'cash' : 'accrual', ...place, limit: 1, offset: 0 });
-      lineCount = c?.total ?? null;
-    } catch { lineCount = null; }
-  } else if (!accounts.length) lineCount = 0;
-  const summary = lineCount == null ? [] : [{ label: 'Lines', value: lineCount.toLocaleString('en-US') }];
-  return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Account' };
+  if (narrowedHere) notes.push(`The lines were narrowed to the filters here, from the first ${GL_MAX_LINES.toLocaleString('en-US')} lines of each account the accounting service sent.`);
+  // Oct 2 (Charmi): no Debits / Credits up top (the Total row has them).
+  const counted = lineCount == null ? 'Not counted' : `${lineCount.toLocaleString('en-US')}${countPartial ? '+' : ''}`;
+  if (lineCount == null) notes.push('The accounting service cannot count the lines for these filters yet; pick up to 25 accounts to list and count them.');
+  const summary = [{ label: 'Lines', value: counted }];
+  return { org: tb.org || '', generatedAt: tb.generated_at || '', mode: 'ledger', columns, rows, summary, pickable, notes, glLabel: 'Account', activeKnown, grouped };
 }
 
 // ── Flux Analysis ────────────────────────────────────────────────────────────
@@ -824,6 +1064,7 @@ export function fluxRows(cur, prior, { fluxPct = FLUX_DEFAULTS.fluxPct, fluxAmou
   const take = (sections, side) => (sections || []).forEach((s) => (s.accounts || []).forEach((a) => {
     const row = byAccount.get(keyOf(a)) || { code: a.account_no || '', title: a.title, section: s.key, cur: 0, prior: 0 };
     row[side] = round2(row[side] + (a.amount || 0));
+    if (a.active === false) row.inactive = true;
     byAccount.set(keyOf(a), row);
   }));
   take(cur, 'cur');
@@ -863,7 +1104,7 @@ async function fluxAnalysis(api, config, book) {
     const shown = config.showZero ? accounts : accounts.filter((r) => Math.abs(r.cur) >= 0.005 || Math.abs(r.prior) >= 0.005);
     if (!shown.length && totals[key].every((v) => Math.abs(v) < 0.005)) return;
     rows.push({ kind: 'section', section: key, label, count: shown.length, values: vals(...totals[key]) });
-    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Review' : '', ''] }));
+    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Review' : '', ''], ...(r.inactive ? { inactive: true } : {}) }));
   });
   const t = (k) => totals[k] || [0, 0];
   const at = (i) => {
@@ -884,13 +1125,274 @@ async function fluxAnalysis(api, config, book) {
     { label: 'Change', value: [money(c.net - p.net), pct(c.net, p.net)].filter(Boolean).join(' · '), tone: c.net - p.net >= 0 ? 'good' : 'bad' },
     { label: 'Flagged', value: String(flagged) },
   ];
-  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). Click an Explanation cell to write why the account moved; the note is kept for this entity set and period.`];
+  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). Write why an account moved in its Explanation cell (the pencil edits it, the trash removes it); a flagged line with an explanation reads Explained. Notes are kept for this entity set and period.`];
   return { org: a.org || '', generatedAt: a.generated_at || '', mode: 'compare', otherLabel: rangeText(prior), columns, rows, summary, pickable, notes, flux: { period: `${config.from}_${config.to}` } };
 }
-/** The flux result with the kept explanations filled in: `notes` = { accountNo: text }. */
+const FLUX_FLAG_AT = 4;    // the Flag column's index
+/**
+ * The flux result with the kept explanations filled in: `notes` = { accountNo: text }.
+ * A flagged line with an explanation reads "Explained" instead of "Review"
+ * (Charmi's Friday list, item 26b) and stays a flagged line; the Flagged
+ * figure up top reads "N to review · M explained".
+ */
 export function withFluxNotes(result, notes) {
   if (!result?.flux) return result;
-  return { ...result, rows: result.rows.map((r) => (r.kind === 'account' && r.code ? { ...r, values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? notes?.[r.code] || '' : v)) } : r)) };
+  let review = 0;
+  let explained = 0;
+  const rows = result.rows.map((r) => {
+    if (r.kind !== 'account' || !r.code) return r;
+    const note = notes?.[r.code] || '';
+    if (r.flag) { if (note) explained += 1; else review += 1; }
+    return { ...r, explained: !!(r.flag && note), values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? note : i === FLUX_FLAG_AT ? (r.flag ? (note ? 'Explained' : 'Review') : '') : v)) };
+  });
+  const summary = (result.summary || []).map((f) => (f.label === 'Flagged' ? { ...f, value: `${review.toLocaleString('en-US')} to review · ${explained.toLocaleString('en-US')} explained` } : f));
+  return { ...result, rows, summary };
+}
+
+// ── Statement of Cash Flows (item 26c) ───────────────────────────────────────
+// The indirect method, v1 (Charmi's Friday list; method and layout to be
+// confirmed with her against an Intacct sample): net income; plus the
+// depreciation and amortization expense (expense accounts by title); plus or
+// minus each working capital account's move between the balance sheet the
+// day before the period and the one at its end; investing = fixed assets and
+// investments; financing = loans and notes, and equity other than earnings.
+// Cash is what Cash Position lists, so the ending cash ties to it. Whatever
+// the balance sheet moves do not explain is shown on its own line rather
+// than tucked into a total.
+const RE_DA = /depreciation|amortization/i;
+const RE_ACCUMULATED = /accumulated\s+(depreciation|amortization)/i;
+const RE_LONG_TERM = /\b(land|building|buildings|improvements?|equipment|furniture|fixtures|vehicles?|machinery|construction in progress|cip|fixed assets?|investments?|investment in|property|leasehold)\b/i;
+const RE_FINANCING = /\b(loans?|notes? payable|mortgages?|line of credit|loc|debt|bonds?|financing)\b/i;
+const RE_CASH = /\b(cash|checking|savings|money market|petty)\b/i;
+const RE_EARNINGS = /retained\s+earnings|current\s+year\s+earnings|net\s+income/i;
+/**
+ * The figures of a cash flow statement. `pnl` = the period's income
+ * statement ({ sections }), `bsBegin` / `bsEnd` = balance sheets ({ sections })
+ * the day before the period and at its end, `cashBegin` / `cashEnd` = Cash
+ * Position answers ({ accounts: [{ gl_code }], total }) or null.
+ * Returns { netIncome, operating, investing, financing: { lines, total },
+ *   beginCash, endCash, netChange, unexplained }.
+ */
+export function cashFlowFigures({ pnl, bsBegin, bsEnd, cashBegin = null, cashEnd = null }) {
+  const sectionSum = (keys) => round2((pnl?.sections || []).filter((s) => keys.includes(s.key)).reduce((t, s) => t + (s.accounts || []).reduce((u, a) => u + (Number(a.amount) || 0), 0), 0));
+  const netIncome = round2(sectionSum(['revenue', 'other_income']) - sectionSum(['cogs', 'expense', 'other_expense']));
+  const da = [];
+  (pnl?.sections || []).filter((s) => ['cogs', 'expense', 'other_expense'].includes(s.key)).forEach((s) => (s.accounts || []).forEach((a) => {
+    if (RE_DA.test(a.title || '') && Math.abs(Number(a.amount) || 0) >= 0.005) da.push({ code: a.account_no || '', title: a.title, amount: round2(a.amount) });
+  }));
+  const daTotal = round2(da.reduce((t, l) => t + l.amount, 0));
+  const balances = (bs) => {
+    const m = new Map();
+    (bs?.sections || []).forEach((s) => (s.accounts || []).forEach((a) => {
+      if (!a.account_no || !['asset', 'liability', 'equity'].includes(s.key)) return;
+      const cur = m.get(a.account_no) || { code: a.account_no, title: a.title, section: s.key, category: a.category || a.group || '', bank_kind: a.bank_kind || null, amount: 0 };
+      cur.amount = round2(cur.amount + (Number(a.amount) || 0));
+      m.set(a.account_no, cur);
+    }));
+    return m;
+  };
+  const b0 = balances(bsBegin);
+  const b1 = balances(bsEnd);
+  const cashCodes = new Set([...(cashBegin?.accounts || []), ...(cashEnd?.accounts || [])].map((a) => a.gl_code).filter(Boolean));
+  const fromPosition = cashBegin || cashEnd;
+  const isCash = (a) => a.section === 'asset' && (fromPosition ? cashCodes.has(a.code) : RE_CASH.test(a.title || '') || a.bank_kind);
+  const operating = [{ code: '', title: 'Net Income', amount: netIncome, computed: true }, ...da];
+  const investing = [];
+  const financing = [];
+  let accumulated = 0;
+  let hasAccumulated = false;
+  let cashFromBs0 = 0;
+  let cashFromBs1 = 0;
+  [...new Set([...b0.keys(), ...b1.keys()])].sort((x, y) => x.localeCompare(y, 'en-US', { numeric: true })).forEach((code) => {
+    const a = b1.get(code) || b0.get(code);
+    const begin = b0.get(code)?.amount || 0;
+    const end = b1.get(code)?.amount || 0;
+    const delta = round2(end - begin);
+    if (isCash(a)) { cashFromBs0 += begin; cashFromBs1 += end; return; }
+    if (Math.abs(delta) < 0.005) return;
+    const text = `${a.title || ''} ${a.category || ''}`;
+    if (a.section === 'asset') {
+      if (RE_ACCUMULATED.test(a.title || '')) { hasAccumulated = true; accumulated = round2(accumulated + delta); return; }
+      (RE_LONG_TERM.test(text) ? investing : operating).push({ code, title: a.title, amount: round2(-delta) });
+    } else if (a.section === 'liability') {
+      (RE_FINANCING.test(text) ? financing : operating).push({ code, title: a.title, amount: delta });
+    } else if (!RE_EARNINGS.test(a.title || '')) {
+      financing.push({ code, title: a.title, amount: delta });
+    }
+  });
+  // An accumulated depreciation account that grew by more (or less) than the
+  // expense - a disposal, a reclass - is shown as its own non-cash line.
+  if (hasAccumulated) {
+    const other = round2(-accumulated - daTotal);
+    if (Math.abs(other) >= 0.005) operating.push({ code: '', title: 'Other Changes in Accumulated Depreciation', amount: other, computed: true });
+  }
+  const total = (lines) => round2(lines.reduce((t, l) => t + l.amount, 0));
+  const beginCash = round2(cashBegin ? Number(cashBegin.total) || 0 : cashFromBs0);
+  const endCash = round2(cashEnd ? Number(cashEnd.total) || 0 : cashFromBs1);
+  const netChange = round2(endCash - beginCash);
+  const flows = round2(total(operating) + total(investing) + total(financing));
+  return {
+    netIncome, operating: { lines: operating, total: total(operating) }, investing: { lines: investing, total: total(investing) }, financing: { lines: financing, total: total(financing) },
+    beginCash, endCash, netChange, unexplained: round2(netChange - flows),
+  };
+}
+async function cashFlowReport(api, config) {
+  const book = 'accrual';
+  const begin = dayBefore(config.from);
+  const cfg = { ...config, dims: { ...EMPTY_DIMS } };
+  const [pnl, bsBegin, bsEnd, cashBegin, cashEnd] = await Promise.all([
+    fetchStatement(api, { ...cfg, report: 'pnl' }, { from: config.from, to: config.to }, book),
+    fetchStatement(api, { ...cfg, report: 'balance-sheet' }, { asof: begin }, book),
+    fetchStatement(api, { ...cfg, report: 'balance-sheet' }, { asof: config.to }, book),
+    fetchStatement(api, { ...cfg, report: 'cash-position' }, { asof: begin }, book).catch(() => null),
+    fetchStatement(api, { ...cfg, report: 'cash-position' }, { asof: config.to }, book).catch(() => null),
+  ]);
+  const f = cashFlowFigures({ pnl, bsBegin, bsEnd, cashBegin, cashEnd });
+  const drill = { from: config.from, to: config.to, book };
+  const columns = [{ key: 'amount', label: `${formatDate(config.from)} - ${formatDate(config.to)}`, type: 'amount', drill }];
+  const rows = [];
+  [['operating', 'Cash Flows From Operating Activities', f.operating], ['investing', 'Cash Flows From Investing Activities', f.investing], ['financing', 'Cash Flows From Financing Activities', f.financing]].forEach(([key, label, part]) => {
+    rows.push({ kind: 'section', section: key, label, count: part.lines.length, values: [part.total] });
+    part.lines.forEach((l) => rows.push({ kind: 'account', section: key, code: l.code, title: l.title, values: [l.amount], ...(l.computed || !l.code ? { noDrill: true } : {}) }));
+  });
+  if (Math.abs(f.unexplained) >= 0.005) rows.push({ kind: 'warn', label: 'Not Explained by the Balance Sheet', values: [f.unexplained], noDrill: true });
+  rows.push({ kind: 'subtotal', label: 'Net Change in Cash', values: [f.netChange], noDrill: true });
+  rows.push({ kind: 'subtotal', label: `Cash at Beginning of Period (${formatDate(begin)})`, values: [f.beginCash], noDrill: true });
+  rows.push({ kind: 'grand', label: `Cash at End of Period (${formatDate(config.to)})`, tone: true, values: [f.endCash], noDrill: true });
+  const summary = [
+    { label: 'Net Income', value: money(f.netIncome), amount: f.netIncome, tone: f.netIncome >= 0 ? 'good' : 'bad' },
+    { label: 'Operating', value: money(f.operating.total), amount: f.operating.total },
+    { label: 'Investing', value: money(f.investing.total), amount: f.investing.total },
+    { label: 'Financing', value: money(f.financing.total), amount: f.financing.total },
+    { label: 'Ending Cash', value: money(f.endCash), amount: f.endCash },
+  ];
+  const notes = [`Indirect method. The ending cash ties to Cash Position as of ${formatDate(config.to)}${cashEnd ? '' : ' (Cash Position could not be read - cash is the cash and bank accounts on the balance sheet)'}. Accounts are sorted into operating, investing and financing by type and title (v1).`];
+  if (Math.abs(f.unexplained) >= 0.005) notes.push('Not Explained by the Balance Sheet: cash moved by more (or less) than the balance sheet accounts did - an entity or book difference to look into.');
+  return { org: pnl?.org || '', generatedAt: pnl?.generated_at || '', mode: 'single', columns, rows, summary, notes, cashFlow: f };
+}
+
+// ── Inactive accounts (item 34) ──────────────────────────────────────────────
+/**
+ * The result without the rows of accounts Intacct marks inactive, unless
+ * Customize shows them (Charmi; Neil's rule: hide only the ROW - every total
+ * still includes them). A footnote counts what was hidden.
+ */
+export function hideInactive(result, show = false) {
+  if (!result || show) return result;
+  const hidden = new Set(result.rows.filter((r) => r.inactive && r.code).map((r) => r.code));
+  if (!hidden.size) return result;
+  const rows = result.rows.filter((r) => !(r.code && hidden.has(r.code) && ['account', 'section', 'subtotal'].includes(r.kind)) && !(r.kind === 'line' && hidden.has(r.section)));
+  const n = hidden.size;
+  return { ...result, rows, hiddenInactive: n, notes: [...(result.notes || []), `${n} inactive ${n === 1 ? 'account' : 'accounts'} hidden (Customize). Totals include ${n === 1 ? 'it' : 'them'}.`] };
+}
+
+// ── Pages (item 21) ──────────────────────────────────────────────────────────
+const BODY_KINDS = new Set(['section', 'account', 'line', 'group']);
+/**
+ * A report's rows as pages of about `pageSize` rows (0 = one page). Never
+ * splits a heading from what follows it: a General Ledger account comes whole
+ * (heading, lines, closing), a group heading stays with its first account,
+ * and a page that starts inside a group repeats its heading, "(continued)".
+ * The trailing totals (Net Income, the grand total) are `pinned`: shown under
+ * every page, always over ALL rows. Returns { pages: [[rows]], pinned, total }.
+ */
+export function reportPages(rows, pageSize) {
+  let end = rows.length;
+  while (end > 0 && !BODY_KINDS.has(rows[end - 1].kind) && !rows[end - 1].section && !rows[end - 1].group) end -= 1;
+  const body = rows.slice(0, end);
+  const pinned = rows.slice(end);
+  const size = Math.floor(Number(pageSize) || 0);
+  if (size <= 0 || body.length <= size) return { pages: [body], pinned, total: body.length };
+  const units = [];
+  let cur = null;
+  let pending = [];
+  const flush = () => { if (cur) units.push(cur); cur = null; };
+  body.forEach((r) => {
+    if (r.kind === 'group' || r.kind === 'section') { flush(); pending.push(r); return; }
+    const joins = r.kind === 'line' || ((r.section || r.group) && r.kind !== 'account');
+    if (joins && (cur || pending.length)) {
+      if (!cur) { cur = [...pending, r]; pending = []; } else cur.push(r);
+      return;
+    }
+    flush();
+    cur = [...pending, r];
+    pending = [];
+  });
+  flush();
+  if (pending.length) units.push(pending);
+  const headers = new Map(body.filter((r) => r.kind === 'group').map((r) => [r.group, r]));
+  const pages = [];
+  let page = [];
+  let count = 0;
+  const cont = (r) => ({ ...r, continued: true, label: `${r.label} (continued)` });
+  units.forEach((u) => {
+    // A unit bigger than a page (a General Ledger account with hundreds of
+    // lines - Priyanka, 10/07: "the pagination options are not working") is
+    // split across pages, its account heading repeated as "(continued)".
+    const head = u.find((r) => r.kind === 'section') || null;
+    let rest = u;
+    while (rest.length) {
+      if (count && (count + rest.length > size) && (rest.length <= size || count >= size)) { pages.push(page); page = []; count = 0; }
+      if (!page.length) {
+        const g = rest[0].group;
+        if (g && rest[0].kind !== 'group' && headers.has(g)) page.push(cont(headers.get(g)));
+        if (head && rest !== u && rest[0] !== head) page.push(cont(head));
+      }
+      const room = Math.max(1, size - count);
+      const take = rest.slice(0, room);
+      page.push(...take);
+      count += take.length;
+      rest = rest.slice(room);
+      if (rest.length) { pages.push(page); page = []; count = 0; }
+    }
+  });
+  if (page.length) pages.push(page);
+  return { pages, pinned, total: body.length };
+}
+
+// ── Column filters with operators (item 26d) ─────────────────────────────────
+export const NUM_OPS = [
+  { key: '=', label: '=' }, { key: '>', label: '>' }, { key: '<', label: '<' },
+  { key: '>=', label: '>=' }, { key: '<=', label: '<=' }, { key: 'between', label: 'Between' },
+];
+/** "(3,418.07)" / "-3418.07" / "19.8%" -> a number; NaN when there is none. */
+export function parseFigure(text) {
+  const t = String(text ?? '').trim();
+  if (!t || t === '-') return Number.NaN;
+  const neg = /^\(.*\)$/.test(t) || t.startsWith('-');
+  const n = Number(t.replace(/[()$%,\s-]/g, ''));
+  return Number.isFinite(n) && /\d/.test(t) ? (neg ? -n : n) : Number.NaN;
+}
+/**
+ * Whether a figure passes an amount filter { op, a, b }. An empty value
+ * passes everything. "=" with a plain number matches either sign (the
+ * statement prints a negative in parentheses); a signed one matches exactly.
+ */
+export function numberFilterHit(value, f) {
+  if (!f) return true;
+  const a = parseFigure(f.a);
+  const b = parseFigure(f.b);
+  const op = f.op || '=';
+  if (op === 'between' ? Number.isNaN(a) && Number.isNaN(b) : Number.isNaN(a)) return true;
+  const v = typeof value === 'number' ? value : parseFigure(value);
+  if (!Number.isFinite(v)) return false;
+  const r = (x) => Math.round(x * 100) / 100;
+  const x = r(v);
+  switch (op) {
+    case '>': return x > r(a);
+    case '<': return x < r(a);
+    case '>=': return x >= r(a) - 0.001;
+    case '<=': return x <= r(a) + 0.001;
+    case 'between': {
+      const lo = Number.isNaN(a) ? -Infinity : Number.isNaN(b) ? r(a) : Math.min(r(a), r(b));
+      const hi = Number.isNaN(b) ? Infinity : Number.isNaN(a) ? r(b) : Math.max(r(a), r(b));
+      return x >= lo - 0.001 && x <= hi + 0.001;
+    }
+    default: {
+      const signed = /^\s*(-|\()/.test(String(f.a));
+      return signed ? Math.abs(x - r(a)) < 0.005 : Math.abs(Math.abs(x) - Math.abs(r(a))) < 0.005;
+    }
+  }
 }
 
 // ── Adjustments on a statement (packages) ────────────────────────────────────
@@ -956,6 +1458,8 @@ export function withAdjustments(result, adjustments) {
 export function cellText(row, column, value, raw = false) {
   if (column.type === 'text') return value == null ? '' : String(value);
   if (column.type === 'date' || column.type === 'pct') return value || '';
+  // A heading with no figure in this column (a General Ledger group heading).
+  if (value === '' || value == null) return '';
   if (row.kind === 'margin') return raw ? (Number.isFinite(value) ? Math.round(value * 1000) / 10 : '') : share(value);
   if (column.type === 'variance') return raw ? value : Math.abs(value) < 0.005 ? '-' : money(value);
   return raw ? value : money(value);
@@ -972,6 +1476,7 @@ export function csvRows(result, entities = []) {
   result.rows.forEach((r) => {
     if (r.kind === 'section') { close(); open = r; return; }
     if (r.kind === 'account') { out.push([open ? open.label : '', r.code, r.title, ...cells(r)]); return; }
+    if (r.kind === 'group') { close(); out.push([r.label]); return; }
     close();
     out.push([r.label, '', '', ...cells(r)]);
   });

@@ -3,7 +3,7 @@
 // here would blank a saved dashboard view for everyone who added the tile,
 // so the tests pin the three things a user actually sees - resolved
 // favorites tiles, the Add tile + empty hint, and which actions a config
-// picks - plus that a pre-config Quick Actions tile still shows its six.
+// picks - plus that a pre-config Quick Actions tile shows the default set.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
@@ -98,7 +98,7 @@ describe('My Personal Links widget', () => {
 });
 
 describe('Quick Actions tile', () => {
-  it('keeps the original six actions when a tile has no config', () => {
+  it('shows the default actions when a tile has no config', () => {
     mount('quick-actions');
     for (const key of DEFAULT_QUICK_ACTIONS) {
       expect(screen.getByText(QUICK_ACTIONS.find(a => a.key === key).label)).toBeTruthy();

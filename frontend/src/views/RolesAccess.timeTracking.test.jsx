@@ -32,7 +32,7 @@ describe('Role editor - Exempt from time tracking', () => {
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(screen.getByRole('button', { name: /Save job role/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save Job Role/ }));
     await waitFor(() => expect(updateJobRole).toHaveBeenCalled());
     const [id, body] = updateJobRole.mock.calls[0];
     expect(id).toBe('r-mp');
@@ -43,7 +43,7 @@ describe('Role editor - Exempt from time tracking', () => {
     updateJobRole.mockClear();
     render(<RoleEditor role={{ ...role, time_tracking_exempt: false }} jobRoles={[]} onClose={() => {}} onSaved={onSaved} onErr={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: /Exempt from time tracking/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Save job role/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Save Job Role/ }));
     await waitFor(() => expect(updateJobRole).toHaveBeenCalled());
     expect(updateJobRole.mock.calls[0][1].time_tracking_exempt).toBe(true);
   });

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
-import { control } from './reportControls';
+import { EntityPicker, control } from './reportControls';
+import { pctText, rolesOf } from './pfsAffiliatedExport';
 import { isLockedError } from './PfsLock';
 
 // Accounting -> PFS -> Affiliated Entities (Charmi, 10/04): "list all entities
@@ -10,22 +11,26 @@ import { isLockedError } from './PfsLock';
 // ownership and beneficial ownership interest in all entities: single member
 // LLC, partnerships, multi-member LLC, corporations, trusts, etc."
 //
-// One row per entity: its name and type, the last four digits of its EIN
-// (never more - the server refuses a longer number), its state, each
-// borrower's ownership percent, the beneficial ownership percent, the role
-// and a note. A name can be picked from the ledger's entities. Rows keep the
-// order they are put in (arrows move them) and print in that order on the PDF
-// and the Excel workbook (pfsAffiliatedExport.js). Kept per statement file, server
-// side (routers/pfs_affiliates.py).
+// One row per entity: its name and type, each borrower's ownership percent
+// and role, the beneficial ownership percent and a note. A name can be picked
+// from the ledger's entities. Rows keep the order they are put in (arrows
+// move them) and print in that order on the PDF and the Excel workbook
+// (pfsAffiliatedExport.js). Kept per statement file, server side
+// (routers/pfs_affiliates.py).
 //
-// Also here: the co-borrower's executive profile (Charmi, 10/04: "Executive
-// profile should be there for both borrowers"), saved on its own.
+// Oct 7 (Neil/Charmi): a role PER BORROWER ("Neil may be a managing member,
+// but Archana is not"), set beside that borrower's ownership %; EIN and State
+// are no longer asked for or shown (still kept on the row); an empty percent
+// reads "-"; Prefill From the Ledger is the module's entity picker - search
+// by name or number, historical (H) entities left out.
+//
+// Also here: the Executive Profiles section of History and Profile - one box
+// per borrower, each headed with the person's name (Oct 7, item 15).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const US_STATES = 'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ');
 const FALLBACK_META = {
   entityTypes: [
     { key: 'single_member_llc', label: 'Single-Member LLC' }, { key: 'multi_member_llc', label: 'Multi-Member LLC' },
@@ -34,8 +39,7 @@ const FALLBACK_META = {
   ],
   roles: ['Member', 'Manager', 'Managing Member', 'Partner', 'General Partner', 'Limited Partner', 'Shareholder', 'Officer', 'Trustee', 'Beneficiary'],
 };
-const pctText = (n) => (n == null || n === '' ? '' : `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`);
-const EMPTY = { name: '', entityType: 'single_member_llc', einLast4: '', state: '', ownership: {}, beneficialPct: '', role: '', notes: '', ledgerEntity: '' };
+const EMPTY = { name: '', entityType: 'single_member_llc', ownership: {}, roles: {}, beneficialPct: '', notes: '', ledgerEntity: '' };
 
 export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
   const [data, setData] = useState(null);       // { borrowers, rows }
@@ -73,7 +77,7 @@ export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
           <div>
             <strong style={{ fontSize: '0.9rem' }}>Affiliated Entities</strong>
             <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-              Every entity {borrowers.length > 1 ? 'the borrowers hold' : 'the borrower holds'} an interest in - LLCs, partnerships, corporations, trusts - with each borrower's ownership and the beneficial ownership. Printed on the statement in this order.
+              Every entity {borrowers.length > 1 ? 'the borrowers hold' : 'the borrower holds'} an interest in - LLCs, partnerships, corporations, trusts - with each borrower's ownership and role, and the beneficial ownership. Printed on the statement in this order; a ledger line of a listed entity takes its share from here.
             </div>
           </div>
           {canEdit && (
@@ -89,42 +93,48 @@ export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
             <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
                 <tr>
-                  <th scope="col">Entity Name</th><th scope="col">Entity Type</th><th scope="col">EIN (Last 4)</th><th scope="col">State</th>
-                  {borrowers.map((b) => <th key={b.key} scope="col" className="acct-num">{b.name} %</th>)}
-                  <th scope="col" className="acct-num">Beneficial %</th><th scope="col">Role</th><th scope="col">Notes</th>
+                  <th scope="col">Entity Name</th><th scope="col">Entity Type</th>
+                  {borrowers.map((b) => [
+                    <th key={`${b.key}-pct`} scope="col" className="acct-num">{b.name} %</th>,
+                    <th key={`${b.key}-role`} scope="col">{b.name} Role</th>,
+                  ])}
+                  <th scope="col" className="acct-num">Beneficial %</th><th scope="col">Notes</th>
                   {canEdit && <th scope="col" aria-label="Change" />}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={r.id}>
-                    <td style={{ fontWeight: 600 }}>{r.name}{r.ledgerEntity ? <span className="acct-code" style={{ marginLeft: 8 }}>{r.ledgerEntity}</span> : null}</td>
-                    <td>{r.entityTypeLabel}</td>
-                    <td>{r.einLast4 ? `XX-XXX${r.einLast4}` : ''}</td>
-                    <td>{r.state}</td>
-                    {borrowers.map((b) => <td key={b.key} className="acct-num">{pctText(r.ownership?.[b.key])}</td>)}
-                    <td className="acct-num">{pctText(r.beneficialPct)}</td>
-                    <td>{r.role}</td>
-                    <td style={{ color: 'var(--text-secondary)', maxWidth: 260 }}>{r.notes}</td>
-                    {canEdit && (
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {confirm === r.id ? (
-                          <>
-                            <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)', marginRight: 10 }} onClick={() => { setConfirm(''); remove(r); }}>Remove</button>
-                            <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
-                          </>
-                        ) : (
-                          <>
-                            <button type="button" style={icon} aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14} /></button>
-                            <button type="button" style={icon} aria-label={`Move ${r.name} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14} /></button>
-                            <button type="button" style={icon} aria-label={`Change ${r.name}`} onClick={() => setEditing({ ...EMPTY, ...r, beneficialPct: r.beneficialPct ?? '' })}><Pencil size={14} /></button>
-                            <button type="button" style={icon} aria-label={`Remove ${r.name}`} onClick={() => setConfirm(r.id)}><Trash2 size={14} /></button>
-                          </>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                {rows.map((r, i) => {
+                  const roles = rolesOf(r);
+                  return (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 600 }}>{r.name}{r.ledgerEntity ? <span className="acct-code" style={{ marginLeft: 8 }}>{r.ledgerEntity}</span> : null}</td>
+                      <td>{r.entityTypeLabel}</td>
+                      {borrowers.map((b) => [
+                        <td key={`${b.key}-pct`} className="acct-num">{pctText(r.ownership?.[b.key])}</td>,
+                        <td key={`${b.key}-role`}>{roles[b.key] || <span style={{ color: 'var(--text-muted)' }}>-</span>}</td>,
+                      ])}
+                      <td className="acct-num">{pctText(r.beneficialPct)}</td>
+                      <td style={{ color: 'var(--text-secondary)', maxWidth: 260 }}>{r.notes}</td>
+                      {canEdit && (
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {confirm === r.id ? (
+                            <>
+                              <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)', marginRight: 10 }} onClick={() => { setConfirm(''); remove(r); }}>Remove</button>
+                              <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
+                            </>
+                          ) : (
+                            <>
+                              <button type="button" style={icon} aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14} /></button>
+                              <button type="button" style={icon} aria-label={`Move ${r.name} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14} /></button>
+                              <button type="button" style={icon} aria-label={`Change ${r.name}`} onClick={() => setEditing({ ...EMPTY, ...r, roles: roles, beneficialPct: r.beneficialPct ?? '' })}><Pencil size={14} /></button>
+                              <button type="button" style={icon} aria-label={`Remove ${r.name}`} onClick={() => setConfirm(r.id)}><Trash2 size={14} /></button>
+                            </>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -162,10 +172,16 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
     setBusy(true);
     setError('');
     const ownership = {};
-    borrowers.forEach((b) => { const v = r.ownership?.[b.key]; if (v !== '' && v != null) ownership[b.key] = Number(v); });
+    const roles = {};
+    borrowers.forEach((b) => {
+      const v = r.ownership?.[b.key];
+      if (v !== '' && v != null) ownership[b.key] = Number(v);
+      const role = (r.roles?.[b.key] || '').trim();
+      if (role) roles[b.key] = role;
+    });
     onSave({
-      name: r.name.trim(), entityType: r.entityType, einLast4: r.einLast4 || '', state: r.state || '', ownership,
-      beneficialPct: r.beneficialPct === '' || r.beneficialPct == null ? null : Number(r.beneficialPct), role: r.role || '', notes: r.notes || '', ledgerEntity: r.ledgerEntity || '',
+      name: r.name.trim(), entityType: r.entityType, ownership, roles, role: roles.primary || '',
+      beneficialPct: r.beneficialPct === '' || r.beneficialPct == null ? null : Number(r.beneficialPct), notes: r.notes || '', ledgerEntity: r.ledgerEntity || '',
     }).catch((err) => { setError(err?.message || 'Could not save.'); setBusy(false); });
   };
   const pickEntity = (code) => {
@@ -176,18 +192,20 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
   const field = (id, text, input) => (<div><label style={label} htmlFor={id}>{text}</label>{input}</div>);
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <form className="modal-content" role="dialog" aria-modal="true" aria-label={row.id ? `Change ${row.name}` : 'Add an affiliated entity'} onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 640 }}>
+      <form className="modal-content" role="dialog" aria-modal="true" aria-label={row.id ? `Change ${row.name}` : 'Add an affiliated entity'} onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 680 }}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{row.id ? 'Change Entity' : 'Add Entity'}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '70vh', overflowY: 'auto' }}>
-          {field('pfs-aff-ledger', 'Prefill From the Ledger', (
-            <select id="pfs-aff-ledger" value={r.ledgerEntity || ''} onChange={(e) => pickEntity(e.target.value)} style={{ ...control, width: '100%' }}>
-              <option value="">{entities ? 'Pick an entity, or type a name below...' : 'Loading...'}</option>
-              {(entities || []).map((e) => <option key={e.code} value={e.code}>{e.name ? `${e.name} (${e.code})` : e.code}</option>)}
-            </select>
-          ))}
+          <div>
+            <span style={label}>Prefill From the Ledger</span>
+            {entities === null ? <SkeletonBlocks count={1} height={30} /> : (
+              <EntityPicker entities={entities} value={r.ledgerEntity || ''} onChange={pickEntity} ariaLabel="Prefill From the Ledger"
+                noneLabel="Not Linked to the Ledger" style={{ width: '100%', maxWidth: 'none' }} />
+            )}
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Search by name or entity number, or type a name below.</div>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
             {field('pfs-aff-name', 'Entity Name', <input id="pfs-aff-name" type="text" value={r.name} maxLength={160} autoFocus onChange={(e) => set({ name: e.target.value })} style={{ ...control, width: '100%' }} />)}
             {field('pfs-aff-type', 'Entity Type', (
@@ -196,39 +214,34 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
               </select>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-            <div>
-              <label style={label} htmlFor="pfs-aff-ein">EIN - Last 4 Digits</label>
-              <input id="pfs-aff-ein" type="text" inputMode="numeric" value={r.einLast4 || ''} maxLength={4} placeholder="Optional"
-                onChange={(e) => set({ einLast4: e.target.value.replace(/\D/g, '').slice(0, 4) })} style={{ ...control, width: '100%' }} />
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Never the full number.</div>
-            </div>
-            {field('pfs-aff-state', 'State', (
-              <>
-                <input id="pfs-aff-state" type="text" list="pfs-aff-states" value={r.state || ''} maxLength={40} onChange={(e) => set({ state: e.target.value })} style={{ ...control, width: '100%' }} />
-                <datalist id="pfs-aff-states">{US_STATES.map((s) => <option key={s} value={s} />)}</datalist>
-              </>
-            ))}
-            {field('pfs-aff-role', 'Role', (
-              <select id="pfs-aff-role" value={r.role || ''} onChange={(e) => set({ role: e.target.value })} style={{ ...control, width: '100%' }}>
-                <option value="">Not set</option>
-                {meta.roles.map((x) => <option key={x} value={x}>{x}</option>)}
-                {r.role && !meta.roles.includes(r.role) && <option value={r.role}>{r.role}</option>}
-              </select>
-            ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-            {borrowers.map((b) => (
-              <div key={b.key}>
-                <label style={label} htmlFor={`pfs-aff-own-${b.key}`}>{b.name} - Ownership %</label>
-                <input id={`pfs-aff-own-${b.key}`} type="number" min="0" max="100" step="0.01" value={r.ownership?.[b.key] ?? ''}
-                  onChange={(e) => set({ ownership: { ...(r.ownership || {}), [b.key]: e.target.value } })} style={{ ...control, width: '100%' }} />
-              </div>
-            ))}
-            <div>
-              <label style={label} htmlFor="pfs-aff-ben">Beneficial Ownership %</label>
-              <input id="pfs-aff-ben" type="number" min="0" max="100" step="0.01" value={r.beneficialPct ?? ''} onChange={(e) => set({ beneficialPct: e.target.value })} style={{ ...control, width: '100%' }} />
-            </div>
+          {/* Oct 7 (Neil): each borrower's ownership and role side by side. */}
+          {borrowers.map((b) => {
+            const role = r.roles?.[b.key] || '';
+            return (
+              <fieldset key={b.key} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: '8px 12px 10px', margin: 0 }}>
+                <legend style={{ fontSize: '0.78rem', fontWeight: 700, padding: '0 4px' }}>{b.name}</legend>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 1fr) minmax(160px, 2fr)', gap: 10 }}>
+                  <div>
+                    <label style={label} htmlFor={`pfs-aff-own-${b.key}`}>Ownership %</label>
+                    <input id={`pfs-aff-own-${b.key}`} type="number" min="0" max="100" step="0.01" aria-label={`${b.name} Ownership %`} value={r.ownership?.[b.key] ?? ''}
+                      onChange={(e) => set({ ownership: { ...(r.ownership || {}), [b.key]: e.target.value } })} style={{ ...control, width: '100%' }} />
+                  </div>
+                  <div>
+                    <label style={label} htmlFor={`pfs-aff-role-${b.key}`}>Role</label>
+                    <select id={`pfs-aff-role-${b.key}`} aria-label={`${b.name} Role`} value={role} onChange={(e) => set({ roles: { ...(r.roles || {}), [b.key]: e.target.value } })} style={{ ...control, width: '100%' }}>
+                      <option value="">Not Set</option>
+                      {meta.roles.map((x) => <option key={x} value={x}>{x}</option>)}
+                      {role && !meta.roles.includes(role) && <option value={role}>{role}</option>}
+                    </select>
+                  </div>
+                </div>
+              </fieldset>
+            );
+          })}
+          <div style={{ maxWidth: 220 }}>
+            <label style={label} htmlFor="pfs-aff-ben">Beneficial Ownership %</label>
+            <input id="pfs-aff-ben" type="number" min="0" max="100" step="0.01" value={r.beneficialPct ?? ''} onChange={(e) => set({ beneficialPct: e.target.value })} style={{ ...control, width: '100%' }} />
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>When set, it is the statement's share of this entity; otherwise the borrowers' percents add up.</div>
           </div>
           {field('pfs-aff-notes', 'Notes', <input id="pfs-aff-notes" type="text" value={r.notes || ''} maxLength={400} onChange={(e) => set({ notes: e.target.value })} style={{ ...control, width: '100%' }} />)}
           {invalid && r.name.trim() && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>Percents are between 0 and 100.</div>}
@@ -243,60 +256,78 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
   );
 }
 
-/** The co-borrower's executive profile, under the borrower's on the History
- * and Profile tab - one per borrower, each saved on its own. Shown when the
- * statement has a co-borrower (or spouse), or is a joint statement. */
-export function PfsCoExecutiveProfile({ profile, canEdit = false, onLocked }) {
-  const d = profile?.details || {};
-  const coName = (d.coBorrower?.name || d.spouse || '').trim();
-  const shown = !!coName || profile?.kind === 'joint';
-  const [saved, setSaved] = useState(null);     // { name, text } from the server
-  const [text, setText] = useState('');
+/** Executive Profiles (Oct 7, item 15): one box per borrower, each headed
+ * with the person's name - side by side on a wide screen, stacked on a narrow
+ * one - and one Save Changes for the section. Both are kept through the
+ * executive-profiles endpoint (key primary | co) and print after each other. */
+export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSaved }) {
+  const [saved, setSaved] = useState(null);      // [{ key, name, text }] from the server
+  const [texts, setTexts] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   useEffect(() => {
-    if (!shown) return undefined;
     let alive = true;
     api.getPfsExecutiveProfiles(profile.id)
       .then((r) => {
         if (!alive) return;
-        const co = (r?.profiles || []).find((p) => p.key === 'co') || { name: coName || 'Co-Borrower', text: '' };
-        setSaved({ name: co.name, text: co.text || '' });
-        setText((t) => t || co.text || '');   // never over what is being typed
+        const list = r?.profiles?.length ? r.profiles : [{ key: 'primary', name: profile.name, text: profile.executiveProfile || '' }];
+        setSaved(list);
+        setTexts((t) => Object.fromEntries(list.map((p) => [p.key, t[p.key] ?? p.text ?? ''])));   // never over what is being typed
       })
-      .catch((e) => { if (!alive) return; if (isLockedError(e)) onLocked?.(profile.id); else setError(e?.message || 'Could not load the profile.'); setSaved({ name: coName || 'Co-Borrower', text: '' }); });
+      .catch((e) => {
+        if (!alive) return;
+        if (isLockedError(e)) onLocked?.(profile.id); else setError(e?.message || 'Could not load the profiles.');
+        setSaved([{ key: 'primary', name: profile.name, text: profile.executiveProfile || '' }]);
+        setTexts((t) => ({ primary: t.primary ?? profile.executiveProfile ?? '' }));
+      });
     return () => { alive = false; };
-  }, [profile.id, shown, coName, onLocked]);
-  if (!shown) return null;
-  if (!saved) return <SkeletonBlocks count={1} />;
-  const save = () => {
+  }, [profile.id, profile.name, profile.executiveProfile, onLocked]);
+  if (!saved) return <SkeletonBlocks count={1} height={120} />;
+  const changed = saved.filter((p) => (texts[p.key] ?? '') !== (p.text || ''));
+  const save = async () => {
+    if (!changed.length || busy) return;
     setBusy(true);
     setError('');
     setDone(false);
-    api.savePfsExecutiveProfile(profile.id, 'co', text)
-      .then((r) => { const co = (r?.profiles || []).find((p) => p.key === 'co'); setSaved({ name: co?.name || saved.name, text: co?.text ?? text }); setDone(true); })
-      .catch((e) => { if (isLockedError(e)) onLocked?.(profile.id); else setError(e?.message || 'Could not save.'); })
-      .finally(() => setBusy(false));
+    try {
+      let last = null;
+      for (const p of changed) last = await api.savePfsExecutiveProfile(profile.id, p.key, texts[p.key] ?? '');
+      const list = last?.profiles?.length ? last.profiles : saved.map((p) => ({ ...p, text: texts[p.key] ?? '' }));
+      setSaved(list.map((p) => ({ ...p, text: changed.some((c) => c.key === p.key) ? (texts[p.key] ?? '') : p.text })));
+      setDone(true);
+      onSaved?.();
+    } catch (e) {
+      if (isLockedError(e)) onLocked?.(profile.id); else setError(e?.message || 'Could not save.');
+    } finally {
+      setBusy(false);
+    }
   };
-  const dirty = text !== saved.text;
   return (
-    <div style={{ ...card, padding: 14, display: 'grid', gap: 10 }}>
+    <section aria-label="Executive Profiles" style={{ ...card, padding: 14, display: 'grid', gap: 10 }}>
       <div>
-        <label style={label} htmlFor="pfs-exec-co">Executive Profile - {saved.name || coName || 'Co-Borrower'}</label>
-        <textarea id="pfs-exec-co" value={text} disabled={!canEdit} maxLength={6000} rows={7} onChange={(e) => { setText(e.target.value); setDone(false); }}
-          placeholder="Who they are, what they have built, and their history with lenders."
-          style={{ ...control, width: '100%', height: 'auto', padding: 9, lineHeight: 1.5, resize: 'vertical' }} />
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>The co-borrower's own profile, saved separately and printed after the borrower's.</div>
+        <strong style={{ fontSize: '0.9rem' }}>Executive Profiles</strong>
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>One for each borrower: who they are, what they have built, and their history with lenders. Each prints under the person's name.</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+        {saved.map((p) => (
+          <div key={p.key}>
+            <label style={{ ...label, fontSize: '0.8rem', color: 'var(--text-primary)' }} htmlFor={`pfs-exec-${p.key}`}>{p.name || (p.key === 'co' ? 'Co-Borrower' : profile.name)}</label>
+            <textarea id={`pfs-exec-${p.key}`} aria-label={`Executive Profile - ${p.name}`} value={texts[p.key] ?? ''} disabled={!canEdit} maxLength={6000} rows={9}
+              onChange={(e) => { const v = e.target.value; setTexts((t) => ({ ...t, [p.key]: v })); setDone(false); }}
+              placeholder="Who they are, what they have built, and their history with lenders."
+              style={{ ...control, width: '100%', height: 'auto', padding: 9, lineHeight: 1.5, resize: 'vertical' }} />
+          </div>
+        ))}
       </div>
       {error && <div style={bad}>{error}</div>}
-      {done && !dirty && <div style={{ fontSize: '0.78rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved.</div>}
+      {done && !changed.length && <div style={{ fontSize: '0.78rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved.</div>}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : `Save ${(saved.name || 'Co-Borrower').split(' ')[0]}'s Profile`}</button>
-          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
+          <button type="button" className="primary-btn" onClick={save} disabled={!changed.length || busy} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Profiles'}</button>
+          {changed.length > 0 && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
         </div>
       )}
-    </div>
+    </section>
   );
 }
