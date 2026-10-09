@@ -337,7 +337,7 @@ export const linkTypeLabel = (k) => (LINK_TYPES.find((l) => l.key === k) || {}).
 //            stops): Waiting for User, Waiting for Vendor, On Hold - three
 //            shades of one hue, so they read as one group on the board.
 //   green  - fixed, waiting for the requester to confirm: Resolved.
-//   gray   - finished and filed: Closed.
+//   green  - finished and filed: Closed (deeper than Resolved; Neil, 10/08).
 // Blue is deliberately not a status color: it is the app's link/selection
 // color, and on a status chip it read as "nothing to see here".
 export const TICKET_STATUS_META = {
@@ -353,7 +353,9 @@ export const TICKET_STATUS_META = {
   waiting_vendor: { label: 'Waiting for Vendor', color: '#6d28d9', tint: 'rgba(109,40,217,0.14)' },
   on_hold:     { label: 'On Hold',     color: '#8b5cf6',  tint: 'rgba(139,92,246,0.16)' },
   resolved:    { label: 'Resolved',    color: NX.green,  tint: 'rgba(22,163,74,0.15)' },
-  closed:      { label: 'Closed',      color: '#64748b', tint: 'rgba(100,116,139,0.16)' },
+  // Green, not gray (Neil, 10/08: "Closed color should be Green") - a deeper
+  // green than Resolved so the two still read apart side by side.
+  closed:      { label: 'Closed',      color: '#15803d', tint: 'rgba(21,128,61,0.16)' },
   reopened:    { label: 'Reopened',    color: '#be123c', tint: 'rgba(190,18,60,0.14)' },
 };
 // Lifecycle order - drives the status picker and the board columns, so it reads

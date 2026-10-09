@@ -20,6 +20,7 @@ const ACTION_LABEL = {
   submitted: 'submitted the timesheet', resubmitted: 'resubmitted the timesheet',
   sent_back: 'sent it back', agreed: 'agreed and sent it for signature',
   declined: 'declined to sign', returned: 'returned it', cancelled: 'cancelled signing',
+  recalled: 'recalled it from signing to apply a punch fix',
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
 };

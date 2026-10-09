@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
+import { useIsMobile } from '../../lib/useIsMobile';
 import LedgerSearch from './LedgerSearch';
 import EntryDetail from './EntryDetail';
 import SavedReportsManager from './SavedReportsManager';
@@ -164,13 +165,27 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
   const closeSearch = () => { setSearchText(''); setTerm(''); setDrill(null); };
   const toTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  // A drill-down asked for from another tab (see drill.js) lands here.
+  // A drill-down asked for from another tab (see drill.js) lands here. So
+  // does a search handed over by the dashboard's Find a Transaction tile:
+  // the words go in the box and, when a row was tapped there, that entry
+  // opens on top of the lines.
+  const [initialEntry, setInitialEntry] = useState(null);   // { id, no }
   useEffect(() => {
     const take = (d) => {
+      if (!d) return;
       // Oct 7: a drill may carry a party ({ kind, code, name }) and report
       // filters (`dims`: vendor, customer, departments, journals ...) - they
-      // follow into the lines like the report's own.
-      if (!d || !(d.account || d.party || d.dims)) return;
+      // follow into the lines like the report's own. A drill with none of
+      // those is the Find a Transaction tile's search (`q`, Oct 1).
+      if (!(d.account || d.party || d.dims)) {
+        if (!d.q) return;
+        setDrill(null);
+        setSearchText(d.q);
+        setTerm(d.q);
+        setInitialEntry(d.entryId ? { id: d.entryId, no: d.entryNo || '' } : null);
+        toTop();
+        return;
+      }
       if (d.entity !== undefined) patch({ entities: d.entity ? [d.entity] : [] });
       setDrill({ account: d.account || '', accountName: d.accountName || '', from: d.from || '', to: d.to || iso(new Date()), book: d.book || 'accrual',
         ...(d.party ? { party: d.party } : {}), ...(d.dims ? { dims: d.dims } : {}) });
@@ -292,6 +307,15 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     }
   };
 
+  // On a phone (Oct 1, Neil) the search box comes first and full width, the
+  // report picker stays, and every other control folds behind one Filters
+  // button that counts the filters in force. Desktop is unchanged.
+  const isPhone = useIsMobile('(max-width: 640px)');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const showControls = !isPhone || moreOpen;
+  // What the folded controls hold that is not the default: the entity,
+  // department, account picks (the chips) and a book other than accrual.
+  const folded = (c) => c.length + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0);
   // Oct 2 (Charmi): in a drill-down or a search the same Export menu takes
   // the lines on screen - one Export, every format, everywhere.
   const [linesExport, setLinesExport] = useState(null);   // { build, lines, name, title } from LedgerSearch
@@ -453,7 +477,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     <div style={shell}>
       {/* One slim row: every control as a dropdown (the search is in the header, top right). */}
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        {(!headerSearch || full) && <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0, maxWidth: 460 }}>
+        {(!headerSearch || full) && <div style={{ position: 'relative', flex: isPhone ? '1 1 100%' : '1 1 240px', minWidth: 0, maxWidth: isPhone ? 'none' : 460 }}>
           {waiting
             ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
             : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
@@ -463,10 +487,18 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
           {searchText && <ClearButton onClick={() => setSearchText('')} label="Clear search" />}
         </div>}
 
-        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600 }}>
+        <select value={config.report} onChange={(e) => { closeSearch(); setCollapsed(new Set()); patch({ report: e.target.value, accounts: [] }); }} aria-label="Report" style={{ ...select(false), fontWeight: 600, flex: isPhone ? '1 1 auto' : undefined, minWidth: 0 }}>
           {REPORTS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
         </select>
 
+        {isPhone && (
+          <button type="button" className="secondary-btn" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-controls="acct-report-controls"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px', fontWeight: folded(chips) ? 600 : 400 }}>
+            {moreOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Filters{folded(chips) ? ` (${folded(chips)})` : ''}
+          </button>
+        )}
+
+        {showControls && (<div id="acct-report-controls" style={{ display: 'contents' }}>
         <PeriodStepper config={config} period={def.period} onChange={patch} />
 
         {showColumns && (
@@ -521,6 +553,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
             {full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
+        </div>)}
       </div>
 
       {changed && !searching && (
@@ -568,7 +601,8 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
 
       {searching && (
         <LedgerSearch term={term.length >= 2 ? term : ''} entities={drillEntities} entityName={drillEntityLabel} full={full}
-          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport} />
+          dims={canUseDims(config) ? config.dims : null} dimNames={dimNames} drill={drill} onClearDrill={() => setDrill(null)} onClose={closeSearch} onBusy={setSearchBusy} onExport={setLinesExport}
+          initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 
       {!searching && error && <div role="alert" style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{plainError(error)}</div>}

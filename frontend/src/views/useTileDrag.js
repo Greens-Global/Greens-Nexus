@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { findSlot, foldOnRelease, inIconBody, initialIntent, stepIntent, tickIntent, timingFor } from './tileDragLogic';
 
 // Pointer-driven drag-and-drop for the Links launcher (Sep 22) - the
 // iPhone home-screen model, replacing the native HTML5 drag the grid used
@@ -41,14 +42,17 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 //   - Every decision is made from where the GHOST'S ICON is, not where the
 //     pointer is - a person grabs a tile anywhere (often by its label) and
 //     watches the icon they are carrying, exactly as on the phone. Reorder
-//     vs fold is then WHERE that icon sits on the target and for HOW LONG:
-//     on the target's icon body it is a fold (dwell ~280ms to arm, then
-//     release); past the target's center it shuffles at once; beside the
-//     target, in its near half, it shuffles after a short linger. So a
-//     direct move onto an icon folds, a sweep across reorders, and an icon
-//     edged up against a neighbor pushes it aside after a beat. A plain
-//     "nearest slot wins" rule can never fold, because the target slides
-//     away before the carried icon can reach it.
+//     vs fold is then WHERE that icon sits on the target and for HOW LONG,
+//     and nothing ever happens instantly (Oct 8, tileDragLogic.js): on the
+//     target's icon body (the icon inflated a little, plus its label) it is
+//     a fold - rest ~250ms (200 on touch) and the target opens up, release
+//     to fold; let go after resting even ~120ms and it still folds. In the
+//     lane beside a neighbor it is a shuffle - linger ~160ms (300 on touch)
+//     and the neighbor slides over. A sweep straight across a row touches
+//     nothing. So a target can never slide away from a direct approach,
+//     which is what the earlier "shuffle at once past the center" rule did
+//     to every attempt at folding with a mouse. A plain "nearest slot wins"
+//     rule can never fold at all, for the same reason.
 //   - Touch: a short hold lifts the tile (a swipe before the hold scrolls
 //     the page as normal - the hold is what claims the gesture, and a
 //     non-passive touchmove listener then keeps the page from scrolling
@@ -69,22 +73,9 @@ const LIFT_MOVE_PX = 5;        // mouse: movement that starts a drag in Customiz
 const TOUCH_HOLD_MS = 260;     // touch: hold that lifts a tile in Customize mode
 const ENTER_HOLD_MS = 480;     // either: hold that enters Customize from browse mode
 const TOUCH_SLOP_PX = 8;       // touch: movement before the hold that means "scrolling"
-const FOLD_DWELL_MS = 280;     // resting over an icon this long arms a fold
-const FOLD_ZONE = 54;          // px box around a target's icon center that counts as "on the icon"
-const SHUFFLE_LINGER_MS = 110; // lingering beside a neighbor (not on its icon) this long shuffles it
 const EJECT_MARGIN = 20;       // px outside the folder box before a drag ejects
-// Touch (Sep 23): a finger is slower and less precise than a mouse, and it
-// hides the target under itself. With the mouse rules a finger heading for
-// an icon pushed it aside before it got there - past-center and cross-row
-// shuffles fired at once, and the 110ms linger was shorter than a finger's
-// travel across a tile's edge - so folding never happened on a phone. On
-// touch every shuffle waits for a real linger, the fold zone covers the
-// whole icon, and letting go while resting on an icon folds without
-// waiting out the full arm delay.
-const FOLD_ZONE_TOUCH = 66;
-const SHUFFLE_LINGER_TOUCH_MS = 300;
-const FOLD_DWELL_TOUCH_MS = 200;
-const FOLD_RELEASE_TOUCH_MS = 90; // resting this long on an icon at release folds
+// Fold / shuffle timings and the icon-body geometry live in tileDragLogic.js
+// (MOUSE_TIMING / TOUCH_TIMING), with the decision functions they drive.
 const SETTLE_MS = 230;         // ghost's flight to its slot on release
 const FOLD_MS = 280;           // ghost's shrink into a fold target
 const SHIFT_EASE = 'cubic-bezier(.2,.8,.2,1)';
@@ -133,7 +124,10 @@ function measureSlots(container, els, keys) {
     // it down, and the fold zone has to sit on the icon either way.
     const ir = el.querySelector('.app-tile-icon-wrap')?.getBoundingClientRect() || r;
     baseIndex.set(key, slots.length);
-    slots.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height, icy: ir.top - r.top + ir.height / 2 });
+    slots.push({
+      x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height, icy: ir.top - r.top + ir.height / 2,
+      icon: { x: ir.left - r.left, y: ir.top - r.top, w: ir.width, h: ir.height },
+    });
   }
   return { slots, baseIndex };
 }
@@ -152,16 +146,12 @@ function gapsOf(slots) {
 // One more slot after the last one, for a tile that is entering this scope
 // from elsewhere (an eject) and so has no element to measure yet.
 function appendSyntheticSlot(slots, container, fallbackW, fallbackH) {
-  if (slots.length === 0) return [{ x: 0, y: 0, w: fallbackW, h: fallbackH, icy: 36 }];
+  if (slots.length === 0) return [{ x: 0, y: 0, w: fallbackW, h: fallbackH, icy: 36, icon: { x: fallbackW / 2 - 30, y: 6, w: 60, h: 60 } }];
   const last = slots[slots.length - 1];
   const { gapX, gapY } = gapsOf(slots);
   let x = last.x + last.w + gapX, y = last.y;
   if (x + last.w > container.clientWidth + 1) { x = slots[0].x; y = last.y + last.h + gapY; }
-  return [...slots, { x, y, w: last.w, h: last.h, icy: last.icy }];
-}
-
-function inflatedHit(slot, px, py, padX, padY) {
-  return px >= slot.x - padX && px <= slot.x + slot.w + padX && py >= slot.y - padY && py <= slot.y + slot.h + padY;
+  return [...slots, { x, y, w: last.w, h: last.h, icy: last.icy, icon: last.icon }];
 }
 
 // ── The engine ────────────────────────────────────────────────────────────
@@ -180,7 +170,7 @@ function createDragEngine(env) {
 
   const publish = () => {
     ui = s ? {
-      key: s.key, kind: s.kind, scope: s.scope, order: s.order, foldKey: s.foldKey || null,
+      key: s.key, kind: s.kind, scope: s.scope, order: s.order, foldKey: s.intent.foldKey || null,
       ejected: !!s.ejected, fromScope: s.fromScope,
     } : null;
     env.onUi(ui);
@@ -233,8 +223,21 @@ function createDragEngine(env) {
     const hole = s.order.indexOf(s.key);
     if (over === hole || over < 0 || over >= s.slots.length) return;
     s.order = moveInOrder(s.order, hole, over);
-    s.pendingShuffle = null;
     publish();
+  };
+
+  // Take a decision from tileDragLogic: store the new intent, then act on
+  // what changed (a shuffle fires, a fold target opens or closes).
+  const applyIntent = ({ intent, reorder, armed, cleared }) => {
+    s.intent = intent;
+    if (reorder != null) applyReorder(reorder);
+    if (armed) {
+      // The finger covers the tile that just opened up, so a tick says it.
+      if (s.touch) try { navigator.vibrate?.(12); } catch { /* not supported */ }
+      publish();
+    } else if (cleared) {
+      publish();
+    }
   };
 
   const evaluate = () => {
@@ -251,7 +254,7 @@ function createDragEngine(env) {
       if (out) {
         s.fromScope = s.scope;
         s.ejected = true;
-        s.foldCandidate = null; s.foldKey = null;
+        s.intent = initialIntent();
         env.cbsRef.current.onEjectStart?.(s.scope, s.key);
         loadScope(s.meta.ejectTo, s.key);
         publish();
@@ -262,57 +265,35 @@ function createDragEngine(env) {
     const c = s.meta.container.getBoundingClientRect();
     const px = carried.x - c.left, py = carried.y - c.top;
     const hole = s.order.indexOf(s.key);
-    let over = -1;
-    for (let i = 0; i < s.slots.length; i++) {
-      if (inflatedHit(s.slots[i], px, py, s.gapX / 2, s.gapY / 2)) { over = i; break; }
+    const over = findSlot(s.slots, px, py, s.gapX, s.gapY);
+    const hit = { over, hole, targetKey: null, inBody: false, canFold: false, canReorder: false };
+    if (over >= 0 && over !== hole) {
+      const slot = s.slots[over];
+      const targetKey = s.order[over];
+      const isFolderSlot = over < s.folderCount;
+      const inFolder = s.scope.startsWith('folder:');
+      hit.targetKey = targetKey;
+      hit.inBody = inIconBody(slot, px, py, s.timing.bodyPad, s.gapX);
+      // A folder only reorders among folders; an app among apps (or anywhere
+      // inside a folder); only an app on the main grid can fold.
+      hit.canReorder = s.kind === 'folder' ? isFolderSlot : (inFolder || !isFolderSlot);
+      hit.canFold = s.kind === 'item' && !inFolder && (s.meta.canFold?.(s.key, targetKey) ?? true);
     }
-    const clearFold = () => {
-      s.foldCandidate = null;
-      if (s.foldKey) { s.foldKey = null; publish(); }
-    };
-    if (over === -1 || over === hole) { clearFold(); s.pendingShuffle = null; return; }
-
-    const slot = s.slots[over];
-    const targetKey = s.order[over];
-    const isFolderSlot = over < s.folderCount;
-    const cx = slot.x + slot.w / 2, cy = slot.y + slot.icy;
-    const zone = s.touch ? FOLD_ZONE_TOUCH : FOLD_ZONE;
-    const inCenter = Math.abs(px - cx) <= zone / 2 && Math.abs(py - cy) <= zone / 2;
-    const inFolder = s.scope.startsWith('folder:');
-    // A folder only reorders among folders; an app among apps (or anywhere
-    // inside a folder); only an app on the main grid can fold.
-    const canReorder = s.kind === 'folder' ? isFolderSlot : (inFolder || !isFolderSlot);
-    const canFold = s.kind === 'item' && !inFolder && (s.meta.canFold?.(s.key, targetKey) ?? true);
-
-    if (inCenter && canFold) {
-      s.pendingShuffle = null;
-      if (s.foldCandidate !== targetKey) {
-        s.foldCandidate = targetKey;
-        s.foldSince = performance.now();
-        if (s.foldKey) { s.foldKey = null; publish(); }
-      }
-      return;
-    }
-    clearFold();
-    if (!canReorder) { s.pendingShuffle = null; return; }
-    // Past the target's center (relative to the hole) on the same row, or
-    // anywhere on a target in another row: shuffle now. In the near half:
-    // shuffle after a short linger, so a quick move through to the icon
-    // still folds. The linger itself fires from the frame loop. A finger
-    // never shuffles at once - it always lingers - or the target slides
-    // away before the finger reaches its icon.
-    const sameRow = Math.abs(slot.y - s.slots[hole].y) < 2;
-    const past = !sameRow || (over > hole ? px >= cx : px <= cx);
-    if (past && !s.touch) { applyReorder(over); return; }
-    if (s.pendingShuffle?.target !== over) s.pendingShuffle = { target: over, since: performance.now() };
+    applyIntent(stepIntent(s.intent, hit, performance.now(), s.timing));
   };
 
-  // The frame loop: eases the ghost, auto-scrolls, arms a fold after dwell.
+  // The frame loop: eases the ghost, auto-scrolls, runs the fold/shuffle timers.
   const frame = () => {
     if (!s?.active) return;
     s.pos.x += (s.target.x - s.pos.x) * 0.42;
     s.pos.y += (s.target.y - s.pos.y) * 0.42;
-    placeGhost(s.pos.x, s.pos.y);
+    // Over an opened target the ghost settles down a little and thins out,
+    // so the ring around the target shows past its edges (the carried tile
+    // otherwise covers the very thing that is telling you it will fold).
+    const armed = !!s.intent.foldKey;
+    s.scale += ((armed ? 0.96 : 1.08) - s.scale) * 0.3;
+    placeGhost(s.pos.x, s.pos.y, `scale(${s.scale.toFixed(3)})`);
+    s.ghost.classList.toggle('over-target', armed);
 
     const edge = 72, vh = window.innerHeight;
     let dy = 0;
@@ -322,17 +303,10 @@ function createDragEngine(env) {
       if (s.scrollEl) s.scrollEl.scrollTop += dy; else window.scrollBy(0, dy);
       evaluate(); // the slots moved under a still pointer
     }
-    const now = performance.now();
-    const linger = s.touch ? SHUFFLE_LINGER_TOUCH_MS : SHUFFLE_LINGER_MS;
-    const dwell = s.touch ? FOLD_DWELL_TOUCH_MS : FOLD_DWELL_MS;
-    if (s.pendingShuffle && now - s.pendingShuffle.since >= linger) applyReorder(s.pendingShuffle.target);
-    if (s.foldCandidate && !s.foldKey && now - s.foldSince >= dwell) {
-      s.foldKey = s.foldCandidate;
-      // The finger covers the tile that just opened up, so a tick says it.
-      if (s.touch) try { navigator.vibrate?.(12); } catch { /* not supported */ }
-      publish();
-    }
-    s.raf = requestAnimationFrame(frame);
+    // The timers also run here, not only on pointer moves: a hand held
+    // perfectly still must still see the fold arm and the shuffle fire.
+    if (s?.active) applyIntent(tickIntent(s.intent, performance.now(), s.timing));
+    if (s?.active) s.raf = requestAnimationFrame(frame);
   };
 
   const start = (scope, key, kind, el, pointerId, clientX, clientY, touch) => {
@@ -347,7 +321,8 @@ function createDragEngine(env) {
       pointer: { x: clientX, y: clientY },
       target: { x: rect.left, y: rect.top },
       pos: { x: rect.left, y: rect.top },
-      foldCandidate: null, foldKey: null, foldSince: 0, pendingShuffle: null, ejected: false, fromScope: null,
+      scale: 1.08,
+      intent: initialIntent(), timing: timingFor(!!touch), ejected: false, fromScope: null,
       originEl: el,
     };
     s.ghost = makeGhost(el, rect);
@@ -384,15 +359,15 @@ function createDragEngine(env) {
       return;
     }
 
-    // A finger let go while resting on an icon: that is the fold, whether or
-    // not the arm delay had run out - nobody holds still on a phone to wait
-    // for a ring they can't see under their fingertip.
-    if (!g.foldKey && g.touch && g.foldCandidate && performance.now() - g.foldSince >= FOLD_RELEASE_TOUCH_MS) g.foldKey = g.foldCandidate;
+    // Let go while resting on an icon: that is the fold, whether or not the
+    // opening animation had run out - the person aimed at it and released;
+    // the ring not having appeared yet is our latency, not their intent.
+    const foldKey = foldOnRelease(g.intent, performance.now(), g.timing);
 
-    if (g.foldKey) {
-      const targetEl = (env.els.get(g.scope) || new Map()).get(g.foldKey);
+    if (foldKey) {
+      const targetEl = (env.els.get(g.scope) || new Map()).get(foldKey);
       const iconEl = targetEl?.querySelector('.app-tile-icon-wrap') || targetEl;
-      const r = iconEl ? iconEl.getBoundingClientRect() : slotViewport(g.slots[g.order.indexOf(g.foldKey)]);
+      const r = iconEl ? iconEl.getBoundingClientRect() : slotViewport(g.slots[g.order.indexOf(foldKey)]);
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       targetEl?.classList.add('app-tile-absorb');
       ghost.style.transition = `transform ${FOLD_MS}ms cubic-bezier(.4,0,.2,1), opacity ${FOLD_MS}ms ease`;
@@ -400,7 +375,7 @@ function createDragEngine(env) {
       ghost.style.transform = `translate3d(${cx - g.ghostRect.w / 2}px,${cy - g.ghostRect.h / 2}px,0) scale(0.22)`;
       setTimeout(() => done(() => {
         targetEl?.classList.remove('app-tile-absorb');
-        env.cbsRef.current.onFold?.(g.scope, g.key, g.foldKey, g.ejected ? g.fromScope : null);
+        env.cbsRef.current.onFold?.(g.scope, g.key, foldKey, g.ejected ? g.fromScope : null);
       }), FOLD_MS);
       return;
     }

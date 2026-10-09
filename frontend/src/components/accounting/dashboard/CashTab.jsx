@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { CASH_CATS, cashPlan, SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
 import { monthLabel, monthLong, mShort } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
@@ -42,7 +43,8 @@ export default function CashTab() {
   const six = plan ? plan.fc[5] : null;
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 14 };
   const half = { gridColumn: 'span 12' };
-  const halfWide = typeof window !== 'undefined' && window.innerWidth >= 1000 ? { gridColumn: 'span 6' } : half;
+  const wide = useMedia('(min-width: 1000px)');   // follows the viewport, so a phone turned sideways re-lays out
+  const halfWide = wide ? { gridColumn: 'span 6' } : half;
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>

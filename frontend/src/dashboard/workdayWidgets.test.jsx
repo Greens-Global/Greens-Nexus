@@ -15,7 +15,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@gre
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
-import { WIDGETS, KPI_CATALOG, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS } from './widgets.jsx';
+import { WIDGETS, KPI_CATALOG, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS, widgetHidden } from './widgets.jsx';
 import { TimeClockWidget, MyRequestsWidget, DueBackWidget, ComingUpWidget, normalizeRequests, dueRows, comingUpRows } from './workdayWidgets.jsx';
 
 // Fixed "now": Tuesday 09/22/2026 10:30 local.
@@ -43,8 +43,11 @@ describe('Time Clock tile', () => {
     apiMock.timeStatus.mockResolvedValue({ lastPunch: { kind: 'in', at }, staleOpenShift: false, days: { [localKey(NOW)]: { workedMin: 120 } } });
     render(<TimeClockWidget />);
     expect(await screen.findByText('Clocked In')).toBeTruthy();
+    expect(screen.getByText(/in at 9:00 AM/)).toBeTruthy();       // the last punch, on the status line
     expect(screen.getAllByText('3h 30m')).toHaveLength(2); // today and last 7 days both 3h 30m in this fixture
     expect(screen.getByText(/Open Time Clock/)).toBeTruthy();
+    // The whole tile is the click target - no separate button.
+    expect(screen.queryByRole('button', { name: /Open Time Clock/ })?.className).toContain('dk-stat');
   });
 
   it('shows Clocked Out with a Punch In hand-off, and On Break pauses the live count', async () => {
@@ -60,10 +63,22 @@ describe('Time Clock tile', () => {
     expect(screen.getAllByText('1h 00m')).toHaveLength(2); // live session paused: today stays 1h 00m
   });
 
+  it('flags a shift the server closed as stale instead of calling it clocked in', async () => {
+    apiMock.timeStatus.mockResolvedValue({ lastPunch: { kind: 'in', at: '2026-09-20T15:00:00' }, staleOpenShift: true, days: {} });
+    render(<TimeClockWidget />);
+    expect(await screen.findByText('Shift Not Closed')).toBeTruthy();
+    expect(screen.getByText(/Open Time Clock/)).toBeTruthy();
+  });
+
   it('tells exempt roles they need not track time', async () => {
     apiMock.timeStatus.mockResolvedValue({ timeTrackingExempt: true, days: {} });
     render(<TimeClockWidget />);
     expect(await screen.findByText(/not required for your role/)).toBeTruthy();
+  });
+
+  it('is registered as a two-row stat tile', () => {
+    expect(WIDGETS['time-clock'].size).toEqual({ w: 3, h: 2 });
+    expect(WIDGETS['time-clock'].limits.maxH).toBe(2);
   });
 });
 
@@ -155,10 +170,23 @@ describe('registry, KPI catalog and quick actions', () => {
     for (const k of ['time-clock', 'my-requests', 'due-back', 'coming-up']) expect(WIDGETS[k]?.cat).toBe('Workday');
     expect(KPI_CATALOG.signatures_needed.label).toBe('Signatures Needed');
   });
-  it('adds the workday deep links to the catalog without changing the default six', () => {
+  it('the punch tiles are only for time-tracked people: hidden for a salaried (exempt) person, shown otherwise (Neil, Oct 8)', () => {
+    for (const k of ['time-clock', 'my-time']) {
+      expect(WIDGETS[k].timeTracked).toBe(true);
+      expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: true })).toBe(true);
+      expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: false })).toBe(false);
+      expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: null })).toBe(false);   // not known yet = tracked
+    }
+    // Everything else is for everyone, exempt or not.
+    for (const k of ['my-requests', 'due-back', 'coming-up', 'my-day', 'notes']) expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: true })).toBe(false);
+    // The simple tile is a small card, not a column.
+    expect(WIDGETS['my-time'].size).toEqual({ w: 3, h: 3 });
+  });
+  it('adds the workday deep links to the catalog without changing the default set', () => {
     const keys = QUICK_ACTIONS.map(a => a.key);
     for (const k of ['time-off', 'punch-fix', 'ask-hr', 'purchase']) expect(keys).toContain(k);
-    expect(DEFAULT_QUICK_ACTIONS).toEqual(['task', 'event', 'email', 'request-item', 'timeclock', 'kb']);
+    // New Ticket replaced Time Clock and Knowledge Base in the defaults (Neil, 10/08).
+    expect(DEFAULT_QUICK_ACTIONS).toEqual(['task', 'event', 'email', 'request-item', 'ticket']);
     expect(QUICK_ACTIONS.find(a => a.key === 'time-off')).toMatchObject({ view: 'timeclock', sub: 'timeoff' });
   });
 });

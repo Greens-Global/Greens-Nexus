@@ -5601,6 +5601,40 @@ class AccountingAmaAgreement(Base):
     updated_at          = Column(String, default="")
 
 
+class Announcement(Base):
+    """One company or department announcement (Essentials, Oct 7) for the
+    Announcements dashboard tile. `audience` company = everyone, department =
+    only `department`; `pinned_until` keeps it at the top until that date;
+    `requires_ack` asks each reader to acknowledge it (AnnouncementRead).
+    Soft-deleted through `deleted_at` so read marks keep their history. New
+    table - create_all builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "nexus_announcements"
+    id           = Column(String, primary_key=True)             # uuid
+    title        = Column(String, default="")
+    body         = Column(Text, default="")
+    author_email = Column(String, default="", index=True)
+    audience     = Column(String, default="company")            # company | department
+    department   = Column(String, default="")                   # for audience = department
+    pinned_until = Column(String, default="")                   # ISO date, '' = not pinned
+    requires_ack = Column(Boolean, default=False)
+    created_at   = Column(String, default="")                   # ISO timestamp
+    updated_at   = Column(String, default="")
+    deleted_at   = Column(String, default="", index=True)       # '' = live
+
+
+class AnnouncementRead(Base):
+    """One person's read / acknowledge mark on one announcement (Essentials,
+    Oct 7). One row per (announcement, email); `acknowledged_at` stays '' until
+    they acknowledge an announcement that requires it. New table - create_all
+    builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "nexus_announcement_reads"
+    id              = Column(String, primary_key=True)          # uuid
+    announcement_id = Column(String, default="", index=True)
+    email           = Column(String, default="", index=True)
+    read_at         = Column(String, default="")
+    acknowledged_at = Column(String, default="")
+
+
 class HrPacketSetting(Base):
     """Which Nexus Sign template a company sends for an HR life event
     (Neil/Pranshu call, Oct 8): the hiring packet, a promotion letter, a

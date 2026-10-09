@@ -20,7 +20,7 @@ vi.mock('../api', () => ({
     sendPromotion: (...a) => send(...a),
   },
 }));
-vi.mock('./ESign', () => ({ SignModal: () => null }));
+vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 
 const { PromoteModal } = await import('./HrPersonActions');
 const erin = { id: 'e1', firstName: 'Erin', lastName: 'Lee', company: 'c1', jobTitle: 'IT Dev Associate I' };

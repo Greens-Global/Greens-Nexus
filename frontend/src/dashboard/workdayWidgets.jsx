@@ -9,9 +9,8 @@
 // bundle does not grow; DashCard / navigate come from widgets.jsx so these
 // read exactly like every other tile.
 import { useState, useEffect } from 'react';
-
 import { LoadingState } from '../components/AsyncState';
-import { ArrowRight, Cake, CalendarDays, Clock, Package, HandCoins } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Cake, CalendarDays, Clock, Package, HandCoins } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate, formatTime, formatDateLong } from '../lib/datetime';
@@ -65,6 +64,14 @@ export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
 // never-lose-a-punch queue) - this tile only hands off there. Re-fetches when
 // the tab regains focus so a punch made on the Time Clock screen or from the
 // floating pill shows up here without a reload.
+//
+// Shaped like a stat tile (Neil, Sep 29: the old 3-row card with its own
+// header, status line, two stacked numerals and a full button was "too
+// big"): the dk-stat anatomy at two rows - chip + status on one line, today
+// and the week side by side on one baseline, one quiet action line with the
+// last punch opposite it - and the whole tile is the click target, so it sits
+// next to KPI tiles as an equal.
+const PUNCH_WORD = { in: 'in', out: 'out', break_start: 'break', break_end: 'back' };
 export function TimeClockWidget() {
   const [status, setStatus] = useState(null);
   const [now, setNow] = useState(() => new Date());
@@ -78,55 +85,68 @@ export function TimeClockWidget() {
     const t = setInterval(load, 120000);
     return () => { alive = false; clearInterval(t); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); };
   }, []);
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  // The totals are whole minutes, so a 15s tick keeps them honest without
+  // re-rendering the board every second.
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);
 
   const last = status?.lastPunch;
-  const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
+  const stale = !!status?.staleOpenShift;
+  const clockedIn = !!(last && last.kind !== 'out') && !stale;
   const onBreak = clockedIn && last?.kind === 'break_start';
   const elapsedMin = clockedIn && !onBreak && last?.at ? Math.max(0, Math.floor((now - utc(last.at)) / 60000)) : 0;
   const days = status?.days || {};
-  let todayMin = (days[localKey(now)]?.workedMin || 0) + elapsedMin;
+  const todayMin = (days[localKey(now)]?.workedMin || 0) + elapsedMin;
   let weekMin = elapsedMin;
   for (let i = 0; i < 7; i++) weekMin += days[localKey(new Date(now.getTime() - i * DAY_MS))]?.workedMin || 0;
 
-  const state = !status ? '' : status.error ? 'Unavailable' : onBreak ? 'On Break' : clockedIn ? 'Clocked In' : 'Clocked Out';
-  const tone = onBreak ? 'orange' : clockedIn ? 'green' : 'muted';
-  const stateColor = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
-  const since = last?.at ? `${{ in: 'In', out: 'Out', break_start: 'Break', break_end: 'Back' }[last.kind] || last.kind} at ${formatTime(utc(last.at))}` : '';
+  const state = !status ? 'Loading' : status.error ? 'Unavailable' : stale ? 'Shift Not Closed' : onBreak ? 'On Break' : clockedIn ? 'Clocked In' : 'Clocked Out';
+  const tone = stale ? 'red' : onBreak ? 'orange' : clockedIn ? 'green' : 'muted';
+  const stateColor = tone === 'muted' ? 'var(--wk-faint)' : `var(--wk-${tone})`;
+  // "in at 9:02 AM" - the last punch, on the action row opposite the link
+  // (on the status line it truncated at three columns).
+  const since = status && !status.error && last?.at ? `${PUNCH_WORD[last.kind] || last.kind} at ${formatTime(utc(last.at))}` : '';
+  const cta = !status || status.error ? 'Open Time Clock' : clockedIn || stale ? 'Open Time Clock' : 'Punch In';
   const go = () => navigate('timeclock', 'overview');
 
   if (status?.timeTrackingExempt) {
     return (
-      <DashCard title="Time Clock" action={<Clock size={15} style={{ color: 'var(--muted)' }} />}>
-        <div style={noteStyle}>Time tracking is not required for your role.</div>
-      </DashCard>
+      <div className="dk-stat" role="button" onClick={go} style={{ height: '100%', boxSizing: 'border-box', justifyContent: 'center' }}>
+        <span className="dk-stat-top"><span className="dk-chip dk-chip--green"><Clock /></span><ArrowUpRight size={15} className="dk-stat-arrow" /></span>
+        <span className="dk-stat-label" style={{ marginTop: 12 }}>Time Clock</span>
+        <span className="dk-stat-sub">Time tracking is not required for your role.</span>
+      </div>
     );
   }
+  const num = { fontSize: 26, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', color: 'var(--wk-ink)', whiteSpace: 'nowrap' };
+  const lbl = { fontSize: 11.5, color: 'var(--wk-faint)', marginTop: 2, whiteSpace: 'nowrap' };
   return (
-    <DashCard title="Time Clock" sub={since || undefined} action={<Clock size={15} style={{ color: 'var(--muted)' }} />}>
-      {!status ? (
-        <LoadingState compact />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: stateColor }}>
-            <span style={{ width: 8, height: 8, borderRadius: 99, background: stateColor }} /> {state}
-          </div>
-          <div style={{ display: 'flex', gap: 18, alignItems: 'flex-end' }}>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1.1, color: 'var(--wk-ink, var(--ink))', fontVariantNumeric: 'tabular-nums' }}>{fmtH(todayMin)}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Today</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtH(weekMin)}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Last 7 days</div>
-            </div>
-          </div>
-          <button type="button" className="secondary-btn" onClick={go} style={{ marginTop: 'auto', alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {clockedIn ? 'Open Time Clock' : 'Punch In'} <ArrowRight size={13} />
-          </button>
-        </div>
-      )}
-    </DashCard>
+    <div className="dk-stat" role="button" onClick={go} title={cta}
+      style={{ height: '100%', boxSizing: 'border-box', justifyContent: 'center', padding: '14px 18px 13px', gap: 0 }}>
+      <span className="dk-stat-top" style={{ gap: 10 }}>
+        <span className={`dk-chip dk-chip--${tone === 'muted' ? 'blue' : tone}`} style={{ width: 30, height: 30, borderRadius: 8 }}><Clock /></span>
+        <span style={{ flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: stateColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <span style={{ width: 7, height: 7, borderRadius: 99, background: stateColor, flexShrink: 0 }} />
+          {state}
+        </span>
+        <ArrowUpRight size={15} className="dk-stat-arrow" />
+      </span>
+      <span style={{ display: 'flex', alignItems: 'flex-end', gap: 22, marginTop: 10, minWidth: 0 }}>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', ...num }}>{status && !status.error ? fmtH(todayMin) : '--'}</span>
+          <span style={{ display: 'block', ...lbl }}>Today</span>
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', ...num, fontSize: 17, color: 'var(--wk-dim)' }}>{status && !status.error ? fmtH(weekMin) : '--'}</span>
+          <span style={{ display: 'block', ...lbl }}>Last 7 days</span>
+        </span>
+      </span>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 9, width: '100%', minWidth: 0 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-green)', whiteSpace: 'nowrap' }}>
+          {cta} <ArrowRight size={12} />
+        </span>
+        {since && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{since}</span>}
+      </span>
+    </div>
   );
 }
 

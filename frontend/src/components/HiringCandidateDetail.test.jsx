@@ -12,9 +12,11 @@ vi.mock('../api', () => ({
     getCandidateHistory: () => Promise.resolve([]),
     ivList: (id) => Promise.resolve(id === 'with-round' ? rounds : []),
     getLifeEvents: () => Promise.resolve([]),
+    hiringPacketOptions: () => Promise.resolve({ picked: null, options: [] }),
   },
 }));
-vi.mock('./ESign', () => ({ SignModal: () => null }));
+vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
+vi.mock('../lib/queries', () => ({ useEntities: () => ({ data: [] }) }));
 
 const { default: CandidateDetailModal } = await import('./HiringCandidateDetail');
 const base = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', roleTitle: 'Analyst' };
@@ -39,8 +41,12 @@ describe('CandidateDetailModal', () => {
   });
 
   it('Screening without an email cannot schedule and says why', () => {
-    render(<CandidateDetailModal {...props} candidate={{ ...base, email: '', stage: 'screening' }} />);
-    expect(screen.getByText('Schedule Interview').closest('button')).toBeDisabled();
+    const onSchedule = vi.fn();
+    const toastErr = vi.fn();
+    render(<CandidateDetailModal {...props} onSchedule={onSchedule} toastErr={toastErr} candidate={{ ...base, email: '', stage: 'screening' }} />);
+    fireEvent.click(screen.getByText('Schedule Interview'));
+    expect(onSchedule).not.toHaveBeenCalled();
+    expect(toastErr).toHaveBeenCalled();
     expect(screen.getByText(/No email yet/)).toBeTruthy();
   });
 

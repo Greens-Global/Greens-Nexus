@@ -2038,6 +2038,11 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS state VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS postal_code VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS m365_sync JSON",
+        # Announcements (Essentials dashboard tiles, Oct 7). Two new tables -
+        # RLS per CLAUDE.md. models.Announcement / AnnouncementRead,
+        # routers/announcements.py.
+        "ALTER TABLE nexus_announcements ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE nexus_announcement_reads ENABLE ROW LEVEL SECURITY",
         # HR life events (Neil, Oct 8): hiring packet / promotion / separation
         # through Nexus Sign, filed to the person's Egnyte folder. New tables -
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
@@ -3211,3 +3216,7 @@ from routers import acct_scan  # noqa: E402
 app.include_router(acct_scan.router)               # Accounting: amount by entity x account x customer / vendor x month - the party-months aggregate, entity-scoped (Oct 7)
 from routers import accounting_ama  # noqa: E402
 app.include_router(accounting_ama.router)          # Accounting > AMA: asset management agreements, billed read from the ledger (Priyanka, Oct 7)
+from routers import announcements, my_work, my_team  # noqa: E402
+app.include_router(announcements.router)           # Dashboard > Announcements tile: company / department notices, read + acknowledge marks (Oct 7)
+app.include_router(my_work.router)                 # Dashboard > My Work tile: the caller's open work by due bucket (Oct 7)
+app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
