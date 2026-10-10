@@ -63,6 +63,9 @@ def project_to_dict(p: models.TaskProject) -> dict:
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
         "customFieldValues": p.custom_field_values or {},
         "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
+        # Oct 2026 - see models.TaskProject.
+        "defaultView": p.default_view if isinstance(p.default_view, dict) else None,
+        "sharedCharts": p.shared_charts if isinstance(p.shared_charts, list) else [],
     }
 
 
@@ -199,6 +202,47 @@ class ProjectBody(BaseModel):
     # so the two can never disagree.
     hr_department_id: Optional[str] = None
     hr_department_name: Optional[str] = None
+    # Oct 2026. default_view: {view, group} or None to clear. shared_charts:
+    # the project's whole shared list (replaced, like the client's own charts).
+    default_view: Optional[dict] = None
+    shared_charts: Optional[list] = None
+
+
+VIEW_KINDS = ("list", "board", "calendar", "timeline", "dashboard", "workload", "files")
+GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due")
+MAX_SHARED_CHARTS = 24
+MAX_CHART_BYTES = 4 * 1024
+
+
+def clean_default_view(v) -> Optional[dict]:
+    """{view, group} with only known values kept; None when nothing usable."""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    view = str(v.get("view") or "").strip()
+    if view in VIEW_KINDS:
+        out["view"] = view
+    group = str(v.get("group") or "").strip()
+    # Grouping by a custom field travels as that field's id - any short string.
+    if group and (group in GROUP_KINDS or len(group) <= 64):
+        out["group"] = group
+    return out or None
+
+
+def clean_shared_charts(charts) -> list:
+    import json as _json
+    if not isinstance(charts, list):
+        raise HTTPException(422, "shared_charts must be a list")
+    if len(charts) > MAX_SHARED_CHARTS:
+        raise HTTPException(422, f"At most {MAX_SHARED_CHARTS} shared charts per project")
+    out = []
+    for c in charts:
+        if not isinstance(c, dict) or not str(c.get("id") or "").strip():
+            raise HTTPException(422, "Each shared chart needs an id")
+        if len(_json.dumps(c).encode("utf-8")) > MAX_CHART_BYTES:
+            raise HTTPException(422, "A shared chart is too large")
+        out.append(c)
+    return out
 
 
 @router.get("/task-projects/meta/departments")
@@ -301,10 +345,15 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
         raise HTTPException(404, "Project not found")
     # Renaming, archiving, changing access, or managing who's on the Share
     # panel are all project-settings actions - Asana's "Project admin" tier,
-    # not "Editor" (which only covers the tasks inside it).
-    require_project_role(db, user, p, "owner")
+    # not "Editor" (which only covers the tasks inside it). Curating the
+    # project's shared dashboard charts is editor work, like the tasks.
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    require_project_role(db, user, p, "editor" if set(data) <= {"shared_charts"} else "owner")
     for k, v in data.items():
+        if k == "default_view":
+            v = clean_default_view(v)
+        if k == "shared_charts":
+            v = clean_shared_charts(v)
         if k == "owner_email" and v is not None:
             v = (v or "").lower()
         if k == "member_roles" and v:

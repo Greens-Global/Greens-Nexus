@@ -13,6 +13,7 @@ import { NX, FONT, btn, card, PRIORITY_ORDER } from './theme';
 import { Avatar, useIsMobile, localTodayISO, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { useTableValue, whenTablePrefsLoaded } from './tableCols';
 
 const WIDGET_META = [
   { key: 'my_tasks', label: 'My Tasks' },
@@ -103,11 +104,32 @@ export default function HomeView({ onNavigate }) {
   const isMobile = useIsMobile();
   const dateRef = useRef(null);
   const rangeRef = useRef(null);
-  const [widgets, setWidgets] = useState(() => {
-    try { const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); if (Array.isArray(raw) && raw.length) return raw.filter((k) => WIDGET_META.some((w) => w.key === k)); } catch { /* */ }
-    return DEFAULT_LAYOUT;
-  });
-  const persist = (next) => { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); setWidgets(next); };
+  // The layout lives in the person's profile (the "home" document in
+  // /task-prefs, Oct 2026) so the Home they arranged at a desk is the Home
+  // they get on a laptop. The pre-Oct-2026 localStorage copy is lifted once.
+  const [homeData, setHomeData] = useTableValue('home', 'data', undefined);
+  useEffect(() => {
+    let alive = true;
+    whenTablePrefsLoaded().then((all) => {
+      if (!alive || all?.home?.data !== undefined) return;   // the profile already has a layout
+      try {
+        const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
+        const autofitRaw = localStorage.getItem('nexus.homeAutofit');
+        if ((Array.isArray(raw) && raw.length) || autofitRaw !== null) {
+          setHomeData({ widgets: Array.isArray(raw) && raw.length ? raw : DEFAULT_LAYOUT, autofit: autofitRaw !== '0' });
+          localStorage.removeItem(LAYOUT_KEY);
+          localStorage.removeItem('nexus.homeAutofit');
+        }
+      } catch { /* private mode */ }
+    });
+    return () => { alive = false; };
+  }, [setHomeData]);
+  const widgets = useMemo(() => {
+    const raw = homeData?.widgets;
+    const known = Array.isArray(raw) ? raw.filter((k) => WIDGET_META.some((w) => w.key === k)) : [];
+    return known.length ? known : DEFAULT_LAYOUT;
+  }, [homeData]);
+  const persist = (next) => setHomeData({ ...(homeData || {}), widgets: next });
 
   // Customize mode: drag-to-rearrange + remove + add, all inline on the grid
   // (the old list modal is gone). Autofit packs widgets masonry-style so tall
@@ -116,8 +138,8 @@ export default function HomeView({ onNavigate }) {
   const [overKey, setOverKey] = useState(null);
   // Default ON: grid rows size to the tallest widget, so short widgets can
   // never tuck into the vertical gaps - masonry packing is what fills them.
-  const [autofit, setAutofit] = useState(() => localStorage.getItem('nexus.homeAutofit') !== '0');
-  const toggleAutofit = () => setAutofit((v) => { localStorage.setItem('nexus.homeAutofit', v ? '0' : '1'); return !v; });
+  const autofit = homeData?.autofit !== false;
+  const toggleAutofit = () => setHomeData({ ...(homeData || {}), widgets, autofit: !autofit });
   const reorder = (from, to) => {
     if (!from || from === to) return;
     const next = widgets.filter((k) => k !== from);
