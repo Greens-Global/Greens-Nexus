@@ -2207,22 +2207,25 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     # defaults to the actor. See CommentCreate.
     c = create_comment(db, t, actor_email=user["email"],
                        body=body.body or "", notify=notify, defer=background_tasks.add_task,
-                       parent_id=body.parent_id or "", assignee_email=body.assignee_email or "")
+                       parent_id=body.parent_id or "",
+                       assignee_email=assert_person_on_task(db, t, body.assignee_email or ""))
     return comment_to_dict(c)
 
 
 @router.patch("/comments/{comment_id}")
-def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
+def edit_comment(comment_id: str, upd: CommentUpdate, background_tasks: BackgroundTasks,
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Editing the TEXT is author-only; pinning is a curation action any project
     editor may take. Before this, neither was checked at all (the handler took no
     `user`), so any signed-in person could rewrite anyone's comment on any task,
-    including in a project they can't otherwise see."""
+    including in a project they can't otherwise see. Every branch sits behind
+    the company wall and the task's viewer role first."""
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
-    t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
-    project = project_for_task(db, t) if t else None
+    t = _wall_task(db, user, c.task_id)
+    require_task_role(db, user, t, "viewer")
+    project = project_for_task(db, t)
     if upd.body is not None:
         # Managers bypass every other project-role check in this module, but
         # rewriting someone else's words is different in kind from access - so
@@ -2239,14 +2242,22 @@ def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_c
         # The author hands their own comment on; an editor can route anyone's.
         if (c.author_email or "").lower() != me:
             require_project_role(db, user, project, "editor")
-        who = (upd.assignee_email or "").strip().lower()
-        if who and who != (c.assignee_email or "") and who != me and t is not None:
-            task_notify(db, kind="task_activity", for_email=who,
-                        title="A comment was assigned to you", body=f"{t.title}", task_id=t.id,
-                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
-        c.assignee_email = who
-        if not who:
+        who = assert_person_on_task(db, t, upd.assignee_email or "")
+        if who != (c.assignee_email or ""):
+            # A hand-off reopens the item: the new person has not acted on it
+            # yet, and a cleared one is no longer anybody's to resolve.
             c.resolved_at, c.resolved_by = "", ""
+            if who and who != me:
+                task_notify(db, kind="task_activity", for_email=who,
+                            title="A comment was assigned to you", body=f"{t.title}", task_id=t.id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                # Same email the person gets when the comment is posted to them.
+                background_tasks.add_task(notify_task_event, t.id, "comment_assigned", me,
+                                          comment_body=c.body or "", comment_assignee=who)
+            t.activity_ids = list(t.activity_ids or []) + [log_activity(
+                db, type="comment_assigned", actor_email=me, entity_id=t.id, entity_code=t.code,
+                entity_title=t.title, detail=f"assigned a comment to {who}" if who else "cleared a comment's assignee")]
+        c.assignee_email = who
     if upd.resolved is not None:
         # The author, the person it was assigned to, or a project editor.
         if me not in ((c.author_email or "").lower(), (c.assignee_email or "").lower()):
@@ -2277,12 +2288,14 @@ def react_to_comment(comment_id: str, body: ReactionBody, user: dict = Depends(g
                      db: Session = Depends(get_db)):
     """Toggle one of COMMENT_REACTIONS for the caller. Anyone who can see the
     task may react - a reaction is the lightest possible acknowledgment, which
-    is the point of it. The author hears about the first reaction of each
-    kind from a person; a toggle off is silent."""
+    is the point of it. The author gets a bell when a reaction goes on; a
+    toggle off is silent. The row is locked for the toggle: two people
+    reacting at the same moment must not read the same dict and have the
+    later write drop the earlier reaction (no-op on SQLite)."""
     emoji = (body.emoji or "").strip()
     if emoji not in COMMENT_REACTIONS:
         raise HTTPException(422, "That reaction is not offered here")
-    c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
+    c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).with_for_update().first()
     if not c:
         raise HTTPException(404, "Comment not found")
     t = _wall_task(db, user, c.task_id)
@@ -2343,6 +2356,10 @@ def delete_comment(comment_id: str, user: dict = Depends(get_current_user),
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
     for r in replies:
         db.delete(r)
+    # Files attached while composing these comments stay on the task as plain
+    # attachments instead of pointing at a comment that is gone.
+    (db.query(models.TaskAttachment).filter(models.TaskAttachment.comment_id.in_(gone))
+       .update({"comment_id": ""}, synchronize_session=False))
     db.delete(c)
     db.commit()
     fire_task_event(c.task_id, "comment")

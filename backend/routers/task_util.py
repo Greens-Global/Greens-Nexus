@@ -624,7 +624,8 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
         # level here would be a cycle.
         from task_notify import notify_task_event
         run_after(notify_task_event, task.id, "commented", actor, comment_body=text,
-                  thread_participants=sorted(in_thread - {assignee}), reply=root is not None)
+                  thread_participants=sorted(in_thread - {assignee}), reply=root is not None,
+                  comment_assignee=assignee)
         if assignee and assignee != actor:
             run_after(notify_task_event, task.id, "comment_assigned", actor, comment_body=text,
                       comment_assignee=assignee)

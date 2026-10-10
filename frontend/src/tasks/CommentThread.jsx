@@ -11,6 +11,12 @@ import { fmtDateTime, parseImportedAuthor, richBodyHtml, COMMENT_REACTIONS } fro
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
 
+/** The words of a rendered comment, one line: tags gone, entities decoded. */
+const textOf = (html) => {
+  try { return (new DOMParser().parseFromString(html || '', 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim(); }
+  catch { return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
+};
+
 /** "👍 2" chips plus a picker. `reactions` is {emoji: [emails]}. */
 export function CommentReactions({ reactions = {}, myEmail, nameOf, onToggle, compact = false }) {
   const [open, setOpen] = useState(false);
@@ -219,7 +225,11 @@ export default function CommentThread({ thread, nameOf, myEmail, people = [], at
   const { root, replies } = thread;
   const [replying, setReplying] = useState(false);
   const resolved = !!root.resolvedAt;
-  const [folded, setFolded] = useState(resolved);
+  // Folded while resolved, unless the person opened it since THIS resolve -
+  // keyed on resolvedAt so a Resolve click folds the thread without a remount.
+  const [openedAt, setOpenedAt] = useState('');
+  const folded = resolved && openedAt !== root.resolvedAt;
+  const setFolded = (v) => setOpenedAt(v ? '' : root.resolvedAt);
   const att = (c) => attachments?.get?.(c.id) || [];
   if (resolved && folded) {
     return (
@@ -227,7 +237,7 @@ export default function CommentThread({ thread, nameOf, myEmail, people = [], at
         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 8, fontFamily: FONT, textAlign: 'left', color: NX.faint, fontSize: 12.5 }}>
         <CheckCircle2 size={14} style={{ color: NX.green, flexShrink: 0 }} />
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          <b style={{ color: NX.dim }}>{nameOf(root.authorId)}</b>: {richBodyHtml(root.body, nameOf).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 90)}
+          <b style={{ color: NX.dim }}>{nameOf(root.authorId)}</b>: {textOf(richBodyHtml(root.body, nameOf)).slice(0, 90)}
         </span>
         <span style={{ flexShrink: 0 }}>Resolved by {nameOf(root.resolvedBy)}{replies.length ? ` · ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : ''}</span>
       </button>

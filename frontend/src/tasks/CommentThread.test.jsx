@@ -86,3 +86,23 @@ describe('CommentThread', () => {
     expect(base.onResolve).toHaveBeenCalledWith(done, false);
   });
 });
+
+describe('CommentThread resolved state', () => {
+  const nameOf2 = (e) => ({ 'ann@greensglobal.com': 'Ann Author' }[e] || e);
+  const base = { nameOf: nameOf2, myEmail: 'me@greensglobal.com', attachments: new Map(), onPin: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn(), onReact: vi.fn(), onResolve: vi.fn(), onAssign: vi.fn(), onReply: vi.fn() };
+  const open = { id: 'r', authorId: 'ann@greensglobal.com', body: '<p>Tom &amp; Jerry?</p>', createdAt: '2026-10-01T10:00:00Z', reactions: {} };
+
+  it('folds when the thread becomes resolved without a remount, and decodes entities on the folded line', () => {
+    const { rerender } = render(<CommentThread thread={{ root: open, replies: [] }} {...base} />);
+    expect(screen.getByText('Tom & Jerry?')).toBeInTheDocument();
+    rerender(<CommentThread thread={{ root: { ...open, resolvedAt: '2026-10-02T10:00:00Z', resolvedBy: 'ann@greensglobal.com' }, replies: [] }} {...base} />);
+    const line = screen.getByLabelText('Show resolved comment');
+    expect(line.textContent).toContain('Tom & Jerry?');
+    expect(line.textContent).not.toContain('&amp;');
+    fireEvent.click(line);
+    expect(screen.queryByLabelText('Show resolved comment')).toBeNull();
+    // Reopened and resolved again later: folds again.
+    rerender(<CommentThread thread={{ root: { ...open, resolvedAt: '2026-10-03T10:00:00Z', resolvedBy: 'ann@greensglobal.com' }, replies: [] }} {...base} />);
+    expect(screen.getByLabelText('Show resolved comment')).toBeInTheDocument();
+  });
+});

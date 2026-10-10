@@ -31,6 +31,7 @@ from routers.tasks import (  # noqa: E402
 )
 
 MANAGER = {"email": "boss@greensglobal.com", "level": 3}
+STRANGER = {"email": "stranger@greensglobal.com", "level": 1}   # a real person, not on the project
 AUTHOR = {"email": "author@greensglobal.com", "level": 1}
 REPLIER = {"email": "replier@greensglobal.com", "level": 1}
 ASSIGNEE = {"email": "assignee@greensglobal.com", "level": 1}
@@ -50,8 +51,12 @@ class CommentThreadTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskComment, models.TaskActivity, models.TaskProject,
-                  models.TaskNotification, models.NexusNotification):
+                  models.TaskNotification, models.NexusNotification, models.NexusEmployee):
             self.db.query(m).delete()
+        # A comment can only be assigned to a current person (assert_person_on_task).
+        for u in (MANAGER, AUTHOR, REPLIER, ASSIGNEE, READER, STRANGER):
+            self.db.add(models.NexusEmployee(id=gen_id(), first_name=u["email"].split("@")[0],
+                                             work_email=u["email"], status="active"))
         self.db.commit()
         # A restricted project: AUTHOR and REPLIER edit, ASSIGNEE comments, READER views.
         self.project = models.TaskProject(
@@ -158,28 +163,70 @@ class CommentThreadTests(unittest.TestCase):
     def test_resolving_is_for_the_author_the_assignee_or_an_editor(self):
         c = self._post(AUTHOR, assignee_email=ASSIGNEE["email"])
         with self.assertRaises(HTTPException):
-            edit_comment(c["id"], CommentUpdate(resolved=True), user=READER, db=self.db)
-        out = edit_comment(c["id"], CommentUpdate(resolved=True), user=ASSIGNEE, db=self.db)
+            edit_comment(c["id"], CommentUpdate(resolved=True), self.bg, user=READER, db=self.db)
+        out = edit_comment(c["id"], CommentUpdate(resolved=True), self.bg, user=ASSIGNEE, db=self.db)
         self.assertTrue(out["resolvedAt"])
         self.assertEqual(out["resolvedBy"], ASSIGNEE["email"])
         self.assertEqual([b.title for b in self._bells(AUTHOR["email"])], ["Your comment was resolved"])
         acts = [a.type for a in self.db.query(models.TaskActivity).all()]
         self.assertIn("comment_resolved", acts)
-        out = edit_comment(c["id"], CommentUpdate(resolved=False), user=REPLIER, db=self.db)   # an editor reopens
+        out = edit_comment(c["id"], CommentUpdate(resolved=False), self.bg, user=REPLIER, db=self.db)   # an editor reopens
         self.assertFalse(out["resolvedAt"])
         self.assertIn("comment_reopened", [a.type for a in self.db.query(models.TaskActivity).all()])
 
     def test_handing_a_comment_on_tells_the_new_person_and_clearing_it_clears_resolution(self):
         c = self._post(AUTHOR)
-        out = edit_comment(c["id"], CommentUpdate(assignee_email=ASSIGNEE["email"]), user=AUTHOR, db=self.db)
+        out = edit_comment(c["id"], CommentUpdate(assignee_email=ASSIGNEE["email"]), self.bg, user=AUTHOR, db=self.db)
         self.assertEqual(out["assigneeId"], ASSIGNEE["email"])
         self.assertEqual(len(self._bells(ASSIGNEE["email"])), 1)
         with self.assertRaises(HTTPException):
-            edit_comment(c["id"], CommentUpdate(assignee_email=READER["email"]), user=READER, db=self.db)
-        edit_comment(c["id"], CommentUpdate(resolved=True), user=ASSIGNEE, db=self.db)
-        out = edit_comment(c["id"], CommentUpdate(assignee_email=""), user=AUTHOR, db=self.db)
+            edit_comment(c["id"], CommentUpdate(assignee_email=READER["email"]), self.bg, user=READER, db=self.db)
+        edit_comment(c["id"], CommentUpdate(resolved=True), self.bg, user=ASSIGNEE, db=self.db)
+        out = edit_comment(c["id"], CommentUpdate(assignee_email=""), self.bg, user=AUTHOR, db=self.db)
         self.assertFalse(out["assigneeId"])
         self.assertFalse(out["resolvedAt"])
+
+    def test_a_comment_is_assigned_only_to_someone_who_can_see_the_task(self):
+        with self.assertRaises(HTTPException) as cm:
+            self._post(AUTHOR, assignee_email=STRANGER["email"])
+        self.assertEqual(cm.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as cm:
+            self._post(AUTHOR, assignee_email="someone@gmail.com")
+        self.assertEqual(cm.exception.status_code, 422)
+        self.assertEqual(self._events("comment_assigned"), [], "no email left for an outside address")
+        c = self._post(AUTHOR)
+        with self.assertRaises(HTTPException):
+            edit_comment(c["id"], CommentUpdate(assignee_email=STRANGER["email"]), self.bg, user=AUTHOR, db=self.db)
+
+    def test_handing_a_resolved_comment_on_reopens_it_and_emails_the_new_person(self):
+        c = self._post(AUTHOR, assignee_email=ASSIGNEE["email"])
+        edit_comment(c["id"], CommentUpdate(resolved=True), self.bg, user=ASSIGNEE, db=self.db)
+        before = len(self._events("comment_assigned"))
+        out = edit_comment(c["id"], CommentUpdate(assignee_email=REPLIER["email"]), self.bg, user=AUTHOR, db=self.db)
+        self.assertEqual(out["assigneeId"], REPLIER["email"])
+        self.assertFalse(out["resolvedAt"], "a hand-off reopens the item")
+        ev = self._events("comment_assigned")
+        self.assertEqual(len(ev), before + 1)
+        self.assertEqual(ev[-1][1]["comment_assignee"], REPLIER["email"])
+        self.assertIn("comment_assigned", [a.type for a in self.db.query(models.TaskActivity).all()])
+
+    def test_the_comment_assignee_does_not_also_get_the_commented_email(self):
+        self.task.assignee_emails = [ASSIGNEE["email"]]
+        self.db.commit()
+        self._post(AUTHOR, assignee_email=ASSIGNEE["email"])
+        ev = self._events("commented")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0][1]["comment_assignee"], ASSIGNEE["email"])
+        # The recipients the mailer would resolve for that event leave the assignee out.
+        cfg = {}
+        who = [e for e, _ in task_notify._recipients_for(self.db, self.task, "commented", AUTHOR["email"], cfg, ev[0][1])]
+        self.assertNotIn(ASSIGNEE["email"], who)
+
+    def test_editing_a_comment_is_behind_the_tasks_viewer_role(self):
+        c = self._post(AUTHOR)
+        with self.assertRaises(HTTPException) as cm:
+            edit_comment(c["id"], CommentUpdate(resolved=True), self.bg, user=STRANGER, db=self.db)
+        self.assertIn(cm.exception.status_code, (403, 404))
 
     # ── deleting a thread ───────────────────────────────────────────────────
     def test_an_author_cannot_delete_a_root_with_replies_but_a_manager_removes_the_thread(self):

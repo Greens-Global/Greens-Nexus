@@ -181,6 +181,9 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         # A reply reaches the thread's earlier voices too (Oct 2026).
         for who in extra.get("thread_participants", []) or []:
             add(who, "thread")
+        # The person the comment is assigned to gets "comment_assigned" for it
+        # (instant, its own template) - not that AND this one.
+        out.pop((extra.get("comment_assignee") or "").strip().lower(), None)
     elif event_type == "comment_assigned":
         # ONLY the person it was assigned to; everyone else gets "commented".
         add(extra.get("comment_assignee", ""), "assignee")
