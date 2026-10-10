@@ -2,7 +2,7 @@
 // implementation for People > Org Chart (where cards can be dragged to change
 // who reports to whom) and Support > Contact Directory > Org Chart (read-only,
 // Teams first). The canvas owns the layout, the connectors, pan, zoom (buttons,
-// wheel, trackpad pinch, two-finger pinch), fit/center and "scroll this card
+// ctrl + wheel, trackpad pinch, two-finger pinch), fit/center and "scroll this card
 // into view"; the screen owns the data, the card and any editing.
 //
 // Contract: `roots` are the top-level nodes, `childrenOf(node)` their children
@@ -96,19 +96,18 @@ const OrgChartCanvas = forwardRef(function OrgChartCanvas({
     bounds: () => (canvasRef.current ? canvasRef.current.getBoundingClientRect() : null),
   }), [centerView, fitToView, focusOn, zoomBy]);
 
-  // Wheel: a plain scroll pans; ctrl / cmd + wheel (and a trackpad pinch,
-  // which browsers deliver as ctrl+wheel) zooms about the cursor. A native
-  // listener because React's onWheel is passive and cannot preventDefault.
+  // Wheel: ctrl / cmd + wheel (and a trackpad pinch, which browsers deliver
+  // as ctrl+wheel) zooms about the cursor. A plain scroll is left to the page:
+  // the canvas fills most of the screen, and capturing it would trap the
+  // viewer on a page whose lists continue below the chart. A native listener
+  // because React's onWheel is passive and cannot preventDefault.
   useEffect(() => {
     const c = canvasRef.current;
     if (!c) return undefined;
     const onWheel = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
-      } else {
-        setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
-      }
+      zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
     };
     c.addEventListener('wheel', onWheel, { passive: false });
     return () => c.removeEventListener('wheel', onWheel);

@@ -2663,8 +2663,11 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
 
   const isHighlight = (e) => !!q && fullName(e).toLowerCase().includes(q);
   const onUnlink = (person) => drop('__none__', person);
-  const keyOf = (e) => (e.workEmail || '').toLowerCase();
-  const childrenOf = (e) => visChildren.get(keyOf(e)) || [];
+  // Keyed by work email (what collapse, search and drag use); someone with
+  // no work email yet falls back to their record id so siblings never share
+  // a key. They can have no reports - reports are filed under an email.
+  const keyOf = (e) => (e.workEmail || '').toLowerCase() || `id:${e.id}`;
+  const childrenOf = (e) => visChildren.get((e.workEmail || '').toLowerCase()) || [];
   const renderCard = (e, meta) => {
     const div = divisionOf(e);
     return (

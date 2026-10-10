@@ -26,5 +26,7 @@ describe('directory PDF', () => {
   });
   it('maps typography to ASCII and drops what Helvetica cannot draw', () => {
     expect(ascii('Controller — “Finance” 💼…')).toBe('Controller - "Finance" ...');
+    expect(ascii('José Müller · Zoë')).toBe('José Müller · Zoë');      // Latin-1 is in WinAnsi: keep it
+    expect(ascii('Łukasz Şahin 王')).toBe('ukasz Sahin ');             // accent dropped where it decomposes, else dropped
   });
 });

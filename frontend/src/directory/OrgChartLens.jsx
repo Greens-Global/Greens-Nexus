@@ -19,19 +19,32 @@ const keyOf = (n) => n.person.email;
 
 export default function OrgChartLens({ people, query, me, selected, onSelect, mobile, canOpenPeople }) {
   const canvas = useRef(null);
-  const [collapsed, setCollapsed] = useState(null);   // null = not seeded yet
   const [activeDiv, setActiveDiv] = useState('');
 
   const byEmail = useMemo(() => new Map(people.map((p) => [p.email, p])), [people]);
   const { trees, loose } = useMemo(() => splitTree(buildTree(people)), [people]);
-  const folded = useMemo(() => collapsed || initialCollapsed(trees, childrenOf, keyOf), [collapsed, trees]);
+  // A new shape (first load, a filter change) starts centered at 100% with
+  // the default folding; the minute refresh hands over new objects with the
+  // same shape and must not move or refold the chart under the viewer.
+  const shape = `${trees.map(keyOf).join('|')}:${people.length}`;
+
+  // Folding belongs to the shape it was made for: after a filter change the
+  // chart starts from the default again instead of carrying a fold set whose
+  // missing keys would draw every new branch wide open.
+  const [fold, setFold] = useState({ shape: '', set: null });
+  const folded = useMemo(() => (fold.shape === shape && fold.set) || initialCollapsed(trees, childrenOf, keyOf), [fold, shape, trees]);
+  const setCollapsed = useCallback((fn) => setFold((prev) => {
+    const cur = prev.shape === shape ? prev.set : null;
+    const next = fn(cur);
+    return next === cur ? prev : { shape, set: next };
+  }), [shape]);
   const toggle = useCallback((key) => setCollapsed((prev) => {
     const n = new Set(prev || initialCollapsed(trees, childrenOf, keyOf));
     if (n.has(key)) n.delete(key); else n.add(key);
     return n;
-  }), [trees]);
-  const expandAll = () => { setCollapsed(new Set()); setTimeout(() => canvas.current?.centerView(), 60); };
-  const collapseAll = () => { setCollapsed(allBranchKeys(trees, childrenOf, keyOf)); setTimeout(() => canvas.current?.centerView(), 60); };
+  }), [trees, setCollapsed]);
+  const expandAll = () => { setCollapsed(() => new Set()); setTimeout(() => canvas.current?.centerView(), 60); };
+  const collapseAll = () => { setCollapsed(() => allBranchKeys(trees, childrenOf, keyOf)); setTimeout(() => canvas.current?.centerView(), 60); };
 
   // Divisions color the cards; the legend spotlights one.
   const divNames = useMemo(() => divisionNames(people), [people]);
@@ -46,7 +59,9 @@ export default function OrgChartLens({ people, query, me, selected, onSelect, mo
   // card) rather than filtering - filtering by a name would amputate the
   // person's whole team out of the picture.
   const q = (query || '').trim();
-  const hits = useMemo(() => (q ? new Set(searchPeople(people, q).map((p) => p.email)) : null), [people, q]);
+  const matches = useMemo(() => (q ? searchPeople(people, q) : null), [people, q]);
+  const hits = useMemo(() => (matches ? new Set(matches.map((p) => p.email)) : null), [matches]);
+  const firstHit = matches && matches.length ? matches[0].email : '';
   const reveal = useCallback((email) => {
     const p = byEmail.get(email);
     if (!p) return;
@@ -58,30 +73,32 @@ export default function OrgChartLens({ people, query, me, selected, onSelect, mo
       keys.forEach((k) => n.delete(k));
       return n;
     });
-  }, [byEmail, trees]);
+  }, [byEmail, trees, setCollapsed]);
+  // The latest reveal, read by the effects below without being one of their
+  // dependencies: the minute refresh makes a new `reveal`, and re-running
+  // them on it would refold the chart and glide it back to the match or the
+  // selection while the viewer is looking somewhere else.
+  const revealRef = useRef(reveal);
+  useEffect(() => { revealRef.current = reveal; }, [reveal]);
+
   useEffect(() => {
-    if (!q) return undefined;
-    const first = searchPeople(people, q)[0];
-    if (!first) return undefined;
-    reveal(first.email);   // eslint-disable-line react-hooks/set-state-in-effect -- the query is the parent's; unfolding the match's ancestors is this chart's reaction to it
-    const t = setTimeout(() => canvas.current?.focusOn(first.email), 80);
+    if (!firstHit) return undefined;
+    revealRef.current(firstHit);
+    const t = setTimeout(() => canvas.current?.focusOn(firstHit), 80);
     return () => clearTimeout(t);
-  }, [q, people, reveal]);
+  }, [firstHit]);
 
   // A selection made anywhere (a card here, a pill on the contact card, the
   // header search) is brought into view - but a card already in view stays
   // where it is, so tapping it does not make the chart lurch.
+  const selectedHere = !!selected && byEmail.has(selected);
   useEffect(() => {
-    if (!selected || !byEmail.has(selected)) return undefined;
-    reveal(selected);   // eslint-disable-line react-hooks/set-state-in-effect -- selection arrives from the contact card and the header search too, not only from a card here
+    if (!selectedHere) return undefined;
+    revealRef.current(selected);
     const t = setTimeout(() => canvas.current?.focusOn(selected, { onlyIfHidden: true }), 80);
     return () => clearTimeout(t);
-  }, [selected, byEmail, reveal]);
+  }, [selected, selectedHere]);
 
-  // A new shape (first load, a filter change) starts centered at 100%; the
-  // minute refresh hands over new objects with the same shape and must not
-  // move the chart under the viewer.
-  const shape = `${trees.map(keyOf).join('|')}:${people.length}`;
   useEffect(() => { canvas.current?.centerView(); }, [shape]);
 
   const jumpToMe = () => {

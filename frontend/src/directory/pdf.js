@@ -21,17 +21,19 @@ const HEAD_H = 18;
 const SECTION_H = 20;
 const FONT = 8.5, SMALL = 7.5, TITLE = 16;
 
-// Helvetica (WinAnsi) has no glyph for em dashes, smart quotes or emoji, and
-// pdf-lib throws on them rather than dropping them - map the common ones and
-// drop the rest so one odd title never fails the whole file.
+// The standard Helvetica font encodes WinAnsi: printable ASCII plus Latin-1,
+// so names like José, Müller or Zoë print as written. pdf-lib throws on
+// anything else (emoji, most non-Latin scripts) rather than dropping it, so
+// dashes, smart quotes and the ellipsis map to plain forms, other accented
+// Latin letters (Ł, ş) lose their accent, and the rest is dropped - one odd
+// title never fails the whole file.
 export const ascii = (s) => String(s ?? '')
   .replace(/[‘’‛]/g, "'")
   .replace(/[“”]/g, '"')
   .replace(/[–—]/g, '-')
   .replace(/…/g, '...')
   .replace(/\u00a0/g, ' ')
-  // eslint-disable-next-line no-control-regex
-  .replace(/[^\x20-\x7E]/g, '');
+  .replace(/[^\x20-\x7E\u00A1-\u00FF]/g, (ch) => ch.normalize('NFD').replace(/[^\x20-\x7E]/g, ''));
 
 const COLUMNS = (multiCompany) => [
   { header: 'Name / Title', w: 24, get: (p) => p.name, sub: (p) => p.jobTitle },
@@ -132,11 +134,11 @@ export async function directoryPdfBytes({ people, companyName = '', scope = '', 
       need(LINE);
       const x = MARGIN + depth * 16;
       if (depth > 0) page.drawText('-', { x: x - 9, y: y - LINE + 4, size: FONT, font, color: FAINT });
-      const name = ascii(p.name);
+      const name = fit(p.name, Math.max(60, PAGE_W - MARGIN - x), bold, FONT);
       page.drawText(name, { x, y: y - LINE + 4, size: FONT, font: bold, color: INK });
       const rest = [p.jobTitle, p.department === NO_DEPARTMENT ? '' : p.department].filter(Boolean).join(' · ');
-      if (rest) {
-        const nx = x + bold.widthOfTextAtSize(name, FONT) + 6;
+      const nx = x + bold.widthOfTextAtSize(name, FONT) + 6;
+      if (rest && PAGE_W - MARGIN - nx > 40) {
         page.drawText(fit(rest, PAGE_W - MARGIN - nx, font, SMALL), { x: nx, y: y - LINE + 4, size: SMALL, font, color: DIM });
       }
       y -= LINE;
