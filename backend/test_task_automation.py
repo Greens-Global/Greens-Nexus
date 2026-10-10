@@ -13,7 +13,7 @@ Run with: python -m unittest test_task_automation -v
 import os
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import timedelta
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -32,7 +32,7 @@ from routers.task_config import create_rule, update_rule, RuleBody  # noqa: E402
 MANAGER = {"email": "boss@greensglobal.com", "level": 3}
 SAM = "sam@greensglobal.com"
 PRIYA = "priya@greensglobal.com"
-TODAY = date.today()
+TODAY = task_automation.business_today()   # the engine's clock, not the server's
 
 
 class AutomationTests(unittest.TestCase):
@@ -272,6 +272,40 @@ class AutomationTests(unittest.TestCase):
         self.assertTrue(row.completed)
         self.assertEqual(row.status, "completed")
 
+    def test_completing_through_the_checkbox_is_a_status_change(self):
+        # The checkbox sends {completed: true} and no status; the status only
+        # becomes "completed" when the flag lands, after the engine ran.
+        self._rule("Done tasks get tagged", {"type": "status_changed", "value": "completed"},
+                   [{"type": "add_tag", "value": "done"}])
+        t = self._create()
+        self._patch(t["id"], completed=True)
+        row = self._row(t["id"])
+        self.assertTrue(row.completed)
+        self.assertIn("done", row.tags)
+        b = self._create(title="bulk")
+        bulk_update(BulkUpdate(ids=[b["id"]], patch={"completed": True}), user=MANAGER, db=self.db)
+        self.assertIn("done", self._row(b["id"]).tags)
+
+    def test_reopening_through_the_checkbox_is_a_status_change(self):
+        self._rule("Reopened goes high", {"type": "status_changed", "value": "not_started"},
+                   [{"type": "set_priority", "value": "high"}])
+        t = self._create()
+        self._patch(t["id"], completed=True)
+        self.assertEqual(self._row(t["id"]).priority, "medium")
+        self._patch(t["id"], completed=False)
+        row = self._row(t["id"])
+        self.assertFalse(row.completed)
+        self.assertEqual(row.status, "not_started")
+        self.assertEqual(row.priority, "high")
+
+    def test_set_status_to_a_deleted_custom_status_is_skipped(self):
+        self._rule("Park it", {"type": "priority_changed", "value": "low"},
+                   [{"type": "set_status", "value": "cs-gone"}])
+        t = self._create()
+        self._patch(t["id"], priority="low")
+        self.assertEqual(self._row(t["id"]).status, "not_started")
+        self.assertIn("skipped setting status: that status no longer exists", self._runs()[-1].actions)
+
     # ── scheduled: due date arrives ─────────────────────────────────────────
     def test_due_date_arrives_fires_once_per_task_per_date(self):
         self._rule("Two days out goes urgent", {"type": "due_date_arrives", "value": -2},
@@ -296,6 +330,25 @@ class AutomationTests(unittest.TestCase):
         row = self._row(t["id"])
         self.assertEqual(task_assignees(row), [SAM, MANAGER["email"]])
         self.assertIn("late", row.tags)
+
+    def test_due_date_arrives_respects_the_dependency_gate(self):
+        blocker = self._create(title="Blocker")
+        self._rule("Start on the day", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "set_status", "value": "in_progress"}])
+        held = self._create(title="held", due_on=TODAY.isoformat(), blocked_by_ids=[blocker["id"]])
+        free = self._create(title="free", due_on=TODAY.isoformat())
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(self._row(held["id"]).status, "not_started", "its blocker has not started")
+        self.assertEqual(self._row(free["id"]).status, "in_progress")
+
+    def test_a_scheduled_noop_does_not_touch_the_task(self):
+        self._rule("Already urgent", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "set_priority", "value": "urgent"}])
+        t = self._create(due_on=TODAY.isoformat(), priority="urgent")
+        before = self._row(t["id"]).modified_at
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        self.assertEqual(self._row(t["id"]).modified_at, before)
+        self.assertEqual(self._runs()[-1].actions, ["nothing to change"], "the run is still logged for the dedupe")
 
     # ── editing a rule re-validates ─────────────────────────────────────────
     def test_patch_toggle_does_not_need_the_whole_rule(self):

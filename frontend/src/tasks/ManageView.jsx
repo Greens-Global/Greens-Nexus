@@ -333,6 +333,16 @@ function Toggle({ on, onChange }) {
 }
 
 /** One value control, chosen by what the trigger / condition / action expects. */
+// A Status or Priority condition renders a <select> with no blank option, so
+// the browser shows the first choice selected; the draft has to agree or Save
+// refuses a row that looks filled in.
+function firstConditionValue(field, ctx) {
+  const kind = CONDITION_FIELDS.find((x) => x.value === field)?.valueKind;
+  if (kind === 'status') return ctx.statusOrder[0] || '';
+  if (kind === 'priority') return PRIORITY_KEYS[0] || '';
+  return '';
+}
+
 function RuleValueInput({ kind, value, onChange, ctx, anyLabel }) {
   const style = { ...selectStyle, flex: 1, minWidth: 0 };
   if (kind === 'none') return null;
@@ -461,7 +471,7 @@ function RuleModal({ rule, ctx, onClose, onSave }) {
           const f = CONDITION_FIELDS.find((x) => x.value === c.field) || CONDITION_FIELDS[0];
           return (
             <div key={i} style={rowStyle}>
-              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: '' })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
+              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: firstConditionValue(e.target.value, ctx) })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
                 {CONDITION_FIELDS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
               </select>
               <select value={c.op} onChange={(e) => setCond(i, { op: e.target.value })} style={{ ...selectStyle, width: 90, flexShrink: 0 }}>

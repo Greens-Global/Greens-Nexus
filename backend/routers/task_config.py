@@ -143,14 +143,25 @@ def delete_rule(rule_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/task-automation-runs", dependencies=[Depends(require_manager)])
-def list_rule_runs(rule_id: str = "", limit: int = 50, db: Session = Depends(get_db)):
+def list_rule_runs(rule_id: str = "", limit: int = 50, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
     """The Runs panel: what each rule actually did, newest first. Rows outlive
     their rule (rule_name is captured on the row) so a deleted rule's history
-    still reads."""
+    still reads. Behind the company wall: a run row carries the task's title,
+    so a manager only sees runs on tasks their scope admits."""
+    import auth
+    from routers.task_util import wall_tasks
     q = db.query(models.TaskAutomationRun)
     if rule_id:
         q = q.filter(models.TaskAutomationRun.rule_id == rule_id)
-    rows = q.order_by(models.TaskAutomationRun.at.desc()).limit(max(1, min(int(limit or 50), 200))).all()
+    limit = max(1, min(int(limit or 50), 200))
+    rows = q.order_by(models.TaskAutomationRun.at.desc()).limit(limit * 4 if auth.company_scope(user, db) is not None else limit).all()
+    if auth.company_scope(user, db) is not None:
+        ids = {x.task_id for x in rows if x.task_id}
+        tasks = (db.query(models.Task).execution_options(include_deleted=True)
+                 .filter(models.Task.id.in_(ids)).all()) if ids else []
+        allowed = {t.id for t in wall_tasks(db, user, tasks)}
+        rows = [x for x in rows if x.task_id in allowed][:limit]
     return [{"id": x.id, "ruleId": x.rule_id, "ruleName": x.rule_name, "taskId": x.task_id,
              "taskCode": x.task_code, "taskTitle": x.task_title, "trigger": x.trigger_type,
              "event": x.event, "actions": x.actions if isinstance(x.actions, list) else [],

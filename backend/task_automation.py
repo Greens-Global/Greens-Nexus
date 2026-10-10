@@ -37,10 +37,12 @@ Manage) and one activity entry on the task attributed to AUTOMATION_ACTOR, so
 """
 from __future__ import annotations
 
+import functools
 import html
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -144,7 +146,18 @@ def snapshot(t: models.Task) -> dict:
     }
 
 
-def _matches_trigger(trigger: dict, event: str, before: dict, after: dict, *, completing: bool) -> bool:
+BUSINESS_TZ = "America/Los_Angeles"
+
+
+def business_today() -> date:
+    """Today where the company works, not where the server runs (Azure is UTC,
+    so after 5 PM Pacific `date.today()` is already tomorrow). The scheduled
+    scan (task_notify._business_today) reads the same clock."""
+    return datetime.now(ZoneInfo(BUSINESS_TZ)).date()
+
+
+def _matches_trigger(trigger: dict, event: str, before: dict, after: dict, *,
+                     completing: bool, today: date) -> bool:
     kind = trigger.get("type")
     value = trigger.get("value")
     value = (value or "") if isinstance(value, str) else value
@@ -170,7 +183,7 @@ def _matches_trigger(trigger: dict, event: str, before: dict, after: dict, *, co
         # _apply_completion lands the flag, so the row itself cannot say yet.
         if not completing:
             return False
-        return bool(after["due_on"]) and date.today().isoformat() < after["due_on"]
+        return bool(after["due_on"]) and today.isoformat() < after["due_on"]
     return False   # due_date_arrives only fires from run_scheduled
 
 
@@ -258,6 +271,10 @@ def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, tod
     if kind == "set_status":
         if (t.status or "") == value:
             return ""
+        if value not in _valid_status_ids(db):
+            # A custom status deleted after the rule was written. Writing the
+            # dangling id would put the task in a phantom board column.
+            return "skipped setting status: that status no longer exists"
         completing = value == "completed"
         if gate is not None:
             try:
@@ -328,6 +345,11 @@ def _apply_action(db: Session, t: models.Task, action: dict, res: Result, *, tod
     return ""
 
 
+def _valid_status_ids(db: Session) -> set:
+    from routers.tasks import _valid_statuses   # lazy: routers.tasks imports this module
+    return _valid_statuses(db)
+
+
 def _enabled_rules(db: Session) -> list[models.TaskAutomationRule]:
     return (db.query(models.TaskAutomationRule)
             .filter(models.TaskAutomationRule.enabled.is_(True))
@@ -352,28 +374,39 @@ def _record(db: Session, rule: models.TaskAutomationRule, t: models.Task, *, eve
 
 
 def run_for_change(db: Session, t: models.Task, *, event: str, before: dict,
-                   completing: Optional[bool] = None,
+                   completed: Optional[bool] = None,
                    gate: Optional[Callable] = None, today: Optional[date] = None) -> Result:
     """Evaluate every enabled rule against one task that `event` ("created" |
     "updated" | "bulk") just changed from `before` (see snapshot). Mutates `t`
-    in place; the caller commits. `completing` is whether this edit is closing
-    the task (the caller knows before the flag is written). Never raises for a
+    in place; the caller commits. `completed` is what the task's completed
+    flag becomes once the caller lands it (routers.tasks applies it AFTER this
+    pass, dragging status along - see _apply_completion). Never raises for a
     rule's own problems - a broken rule is logged on the run and skipped, the
     person's edit still lands."""
     res = Result()
-    today = today or date.today()
+    today = today or business_today()
     rules = _enabled_rules(db)
     if not rules:
         return res
     after = snapshot(t)
-    if completing is None:
-        completing = after["completed"] and not before["completed"]
+    # Ticking the checkbox sends {completed: true} and no status; the status
+    # only becomes "completed" when the caller applies the flag, after this
+    # pass. Overlay what that will do, so "status changes to Completed" fires
+    # for the checkbox the same as for the status picker, and a reopen reads
+    # as the move back to Not Started that it is.
+    if completed is not None and completed != bool(before["completed"]):
+        after["completed"] = completed
+        if completed:
+            after["status"] = "completed"
+        elif after["status"] in ("completed", "missed"):
+            after["status"] = "not_started"
+    completing = bool(after["completed"]) and not before["completed"]
     for rule in rules:
         trigger = rule.trigger if isinstance(rule.trigger, dict) else {}
         if trigger.get("type") == "due_date_arrives":
             continue
         try:
-            if not _matches_trigger(trigger, event, before, after, completing=completing):
+            if not _matches_trigger(trigger, event, before, after, completing=completing, today=today):
                 continue
             if not conditions_ok(rule.conditions if isinstance(rule.conditions, list) else [], after):
                 continue
@@ -419,6 +452,7 @@ def run_scheduled(db: Session, today_iso: str) -> int:
     if not rules:
         return 0
     today = date.fromisoformat(today_iso[:10])
+    from routers.tasks import _check_dependency_gate   # lazy: routers.tasks imports this module
     fired = 0
     for rule in rules:
         try:
@@ -448,8 +482,11 @@ def run_scheduled(db: Session, today_iso: str) -> int:
             res = Result()
             lines = []
             try:
+                # The dependency gate applies here as it does to a person: the
+                # clock does not get to start or close a task its blocker holds.
                 for action in (rule.actions or []):
-                    line = _apply_action(db, t, action, res, today=today, gate=None,
+                    line = _apply_action(db, t, action, res, today=today,
+                                         gate=functools.partial(_check_dependency_gate, db, t),
                                          prev_status=before["status"], prev_completed=before["completed"])
                     if line:
                         lines.append(line)
@@ -458,7 +495,10 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                     t.completed, t.completed_at = True, now_iso()
                 elif "status" in res.changed and t.completed:
                     t.completed, t.completed_at = False, ""
-                t.modified_at = now_iso()
+                if lines:
+                    # Only a real change marks the row modified; a no-op pass
+                    # must not make every client's delta fetch re-pull the task.
+                    t.modified_at = now_iso()
                 # Logged even when nothing changed, so the dedupe holds and the
                 # Runs panel shows the rule looked.
                 _record(db, rule, t, event="scheduled", lines=lines or ["nothing to change"], dedupe_key=key)
