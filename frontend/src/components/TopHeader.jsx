@@ -30,6 +30,7 @@ import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { usePersonPhoto } from "../lib/peoplePhotos";
+import { openContact } from "../lib/contactNav";
 import { api } from "../api";
 import { ModalLoading, Spinner } from './AsyncState';
 
@@ -228,9 +229,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       setTimeout(() => window.dispatchEvent(
         new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0);
     } else if (kind === 'people') {
-      toTasks('home');
-      setTimeout(() => window.dispatchEvent(
-        new CustomEvent('nexus:tasks-person', { detail: { email: item.email, name: item.name } })), 0);
+      // A person opens their Contact Directory card (Oct 2026) - chat, call,
+      // email, reporting line. Their tasks are one click further ("View
+      // Tasks" on the card, for anyone with the Tasks module).
+      openContact(item.email);
     } else if (kind === 'projects') {
       toTasks('projects');
     } else if (kind === 'portfolios') {

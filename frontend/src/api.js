@@ -941,6 +941,10 @@ export const api = {
   // Separate path = separate cache entry, so the default list stays clean.
   getPeopleDirectory:  (includeExternal = false) =>
     cachedGet(includeExternal ? '/myhr/directory?include_external=true' : '/myhr/directory'),
+  // Contact Directory (Support, Oct 2026): contact fields + today's
+  // availability for everyone the caller may see. Not cached here - the
+  // roster is cached server-side and availability must stay live.
+  getContactDirectory: ()             => req('/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),

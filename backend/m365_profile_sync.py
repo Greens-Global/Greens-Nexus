@@ -240,9 +240,47 @@ def sync_all() -> dict:
                 db.rollback()
                 stats["failed"] += 1
                 print(f"[m365-contact] {emp.work_email}: {type(e).__name__}: {str(e)[:200]}")
+        stats["photos"] = sync_missing_photos(db, token, emps)
         return stats
     finally:
         db.close()
+
+
+# Photos (Oct 2026, Contact Directory): a person with no picture on file gets
+# their Entra photo pulled in during the regular pass, so faces show up without
+# HR pressing Sync Photos. A person Entra has no photo for is remembered here
+# for a day rather than asked about every 15 minutes; a new upload in M365
+# shows within a day, a Nexus upload shows at once (it sets photo_url itself).
+PHOTO_RECHECK_SEC = 24 * 3600
+PHOTOS_PER_PASS = 25
+_no_photo_until: dict[str, float] = {}
+
+
+def sync_missing_photos(db, token: str, emps) -> int:
+    import time
+    from routers.hr import pull_entra_photo
+    now = time.monotonic()
+    done = 0
+    for emp in emps:
+        if done >= PHOTOS_PER_PASS:
+            break
+        if (emp.photo_url or "").strip() or (emp.status or "") == "offboarded":
+            continue
+        if _no_photo_until.get(emp.id, 0) > now:
+            continue
+        try:
+            result = pull_entra_photo(emp, token)
+            if result == "updated":
+                db.commit()
+                done += 1
+            else:
+                db.rollback()
+                _no_photo_until[emp.id] = now + PHOTO_RECHECK_SEC
+        except Exception as e:   # noqa: BLE001
+            db.rollback()
+            _no_photo_until[emp.id] = now + PHOTO_RECHECK_SEC
+            print(f"[m365-contact] photo {emp.work_email}: {type(e).__name__}: {str(e)[:200]}")
+    return done
 
 
 async def m365_contact_sync_loop():
