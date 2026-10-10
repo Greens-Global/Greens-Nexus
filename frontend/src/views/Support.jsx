@@ -296,8 +296,12 @@ export default function Support({ activeSub, onSubChange }) {
     ...(canWalk ? [{ icon: ClipboardList, title: 'Property Walkthrough',
       desc: 'Walking a property? Log every issue line by line - each one becomes its own ticket.',
       onOpen: () => setWalking(true) }] : []),
-    { icon: Users, title: 'Contact Directory', desc: 'Find the right person across your organization.',
-      onOpen: () => go('people') },
+    // Contact Directory (Oct 2026): its own view - the tile used to point at
+    // a view id that no longer routed. Internal staff only: an external must
+    // not be able to browse the company.
+    ...(!isExternal ? [{ icon: Users, title: 'Contact Directory',
+      desc: 'Reach anyone in the company - Teams chat, call, email, who reports to whom, and who is off today.',
+      onOpen: () => go('directory') }] : []),
     // The help panel the header's "?" opens: search, ask a question, What's
     // New, help for this page (support/HelpMenu.jsx listens for the event).
     { icon: CircleHelp, title: 'Help Center', desc: 'Search for help, ask a question, or see what is new in Nexus.',

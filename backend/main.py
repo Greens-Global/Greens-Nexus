@@ -21,6 +21,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) - legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
+from routers import directory as directory_router  # Contact Directory (Support, Oct 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
@@ -3129,6 +3130,7 @@ app.include_router(esign.router)
 app.include_router(documents_router.router)
 app.include_router(timeclock.router)
 app.include_router(myhr.router)
+app.include_router(directory_router.router)   # Contact Directory - every internal user, contact fields only
 app.include_router(outlook_addin.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments

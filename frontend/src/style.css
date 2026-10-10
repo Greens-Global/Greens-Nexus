@@ -1279,6 +1279,30 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
    the first 5% tint read as barely there). */
 .support-card:hover { background: color-mix(in srgb, var(--wk-brand) 14%, var(--card)); outline: 1px solid color-mix(in srgb, var(--wk-brand) 40%, transparent); outline-offset: -1px; }
 .support-card:hover .support-icon { background: color-mix(in srgb, var(--wk-brand) 24%, var(--card)); color: var(--wk-brand); }
+
+/* Contact Directory (views/Directory.jsx, Oct 2026) - list rows and the
+   small Teams / email buttons on each row. Hover and selection tints only;
+   layout is inline like the rest of the module. */
+.dir-row:hover { background: var(--nx-hover); }
+.dir-row.is-active { background: color-mix(in srgb, var(--wk-brand) 12%, var(--card)); }
+.dir-row.is-focused { box-shadow: inset 2px 0 0 var(--wk-brand); }
+.dir-row:focus-visible { outline: 2px solid var(--fern); outline-offset: -2px; }
+.dir-row-actions { opacity: 0.55; transition: opacity .12s; }
+.dir-row:hover .dir-row-actions, .dir-row.is-active .dir-row-actions, .dir-row:focus-within .dir-row-actions { opacity: 1; }
+.dir-mini { width: 28px; height: 28px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: var(--nx-dim); background: var(--nx-surface2); text-decoration: none; }
+.dir-mini.teams { color: #4b53bc; background: rgba(91,95,199,0.12); }
+.dir-mini:hover { filter: brightness(0.93); color: var(--nx-ink); }
+.dir-mini.teams:hover { color: #4b53bc; }
+.dir-action:hover, .dir-tool:hover, .dir-pill:hover { filter: brightness(0.95); }
+.dir-action:focus-visible, .dir-tool:focus-visible, .dir-pill:focus-visible, .dir-mini:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+@media (max-width: 820px) {
+  .dir-row-actions { opacity: 1; }
+  /* Finger-sized targets: 36px buttons, a little more air between them. */
+  .dir-mini { width: 36px; height: 36px; border-radius: 9px; }
+  .dir-row-actions { gap: 6px !important; }
+  .dir-action { min-height: 56px; }
+}
+
 .support-card-arrow {
   position: absolute; top: 16px; right: 16px;
   color: var(--muted); opacity: 0.45;

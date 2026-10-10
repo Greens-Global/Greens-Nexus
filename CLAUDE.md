@@ -105,6 +105,13 @@ keep the diff minimal.
   `NEXUS_AM_AUDIENCE` (AppIdUri, then the Entra app's client id, comma-
   separated) are set; setup is `docs/Actionable-Messages-Setup.md`.
   The signed task token in the URL is what proves an email was ours.
+- **Contact Directory** (`routers/directory.py`, Oct 2026): contact fields
+  only, never `hr._serialize`; availability (off / leave / holiday / punch /
+  shift) is computed per call in `_availability`, the roster is cached per
+  company-wall key. Teams presence dots need the `Presence.Read.All`
+  APPLICATION permission with admin consent on the Entra app
+  (`docs/Teams-Presence-Setup.md`); until then `/directory/presence` answers
+  `enabled: false` and the UI shows no dots - never treat that as an error.
 - **Rate limiting** (`RequestRateLimit` in `middleware_hardening.py`, Sep 22):
   per-minute budgets keyed on the session/bearer for signed-in callers, per IP
   for anonymous ones, tighter on credential-taking routes, plus a per-IP

@@ -111,6 +111,9 @@ myhr_egnyte_docs = TTLCache("myhr_egnyte_docs", ttl=180)  # /myhr/egnyte-documen
                                                               # calls (path match + one listing per subfolder) took
                                                               # ~19 s on dev for EVERY My HR visit (Sep 29). Nothing
                                                               # in Nexus writes that folder, so 3 min staleness is fine.
+contact_directory = TTLCache("contact_directory", ttl=120)  # /directory roster (routers/directory.py) - per company-wall key;
+                                                              # availability is computed per call on top, never cached
+teams_presence    = TTLCache("teams_presence",    ttl=30)   # /directory/presence - one Graph call per wall key per 30 s
 dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insights (BI board) - company-wide, so
                                                               # ONE entry (key ()) serves every viewer, not per-email
                                                               # like dashboard_kpis - a dozen managers open the BI
@@ -120,8 +123,9 @@ dashboard_insights = TTLCache("dashboard_insights", ttl=20)  # /dashboards/insig
 # directory's company names; group/member rows feed the grant map; employees
 # also feed the approver/allocator lists (filtered against nexus_employees).
 _WATCHED = {
-    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays),
-    "HrEntity":         (people_directory,),
+    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays, contact_directory),
+    "HrEntity":         (people_directory, contact_directory),
+    "HrDepartment":     (contact_directory,),
     "NexusGroup":       (module_grants,),
     "NexusGroupMember": (module_grants,),
     "NexusSetting":     (settings_config,),

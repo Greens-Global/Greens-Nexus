@@ -1379,7 +1379,7 @@ export const DOCS = [
       { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically.' },
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
       { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
-      { name: 'Contact Directory', desc: 'Find the right person across the organization.' },
+      { name: 'Contact Directory', desc: 'Reach anyone in the company: Teams chat, call or video, email, phone numbers, who they report to, and whether they are off today.' },
       { name: 'Help Center', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
       { name: 'Legal', desc: 'The Privacy Policy and Terms & Conditions, one page with a tab each. Open it from Legal in the menu under your name (top right), or Legal in the phone menu.' },
       { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from Support or from the menu under your name.' },
