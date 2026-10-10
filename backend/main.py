@@ -924,6 +924,10 @@ def _run_migrations():
             "ALTER TABLE hr_interviews ADD COLUMN transcript_path VARCHAR DEFAULT ''",
             # A packet per job role (Pranshu, Oct 8). models.HrPacketSetting.role_ids.
             "ALTER TABLE hr_packet_settings ADD COLUMN role_ids JSON DEFAULT '[]'",
+            # Automation engine (Oct 2026). models.TaskAutomationRule conditions + run counters.
+            "ALTER TABLE task_automation_rules ADD COLUMN conditions JSON DEFAULT '[]'",
+            "ALTER TABLE task_automation_rules ADD COLUMN run_count INTEGER DEFAULT 0",
+            "ALTER TABLE task_automation_rules ADD COLUMN last_run_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2075,6 +2079,10 @@ def _run_migrations():
         "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS transcript_path VARCHAR DEFAULT ''",
         # A packet per job role (Pranshu, Oct 8). models.HrPacketSetting.role_ids.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS role_ids JSONB DEFAULT '[]'::jsonb",
+        # Automation engine (Oct 2026). models.TaskAutomationRule conditions + run counters.
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS conditions JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS run_count INTEGER DEFAULT 0",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS last_run_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

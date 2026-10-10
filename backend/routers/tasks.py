@@ -33,6 +33,7 @@ from routers.task_util import (
 )
 from task_notify import notify_task_event
 import task_due
+import task_automation
 import code_sequence
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
@@ -1478,6 +1479,16 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=tid,
                        entity_code=t.code, entity_title=t.title, detail="created this task")
     t.activity_ids = [aid]
+    # Automation rules that fire on creation (task_automation.py) write onto
+    # this same row before anyone is told about it, so a rule that assigns or
+    # re-dates the task notifies exactly as a person doing it would.
+    auto_before = task_automation.snapshot(t)
+    auto = task_automation.run_for_change(db, t, event="created", before=auto_before)
+    if auto.changed.get("status") == "completed" and not t.completed:
+        t.completed, t.completed_at = True, now
+    if "due_on" in auto.changed:
+        task_due.record_due_change(db, t, auto_before["due_on"], t.due_on or "",
+                                   actor=task_automation.AUTOMATION_ACTOR, source="automation")
     # Everyone assigned gets told, not just the first - the others would
     # otherwise carry work they were never notified about.
     for who in task_assignees(t):
@@ -1490,6 +1501,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     db.refresh(t)
     fire_task_event(tid, "created")
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
+    task_automation.run_after_commit(db, auto, background_tasks.add_task)
     return task_to_dict(t)
 
 
@@ -1516,6 +1528,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
     prev_due = (t.due_on or "")[:10]
+    auto_before = task_automation.snapshot(t)
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     new_status = data.get("status", prev_status)
@@ -1561,6 +1574,22 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # the primary duplicated inside the extras or a since-removed blank behind.
     if "project_id" in data or "project_ids" in data:
         t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+
+    # Automation rules (task_automation.py) see the row as this edit leaves it
+    # and write onto the same row. Whatever they changed is merged into `data`
+    # so the completion, activity, due-history and notification logic below
+    # treats it as part of this edit: one commit, one realtime ping, and the
+    # person a rule assigns is told the same way as one a colleague assigns.
+    auto = task_automation.run_for_change(
+        db, t, event="updated", before=auto_before, completing=(new_completed and not prev_completed),
+        gate=lambda ps, pc, ns, nc: _check_dependency_gate(db, t, ps, pc, ns, nc))
+    auto_moved_due = "due_on" in auto.changed
+    if auto.changed:
+        data.update(auto.changed)
+        if "assignee_emails" in auto.changed:
+            wanted = task_assignees(t)
+        new_completed = _resolve_completed(data, prev_completed)
+        modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     # After the field loop, so a start_on sent in this same PATCH wins over the
     # stamp - the caller stating a date is better information than "today".
@@ -1610,7 +1639,10 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # After activity_ids is rebuilt above - task_due appends its own entries.
     due_entry = None
     if "due_on" in data and (t.due_on or "")[:10] != prev_due:
-        due_entry = task_due.record_due_change(db, t, prev_due, t.due_on or "", actor=user["email"])
+        due_entry = task_due.record_due_change(
+            db, t, prev_due, t.due_on or "",
+            actor=task_automation.AUTOMATION_ACTOR if auto_moved_due else user["email"],
+            source="automation" if auto_moved_due else "app")
         # The generic "Due date changed" becomes the actual story.
         modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
         modified_kinds.insert(0, _due_change_label(t, due_entry))
@@ -1634,6 +1666,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     fire_task_event(t.id, "updated")
     if spawned is not None:
         fire_task_event(spawned.id, "created")
+    task_automation.run_after_commit(db, auto, background_tasks.add_task)
 
     if wanted is not None and (set(task_assignees(t)) - prev_assignees):
         background_tasks.add_task(notify_task_event, t.id, "assigned", user["email"])
@@ -1960,6 +1993,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
     before_due = {t.id: (t.due_on or "")[:10] for t in rows}
+    auto_before = {t.id: task_automation.snapshot(t) for t in rows}
+    auto_results: list = []
+    auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
         # Decided BEFORE the loop writes anything, from the payload and the
@@ -1996,6 +2032,16 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             # Same re-clean update_task does: the primary must never also sit
             # in the "also in" extras list.
             t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+        # Same engine pass update_task makes, per row - a rule on "status
+        # changes to X" fires whether twenty cards were dragged or one.
+        auto = task_automation.run_for_change(
+            db, t, event="bulk", before=auto_before[t.id], completing=(new_completed and not prev_completed),
+            gate=lambda ps, pc, ns, nc, _t=t: _check_dependency_gate(db, _t, ps, pc, ns, nc))
+        if auto.changed:
+            auto_changed[t.id] = auto.changed
+            new_completed = _resolve_completed({**patch, **auto.changed}, prev_completed)
+        if auto.after_commit:
+            auto_results.append(auto)
         _apply_completion(t, new_completed, prev_completed)
         t.modified_at = now_iso()
 
@@ -2038,7 +2084,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
-        if "due_on" in patch:
+        if "due_on" in auto_changed.get(t.id, {}):
+            task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
+                                       actor=task_automation.AUTOMATION_ACTOR, source="automation")
+        elif "due_on" in patch:
             task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor, source="bulk")
         elif now_assignees != set(prev_assignees) and t.due_on:
             task_due.settle_agreement(t, actor)
@@ -2065,6 +2114,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     if newly_assigned:
         import task_notify as task_mail
         task_mail.queue_bulk_assignments(db, actor, newly_assigned)
+    # Comments the rules asked for. No BackgroundTasks on this endpoint; it is a
+    # sync def, so the inline emails run on a threadpool thread, not the loop.
+    for auto in auto_results:
+        task_automation.run_after_commit(db, auto)
     fire_task_event("", "bulk")
     return [task_to_dict(t) for t in rows]
 
