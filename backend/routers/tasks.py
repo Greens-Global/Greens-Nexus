@@ -100,7 +100,17 @@ def task_to_dict(t: models.Task) -> dict:
         "dueAgreement":     t.due_agreement or "",
         "dueProposal":      t.due_proposal if isinstance(t.due_proposal, dict) else None,
         "requesterId":      _nz(task_due.requester_of(t)),
+        # Checklist counters - see models.Task / _recount_checklist.
+        "checklistTotal":   int(t.checklist_total or 0),
+        "checklistDone":    int(t.checklist_done or 0),
     }
+
+
+def checklist_item_to_dict(i: models.TaskChecklistItem) -> dict:
+    return {"id": i.id, "taskId": i.task_id, "title": i.title or "", "done": bool(i.done),
+            "doneAt": i.done_at or "", "doneBy": _nz(i.done_by), "assigneeId": _nz(i.assignee_email),
+            "position": i.position if i.position is not None else 0.0,
+            "createdAt": i.created_at or "", "createdBy": _nz(i.created_by)}
 
 
 def comment_to_dict(c: models.TaskComment) -> dict:
@@ -782,6 +792,15 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         created_at=now, modified_at=now, created_by=user["email"],
     )
     db.add(nxt)
+    # The checklist travels with the series, every line unticked: a recurring
+    # "monthly close" is the same steps each month.
+    items = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == t.id)
+             .order_by(models.TaskChecklistItem.position).all())
+    for i, item in enumerate(items):
+        db.add(models.TaskChecklistItem(id=gen_id(), task_id=nid, title=item.title, done=False,
+                                        assignee_email=item.assignee_email or "", position=float(i),
+                                        created_at=now, created_by=user["email"]))
+    nxt.checklist_total, nxt.checklist_done = len(items), 0
     # Reassigned (not mutated in place) so SQLAlchemy sees the JSON change.
     t.recurrence = {**rec, "nextOccurrenceId": nid}
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
@@ -2243,6 +2262,172 @@ class AttachmentCreate(BaseModel):
     kind: Optional[str] = "other"
     url: Optional[str] = ""
     comment_id: Optional[str] = ""   # set only when attached while composing a comment
+
+
+# ── Checklist (Oct 2026) ──────────────────────────────────────────────────────
+# The small steps inside a task. Editors add, rename, reorder and remove
+# lines; ticking a line is open to any editor AND to the person the line
+# names, so someone handed one step of a task they can otherwise only read
+# can still say it is done. Counters on the task row keep lists and boards
+# free of a query per task.
+class ChecklistItemCreate(BaseModel):
+    title: str
+    assignee_email: Optional[str] = ""
+    # Several lines at once (pasting a list into the add box) - ONE request,
+    # one recount, one realtime ping.
+    titles: Optional[list] = None
+
+
+class ChecklistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    done: Optional[bool] = None
+    assignee_email: Optional[str] = None
+    position: Optional[float] = None
+
+
+class ChecklistOrder(BaseModel):
+    ids: list
+
+
+def _recount_checklist(db: Session, t: models.Task) -> None:
+    """Task.checklist_total / checklist_done from the rows. autoflush is off,
+    so the caller's pending adds/deletes are flushed first or the count would
+    be one step behind the change that caused it."""
+    db.flush()
+    rows = db.query(models.TaskChecklistItem.done).filter(models.TaskChecklistItem.task_id == t.id).all()
+    t.checklist_total = len(rows)
+    t.checklist_done = sum(1 for (d,) in rows if d)
+    t.modified_at = now_iso()   # so a delta fetch picks the counters up
+
+
+def _checklist_item(db: Session, item_id: str) -> tuple:
+    i = db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.id == item_id).first()
+    if not i:
+        raise HTTPException(404, "Checklist item not found")
+    t = _get_task(db, i.task_id)
+    return i, t
+
+
+@router.get("/{task_id}/checklist")
+def list_checklist(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "viewer")
+    rows = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id)
+            .order_by(models.TaskChecklistItem.position, models.TaskChecklistItem.created_at).all())
+    return [checklist_item_to_dict(i) for i in rows]
+
+
+@router.post("/{task_id}/checklist", status_code=201)
+def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Returns {items: [the new lines], task: the task with fresh counters}."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "editor")
+    titles = [str(x).strip() for x in (body.titles if body.titles is not None else [body.title]) if str(x or "").strip()]
+    if not titles:
+        raise HTTPException(422, "A checklist item needs a title")
+    if len(titles) > 100:
+        raise HTTPException(422, "At most 100 items at a time")
+    last = (db.query(func.max(models.TaskChecklistItem.position))
+            .filter(models.TaskChecklistItem.task_id == task_id).scalar()) or 0.0
+    who = (body.assignee_email or "").strip().lower()
+    now = now_iso()
+    made = []
+    for n, title in enumerate(titles, start=1):
+        i = models.TaskChecklistItem(id=gen_id(), task_id=task_id, title=title[:500], done=False,
+                                     assignee_email=who, position=float(last) + n,
+                                     created_at=now, created_by=user["email"])
+        db.add(i)
+        made.append(i)
+    _recount_checklist(db, t)
+    if who and who != user["email"].lower():
+        task_notify(db, kind="task_activity", for_email=who,
+                    title="You were given a checklist item",
+                    body=f"{titles[0]} - {t.title}" if len(titles) == 1 else f"{len(titles)} items - {t.title}",
+                    task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    db.commit()
+    for i in made:
+        db.refresh(i)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"items": [checklist_item_to_dict(i) for i in made], "task": task_to_dict(t)}
+
+
+@router.patch("/checklist/{item_id}")
+def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    i, t = _checklist_item(db, item_id)
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    data = upd.model_dump(exclude_unset=True)
+    me = (user["email"] or "").lower()
+    only_ticking = set(data) <= {"done"}
+    if only_ticking and (i.assignee_email or "").lower() == me:
+        require_task_role(db, user, t, "viewer")   # the line names them: ticking it is theirs to do
+    else:
+        require_task_role(db, user, t, "editor")
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            raise HTTPException(422, "A checklist item needs a title")
+        i.title = title[:500]
+    if "assignee_email" in data:
+        who = (data["assignee_email"] or "").strip().lower()
+        if who and who != (i.assignee_email or "") and who != me:
+            task_notify(db, kind="task_activity", for_email=who,
+                        title="You were given a checklist item", body=f"{i.title} - {t.title}",
+                        task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        i.assignee_email = who
+    if "position" in data and data["position"] is not None:
+        i.position = float(data["position"])
+    if "done" in data and bool(data["done"]) != bool(i.done):
+        i.done = bool(data["done"])
+        i.done_at = now_iso() if i.done else ""
+        i.done_by = me if i.done else ""
+        if i.done:
+            t.activity_ids = list(t.activity_ids or []) + [log_activity(
+                db, type="checklist_done", actor_email=me, entity_id=t.id, entity_code=t.code,
+                entity_title=t.title, detail=f"checked off \"{i.title}\"")]
+    _recount_checklist(db, t)
+    db.commit()
+    db.refresh(i)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"item": checklist_item_to_dict(i), "task": task_to_dict(t)}
+
+
+@router.delete("/checklist/{item_id}")
+def delete_checklist_item(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    i, t = _checklist_item(db, item_id)
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    require_task_role(db, user, t, "editor")
+    db.delete(i)
+    _recount_checklist(db, t)
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"task": task_to_dict(t)}
+
+
+@router.put("/{task_id}/checklist/order")
+def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """The whole order at once, as dragged. Ids not in the list keep their
+    place after the listed ones; ids of other tasks are ignored."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "editor")
+    rows = {i.id: i for i in db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id).all()}
+    n = 0
+    for n, iid in enumerate([x for x in body.ids if x in rows], start=1):
+        rows[iid].position = float(n)
+    rest = sorted((i for i in rows.values() if i.id not in set(body.ids)), key=lambda i: (i.position or 0, i.created_at or ""))
+    for k, i in enumerate(rest, start=n + 1):
+        i.position = float(k)
+    t.modified_at = now_iso()
+    db.commit()
+    fire_task_event(t.id, "updated")
+    return [checklist_item_to_dict(i) for i in sorted(rows.values(), key=lambda i: i.position or 0)]
 
 
 @router.get("/{task_id}/attachments")
