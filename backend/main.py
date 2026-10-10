@@ -928,6 +928,9 @@ def _run_migrations():
             "ALTER TABLE task_automation_rules ADD COLUMN conditions JSON DEFAULT '[]'",
             "ALTER TABLE task_automation_rules ADD COLUMN run_count INTEGER DEFAULT 0",
             "ALTER TABLE task_automation_rules ADD COLUMN last_run_at VARCHAR DEFAULT ''",
+            # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
+            "ALTER TABLE tasks ADD COLUMN checklist_total INTEGER DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN checklist_done INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2083,6 +2086,9 @@ def _run_migrations():
         "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS conditions JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS run_count INTEGER DEFAULT 0",
         "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS last_run_at VARCHAR DEFAULT ''",
+        # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_total INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_done INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

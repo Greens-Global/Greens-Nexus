@@ -110,6 +110,11 @@ class Task(Base):
     due_history       = Column(JSON, default=list)
     due_agreement     = Column(String, default="")
     due_proposal      = Column(JSON, nullable=True)
+    # Checklist counters (Oct 2026) - denormalized from task_checklist_items
+    # by routers/tasks._recount_checklist so every list row and board card can
+    # print "3/5" without a query per task. Never written anywhere else.
+    checklist_total   = Column(Integer, default=0)
+    checklist_done    = Column(Integer, default=0)
 
 
 class PurchaseRequest(Base):
@@ -5728,3 +5733,23 @@ class TaskAutomationRun(Base):
     detail       = Column(String, default="")           # the error, when status is error
     dedupe_key   = Column(String, default="", index=True)
     at           = Column(String, default="", index=True)
+
+
+class TaskChecklistItem(Base):
+    """One line of a task's checklist (Oct 2026): the small steps inside a
+    task that do not deserve to be subtasks - "call the vendor", "attach the
+    photo". Flat, ordered, each line can be ticked and can name a person.
+    Task.checklist_total / checklist_done are kept in step by
+    routers/tasks._recount_checklist. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "task_checklist_items"
+    id             = Column(String, primary_key=True)
+    task_id        = Column(String, default="", index=True)
+    title          = Column(String, nullable=False)
+    done           = Column(Boolean, default=False)
+    done_at        = Column(String, default="")
+    done_by        = Column(String, default="")
+    assignee_email = Column(String, default="")
+    position       = Column(Float, default=0)
+    created_at     = Column(String, default="")
+    created_by     = Column(String, default="")

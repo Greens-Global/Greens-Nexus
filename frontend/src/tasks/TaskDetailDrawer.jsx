@@ -24,6 +24,7 @@ import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
+import Checklist from './Checklist';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -927,6 +928,12 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       <Section title="Description">
         <DescriptionInput task={task} value={task.description || ''} refresh={refresh}
           onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
+      </Section>
+
+      {/* Checklist (Oct 2026) - open when it has lines, folded when empty so
+          a task that never needed one is not pushed down by an add box. */}
+      <Section defaultOpen={(task.checklistTotal || 0) > 0} title={task.checklistTotal ? `Checklist ${task.checklistDone || 0}/${task.checklistTotal}` : 'Checklist'}>
+        <Checklist task={task} people={people} />
       </Section>
 
       {/* Subtasks (inline) */}
