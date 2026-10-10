@@ -798,3 +798,27 @@ export function itemsFromPaste(text) {
     .filter(Boolean);
   return lines.length > 1 ? lines : null;
 }
+
+// Comment threads (Oct 2026). A reply carries its ROOT's id in parentId; a
+// root has none. Groups a flat, oldest-first comment list into
+// [{ root, replies }] in root order, replies oldest first. A reply whose root
+// is missing (deleted by a manager mid-fetch, or a legacy oddity) is shown as
+// a root rather than lost.
+export function threadComments(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = new Set(list.map((c) => c.id));
+  const roots = [];
+  const replies = new Map();
+  for (const c of list) {
+    if (c.parentId && ids.has(c.parentId)) {
+      if (!replies.has(c.parentId)) replies.set(c.parentId, []);
+      replies.get(c.parentId).push(c);
+    } else {
+      roots.push(c);
+    }
+  }
+  return roots.map((root) => ({ root, replies: replies.get(root.id) || [] }));
+}
+
+// The reactions a comment can carry - mirrors backend COMMENT_REACTIONS.
+export const COMMENT_REACTIONS = ['👍', '❤️', '🎉', '👏', '😂', '🔥', '👀', '✅'];

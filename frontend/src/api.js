@@ -453,6 +453,8 @@ export const api = {
   addTaskComment: (id, data) => req(`/tasks/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   editTaskComment: (cid, data) => req(`/tasks/comments/${cid}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskComment: (cid) => req(`/tasks/comments/${cid}`, { method: "DELETE" }),
+  // Toggle one emoji reaction on a comment (Oct 2026). Answers with the comment.
+  reactTaskComment: (cid, emoji) => req(`/tasks/comments/${cid}/reactions`, { method: "POST", body: JSON.stringify({ emoji }) }),
   // Description editor's AI rephrase - returns a suggestion the user accepts or
   // discards; it never writes to the task.
   taskAiRephrase: (data) => req("/task-ai/rephrase", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
