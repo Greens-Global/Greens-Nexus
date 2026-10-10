@@ -3107,10 +3107,17 @@ class TaskAutomationRule(Base):
     __tablename__ = "task_automation_rules"
     id         = Column(String, primary_key=True)
     name       = Column(String, nullable=False)
-    trigger    = Column(JSON, default=dict)              # {type, value?}
-    actions    = Column(JSON, default=list)              # [{type, value}]
+    trigger    = Column(JSON, default=dict)              # {type, value?} - see task_automation.TRIGGER_TYPES
+    actions    = Column(JSON, default=list)              # [{type, value}] - task_automation.ACTION_TYPES
     enabled    = Column(Boolean, default=True)
     created_at = Column(String, default="")
+    # Engine (Oct 2026, task_automation.py). Until then rules were stored and
+    # never run. `conditions` narrows a trigger ([{field, op, value}] - project,
+    # status, priority, tag, assignee, team; is / is_not); the counters feed
+    # the Runs panel.
+    conditions  = Column(JSON, default=list)
+    run_count   = Column(Integer, default=0)
+    last_run_at = Column(String, default="")
 
 
 class TaskTemplate(Base):
@@ -5698,3 +5705,26 @@ class HrLifeEvent(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     completed_at    = Column(String, default="")
+
+
+class TaskAutomationRun(Base):
+    """One firing of a task automation rule (task_automation.py, Oct 2026):
+    what rule, on which task, what it did - the Runs panel under Manage >
+    Automation Rules, and the once-per-rule-per-task-per-date dedupe for the
+    scheduled "due date arrives" trigger (`dedupe_key` = rule:task:date, blank
+    for edit-driven runs). New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "task_automation_runs"
+    id           = Column(String, primary_key=True)
+    rule_id      = Column(String, default="", index=True)
+    rule_name    = Column(String, default="")           # captured so the log reads after the rule is deleted
+    task_id      = Column(String, default="", index=True)
+    task_code    = Column(String, default="")
+    task_title   = Column(String, default="")
+    trigger_type = Column(String, default="")
+    event        = Column(String, default="")           # created|updated|bulk|scheduled
+    actions      = Column(JSON, default=list)           # human lines, one per action applied
+    status       = Column(String, default="applied")    # applied|error
+    detail       = Column(String, default="")           # the error, when status is error
+    dedupe_key   = Column(String, default="", index=True)
+    at           = Column(String, default="", index=True)

@@ -16,6 +16,7 @@ import models
 from database import get_db
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id
+import task_automation
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
@@ -72,13 +73,16 @@ def delete_saved_view(view_id: str, db: Session = Depends(get_db)):
 def rule_to_dict(r: models.TaskAutomationRule) -> dict:
     return {"id": r.id, "name": r.name,
             "trigger": r.trigger if isinstance(r.trigger, dict) else {},
-            "actions": r.actions if isinstance(r.actions, list) else [], "enabled": bool(r.enabled)}
+            "conditions": r.conditions if isinstance(r.conditions, list) else [],
+            "actions": r.actions if isinstance(r.actions, list) else [], "enabled": bool(r.enabled),
+            "runCount": int(r.run_count or 0), "lastRunAt": r.last_run_at or ""}
 
 
 class RuleBody(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None   # optional so PATCH (e.g. enabled toggle) can send partial bodies; required on create (guarded below)
     trigger: Optional[dict] = None
+    conditions: Optional[list] = None
     actions: Optional[list] = None
     enabled: Optional[bool] = None
 
@@ -92,8 +96,11 @@ def list_rules(db: Session = Depends(get_db)):
 def create_rule(body: RuleBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Rule name is required")
+    # The engine (task_automation.py) runs whatever is stored, so a rule it
+    # cannot run is refused here rather than silently never firing.
+    task_automation.validate_rule(body.trigger, body.conditions, body.actions)
     r = models.TaskAutomationRule(id=body.id or gen_id(), name=body.name, trigger=body.trigger or {},
-                                  actions=body.actions or [],
+                                  conditions=body.conditions or [], actions=body.actions or [],
                                   enabled=True if body.enabled is None else bool(body.enabled),
                                   created_at=now_iso())
     db.add(r)
@@ -108,6 +115,9 @@ def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(404, "Rule not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if any(k in data for k in ("trigger", "conditions", "actions")):
+        task_automation.validate_rule(data.get("trigger", r.trigger), data.get("conditions", r.conditions),
+                                      data.get("actions", r.actions))
     for k, v in data.items():
         setattr(r, k, v)
     db.commit()
@@ -119,6 +129,21 @@ def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
 def delete_rule(rule_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).delete()
     db.commit()
+
+
+@router.get("/task-automation-runs", dependencies=[Depends(require_manager)])
+def list_rule_runs(rule_id: str = "", limit: int = 50, db: Session = Depends(get_db)):
+    """The Runs panel: what each rule actually did, newest first. Rows outlive
+    their rule (rule_name is captured on the row) so a deleted rule's history
+    still reads."""
+    q = db.query(models.TaskAutomationRun)
+    if rule_id:
+        q = q.filter(models.TaskAutomationRun.rule_id == rule_id)
+    rows = q.order_by(models.TaskAutomationRun.at.desc()).limit(max(1, min(int(limit or 50), 200))).all()
+    return [{"id": x.id, "ruleId": x.rule_id, "ruleName": x.rule_name, "taskId": x.task_id,
+             "taskCode": x.task_code, "taskTitle": x.task_title, "trigger": x.trigger_type,
+             "event": x.event, "actions": x.actions if isinstance(x.actions, list) else [],
+             "status": x.status, "detail": x.detail or "", "at": x.at} for x in rows]
 
 
 # ── Templates ────────────────────────────────────────────────────────────────
