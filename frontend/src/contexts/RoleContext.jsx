@@ -44,6 +44,9 @@ export const MODULES = [
   { id: 'testing',             label: 'Testing' },
   { id: 'credvault',           label: 'Credential Vault' },
   { id: 'egnyte',              label: 'Files' },
+  // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
+  // viewer = their own reporting line, full = the whole company.
+  { id: 'workforce-scorecard', label: 'Workforce Scorecard' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a

@@ -249,9 +249,9 @@ export const DOCS = [
   },
   {
     id: 'workforce-analytics', name: 'Workforce Analytics', group: 'My Desk', icon: 'MonitorDot', view: 'employee-tracking',
-    tagline: 'Live coverage, activity, punch locations and company computers.',
+    tagline: 'Live coverage, activity, the weekly hours Scorecard, punch locations and company computers.',
     where: 'Left menu > Workforce Analytics',
-    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant',
+    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant. The Scorecard tab alone opens with the Workforce Scorecard grant.',
     purpose: 'Workforce Analytics is the disclosed monitoring dashboard. It shows who is working right now, where each person last punched from, activity on enrolled company computers and screenshots taken under the company policy. Employees are told about it before they first clock in.',
     gains: [
       'Know at a glance who is working, on break or not clocked in.',
@@ -268,6 +268,15 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Score Last Week\'s Hours',
+        steps: [
+          'Click the Scorecard tab. It opens on the last full week; use the arrows to move between weeks.',
+          'Each hourly person shows their expected hours (published shift, else shift preset, else the standard day - US 8h, India 9h), the hours they punched, Sick / PTO leave, and a score with Absent, Short and Late day counts.',
+          'Click a row for the day-by-day breakdown: holidays, approved time off and missing punches are written on the day.',
+          'Click Email Me This Report to get the same scorecard in your inbox. Managers holding the grant also receive it automatically every week once Settings > Workforce Scorecard is live.',
+        ],
+      },
+      {
         title: 'Enroll a Company Computer',
         steps: [
           'Click the Computers tab.',
@@ -279,6 +288,7 @@ export const DOCS = [
     features: [
       { name: 'Coverage', desc: 'Live list of who is Working, On Break or Not Clocked In, with On Site and Out of Location tags.' },
       { name: 'Activity', desc: 'Time and activity per person across the day.' },
+      { name: 'Scorecard', desc: 'Punched hours against expected hours for each hourly person, by week: On Track, Below Expected, Well Below, Absent, with the days that were excused and why. The same report goes to managers by email.' },
       { name: 'Locations', desc: 'A map of where each person last punched from.' },
       { name: 'Computers', desc: 'Company computers with the desktop agent. Copy the install or uninstall command here.' },
       { name: 'Screenshots', desc: 'Screenshots captured under the policy, shown by day, with the capture interval.' },
@@ -288,6 +298,7 @@ export const DOCS = [
       points: [
         'A viewer grant lets you watch coverage, activity and locations.',
         'A full grant also allows remote control and managing devices and policies.',
+        'The Workforce Scorecard grant is separate: Viewer scores your direct reports, Editor your whole reporting line, Full the whole company. Its weekly email, standard day and thresholds live in Settings > Workforce Scorecard.',
         'The monitoring policy itself (what is captured and who is exempt) is set in People settings and Settings.',
       ],
     },

@@ -317,6 +317,7 @@ MODULE_API_PREFIXES = {
     "testing":            ("/qa",),
     "credvault":          ("/credvault",),
     "egnyte":             ("/egnyte",),
+    "workforce-scorecard": ("/workforce-scorecard",),   # endpoints self-gate on the grant + scope
 }
 
 

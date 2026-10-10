@@ -73,6 +73,7 @@ import TicketHelpTopicsSettings from '../tickets/TicketHelpTopicsSettings';
 import TicketDeskAccessSettings from '../tickets/TicketDeskAccessSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
+import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -166,6 +167,9 @@ const GLOBAL_SECTIONS = [
   { id: 'weekly-digest', category: 'notifications', icon: Mail, title: 'Weekly Digest',
     sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
     keywords: 'weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
+  { id: 'workforce-scorecard', category: 'notifications', icon: Mail, title: 'Workforce Scorecard',
+    sub: 'A weekly email to managers scoring each hourly person\'s punched hours against their expected hours (US 8h, India 9h, or their shift) - who worked, who was short, who was absent.',
+    keywords: 'workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
   { id: 'hr-reminders', category: 'notifications', icon: CalendarClock, title: 'HR & Compliance Reminders',
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
     keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
@@ -365,6 +369,16 @@ function WeeklyDigestSection({ defaultOpen }) {
   return (
     <Section {...SECTION_META['weekly-digest']} defaultOpen={defaultOpen}>
       <WeeklyDigestSettings />
+    </Section>
+  );
+}
+
+// ── Workforce Scorecard ────────────────────────────────────────────────────
+// Global-Admin only, like the Weekly Digest (WorkforceScorecardSettings.jsx).
+function WorkforceScorecardSection({ defaultOpen }) {
+  return (
+    <Section {...SECTION_META['workforce-scorecard']} defaultOpen={defaultOpen}>
+      <WorkforceScorecardSettings />
     </Section>
   );
 }
@@ -1006,6 +1020,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
       case 'weekly-digest':        return <WeeklyDigestSection key={key} defaultOpen={single} />;
+      case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} defaultOpen={single} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} defaultOpen={single} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;

@@ -2101,6 +2101,19 @@ export const api = {
   markAnnouncementRead: (id)       => req(`/announcements/${encodeURIComponent(id)}/read`, { method: 'POST', body: '{}' }),
   ackAnnouncement:      (id)       => req(`/announcements/${encodeURIComponent(id)}/ack`, { method: 'POST', body: '{}' }),
   getAnnouncementReads: (id)       => req(`/announcements/${encodeURIComponent(id)}/reads`),
+  // Workforce Scorecard (Neil, 10/10) - backend routers/workforce_scorecard.py.
+  // The report needs the 'workforce-scorecard' grant (viewer = own reporting
+  // line, full / admin = everyone); config, log and test sends are Global-Admin.
+  getWorkforceScorecard: (params = {}) => req(`/workforce-scorecard/report?${new URLSearchParams(params).toString()}`),
+  emailMeWorkforceScorecard: (weekStart, scope) =>
+    req("/workforce-scorecard/email-me", { method: "POST", body: JSON.stringify({ week_start: weekStart, scope }) }),
+  getWorkforceScorecardConfig: () => req("/workforce-scorecard/config"),
+  updateWorkforceScorecardConfig: (patch) => req("/workforce-scorecard/config", { method: "PUT", body: JSON.stringify(patch) }),
+  getWorkforceScorecardRecipients: () => req("/workforce-scorecard/recipients"),
+  getWorkforceScorecardLog: (params = {}) => req(`/workforce-scorecard/log?${new URLSearchParams(params).toString()}`),
+  forceResendWorkforceScorecard: (logId) => req(`/workforce-scorecard/log/${logId}`, { method: "DELETE" }),
+  sendTestWorkforceScorecard: (managerEmail, weekStart) =>
+    req("/workforce-scorecard/test-send", { method: "POST", body: JSON.stringify({ manager_email: managerEmail, week_start: weekStart || "" }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -5698,3 +5698,21 @@ class HrLifeEvent(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     completed_at    = Column(String, default="")
+
+
+class NexusWorkforceScorecardLog(Base):
+    """One row per manager per scored week a Workforce Scorecard email was
+    generated (workforce_scorecard.py, Oct 10 2026) - the once-a-week dedupe
+    check and what the admin Delivery Log reads. New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "nexus_workforce_scorecard_log"
+    id            = Column(String, primary_key=True)   # uuid
+    manager_email = Column(String, index=True, nullable=False)
+    week_start    = Column(String, index=True, nullable=False)  # first day of the scored week, YYYY-MM-DD
+    scope         = Column(String, default="team")      # team|all - what the email covered
+    sent_at       = Column(String, default="")          # UTC iso; '' when nothing was mailed
+    mode          = Column(String, default="off")       # off|test|live - which config this run used
+    people_count  = Column(Integer, default=0)          # people on the scorecard
+    absent_count  = Column(Integer, default=0)          # absent all week
+    below_count   = Column(Integer, default=0)          # below expected + well below
+    created_at    = Column(String, default="")

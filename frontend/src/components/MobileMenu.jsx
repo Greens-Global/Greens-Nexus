@@ -123,10 +123,12 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       : null;
 
   // Mirror the sidebar: grant-driven visibility below admin (Jun 17);
-  // external (B2B guest) accounts see ONLY their granted modules (Aug 17).
+  // external (B2B guest) accounts see ONLY their granted modules (Aug 17);
+  // an item's `grants` list means any one of them opens it (Oct 10).
+  const granted = item => (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
   const visible = NAV.filter(item => isExternal
-    ? (!item.divider && myGrantedModules?.has(item.grant || item.view))
-    : (item.divider || !item.minRole || can?.('administrator') || myGrantedModules?.has(item.grant || item.view)));
+    ? (!item.divider && granted(item))
+    : (item.divider || !item.minRole || can?.('administrator') || granted(item)));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);
