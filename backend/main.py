@@ -950,6 +950,9 @@ def _run_migrations():
             "ALTER TABLE task_comments ADD COLUMN resolved_by VARCHAR DEFAULT ''",
             # index=True on the model only applies at create_all; existing tables need it here.
             "CREATE INDEX IF NOT EXISTS ix_task_comments_parent_id ON task_comments (parent_id)",
+            # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
+            "ALTER TABLE task_projects ADD COLUMN default_view JSON",
+            "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2121,6 +2124,9 @@ def _run_migrations():
         "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_at VARCHAR DEFAULT ''",
         "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_by VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_task_comments_parent_id ON task_comments (parent_id)",
+        # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS default_view JSONB",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

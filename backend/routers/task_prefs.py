@@ -13,6 +13,7 @@ stored as an opaque list of strings and validated only for shape and size.
 A key that no longer exists is dropped by the client at read time, which is
 what lets a retired column disappear without a migration here.
 """
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -32,6 +33,10 @@ MAX_TABLES = 40
 MAX_COLS = 200
 MAX_KEY = 64
 MIN_WIDTH, MAX_WIDTH = 40, 2000
+# `data` is an opaque document the client owns (custom charts, the Home
+# widget layout, per-project view choices - Oct 2026). Capped by serialized
+# size so one person cannot grow their row without bound.
+MAX_DATA_BYTES = 64 * 1024
 
 
 def _now() -> str:
@@ -56,6 +61,7 @@ class TablePrefIn(BaseModel):
     view:      str | None = None         # list | board | calendar | ...
     group:     str | None = None         # what the list is grouped by
     sort:      dict | None = None        # {"key": ..., "dir": "asc"|"desc"}
+    data:      dict | None = None        # opaque, client-owned (charts, Home layout, project views)
 
 
 def _clean(body: TablePrefIn) -> dict:
@@ -102,6 +108,16 @@ def _clean(body: TablePrefIn) -> dict:
         direction = str(body.sort.get("dir", "asc")).strip().lower()
         if key and len(key) <= MAX_KEY and direction in ("asc", "desc"):
             out["sort"] = {"key": key, "dir": direction}
+    if body.data is not None:
+        # Stored whole, replaced whole: the client sends the full document each
+        # time, so a stale partial can never be merged over a newer one here.
+        try:
+            raw = json.dumps(body.data)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "data must be JSON")
+        if len(raw.encode("utf-8")) > MAX_DATA_BYTES:
+            raise HTTPException(400, "That is too much to save here")
+        out["data"] = body.data
     if body.widths is not None:
         widths = {}
         for key, val in list(body.widths.items())[:MAX_COLS]:
