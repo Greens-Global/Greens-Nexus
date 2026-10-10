@@ -3044,6 +3044,15 @@ class TaskComment(Base):
     edited_at    = Column(String, default="")
     pinned       = Column(Boolean, default=False)
     internal     = Column(Boolean, default=False)   # ticket notes only: agent-visible, not shared with the requester
+    # Threads, reactions and action items (Oct 2026). A reply carries the ROOT
+    # comment's id in parent_id (one level: a reply to a reply joins the same
+    # thread). reactions is {emoji: [emails]}. An assigned comment names the
+    # person who has to act on it; resolving it closes the item.
+    parent_id      = Column(String, default="", index=True)
+    reactions      = Column(JSON, default=dict)
+    assignee_email = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    resolved_by    = Column(String, default="")
 
 
 class TaskAttachment(Base):

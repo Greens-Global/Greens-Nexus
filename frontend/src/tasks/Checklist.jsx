@@ -6,50 +6,12 @@
 // returned task back to the store so list rows and board cards update
 // without a refetch.
 import { useEffect, useRef, useState } from 'react';
-import { Check, CheckCircle2, Circle, GripVertical, Plus, X } from 'lucide-react';
+import { CheckCircle2, Circle, GripVertical, Plus, X } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn } from './theme';
-import { Avatar } from './components';
+import { Avatar, PersonDot } from './components';
 import { itemsFromPaste } from './lib';
-import AnchoredMenu from '../components/AnchoredMenu';
-
-function ItemAssignee({ item, people, nameOf, onChange, disabled }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const [q, setQ] = useState('');
-  const shown = q ? people.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())) : people;
-  const name = item.assigneeId ? nameOf(item.assigneeId) : '';
-  return (
-    <div ref={ref} style={{ display: 'inline-flex' }} onClick={(e) => e.stopPropagation()}>
-      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
-        title={name ? `${name} - change` : 'Hand this step to someone'}
-        style={{ border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
-        {item.assigneeId
-          ? <Avatar email={item.assigneeId} name={name} size={18} />
-          : <span style={{ width: 18, height: 18, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
-      </button>
-      <AnchoredMenu anchorRef={ref} open={open} onClose={() => { setOpen(false); setQ(''); }}
-        style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
-        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
-          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4, outline: 'none' }} />
-        <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-          <button type="button" onClick={() => { onChange(''); setOpen(false); }} style={rowBtn}>
-            {!item.assigneeId ? <Check size={13} /> : <span style={{ width: 13 }} />}<span>Nobody</span>
-          </button>
-          {shown.map((p) => (
-            <button key={p.email} type="button" onClick={() => { onChange(p.email); setOpen(false); }} style={rowBtn}>
-              <Avatar email={p.email} name={p.name} size={16} card={false} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              {item.assigneeId === p.email && <Check size={13} style={{ marginLeft: 'auto' }} />}
-            </button>
-          ))}
-        </div>
-      </AnchoredMenu>
-    </div>
-  );
-}
-const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 12.5, color: NX.ink, textAlign: 'left' };
 
 /**
  * canEdit: may add / rename / reorder / delete (project editor). Anyone who
@@ -160,7 +122,7 @@ export default function Checklist({ task, people = [], canEdit = true, autoFocus
                   {item.title}
                 </span>
               )}
-              <ItemAssignee item={item} people={people} nameOf={nameOf} disabled={!canEdit} onChange={(email) => update(item, { assignee_email: email })} />
+              <PersonDot value={item.assigneeId} people={people} nameOf={nameOf} disabled={!canEdit} onChange={(email) => update(item, { assignee_email: email })} emptyTitle="Hand this step to someone" />
               {canEdit && (
                 <button type="button" data-x aria-label="Remove item" onClick={() => remove(item)}
                   style={{ ...btn('ghost'), padding: 2, color: NX.faint, opacity: 0, transition: 'opacity 0.1s' }}><X size={13} /></button>

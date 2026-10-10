@@ -931,6 +931,12 @@ def _run_migrations():
             # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
             "ALTER TABLE tasks ADD COLUMN checklist_total INTEGER DEFAULT 0",
             "ALTER TABLE tasks ADD COLUMN checklist_done INTEGER DEFAULT 0",
+            # Comment threads, reactions, assigned comments (Oct 2026). models.TaskComment.
+            "ALTER TABLE task_comments ADD COLUMN parent_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN reactions JSON DEFAULT '{}'",
+            "ALTER TABLE task_comments ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN resolved_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN resolved_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2089,6 +2095,12 @@ def _run_migrations():
         # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_total INTEGER DEFAULT 0",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_done INTEGER DEFAULT 0",
+        # Comment threads, reactions, assigned comments (Oct 2026). models.TaskComment.
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS assignee_email VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -479,8 +479,38 @@ def extract_mentions(html: str) -> list:
     return out
 
 
+# Reactions a comment can carry - the same six the in-mail buttons offer
+# (task_mail_actions.REACTIONS) plus "seen" and "done".
+COMMENT_REACTIONS = ("👍", "❤️", "🎉", "👏", "😂", "🔥", "👀", "✅")
+
+
+def thread_root(db: Session, task_id: str, parent_id: str) -> TaskComment | None:
+    """The root comment a reply joins: `parent_id` itself when it is a root,
+    its root when it is already a reply. None when it is not on this task."""
+    if not parent_id:
+        return None
+    p = db.query(TaskComment).filter(TaskComment.id == parent_id, TaskComment.task_id == task_id).first()
+    if p is None:
+        return None
+    if p.parent_id:
+        root = db.query(TaskComment).filter(TaskComment.id == p.parent_id, TaskComment.task_id == task_id).first()
+        return root or p
+    return p
+
+
+def thread_participants(db: Session, root: TaskComment) -> set[str]:
+    """Everyone who has written in a thread - the root's author and every
+    replier - lowercased."""
+    out = {(root.author_email or "").lower()}
+    for (a,) in db.query(TaskComment.author_email).filter(TaskComment.parent_id == root.id).all():
+        out.add((a or "").lower())
+    out.discard("")
+    return out
+
+
 def create_comment(db: Session, task, *, actor_email: str, author_email: str = "",
-                   body: str = "", notify: bool = True, defer=None) -> TaskComment:
+                   body: str = "", notify: bool = True, defer=None,
+                   parent_id: str = "", assignee_email: str = "") -> TaskComment:
     """Write one comment on `task` and fire every side effect that belongs to it:
     the activity entry, the in-app bells, the realtime ping, the Asana push and
     the notification emails (including the separate @mention mail).
@@ -507,16 +537,28 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
                    Graph calls: a request passes `BackgroundTasks.add_task` so
                    they run after the response is sent; a worker already off
                    the event loop passes nothing and they run inline.
+    `parent_id`    makes this a REPLY in that comment's thread (Oct 2026). A
+                   reply to a reply joins the same thread. The thread's
+                   participants are told, on top of the task's usual people.
+    `assignee_email` makes the comment an action item for that person: a
+                   bell and an email of its own, closed by resolving it.
 
     Commits, and returns the refreshed comment."""
     run_after = defer or (lambda fn, *a, **kw: fn(*a, **kw))
     actor = (actor_email or "").lower()
     author = (author_email or actor_email or "").lower()
     text = body or ""
+    root = thread_root(db, task.id, parent_id) if parent_id else None
+    if parent_id and root is None:
+        from fastapi import HTTPException
+        raise HTTPException(404, "The comment you are replying to is not on this task.")
+    assignee = (assignee_email or "").strip().lower()
 
     cid = gen_id()
     c = TaskComment(id=cid, task_id=task.id, author_email=author, body=text,
-                    created_at=now_iso(), edited_at="", pinned=False)
+                    created_at=now_iso(), edited_at="", pinned=False,
+                    parent_id=root.id if root is not None else "", reactions={},
+                    assignee_email=assignee, resolved_at="", resolved_by="")
     db.add(c)
     task.comment_ids = list(task.comment_ids or []) + [cid]
     task.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
@@ -527,13 +569,27 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
     # just the primary: the comment EMAIL already goes to each of them
     # (task_notify._recipients_for), so pinging only the first here made the
     # bell and the inbox disagree about who is on the task.
+    # A reply also reaches everyone already in the thread - they asked the
+    # question, or answered it, and are not necessarily on the task.
+    in_thread = (thread_participants(db, root) - {actor}) if (notify and root is not None) else set()
     if notify:
+        told = set()
         for who in set([*task_assignees(task),
                         *email_list(task.follower_emails)]):
-            if who and who != actor:
+            if who and who != actor and who != assignee:
+                told.add(who)
                 task_notify(db, kind="task_activity", for_email=who,
-                            title="New comment on a task", body=f"{task.title}", task_id=task.id,
+                            title="New reply on a task" if root is not None else "New comment on a task",
+                            body=f"{task.title}", task_id=task.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        for who in in_thread - told - {assignee}:
+            task_notify(db, kind="task_activity", for_email=who,
+                        title="New reply in your thread", body=f"{task.title}", task_id=task.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        if assignee and assignee != actor:
+            task_notify(db, kind="task_activity", for_email=assignee,
+                        title="A comment was assigned to you", body=f"{task.title}", task_id=task.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(c)
     fire_task_event(task.id, "comment")
@@ -541,11 +597,15 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
         # Lazy: task_notify.py imports this module, so importing it at module
         # level here would be a cycle.
         from task_notify import notify_task_event
-        run_after(notify_task_event, task.id, "commented", actor, comment_body=text)
+        run_after(notify_task_event, task.id, "commented", actor, comment_body=text,
+                  thread_participants=sorted(in_thread - {assignee}), reply=root is not None)
+        if assignee and assignee != actor:
+            run_after(notify_task_event, task.id, "comment_assigned", actor, comment_body=text,
+                      comment_assignee=assignee)
         # Mentions are their own event so the mail can say "X mentioned you"
         # instead of the generic comment FYI. The author is dropped - mentioning
         # yourself shouldn't email you.
-        mentioned = [e for e in extract_mentions(text) if e != actor]
+        mentioned = [e for e in extract_mentions(text) if e != actor and e != assignee]
         if mentioned:
             for who in mentioned:
                 task_notify(db, kind="task_activity", for_email=who,

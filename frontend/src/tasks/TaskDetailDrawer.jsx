@@ -13,18 +13,19 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldsForProject, fieldOption, uploadTaskAttachment, taskAssignees, threadComments } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, PersonDot, localTodayISO, notPast } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import Checklist from './Checklist';
+import CommentThread from './CommentThread';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -1058,12 +1059,14 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   }, [getComments, task.id]);
   useEffect(() => { load(); }, [load]);
 
+  const [assignTo, setAssignTo] = useState('');
   const submit = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
     try {
-      const c = await addComment(task.id, body);
+      const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {});
       setBody('');
+      setAssignTo('');
       if (pending.length) {
         await uploadPendingAttachments(task.id, c.id, pending);
         setPending([]);
@@ -1076,15 +1079,15 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   // Same pin/edit/delete shape as the full Comments tab (CommentsTab) - this is
   // a preview of the identical data, not a separate simplified view, so it
   // needs the same actions rather than a read-only cut-down.
-  const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); load(); };
-  const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); load(); };
-  const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); load(); };
+  const handlers = useCommentHandlers(task, addComment, load);
 
   // Newest last, like a chat log - the composer sits directly under the most
   // recent line so the thread reads top to bottom into the box you type in.
+  // Threads, not lines: a question and its replies stay together.
   const all = rows || [];
-  const shown = all.slice(-RECENT_COMMENTS);
-  const hidden = all.length - shown.length;
+  const threads = threadComments(all);
+  const shown = threads.slice(-RECENT_COMMENTS);
+  const hidden = threads.length - shown.length;
 
   return (
     <div>
@@ -1101,10 +1104,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
                 an Asana-synced comment showed as "asana-sync" with the raw
                 "[Asana · Name]" stamp still in the body instead of the real
                 author. Reusing the component means the two can't drift again. */}
-            {shown.map((c) => (
-              <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
-                attachments={attachments.get(c.id) || []}
-                onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />
+            {shown.map((th) => (
+              <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />
             ))}
           </div>
           <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginTop: 8 }}>
@@ -1127,9 +1128,10 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
         <span style={{ fontSize: 11, color: NX.faint }}>
           Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
         </span>
+        <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
         <button onClick={submit} disabled={isEmptyDoc(body) || busy}
           style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
-          {busy ? 'Posting…' : 'Comment'}
+          {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
         </button>
       </div>
     </div>
@@ -1239,10 +1241,12 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
+  const [assignTo, setAssignTo] = useState('');
   const submit = async () => {
     if (isEmptyDoc(body)) return;
     setBody('');
-    const c = await addComment(task.id, body).catch(() => null);
+    const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {}).catch(() => null);
+    setAssignTo('');
     if (c && pending.length) {
       await uploadPendingAttachments(task.id, c.id, pending);
       setPending([]);
@@ -1250,11 +1254,11 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
     }
     reload();
   };
-  const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); reload(); };
-  const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); reload(); };
-  const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); reload(); };
+  const handlers = useCommentHandlers(task, addComment, reload);
 
-  const list = (comments || []).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  // Pinned threads first, then oldest first; a resolved thread renders folded
+  // (CommentThread) so finished action items stop taking the room.
+  const list = threadComments(comments || []).slice().sort((a, b) => (b.root.pinned ? 1 : 0) - (a.root.pinned ? 1 : 0));
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1267,117 +1271,47 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
+          <span style={{ marginLeft: 'auto' }}><AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} /></span>
           <button onClick={submit} disabled={isEmptyDoc(body)}
-            style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
+            style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
       </div>
       {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
-          : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
-              attachments={attachments.get(c.id) || []}
-              onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />)}
-    </div>
-  );
-}
-function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelete }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(c.body);
-  const [hover, setHover] = useState(false);
-  const [zoomImage, zoomViewer] = useImageZoom();
-  const imported = parseImportedAuthor(c.body);
-  const displayName = imported?.name || nameOf(c.authorId);
-  const displayBody = imported ? imported.text : c.body;
-  return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? 'rgba(217,119,6,0.14)' : 'transparent' }}>
-      <Avatar email={c.authorId} name={displayName} size={26} />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{displayName}</span>
-          <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
-          {c.editedAt && <span style={{ fontSize: 11, fontStyle: 'italic', color: NX.faint }}>(edited)</span>}
-          {c.pinned && <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
-            <button onClick={onPin} title={c.pinned ? 'Unpin' : 'Pin'} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pin size={12} /></button>
-            {mine && <>
-              <button onClick={() => { setText(displayBody); setEditing(true); }} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={12} /></button>
-              <button onClick={onDelete} title="Delete" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={12} /></button>
-            </>}
-          </div>
-        </div>
-        {editing ? (
-          <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <RichDescription value={text} onChange={setText} minHeight={56} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <button onClick={() => { onEdit(text); setEditing(false); }} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Save</button>
-              <button onClick={() => setEditing(false)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12 }}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          // Bodies are HTML now (rich editor + Asana's html_text); richBodyHtml
-          // sanitizes them and escapes the older plain-text rows.
-          <div className="nx-rich-view" style={{ marginTop: 2, color: NX.dim }} onClick={zoomImage}
-            dangerouslySetInnerHTML={{ __html: richBodyHtml(displayBody, nameOf) }} />
-        )}
-        {zoomViewer}
-        {attachments.length > 0 && <CommentAttachments items={attachments} />}
-      </div>
+          : list.map((th) => <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
     </div>
   );
 }
 
-// Files attached while THIS comment was composed - see TaskAttachment.comment_id.
-// An image renders as a real inline preview (not the small chip the Attachments
-// tab uses); anything else renders as a named card with a Download link,
-// matching Asana's own comment-attachment layout.
-function CommentAttachments({ items }) {
-  const [view, setView] = useState(null);   // attachment open in the in-app viewer
-  // A row without a url is a failed/legacy upload (see uploadTaskAttachment) -
-  // it renders as a dead card, never a broken link. Everything stored opens the
-  // in-app viewer (images/videos/PDFs inline, other types a download card).
-  const card = (a, body) => {
-    const href = a.dataUrl || a.url;
-    const style = {
-      display: 'flex', alignItems: 'center', gap: 10, width: 260, padding: '9px 12px',
-      border: `1px solid ${NX.border}`, borderRadius: 10, textDecoration: 'none',
-      opacity: href ? 1 : 0.65,
-    };
-    return href
-      ? <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
-          style={{ ...style, background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'inherit' }}>{body}</button>
-      : <div key={a.id} style={style} title="This file failed to upload and isn't available - remove it and re-attach">{body}</div>;
+// The per-comment actions both comment surfaces share (Oct 2026): pin, edit,
+// delete, reply in the thread, react, resolve, assign. Each one re-reads the
+// list afterwards; the server is the source of truth for who may do what,
+// and a refused action simply leaves the thread as it was.
+function useCommentHandlers(task, addComment, reload) {
+  const quiet = (p) => p.catch((e) => { if (e?.message) window.alert(e.message); });
+  return {
+    onPin: async (c) => { await quiet(api.editTaskComment(c.id, { pinned: !c.pinned })); reload(); },
+    onEdit: async (c, text) => { await quiet(api.editTaskComment(c.id, { body: text })); reload(); },
+    onDelete: async (c) => { if (!window.confirm('Delete this comment?')) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
+    onReply: async (root, html) => { await quiet(addComment(task.id, html, { parent_id: root.id })); reload(); },
+    onReact: async (c, emoji) => { await quiet(api.reactTaskComment(c.id, emoji)); reload(); },
+    onResolve: async (c, v) => { await quiet(api.editTaskComment(c.id, { resolved: v })); reload(); },
+    onAssign: async (c, email) => { await quiet(api.editTaskComment(c.id, { assignee_email: email })); reload(); },
   };
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-      {items.map((a) => {
-        const href = a.dataUrl || a.url;
-        if (a.kind === 'image' && href) {
-          return (
-            <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
-              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', alignSelf: 'flex-start' }}>
-              <img src={href} alt={a.name}
-                style={{ display: 'block', maxWidth: 320, maxHeight: 240, borderRadius: 10, border: `1px solid ${NX.border}`, objectFit: 'cover' }} />
-            </button>
-          );
-        }
-        return card(a, (
-          <>
-            <Paperclip size={16} style={{ color: NX.dim, flexShrink: 0 }} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-              <div style={{ fontSize: 11, color: NX.faint, display: 'flex', alignItems: 'center', gap: 4 }}>
-                {href ? <><Download size={10} /> View or download</> : 'Not stored'}
-              </div>
-            </div>
-          </>
-        ));
-      })}
-      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
-    </div>
-  );
 }
 
+// "Assign to" beside the Send button: pick a person and the comment posts as
+// an action item for them (a bell and an email of their own; closed by
+// resolving it). Reads as a dot until someone is chosen.
+function AssignToggle({ value, onChange, people, nameOf }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: value ? NX.ink : NX.faint, whiteSpace: 'nowrap' }}>
+      <PersonDot value={value} people={people} nameOf={nameOf} onChange={onChange} size={18}
+        emptyTitle="Assign this comment to someone" nobodyLabel="Nobody (not an action item)" />
+      {value ? <>Assign to <b>{nameOf(value)}</b> <button type="button" onClick={() => onChange('')} aria-label="Do not assign" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={11} /></button></> : 'Assign to…'}
+    </span>
+  );
+}
 // ── Activity ────────────────────────────────────────────────────────────────
 function ActivityTab({ taskId, nameOf }) {
   const [rows, setRows] = useState(null);
