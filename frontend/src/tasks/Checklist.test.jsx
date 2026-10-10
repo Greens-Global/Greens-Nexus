@@ -97,6 +97,7 @@ describe('Checklist', () => {
 describe('itemsFromPaste', () => {
   it('splits bullets, numbers and boxes; leaves a single line alone', () => {
     expect(itemsFromPaste('1. First\n2) Second\n[ ] Third\n• Fourth\n\n')).toEqual(['First', 'Second', 'Third', 'Fourth']);
+    expect(itemsFromPaste('- [ ] Call vendor\n- [x] Send invoice')).toEqual(['Call vendor', 'Send invoice']);
     expect(itemsFromPaste('just one line')).toBeNull();
   });
 });

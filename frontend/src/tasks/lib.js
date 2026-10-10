@@ -794,7 +794,9 @@ export function richBodyHtml(body, nameOf) {
  *  and "[ ]" boxes stripped. A single line pastes as text like anywhere else. */
 export function itemsFromPaste(text) {
   const lines = String(text || '').split(/\r?\n/)
-    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)]|\[[ xX]?\])\s*/, '').trim())
+    // A bullet or number, then an optional "[ ]" / "[x]" box (markdown's
+    // "- [ ] call vendor"), both stripped.
+    .map((l) => l.replace(/^\s*(?:(?:[-*•]|\d+[.)])\s*)?(?:\[[ xX]?\]\s*)?/, '').trim())
     .filter(Boolean);
   return lines.length > 1 ? lines : null;
 }

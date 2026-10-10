@@ -29,7 +29,7 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
-    purge_task_permanently,
+    purge_task_permanently, assert_person_on_task,
 )
 from task_notify import notify_task_event
 import task_due
@@ -2288,7 +2288,7 @@ class ChecklistItemUpdate(BaseModel):
 
 
 class ChecklistOrder(BaseModel):
-    ids: list
+    ids: list[str]
 
 
 def _recount_checklist(db: Session, t: models.Task) -> None:
@@ -2332,7 +2332,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
         raise HTTPException(422, "At most 100 items at a time")
     last = (db.query(func.max(models.TaskChecklistItem.position))
             .filter(models.TaskChecklistItem.task_id == task_id).scalar()) or 0.0
-    who = (body.assignee_email or "").strip().lower()
+    who = assert_person_on_task(db, t, body.assignee_email or "")
     now = now_iso()
     made = []
     for n, title in enumerate(titles, start=1):
@@ -2374,7 +2374,7 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
             raise HTTPException(422, "A checklist item needs a title")
         i.title = title[:500]
     if "assignee_email" in data:
-        who = (data["assignee_email"] or "").strip().lower()
+        who = assert_person_on_task(db, t, data["assignee_email"] or "")
         if who and who != (i.assignee_email or "") and who != me:
             task_notify(db, kind="task_activity", for_email=who,
                         title="You were given a checklist item", body=f"{i.title} - {t.title}",

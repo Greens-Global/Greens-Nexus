@@ -403,6 +403,32 @@ def require_project_role(db: Session, user: dict, project, min_role: str) -> Non
         raise HTTPException(403, f"You need at least {min_role} access to {name}.")
 
 
+def assert_person_on_task(db: Session, task, email: str) -> str:
+    """`email` lowercased, once it is a current person who can already open
+    `task` - else 422. For hand-offs that name someone on a thing INSIDE a
+    task (a checklist line, a comment): being named there grants no
+    visibility, so the person must be able to see the task already, must be a
+    real, active employee (not any string that reaches a bell and, for a
+    comment, an outside mailbox), and must be on the task's side of the
+    company wall. Blank stays blank: that is "nobody"."""
+    import auth
+    from models import NexusEmployee
+    who = (email or "").strip().lower()
+    if not who:
+        return ""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == who).first()
+    if not emp or (emp.status or "") in ("inactive", "offboarded"):
+        raise HTTPException(422, "That person is not in the Nexus directory.")
+    task_co = task_company(task, _emp_company_map(db))
+    if task_co and (emp.company or "") and emp.company != task_co:
+        raise HTTPException(422, "That person is in another company.")
+    if auth.level_for(who, db) >= 3:   # managers open every task
+        return who
+    if not task_is_visible(task, who, visible_project_ids(db, who)):
+        raise HTTPException(422, "That person cannot see this task. Add them to the task or its project first.")
+    return who
+
+
 def require_task_role(db: Session, user: dict, task, min_role: str) -> None:
     """require_project_role for a check about ONE task, where anyone the task
     is assigned to always counts.

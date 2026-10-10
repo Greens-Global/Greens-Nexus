@@ -49,8 +49,12 @@ class ChecklistTests(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.Task, models.TaskChecklistItem, models.TaskActivity, models.TaskProject,
-                  models.TaskNotification, models.TaskDeleteLog):
+                  models.TaskNotification, models.TaskDeleteLog, models.NexusEmployee):
             self.db.query(m).delete()
+        # A line can only name a current person (assert_person_on_task).
+        for u in (MANAGER, EDITOR, READER, OUTSIDER):
+            self.db.add(models.NexusEmployee(id=gen_id(), first_name=u["email"].split("@")[0],
+                                             work_email=u["email"], status="active"))
         self.db.commit()
         self.bg = BackgroundTasks()
         # A restricted project: the manager owns it, EDITOR edits, READER views.
@@ -122,6 +126,20 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 403)
         self._add(title="x")
         self.assertEqual(len(list_checklist(self.task["id"], user=READER, db=self.db)), 1)
+
+    def test_a_line_names_only_someone_who_can_see_the_task(self):
+        with self.assertRaises(HTTPException) as cm:
+            self._add(title="x", assignee_email=OUTSIDER["email"])
+        self.assertEqual(cm.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as cm:
+            self._add(title="x", assignee_email="nobody@example.com")
+        self.assertEqual(cm.exception.status_code, 422)
+        item = self._add(title="x")["items"][0]
+        with self.assertRaises(HTTPException):
+            update_checklist_item(item["id"], ChecklistItemUpdate(assignee_email=OUTSIDER["email"]), user=MANAGER, db=self.db)
+        self.assertEqual(self.db.query(models.TaskNotification).filter(models.TaskNotification.for_email == OUTSIDER["email"]).count(), 0, "no bell reached the outsider")
+        out = update_checklist_item(item["id"], ChecklistItemUpdate(assignee_email=READER["email"]), user=MANAGER, db=self.db)
+        self.assertEqual(out["item"]["assigneeId"], READER["email"])
 
     def test_an_outsider_sees_nothing(self):
         self._add(title="x")

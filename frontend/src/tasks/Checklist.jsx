@@ -70,7 +70,9 @@ export default function Checklist({ task, people = [], canEdit = true, autoFocus
     let alive = true;
     api.getTaskChecklist(taskId).then((rows) => { if (alive) setItems(rows || []); }).catch(() => { if (alive) setItems([]); });
     return () => { alive = false; };
-  }, [taskId]);
+    // The counters move when someone else ticks or adds a line (the realtime
+    // ping refetches the task), and the rows here have to follow.
+  }, [taskId, task?.checklistTotal, task?.checklistDone]);
 
   const fail = (e) => setError(e?.message || 'That did not save. Try again.');
   const takeTask = (res) => { if (res?.task) applyServerTask(res.task); };
