@@ -458,6 +458,16 @@ export const api = {
   // Move a task's dates and push what waits on it (Timeline drag, Oct 2026).
   // Answers { task, moved: [tasks], skipped: [{id, title}] }.
   rescheduleTask: (id, data) => req(`/tasks/${id}/reschedule`, { method: "POST", body: JSON.stringify(data) }),
+  // Time entries (Oct 2026): a timer per person plus typed-in minutes, rolled
+  // up into the task's actualHours. Writes answer with { entry, task }.
+  getTaskTime: (taskId) => req(`/tasks/${taskId}/time`),
+  addTaskTime: (taskId, data) => req(`/tasks/${taskId}/time`, { method: "POST", body: JSON.stringify(data) }),
+  startTaskTimer: (taskId) => req(`/tasks/${taskId}/time/start`, { method: "POST", body: "{}" }),
+  stopTaskTimer: (data = {}) => req("/tasks/time/stop", { method: "POST", body: JSON.stringify(data) }),
+  getRunningTaskTimer: () => req("/tasks/time/running"),
+  getMyTaskTime: (from = "", to = "") => req(`/tasks/time/mine?from=${from}&to=${to}`),
+  updateTaskTime: (entryId, data) => req(`/tasks/time/${entryId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteTaskTime: (entryId) => req(`/tasks/time/${entryId}`, { method: "DELETE" }),
   // Description editor's AI rephrase - returns a suggestion the user accepts or
   // discards; it never writes to the task.
   taskAiRephrase: (data) => req("/task-ai/rephrase", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
