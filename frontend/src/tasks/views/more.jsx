@@ -1,7 +1,7 @@
 // Task Module - additional view kinds: Timeline (gantt), Files (attachment
 // gallery), Workload (per-assignee load). Ported from the export's
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../../components/AsyncState';
 import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download } from 'lucide-react';
 import { api } from '../../api';
@@ -9,6 +9,8 @@ import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState, AttachmentViewer } from '../components';
 import { fmtDate, taskAssignees } from '../lib';
 import { toDownloadUrl } from '../../lib/storageView';
+import { useTasks } from '../TasksContext';
+import { daysFromPixels, dragModeAt, dragDates, describeMove, HANDLE_W } from '../timelineDrag';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -29,6 +31,23 @@ const initialsOf = (label = '') => {
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
 const MAX_TIMELINE_ROWS = 300;
 export function TimelineView({ tasks, onOpen, nameOf }) {
+  const { applyServerTask } = useTasks();
+  // Drag (Oct 2026): a bar moves, or its start / end edge stretches. The bar
+  // follows the pointer by whole days; on release the server moves the task
+  // AND pushes whatever waits on it (POST /tasks/{id}/reschedule), and the
+  // notice says what moved. `justDragged` keeps the click that ends a drag
+  // from also opening the task.
+  const [drag, setDrag] = useState(null);           // { id, mode, startX, days }
+  const [busyId, setBusyId] = useState(null);
+  const [notice, setNotice] = useState('');
+  const justDragged = useRef(false);
+  const noticeTimer = useRef(null);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const say = (text) => {
+    clearTimeout(noticeTimer.current);
+    setNotice(text);
+    noticeTimer.current = setTimeout(() => setNotice(''), 6000);
+  };
   const allDated = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
   // Render cap: each timeline row draws a label, grid line, bar and dependency
   // arrows; thousands of rows freeze the tab. Cap the rows (the Gantt geometry,
@@ -48,9 +67,54 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   }
 
   const dayOffset = (iso) => Math.round((fromISO(iso).getTime() - fromISO(start).getTime()) / DAY);
-  const barGeom = (t) => {
+  // The dragged bar is drawn where the pointer has taken it, arrows included.
+  const previewOf = (t) => {
+    if (!drag || drag.id !== t.id || !drag.days) return t;
+    const d = dragDates(t, drag.mode, drag.days);
+    return d ? { ...t, ...d } : t;
+  };
+  const barGeom = (raw) => {
+    const t = previewOf(raw);
     const s = t.startOn || t.dueOn, e = t.dueOn || t.startOn;
     return { left: dayOffset(s) * DAY_W, width: Math.max(DAY_W, (dayOffset(e) - dayOffset(s) + 1) * DAY_W) };
+  };
+
+  const onBarPointerDown = (t, e) => {
+    if (e.button !== 0 || busyId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mode = t.isMilestone ? 'move' : dragModeAt(e.clientX - rect.left, rect.width || barGeom(t).width);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDrag({ id: t.id, mode, startX: e.clientX, days: 0 });
+  };
+  const onBarPointerMove = (t, e) => {
+    if (!drag || drag.id !== t.id) return;
+    const days = daysFromPixels(e.clientX - drag.startX);
+    if (days !== drag.days) setDrag({ ...drag, days });
+  };
+  const onBarPointerUp = async (t, e) => {
+    if (!drag || drag.id !== t.id) return;
+    const days = daysFromPixels(e.clientX - drag.startX);
+    const dates = dragDates(t, drag.mode, days);
+    setDrag(null);
+    if (!dates) return;
+    justDragged.current = true;
+    setTimeout(() => { justDragged.current = false; }, 0);
+    setBusyId(t.id);
+    try {
+      const res = await api.rescheduleTask(t.id, { start_on: dates.startOn, due_on: dates.dueOn });
+      if (res?.task) applyServerTask(res.task);
+      for (const m of res?.moved || []) applyServerTask(m);
+      say(describeMove(t.title, dates, (res?.moved || []).length, (res?.skipped || []).length, fmtDate));
+    } catch (err) {
+      say(err?.message || 'That move did not save. Try again.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+  const openUnlessDragged = (id) => { if (!justDragged.current) onOpen(id); };
+  const cursorFor = (t) => {
+    if (drag && drag.id === t.id) return drag.mode === 'move' ? 'grabbing' : 'ew-resize';
+    return 'grab';
   };
   const rowOf = new Map(rows.map((t, i) => [t.id, i]));
   const weeks = [];
@@ -65,6 +129,9 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
         Showing {MAX_TIMELINE_ROWS} of {allDated.length} scheduled tasks - filter to narrow the timeline.
       </div>
     )}
+    <div role="status" aria-live="polite" style={{ margin: '12px 16px 0', minHeight: 18, fontSize: 12, fontFamily: FONT, color: notice ? NX.ink : NX.faint }}>
+      {notice || 'Drag a bar to move it, or its edge to change the start or due date. Tasks waiting on it move with it.'}
+    </div>
     <div className="nx-scroll" style={{ margin: 16, overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, fontFamily: FONT }}>
       <div style={{ width: LABEL_W + gridW }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'flex', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
@@ -109,15 +176,26 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
             {rows.map((t, i) => {
               const g = barGeom(t);
               const meta = STATUS_META[t.status] || { label: t.status, color: NX.dim };
+              const dragging = drag?.id === t.id;
+              const pointer = {
+                onPointerDown: (e) => onBarPointerDown(t, e),
+                onPointerMove: (e) => onBarPointerMove(t, e),
+                onPointerUp: (e) => onBarPointerUp(t, e),
+                onPointerCancel: () => setDrag(null),
+              };
               if (t.isMilestone) {
-                return <button key={t.id} onClick={() => onOpen(t.id)} title={t.title} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: 'pointer', zIndex: 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
+                return <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={t.title} aria-label={t.title} data-bar={t.id} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: cursorFor(t), touchAction: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
               }
               const [primary = ''] = taskAssignees(t);
               const ini = primary ? initialsOf(nameOf ? nameOf(primary) : primary) : '';
+              const edge = { position: 'absolute', top: 0, bottom: 0, width: HANDLE_W, cursor: 'ew-resize' };
               return (
-                <button key={t.id} onClick={() => onOpen(t.id)} title={`${t.title} (${meta.label})`} style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer', background: meta.color, overflow: 'hidden', zIndex: 1 }}>
+                <button key={t.id} {...pointer} onClick={() => openUnlessDragged(t.id)} title={`${t.title} (${meta.label})`} aria-label={t.title} data-bar={t.id}
+                  style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: cursorFor(t), background: meta.color, overflow: 'hidden', touchAction: 'none', zIndex: dragging ? 3 : 1, opacity: busyId === t.id ? 0.6 : 1, boxShadow: dragging ? '0 6px 18px rgba(0,0,0,0.25)' : 'none', transition: dragging ? 'none' : 'left 0.12s, width 0.12s' }}>
+                  <span style={{ ...edge, left: 0 }} />
                   {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>
+                  <span style={{ ...edge, right: 0 }} />
                 </button>
               );
             })}

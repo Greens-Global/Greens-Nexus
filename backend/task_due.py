@@ -31,7 +31,7 @@ import models
 from routers.task_util import log_activity, now_iso, task_assignees, task_notify
 
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
-SOURCES = ("app", "bulk", "asana", "proposal", "counter", "automation")   # automation: task_automation.py (Oct 2026)
+SOURCES = ("app", "bulk", "asana", "proposal", "counter", "automation", "cascade")   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
 # Managers hear about a task on its 3rd extension, then every 3rd after that -
 # "I would love to know that the task was extended 9 times" without a bell
 # ping for every single push.

@@ -455,6 +455,9 @@ export const api = {
   deleteTaskComment: (cid) => req(`/tasks/comments/${cid}`, { method: "DELETE" }),
   // Toggle one emoji reaction on a comment (Oct 2026). Answers with the comment.
   reactTaskComment: (cid, emoji) => req(`/tasks/comments/${cid}/reactions`, { method: "POST", body: JSON.stringify({ emoji }) }),
+  // Move a task's dates and push what waits on it (Timeline drag, Oct 2026).
+  // Answers { task, moved: [tasks], skipped: [{id, title}] }.
+  rescheduleTask: (id, data) => req(`/tasks/${id}/reschedule`, { method: "POST", body: JSON.stringify(data) }),
   // Description editor's AI rephrase - returns a suggestion the user accepts or
   // discards; it never writes to the task.
   taskAiRephrase: (data) => req("/task-ai/rephrase", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
