@@ -34,6 +34,7 @@ from routers.task_util import (
 from task_notify import notify_task_event
 import task_due
 import task_automation
+import task_schedule
 import code_sequence
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
@@ -1706,6 +1707,53 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                                   update_kind=", ".join(modified_kinds),
                                   due_changed=due_entry is not None)
     return task_to_dict(t)
+
+
+class RescheduleBody(BaseModel):
+    start_on: Optional[str] = None
+    due_on: Optional[str] = None
+    cascade: Optional[bool] = True
+
+
+@router.post("/{task_id}/reschedule")
+def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: BackgroundTasks,
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Move a task's dates and push whatever waits on it (task_schedule.py).
+    The Timeline's drag lands here. The task itself goes through update_task,
+    so validation, roles, automation rules and the usual notifications all
+    apply; the dependents are then shifted only as far as their dependency
+    type demands, each with its own due-history line, event and email.
+    Answers {task, moved: [tasks], skipped: [{id, title}]} - `skipped` are
+    dependents the caller may not edit, left where they were."""
+    fields = {k: v for k, v in (("start_on", body.start_on), ("due_on", body.due_on)) if v is not None}
+    if not fields:
+        raise HTTPException(422, "Nothing to move: send start_on and/or due_on")
+    primary = update_task(task_id, TaskUpdate(**fields), background_tasks, user=user, db=db)
+    t = _get_task(db, task_id)
+    moved, skipped = [], []
+    if body.cascade:
+        def _can_edit(d: models.Task) -> bool:
+            try:
+                require_task_role(db, user, d, "editor")
+                return True
+            except HTTPException:
+                return False
+        moved, skipped = task_schedule.push_dependents(db, t, actor=user["email"], can_edit=_can_edit)
+        if moved:
+            for d in moved:
+                req = task_due.requester_of(d)
+                if req and req != user["email"].lower():
+                    task_notify(db, kind="task_due_changed", for_email=req,
+                                title="Due date moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
+                                nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+            db.commit()
+            for d in moved:
+                db.refresh(d)
+                fire_task_event(d.id, "updated")
+                background_tasks.add_task(notify_task_event, d.id, "modified", user["email"],
+                                          update_kind=f"Rescheduled after \"{t.title}\" moved", due_changed=True)
+    return {"task": primary, "moved": [task_to_dict(d) for d in moved],
+            "skipped": [{"id": d.id, "title": d.title} for d in skipped]}
 
 
 def _due_change_label(t: models.Task, entry: dict) -> str:
