@@ -435,8 +435,10 @@ export function TasksProvider({ children }) {
     commentCache.current[taskId] = sorted;
     return sorted;
   }, []);
-  const addComment = useCallback(async (taskId, body) => {
-    const c = await api.addTaskComment(taskId, { body });
+  // `extra`: { parent_id } for a reply in a thread, { assignee_email } to make
+  // the comment an action item (Oct 2026).
+  const addComment = useCallback(async (taskId, body, extra = {}) => {
+    const c = await api.addTaskComment(taskId, { body, ...extra });
     commentCache.current[taskId] = [...(commentCache.current[taskId] || []), c];
     refetchTasks().catch(() => {});
     return c;

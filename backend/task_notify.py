@@ -178,6 +178,12 @@ def _recipients_for(db: Session, t: models.Task, event_type: str, actor_email: s
         add_assignees()
         for f in followers:
             add(f, "follower")
+        # A reply reaches the thread's earlier voices too (Oct 2026).
+        for who in extra.get("thread_participants", []) or []:
+            add(who, "thread")
+    elif event_type == "comment_assigned":
+        # ONLY the person it was assigned to; everyone else gets "commented".
+        add(extra.get("comment_assignee", ""), "assignee")
     elif event_type == "mentioned":
         # ONLY the people named in the comment. Assignees and followers already
         # got the "commented" mail for the same comment; adding them here would
@@ -342,7 +348,12 @@ def _render_event(db: Session, ctx: dict, event_type: str, recipient: str, role:
                                              actor_name=ctx["actorName"])
     elif event_type == "commented":
         subject, html = tmpl.commented_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                              comment_body=kw.get("comment_body", ""))
+                                              comment_body=kw.get("comment_body", ""),
+                                              reply=bool(kw.get("reply")))
+    elif event_type == "comment_assigned":
+        subject, html = tmpl.comment_assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
+                                                     comment_body=kw.get("comment_body", ""),
+                                                     actor_name=ctx["actorName"])
     elif event_type == "follower_added":
         subject, html = tmpl.follower_added_email(t=ctx, base_url=app_url(), logo_url=logo_url)
     elif event_type == "modified":
@@ -768,7 +779,7 @@ async def task_notify_loop() -> None:
 # that are urgent or due today/tomorrow - an hour's delay would cost the time
 # the email exists to save. The in-app bell is never batched.
 
-_WAIT_NEVER = ("mentioned", "deleted")
+_WAIT_NEVER = ("mentioned", "deleted", "comment_assigned")   # comment_assigned: addressed AT you, like a mention
 
 
 def batch_window_minutes(cfg: dict) -> int:
@@ -859,6 +870,9 @@ def _event_line(q, actor_name: str) -> str:
         return f"{actor_name} completed this task"
     if q.event_type == "follower_added":
         return f"{actor_name} added you as a collaborator"
+    if q.event_type == "comment_assigned":
+        text = mail_actions._plain(pl.get("comment_body") or "", 160)
+        return f"{actor_name} assigned you a comment" + (f": {text}" if text else "")
     if q.event_type == "commented":
         text = mail_actions._plain(pl.get("comment_body") or "", 160)
         return f'{actor_name} commented: "{text}"' if text else f"{actor_name} commented"

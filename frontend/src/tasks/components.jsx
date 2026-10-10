@@ -1511,3 +1511,44 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
     </div>
   );
 }
+
+// A person as a dot (Oct 2026): an avatar when someone is chosen, a dashed
+// circle when nobody is, opening a searchable people list. The checklist
+// line's assignee and a comment's "assign to" both use it - small enough to
+// sit at the end of a row, which PersonSelect's labelled button is not.
+export function PersonDot({ value, people = [], nameOf, onChange, disabled = false, size = 18, emptyTitle = 'Choose a person', nobodyLabel = 'Nobody' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const [q, setQ] = useState('');
+  const shown = q ? people.filter((p) => (p.name || '').toLowerCase().includes(q.toLowerCase())) : people;
+  const name = value ? (nameOf?.(value) || value) : '';
+  const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 12.5, color: NX.ink, textAlign: 'left' };
+  return (
+    <div ref={ref} style={{ display: 'inline-flex' }} onClick={(e) => e.stopPropagation()}>
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label={name ? `${name} - change` : emptyTitle}
+        title={name ? `${name} - change` : emptyTitle}
+        style={{ border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+        {value
+          ? <Avatar email={value} name={name} size={size} />
+          : <span style={{ width: size, height: size, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => { setOpen(false); setQ(''); }}
+        style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
+          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4, outline: 'none' }} />
+        <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+          <button type="button" onClick={() => { onChange(''); setOpen(false); }} style={rowBtn}>
+            {!value ? <Check size={13} /> : <span style={{ width: 13 }} />}<span>{nobodyLabel}</span>
+          </button>
+          {shown.map((p) => (
+            <button key={p.email} type="button" onClick={() => { onChange(p.email); setOpen(false); }} style={rowBtn}>
+              <Avatar email={p.email} name={p.name} size={16} card={false} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              {value === p.email && <Check size={13} style={{ marginLeft: 'auto' }} />}
+            </button>
+          ))}
+        </div>
+      </AnchoredMenu>
+    </div>
+  );
+}
