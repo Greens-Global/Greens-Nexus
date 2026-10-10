@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models import (TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject,
-                    TaskTeam, Task, TaskComment, TaskAttachment, AsanaTaskLink)
+                    TaskTeam, Task, TaskComment, TaskAttachment, AsanaTaskLink, TaskChecklistItem)
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -588,6 +588,7 @@ def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> 
                 detail="permanently deleted this task")
     db.query(TaskComment).filter(TaskComment.task_id.in_(gone_ids)).delete(synchronize_session=False)
     db.query(TaskAttachment).filter(TaskAttachment.task_id.in_(gone_ids)).delete(synchronize_session=False)
+    db.query(TaskChecklistItem).filter(TaskChecklistItem.task_id.in_(gone_ids)).delete(synchronize_session=False)
     db.query(AsanaTaskLink).filter(AsanaTaskLink.nexus_task_id.in_(gone_ids)).delete(synchronize_session=False)
     db.query(Task).execution_options(include_deleted=True).filter(Task.id.in_(gone_ids)).delete(synchronize_session=False)
     return True

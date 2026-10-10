@@ -788,3 +788,13 @@ export function richBodyHtml(body, nameOf) {
   }
   return sanitizeRichHtml(s, nameOf);
 }
+
+// Checklist (Oct 2026).
+/** Lines pasted into the add box: one item per non-empty line, list bullets
+ *  and "[ ]" boxes stripped. A single line pastes as text like anywhere else. */
+export function itemsFromPaste(text) {
+  const lines = String(text || '').split(/\r?\n/)
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)]|\[[ xX]?\])\s*/, '').trim())
+    .filter(Boolean);
+  return lines.length > 1 ? lines : null;
+}

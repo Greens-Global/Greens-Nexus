@@ -461,6 +461,13 @@ export const api = {
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
+  // Checklist inside a task (Oct 2026). Writes answer with the task's fresh
+  // checklistTotal / checklistDone so the caller can hand it to the store.
+  getTaskChecklist: (taskId) => req(`/tasks/${taskId}/checklist`),
+  addTaskChecklistItems: (taskId, data) => req(`/tasks/${taskId}/checklist`, { method: "POST", body: JSON.stringify(data) }),
+  updateTaskChecklistItem: (itemId, data) => req(`/tasks/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}`, { method: "DELETE" }),
+  reorderTaskChecklist: (taskId, ids) => req(`/tasks/${taskId}/checklist/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
   // requester answers. Each returns the updated task.

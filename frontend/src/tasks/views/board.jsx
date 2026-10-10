@@ -6,7 +6,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Circle, CheckCircle2, MessageSquare, Diamond, Plus, Trash2, ChevronsLeft, ChevronsRight,
-  MoreHorizontal, Gauge, Rows3, ChevronDown,
+  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } from '../lib';
@@ -240,6 +240,11 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
               style={{ ...btn('ghost'), padding: 2, gap: 2, fontSize: 11, color: commentOpenId === t.id ? NX.blue : NX.faint }}>
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
+            {t.checklistTotal > 0 && (
+              <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
+                <ListChecks size={11} />{t.checklistDone || 0}/{t.checklistTotal}
+              </span>
+            )}
             {t.dueOn && <span style={{ fontSize: 11, color: dc }}>{fmtDue(t.dueOn)}</span>}
             <DueBadge task={t} nameOf={ctx.nameOf} compact />
             {taskAssignees(t).slice(0, 3).map((a, i) => (

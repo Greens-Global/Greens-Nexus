@@ -1265,11 +1265,21 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
         d = _iso_day(value) if (include_dates and anchor) else None
         return (d - anchor).days if d else None
 
+    # Checklist lines ride along as titles (never ticked, never assigned - a
+    # blueprint has no people in it).
+    checklist_by_task: dict[str, list] = {}
+    if keep:
+        for item in (db.query(models.TaskChecklistItem)
+                     .filter(models.TaskChecklistItem.task_id.in_(list(keep)))
+                     .order_by(models.TaskChecklistItem.position, models.TaskChecklistItem.created_at).all()):
+            checklist_by_task.setdefault(item.task_id, []).append(item.title or "")
+
     snap_tasks = []
     for t in rows:
         parent = t.parent_task_id or ""
         status = t.status or "not_started"
         snap_tasks.append({
+            "checklist": [x for x in checklist_by_task.get(t.id, []) if x],
             "key": task_key[t.id],
             # A kept subtask whose parent was filtered out is promoted to
             # top-level rather than dropped - losing the work would be worse
@@ -1667,6 +1677,16 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                                    or [spec.get("assigneeEmail") or ""])
             db.add(row)
             made.append((spec, row))
+
+        # Checklist lines, as captured.
+        for spec, row in made:
+            titles = [str(x).strip() for x in (spec.get("checklist") or []) if str(x or "").strip()]
+            for i, title in enumerate(titles, start=1):
+                db.add(models.TaskChecklistItem(id=gen_id(), task_id=row.id, title=title[:500], done=False,
+                                                assignee_email="", position=float(i),
+                                                created_at=now, created_by=user["email"]))
+            if titles:
+                row.checklist_total, row.checklist_done = len(titles), 0
 
         # Second pass: parent/subtask links and dependencies, now that every
         # payload key has a real id behind it.
