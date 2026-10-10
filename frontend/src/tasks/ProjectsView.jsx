@@ -877,6 +877,26 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
           </div>
         </div>
 
+        {/* How the project opens for everyone who has not picked a view inside
+            it (Oct 2026). Blank = each person's own general preference. */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={label}>Default View</label>
+          <SearchSelect value={form.defaultView?.view || ''} placeholder="Each person's own preference"
+            buttonStyle={{ ...inputStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+            options={[{ id: '', label: "Each person's own preference" }, { id: 'list', label: 'List' }, { id: 'board', label: 'Board' },
+                      { id: 'calendar', label: 'Calendar' }, { id: 'timeline', label: 'Timeline' }, { id: 'dashboard', label: 'Dashboard' }]}
+            onPick={(id) => set({ defaultView: id ? { view: id, group: form.defaultView?.group || 'status' } : null })} />
+          {form.defaultView?.view && (form.defaultView.view === 'list' || form.defaultView.view === 'board') && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, color: NX.dim }}>
+              grouped by
+              <select value={form.defaultView.group || 'status'} onChange={(e) => set({ defaultView: { ...form.defaultView, group: e.target.value } })}
+                style={{ ...inputStyle, width: 'auto', height: 30, padding: '0 8px', fontSize: 12.5 }}>
+                {[['status', 'Status'], ['priority', 'Priority'], ['assignee', 'Assignee'], ['none', 'Nothing']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+
         {projectFields.map((f) => (
           <div key={f.id}>
             <label style={label}>{f.name}</label>

@@ -317,7 +317,41 @@ export const projectToForm = (p) => ({
   accessLevel: p.accessLevel || 'restricted',
   status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
   customFieldValues: p.customFieldValues || {},
+  defaultView: p.defaultView || null,
 });
+
+/** The role a person holds on a project, as the backend's project_role_for
+ *  reads it minus team grants: owner > editor > commenter > viewer, or null.
+ *  Managers are owners everywhere; an org-level project makes everyone an
+ *  editor; bare membership counts as editor. Used only to decide what to
+ *  OFFER - the server enforces. */
+export function projectRoleOf(project, email, isManager = false) {
+  if (!project) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  if (!me) return null;
+  if ((project.ownerId || '').toLowerCase() === me) return 'owner';
+  const explicit = (project.memberRoles || {})[me];
+  if (explicit) return explicit;
+  if ((project.memberIds || []).map((x) => (x || '').toLowerCase()).includes(me)) return 'editor';
+  if ((project.accessLevel || 'org') === 'org') return 'editor';
+  return null;
+}
+const ROLE_RANK = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
+export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[min] || 0);
+
+/** Which view and grouping a project opens with for this person (Oct 2026):
+ *  their own choice IN this project, else the project's default, else how
+ *  they look at task lists generally. */
+export function effectiveProjectView(projViews, project, globalView, globalGroup) {
+  const mine = (project && projViews?.[project.id]) || {};
+  const def = project?.defaultView || {};
+  return {
+    view: mine.view || def.view || globalView,
+    group: mine.group || def.group || globalGroup,
+    source: mine.view || mine.group ? 'mine' : def.view || def.group ? 'project' : 'global',
+  };
+}
 
 export const isSection = (t) => t.type === 'section';
 export const isSubtask = (t) => !!t.parentTaskId;

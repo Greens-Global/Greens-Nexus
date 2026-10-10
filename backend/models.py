@@ -2900,6 +2900,13 @@ class TaskProject(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # How the project opens for everyone who has not chosen otherwise in it
+    # (Oct 2026): {view: list|board|..., group: status|...}. Set by the owner.
+    default_view  = Column(JSON, nullable=True)
+    # Dashboard charts the project shares with everyone who can see it
+    # ([chart configs], same shape as a person's own charts in their
+    # task_table_prefs "charts" document). Editors curate.
+    shared_charts = Column(JSON, default=list)
 
 
 class TaskPortfolio(Base):

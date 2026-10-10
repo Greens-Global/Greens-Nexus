@@ -70,6 +70,13 @@ function loadPrefs() {
   return inflight;
 }
 
+/** Resolves with the person's whole prefs document once the first load has
+ *  settled. A one-time lift from an older localStorage store must wait for
+ *  this: a write made DURING the first fetch is overwritten when it lands. */
+export function whenTablePrefsLoaded() {
+  return loadPrefs();
+}
+
 // Optimistic: the arrangement is applied locally and then sent. A failed PUT
 // leaves what the user sees in place rather than snapping their drag back -
 // the next load re-reads the server and settles the difference.
