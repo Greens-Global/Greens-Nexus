@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { searchPeople, groupByDepartment, buildTree, chainUp, myTeam, vCardOf, csvOf, NO_DEPARTMENT } from './lib';
+import { searchPeople, groupByDepartment, buildTree, chainUp, myTeam, vCardOf, csvOf, presenceOf, NO_DEPARTMENT } from './lib';
 
 const P = (email, name, dept, mgr = '', role = '') => ({
   email, name, firstName: name.split(' ')[0], lastName: name.split(' ')[1] || '', department: dept, managerEmail: mgr,
@@ -41,6 +41,14 @@ describe('directory helpers', () => {
 
   it('my team is my manager, my peers and my reports', () => {
     expect(myTeam(sam, ALL).map((p) => p.email).sort()).toEqual(['bo@x', 'kim@x', 'lee@x']);
+  });
+
+  it('maps Teams presence to a dot and a label', () => {
+    expect(presenceOf({ availability: 'Available', activity: 'Available' })).toEqual({ color: '#16a34a', label: 'Available' });
+    expect(presenceOf({ availability: 'Busy', activity: 'InACall' })).toEqual({ color: '#dc2626', label: 'In a Call' });
+    expect(presenceOf({ availability: 'Away', activity: 'Away' }).label).toBe('Away');
+    expect(presenceOf({ availability: 'PresenceUnknown' }).label).toBe('Offline');
+    expect(presenceOf(null)).toBeNull();
   });
 
   it('exports a vCard and CSV with escaping', () => {

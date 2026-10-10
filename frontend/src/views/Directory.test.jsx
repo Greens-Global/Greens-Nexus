@@ -23,7 +23,10 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
   useRole: () => ({ can: () => false, myGrantedModules: new Set(), myEmail: 'sam@x.com', isExternal: false }),
 }));
-vi.mock('../api', () => ({ api: { getContactDirectory: () => Promise.resolve(payload) } }));
+vi.mock('../api', () => ({ api: {
+  getContactDirectory: () => Promise.resolve(payload),
+  getTeamsPresence: () => Promise.resolve({ enabled: true, presence: { 'bo@x.com': { availability: 'Busy', activity: 'InACall' } } }),
+} }));
 
 const { default: Directory } = await import('./Directory');
 
@@ -44,6 +47,10 @@ describe('Contact Directory', () => {
     expect(screen.getByText('Video').closest('a').getAttribute('href')).toContain('withVideo=true');
     expect(screen.getByText('Clocked In')).toBeTruthy();
     expect(screen.getByText('Reports To')).toBeTruthy();
+    // Teams presence from Graph shows on the manager's pill dot and, once
+    // his card is open, as a chip.
+    fireEvent.click(document.querySelectorAll('.dir-row')[0]);
+    expect(await screen.findByText('In a Call')).toBeTruthy();
     // No HR chip for a plain employee.
     expect(screen.queryByText(/to complete/)).toBeNull();
   });

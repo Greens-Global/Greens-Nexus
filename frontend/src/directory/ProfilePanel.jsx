@@ -11,17 +11,22 @@ import {
 } from 'lucide-react';
 import { NX, FONT } from '../tasks/theme';
 import {
-  teamsChat, teamsCall, teamsVideo, mailto, telHref, initialsOf, hueOf, AVAILABILITY_META,
+  teamsChat, teamsCall, teamsVideo, mailto, telHref, initialsOf, hueOf, AVAILABILITY_META, presenceOf,
   chainUp, directReports, byLastName, localTimeLabel, offsetFromViewer, vCardOf, downloadText, safeFileName,
 } from './lib';
 
 export function Avatar({ p, size = 40, radius }) {
   const r = radius ?? Math.round(size * 0.28);
+  // Teams presence wins the dot (it is what the person's Teams shows right
+  // now); Nexus availability colors it when Graph has nothing for them.
+  const pr = presenceOf(p.presence);
   const av = p.availability ? AVAILABILITY_META[p.availability.state] : null;
-  const dot = av && size >= 28 ? (
-    <span title={p.availability.label} style={{
+  const dotColor = pr?.color || av?.color;
+  const dotTitle = pr ? `Teams: ${pr.label}` : p.availability?.label;
+  const dot = dotColor && size >= 28 ? (
+    <span title={dotTitle} style={{
       position: 'absolute', right: -2, bottom: -2, width: Math.max(10, size * 0.28), height: Math.max(10, size * 0.28),
-      borderRadius: '50%', background: av.color, border: '2px solid var(--card)',
+      borderRadius: '50%', background: dotColor, border: '2px solid var(--card)',
     }} />
   ) : null;
   return (
@@ -178,6 +183,15 @@ export default function ProfilePanel({
             {p.companyName && <span>· {p.companyName}</span>}
           </div>
           <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {presenceOf(p.presence) && (
+              <span title="Teams status" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, fontSize: 13, fontWeight: 700,
+                background: 'rgba(91,95,199,0.12)', color: '#4b53bc',
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: presenceOf(p.presence).color, flexShrink: 0 }} />
+                {presenceOf(p.presence).label}
+              </span>
+            )}
             {p.availability
               ? <AvailabilityChip availability={p.availability} size="lg" />
               : p.status === 'onboarding'

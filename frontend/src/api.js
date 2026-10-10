@@ -945,6 +945,10 @@ export const api = {
   // availability for everyone the caller may see. Not cached here - the
   // roster is cached server-side and availability must stay live.
   getContactDirectory: ()             => req('/directory'),
+  // Teams presence dots (docs/Teams-Presence-Setup.md): {enabled, presence:
+  // {email: {availability, activity}}}. enabled=false until the Entra app
+  // has Presence.Read.All with admin consent - the directory then shows none.
+  getTeamsPresence:    ()             => req('/directory/presence'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),

@@ -30,6 +30,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import time
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -192,6 +195,7 @@ def _roster(db: Session, scope) -> dict:
             "status": e.status or "active",                    # onboarding | active | inactive
             "employmentType": e.employment_type or "",
             "_id": e.id,                                       # for the leave join; stripped before send
+            "_m365": e.m365_id or "",                          # for Teams presence; stripped before send
         })
     companies = sorted({p["company"] for p in people if p["company"]})
     return {
@@ -348,6 +352,7 @@ def contact_directory(user: dict = Depends(get_current_user), db: Session = Depe
     _availability(db, people)
     for p in people:
         p.pop("_id", None)
+        p.pop("_m365", None)
     out = {
         "people": people,
         "departments": roster["departments"],
@@ -358,3 +363,76 @@ def contact_directory(user: dict = Depends(get_current_user), db: Session = Depe
     if _can_see_gaps(user, db):
         out["gaps"] = _gaps(people, roster["departments"])
     return out
+
+
+# ── Teams presence ─────────────────────────────────────────────────────────
+# The green / red / amber dot Teams itself shows, read app-only from Graph
+# (POST /communications/getPresencesByUserId). Needs the Presence.Read.All
+# APPLICATION permission with admin consent on the Entra app - see
+# docs/Teams-Presence-Setup.md. Until that is granted, Graph answers 403 and
+# this endpoint says {"enabled": false}; the directory simply shows no dots.
+#
+# Polled every 30 s by every open directory, so: one Graph round trip per
+# company-wall key per 30 s (cache.teams_presence), never per viewer; a
+# refusal is remembered for 5 minutes rather than retried on every poll.
+_GRAPH_PRESENCE = "https://graph.microsoft.com/v1.0/communications/getPresencesByUserId"
+_PRESENCE_BATCH = 650          # Graph's documented maximum ids per call
+_PRESENCE_RETRY_SEC = 300
+_presence_disabled_until: dict[str, tuple[float, str]] = {}
+
+
+def _fetch_presence(token: str, ids: list) -> dict:
+    """{graph user id: {availability, activity}} for every id Graph answers for."""
+    out = {}
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    for i in range(0, len(ids), _PRESENCE_BATCH):
+        r = httpx.post(_GRAPH_PRESENCE, headers=headers, json={"ids": ids[i:i + _PRESENCE_BATCH]}, timeout=20)
+        r.raise_for_status()
+        for row in r.json().get("value", []):
+            out[(row.get("id") or "").lower()] = {"availability": row.get("availability") or "PresenceUnknown",
+                                                  "activity": row.get("activity") or ""}
+    return out
+
+
+@router.get("/presence")
+def teams_presence(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.get("external"):
+        raise HTTPException(403, "The contact directory is for company staff.")
+    import graph_mail
+    scope = auth.company_scope(user, db)
+    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+    admin = int(user.get("level") or 0) >= auth._LEVELS["administrator"]
+
+    def disabled(reason: str) -> dict:
+        # The reason names a permission and a portal step - for admins only.
+        return {"enabled": False, "presence": {}, **({"reason": reason} if admin else {})}
+
+    until, reason = _presence_disabled_until.get(key, (0.0, ""))
+    if until > time.monotonic():
+        return disabled(reason)
+    if not graph_mail.graph_configured():
+        return disabled("Microsoft Graph is not configured (AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET).")
+
+    def load():
+        roster = cache.contact_directory.get_or_load(key, lambda: _roster(db, scope))
+        by_m365 = {p["_m365"].lower(): p["email"] for p in roster["people"] if p.get("_m365")}
+        if not by_m365:
+            return {"enabled": True, "presence": {}}
+        raw = _fetch_presence(graph_mail.access_token(), list(by_m365))
+        return {"enabled": True,
+                "presence": {by_m365[gid]: v for gid, v in raw.items() if gid in by_m365},
+                "fetchedAt": datetime.now(timezone.utc).isoformat()}
+
+    try:
+        return cache.teams_presence.get_or_load(key, load)
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        why = ("The Entra app lacks the Presence.Read.All application permission, or admin consent "
+               "has not been granted - see docs/Teams-Presence-Setup.md." if code in (401, 403)
+               else f"Microsoft Graph answered {code}.")
+        _presence_disabled_until[key] = (time.monotonic() + _PRESENCE_RETRY_SEC, why)
+        return disabled(why)
+    except Exception as e:   # noqa: BLE001 - presence is decoration; never break the directory
+        why = f"Microsoft Graph unreachable: {type(e).__name__}."
+        _presence_disabled_until[key] = (time.monotonic() + 60, why)
+        return disabled(why)

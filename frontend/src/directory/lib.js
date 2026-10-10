@@ -39,6 +39,26 @@ export const AVAILABILITY_META = {
 };
 export const isOffToday = (p) => ['off', 'holiday'].includes(p?.availability?.state);
 
+// Teams presence (Graph availability/activity -> dot color + label), the
+// same colors Teams uses so a dot here means what it means there.
+const PRESENCE_COLOR = { green: '#16a34a', red: '#dc2626', amber: '#d97706', gray: '#9ca3af' };
+const PRESENCE_BY_AVAILABILITY = {
+  Available: ['green', 'Available'], AvailableIdle: ['green', 'Available'],
+  Busy: ['red', 'Busy'], BusyIdle: ['red', 'Busy'], DoNotDisturb: ['red', 'Do Not Disturb'],
+  Away: ['amber', 'Away'], BeRightBack: ['amber', 'Be Right Back'],
+  Offline: ['gray', 'Offline'], PresenceUnknown: ['gray', 'Offline'],
+};
+const PRESENCE_ACTIVITY_LABEL = {
+  InACall: 'In a Call', InAConferenceCall: 'In a Call', InAMeeting: 'In a Meeting', Presenting: 'Presenting',
+  OutOfOffice: 'Out of Office', UrgentInterruptionsOnly: 'Urgent Only', OffWork: 'Off Work',
+};
+// {color, label} or null when Graph has nothing for the person.
+export function presenceOf(presence) {
+  if (!presence?.availability) return null;
+  const [tone, label] = PRESENCE_BY_AVAILABILITY[presence.availability] || ['gray', presence.availability];
+  return { color: PRESENCE_COLOR[tone], label: PRESENCE_ACTIVITY_LABEL[presence.activity] || label };
+}
+
 // ── Search ────────────────────────────────────────────────────────────────
 // Every word typed must match somewhere in the person's name, title,
 // department, division, company, office, city or email. "acc dan" finds Dan

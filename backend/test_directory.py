@@ -12,12 +12,14 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
+import httpx  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import auth  # noqa: E402
@@ -176,6 +178,76 @@ class DirectoryTests(unittest.TestCase):
     def test_a_guest_is_refused(self):
         r = self._get(GUEST)
         self.assertEqual(r.status_code, 403, r.text)
+
+    # ── Teams presence ─────────────────────────────────────────────────────
+    def _presence(self, who=STAFF):
+        os.environ["NEXUS_DEV_EMAIL"] = who
+        return self.client.get("/directory/presence")
+
+    def _link(self):
+        db = database.SessionLocal()
+        db.query(models.NexusEmployee).filter_by(work_email=STAFF).update({"m365_id": "G-STAFF"})
+        db.query(models.NexusEmployee).filter_by(work_email=BOSS).update({"m365_id": "G-BOSS"})
+        db.commit()
+        db.close()
+        from routers import directory
+        directory._presence_disabled_until.clear()
+        cache.teams_presence.invalidate()
+        cache.contact_directory.invalidate()
+
+    def test_presence_maps_graph_ids_back_to_emails_and_is_cached(self):
+        self._link()
+        import graph_mail
+        from routers import directory
+        calls = []
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            calls.append(sorted(json["ids"]))
+            resp = mock.Mock(); resp.raise_for_status = lambda: None
+            resp.json = lambda: {"value": [{"id": "g-staff", "availability": "Busy", "activity": "InACall"},
+                                           {"id": "g-boss", "availability": "Available", "activity": "Available"}]}
+            return resp
+
+        with mock.patch.object(graph_mail, "graph_configured", return_value=True), \
+             mock.patch.object(graph_mail, "access_token", return_value="tok"), \
+             mock.patch.object(directory.httpx, "post", side_effect=fake_post):
+            first = self._presence().json()
+            second = self._presence(BOSS).json()
+        self.assertTrue(first["enabled"])
+        self.assertEqual(first["presence"][STAFF], {"availability": "Busy", "activity": "InACall"})
+        self.assertEqual(first["presence"][BOSS]["availability"], "Available")
+        self.assertEqual(calls, [["g-boss", "g-staff"]])        # one Graph call served both viewers (ids are case-insensitive GUIDs)
+        self.assertEqual(second["presence"], first["presence"])
+
+    def test_presence_without_consent_is_disabled_and_only_admins_see_why(self):
+        self._link()
+        import graph_mail
+        from routers import directory
+
+        def forbidden(url, headers=None, json=None, timeout=None):
+            resp = httpx.Response(403, request=httpx.Request("POST", url))
+            raise httpx.HTTPStatusError("forbidden", request=resp.request, response=resp)
+
+        with mock.patch.object(graph_mail, "graph_configured", return_value=True), \
+             mock.patch.object(graph_mail, "access_token", return_value="tok"), \
+             mock.patch.object(directory.httpx, "post", side_effect=forbidden) as post:
+            staff = self._presence(STAFF).json()
+            admin = self._presence(ADMIN).json()
+            again = self._presence(ADMIN).json()
+        self.assertEqual(staff, {"enabled": False, "presence": {}})
+        self.assertFalse(admin["enabled"])
+        self.assertIn("Presence.Read.All", admin["reason"])
+        self.assertIn("Teams-Presence-Setup", admin["reason"])
+        self.assertEqual(post.call_count, 1)                    # the refusal is remembered, not retried per poll
+        self.assertEqual(again["reason"], admin["reason"])
+
+    def test_presence_is_off_when_graph_is_not_configured(self):
+        self._link()
+        import graph_mail
+        with mock.patch.object(graph_mail, "graph_configured", return_value=False):
+            body = self._presence(ADMIN).json()
+        self.assertFalse(body["enabled"])
+        self.assertIn("AZURE_CLIENT_SECRET", body["reason"])
 
 
 if __name__ == "__main__":

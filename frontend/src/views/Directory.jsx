@@ -31,6 +31,7 @@ import {
 } from '../directory/lib';
 
 const REFRESH_MS = 60_000;
+const PRESENCE_MS = 30_000;   // Teams presence poll; the server holds one Graph answer per 30 s
 const LENS_KEY = 'nexus-directory-lens';
 const QUICK = [
   ['all', 'Everyone'], ['team', 'My Team'], ['leads', 'Department Leads'], ['off', 'Off Today'], ['pinned', 'Pinned'],
@@ -44,6 +45,7 @@ export default function Directory() {
   const { can, myGrantedModules, myEmail } = useRole();
   const mobile = useIsMobile('(max-width: 820px)');
   const [data, setData] = useState(null);
+  const [presence, setPresence] = useState({});           // email -> {availability, activity}; {} until Graph is allowed
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [lens, setLens] = useState(readLens);
@@ -73,6 +75,16 @@ export default function Directory() {
     const id = setInterval(() => { if (document.visibilityState === 'visible') load(true); }, REFRESH_MS);
     return () => clearInterval(id);
   }, [load]);
+  // Teams presence: decoration, so a failure just leaves the dots off.
+  useEffect(() => {
+    let live = true;
+    const poll = () => api.getTeamsPresence()
+      .then((r) => { if (live) setPresence(r?.enabled ? (r.presence || {}) : {}); })
+      .catch(() => {});
+    poll();
+    const id = setInterval(() => { if (document.visibilityState === 'visible') poll(); }, PRESENCE_MS);
+    return () => { live = false; clearInterval(id); };
+  }, []);
 
   // ── jumps from elsewhere (header search, hover cards) ──────────────────
   useEffect(() => {
@@ -95,7 +107,7 @@ export default function Directory() {
   useEffect(() => { try { localStorage.setItem(LENS_KEY, lens); } catch { /* private mode */ } }, [lens]);
 
   // ── derived ────────────────────────────────────────────────────────────
-  const people = useMemo(() => data?.people || [], [data]);
+  const people = useMemo(() => (data?.people || []).map((p) => (presence[p.email] ? { ...p, presence: presence[p.email] } : p)), [data, presence]);
   const byEmail = useMemo(() => new Map(people.map((p) => [p.email, p])), [people]);
   const me = byEmail.get((myEmail || '').toLowerCase()) || null;
   const offices = useMemo(() => [...new Set(people.map((p) => p.location).filter(Boolean))].sort(), [people]);
