@@ -347,9 +347,8 @@ export default function PortfoliosView({ onNavigate }) {
                     with the bar below. */}
                 {showLoose && (
                   <div style={{ borderTop: `2px solid ${NX.border}` }}>
-                    <div onClick={() => toggleExpanded(LOOSE_KEY)}
-                      style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', background: 'transparent' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                    <div onClick={() => toggleExpanded(LOOSE_KEY)} className="nx-row-hover"
+                      style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer', background: 'transparent' }}>
                       {pfCols.map((c) => <Fragment key={c.key}>{({
                         name: (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
