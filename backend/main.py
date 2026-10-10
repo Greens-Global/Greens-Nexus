@@ -940,6 +940,8 @@ def _run_migrations():
             # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
             "ALTER TABLE task_projects ADD COLUMN default_view JSON",
             "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
+            # Time entries (Oct 2026). models.Task.time_entry_count.
+            "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2107,6 +2109,8 @@ def _run_migrations():
         # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS default_view JSONB",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
+        # Time entries (Oct 2026). models.Task.time_entry_count.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

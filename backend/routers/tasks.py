@@ -15,7 +15,7 @@ import time
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -104,7 +104,16 @@ def task_to_dict(t: models.Task) -> dict:
         # Checklist counters - see models.Task / _recount_checklist.
         "checklistTotal":   int(t.checklist_total or 0),
         "checklistDone":    int(t.checklist_done or 0),
+        # Time entries - see models.TaskTimeEntry / _recount_time.
+        "timeEntryCount":   int(t.time_entry_count or 0),
     }
+
+
+def time_entry_to_dict(e: models.TaskTimeEntry) -> dict:
+    return {"id": e.id, "taskId": e.task_id, "personId": _nz(e.person_email),
+            "startedAt": e.started_at or "", "endedAt": _nz(e.ended_at), "running": not e.ended_at,
+            "minutes": int(e.minutes or 0), "note": e.note or "", "billable": bool(e.billable),
+            "source": e.source or "timer", "createdAt": e.created_at or ""}
 
 
 def checklist_item_to_dict(i: models.TaskChecklistItem) -> dict:
@@ -1548,6 +1557,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     validate_task_payload(db, data, task_id=task_id)
     if "custom_field_values" in data:
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
+    if "actual_hours" in data and int(t.time_entry_count or 0) > 0:
+        raise HTTPException(409, "This task's time comes from its time entries - add or edit an entry instead.")
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
@@ -2401,6 +2412,229 @@ class AttachmentCreate(BaseModel):
     kind: Optional[str] = "other"
     url: Optional[str] = ""
     comment_id: Optional[str] = ""   # set only when attached while composing a comment
+
+
+# ── Time entries (Oct 2026) ───────────────────────────────────────────────────
+# A timer per person (one running at a time, on any task) and typed-in
+# minutes. Entries roll up into the task's actual_hours. Not Time Clock:
+# punches are attendance and payroll; this is effort against a task.
+class TimeEntryCreate(BaseModel):
+    minutes: int
+    note: Optional[str] = ""
+    billable: Optional[bool] = False
+    on: Optional[str] = ""        # YYYY-MM-DD the time was for; default today
+
+
+class TimeEntryUpdate(BaseModel):
+    minutes: Optional[int] = None
+    note: Optional[str] = None
+    billable: Optional[bool] = None
+
+
+class TimerStop(BaseModel):
+    note: Optional[str] = ""
+    billable: Optional[bool] = None
+
+
+MAX_ENTRY_MINUTES = 24 * 60
+
+
+def _recount_time(db: Session, t: models.Task) -> None:
+    """actual_hours and time_entry_count from the CLOSED entries. autoflush is
+    off, so pending rows are flushed first."""
+    db.flush()
+    rows = (db.query(models.TaskTimeEntry.minutes)
+            .filter(models.TaskTimeEntry.task_id == t.id, models.TaskTimeEntry.ended_at != "").all())
+    t.time_entry_count = len(rows)
+    if rows:
+        t.actual_hours = round(sum(int(m or 0) for (m,) in rows) / 60.0, 2)
+    t.modified_at = now_iso()
+
+
+def _running_for(db: Session, email: str) -> Optional[models.TaskTimeEntry]:
+    return (db.query(models.TaskTimeEntry)
+            .filter(models.TaskTimeEntry.person_email == email, models.TaskTimeEntry.ended_at == "")
+            .order_by(models.TaskTimeEntry.started_at.desc()).first())
+
+
+def _stop_entry(db: Session, e: models.TaskTimeEntry, *, note: str = "", billable: Optional[bool] = None) -> models.Task:
+    """Close a running entry at now, rounding UP to the minute (a 20-second
+    timer is a minute, not nothing)."""
+    from datetime import datetime, timezone
+    start = datetime.fromisoformat(e.started_at)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    secs = max(0, (datetime.now(timezone.utc) - start).total_seconds())
+    e.minutes = max(1, int(-(-secs // 60)))
+    e.ended_at = now_iso()
+    if note:
+        e.note = (note or "")[:1000]
+    if billable is not None:
+        e.billable = bool(billable)
+    t = _get_task(db, e.task_id)
+    _recount_time(db, t)
+    t.activity_ids = list(t.activity_ids or []) + [log_activity(
+        db, type="time_logged", actor_email=e.person_email, entity_id=t.id, entity_code=t.code,
+        entity_title=t.title, detail=f"tracked {_fmt_minutes(e.minutes)}")]
+    return t
+
+
+def _fmt_minutes(m: int) -> str:
+    h, mm = divmod(int(m or 0), 60)
+    return (f"{h}h " if h else "") + (f"{mm}m" if mm or not h else "").strip() or "0m"
+
+
+@router.get("/time/running")
+def my_running_timer(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's running timer, with the task it is on, or null."""
+    e = _running_for(db, user["email"].lower())
+    if not e:
+        return None
+    t = db.query(models.Task).filter(models.Task.id == e.task_id).first()
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t) if t else None}
+
+
+@router.get("/time/mine")
+def my_time_entries(from_: str = Query("", alias="from"), to: str = "",
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's closed entries between two days (inclusive) - the weekly
+    sheet. Defaults to the last 7 days."""
+    from datetime import date, timedelta
+    try:
+        end = date.fromisoformat(to) if to else date.today()
+        start = date.fromisoformat(from_) if from_ else end - timedelta(days=6)
+    except ValueError:
+        raise HTTPException(422, "from/to must be YYYY-MM-DD")
+    rows = (db.query(models.TaskTimeEntry)
+            .filter(models.TaskTimeEntry.person_email == user["email"].lower(),
+                    models.TaskTimeEntry.ended_at != "",
+                    models.TaskTimeEntry.started_at >= start.isoformat(),
+                    models.TaskTimeEntry.started_at < (end + timedelta(days=1)).isoformat())
+            .order_by(models.TaskTimeEntry.started_at.desc()).all())
+    ids = {r.task_id for r in rows}
+    titles = {t.id: t.title for t in db.query(models.Task).filter(models.Task.id.in_(list(ids))).all()} if ids else {}
+    return [{**time_entry_to_dict(r), "taskTitle": titles.get(r.task_id, "")} for r in rows]
+
+
+@router.post("/time/stop")
+def stop_my_timer(body: TimerStop, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Stop whatever the caller has running. Answers {entry, task} or null."""
+    e = _running_for(db, user["email"].lower())
+    if not e:
+        return None
+    t = _stop_entry(db, e, note=body.note or "", billable=body.billable)
+    db.commit()
+    db.refresh(e)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t)}
+
+
+@router.get("/{task_id}/time")
+def list_time_entries(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "viewer")
+    rows = (db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.task_id == task_id)
+            .order_by(models.TaskTimeEntry.started_at.desc()).all())
+    return [time_entry_to_dict(e) for e in rows]
+
+
+@router.post("/{task_id}/time", status_code=201)
+def add_time_entry(task_id: str, body: TimeEntryCreate, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Typed-in time. Anyone who can comment on the task may log time on it -
+    logging effort is not editing the task."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "commenter")
+    if not (1 <= int(body.minutes) <= MAX_ENTRY_MINUTES):
+        raise HTTPException(422, "Minutes must be between 1 and 1440")
+    on = (body.on or "")[:10] or now_iso()[:10]
+    _check_iso_date(on, "on")
+    me = user["email"].lower()
+    e = models.TaskTimeEntry(id=gen_id(), task_id=task_id, person_email=me, started_at=f"{on}T12:00:00+00:00",
+                             ended_at=now_iso(), minutes=int(body.minutes), note=(body.note or "")[:1000],
+                             billable=bool(body.billable), source="manual", created_at=now_iso())
+    db.add(e)
+    _recount_time(db, t)
+    t.activity_ids = list(t.activity_ids or []) + [log_activity(
+        db, type="time_logged", actor_email=me, entity_id=t.id, entity_code=t.code,
+        entity_title=t.title, detail=f"logged {_fmt_minutes(e.minutes)}")]
+    db.commit()
+    db.refresh(e)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t)}
+
+
+@router.post("/{task_id}/time/start")
+def start_timer(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start the caller's timer on this task. A timer already running on
+    another task is stopped first and comes back as `stopped`."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "commenter")
+    me = user["email"].lower()
+    stopped = None
+    prev = _running_for(db, me)
+    if prev is not None:
+        if prev.task_id == task_id:
+            return {"entry": time_entry_to_dict(prev), "task": task_to_dict(t), "stopped": None}
+        pt = _stop_entry(db, prev)
+        stopped = {"entry": time_entry_to_dict(prev), "task": task_to_dict(pt)}
+    e = models.TaskTimeEntry(id=gen_id(), task_id=task_id, person_email=me, started_at=now_iso(), ended_at="",
+                             minutes=0, note="", billable=False, source="timer", created_at=now_iso())
+    db.add(e)
+    db.commit()
+    db.refresh(e)
+    if stopped:
+        fire_task_event(stopped["task"]["id"], "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t), "stopped": stopped}
+
+
+@router.patch("/time/{entry_id}")
+def update_time_entry(entry_id: str, upd: TimeEntryUpdate, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Your own entry, or any entry as a manager."""
+    e = db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.id == entry_id).first()
+    if not e:
+        raise HTTPException(404, "Time entry not found")
+    me = user["email"].lower()
+    if e.person_email != me and not _is_manager_user(user):
+        raise HTTPException(403, "Only the person who logged this time, or a manager, can change it.")
+    if not e.ended_at:
+        raise HTTPException(409, "Stop the timer before editing this entry.")
+    t = _wall_task(db, user, e.task_id)
+    data = upd.model_dump(exclude_unset=True)
+    if "minutes" in data:
+        if not (1 <= int(data["minutes"]) <= MAX_ENTRY_MINUTES):
+            raise HTTPException(422, "Minutes must be between 1 and 1440")
+        e.minutes = int(data["minutes"])
+    if "note" in data:
+        e.note = (data["note"] or "")[:1000]
+    if "billable" in data:
+        e.billable = bool(data["billable"])
+    _recount_time(db, t)
+    db.commit()
+    db.refresh(e)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t)}
+
+
+@router.delete("/time/{entry_id}")
+def delete_time_entry(entry_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.id == entry_id).first()
+    if not e:
+        raise HTTPException(404, "Time entry not found")
+    me = user["email"].lower()
+    if e.person_email != me and not _is_manager_user(user):
+        raise HTTPException(403, "Only the person who logged this time, or a manager, can remove it.")
+    t = _wall_task(db, user, e.task_id)
+    db.delete(e)
+    _recount_time(db, t)
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"task": task_to_dict(t)}
 
 
 # ── Checklist (Oct 2026) ──────────────────────────────────────────────────────

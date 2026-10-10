@@ -3,7 +3,7 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
@@ -15,6 +15,7 @@ import QuickCreateTask from './QuickCreateTask';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { FilesView } from './views/more';
+import TimeSheetView from './TimeSheetView';
 import BoardView from './views/board';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTableSetting } from './tableCols';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
@@ -29,6 +30,8 @@ const VIEW_TABS = [
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'files', label: 'Files', icon: Paperclip },
+  // My time entries, a week at a time (Oct 2026) - effort on tasks, not punches.
+  { key: 'time', label: 'Time', icon: Clock },
   // The Recycle Bin lived here for a day and moved to Home (Neil, Sept 9):
   // it is not a way of looking at MY TASKS, it is a module-wide place where
   // deleted things wait, and it will grow to cover projects, portfolios and
@@ -471,6 +474,8 @@ export default function MyTasksView({ onNavigate }) {
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
+        ) : view === 'time' ? (
+          <TimeSheetView onOpen={setOpenId} />
         ) : view === 'dashboard' ? (
           <DashboardView tasks={allMine} stats={{}} store={store} scopeKey="my-tasks" onFilter={goFiltered} />
         ) : (
