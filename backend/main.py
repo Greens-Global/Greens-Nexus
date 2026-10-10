@@ -2645,6 +2645,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weekly digest loop skipped: {e}")
         try:
+            from workforce_scorecard import scorecard_loop
+            _tasks.append(_a.create_task(scorecard_loop()))
+        except Exception as e:
+            print(f"[startup] workforce scorecard loop skipped: {e}")
+        try:
             from shift_notify import shift_reminder_loop
             _tasks.append(_a.create_task(shift_reminder_loop()))
         except Exception as e:
@@ -3148,6 +3153,8 @@ app.include_router(act_as.router)         # Act As: impersonate a lower-role emp
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(daily_briefing_router.router)  # Daily Briefing admin config (mode/test recipients)
 app.include_router(weekly_digest_router.router)  # Weekly Digest admin config (mode/schedule/log)
+from routers import workforce_scorecard as workforce_scorecard_router  # noqa: E402
+app.include_router(workforce_scorecard_router.router)  # Workforce Scorecard: weekly expected-vs-actual hours per manager (Neil, 10/10)
 app.include_router(shift_requests_router.router)  # Shift swap/offer/open-shift requests + manager inbox
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402

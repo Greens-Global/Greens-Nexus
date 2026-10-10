@@ -89,6 +89,12 @@ export const MODULE_CAPABILITIES = {
     full:   'Full manager oversight tools.',
     owner:  'Full access, plus manage who else can use it.',
   },
+  'workforce-scorecard': {
+    viewer: 'See the weekly Scorecard (expected vs. punched hours) for their DIRECT reports, and receive it by email every week.',
+    editor: 'Their whole reporting line - direct reports and everyone under them.',
+    full:   'See and receive the Scorecard for the whole company.',
+    owner:  'Company-wide Scorecard, plus manage who else has it.',
+  },
   marketing: {
     viewer: 'View campaigns, ads and reputation.',
     editor: 'Create and edit campaigns and content.',

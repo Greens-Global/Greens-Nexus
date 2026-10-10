@@ -153,6 +153,9 @@ const VIEW_MIN_ROLES = {
 // A view whose Access Group grant has another module's id (none today:
 // Shifts, the one entry, became everyone's module on Sep 29).
 const VIEW_GRANT = {};
+// Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
+// grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
+const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'] };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -307,11 +310,12 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // baseline employee screens are internal-only. The backend enforces the
   // same boundary per request (auth.apply_external_policy).
   const grantKey = VIEW_GRANT[activeView] || activeView;
+  const granted = [grantKey, ...(VIEW_ALT_GRANTS[activeView] || [])].some(g => myGrantedModules.has(g));
   // Legal is open to everyone who signs in, externals included - they
   // accepted these terms too (Oct 7).
   const hasAccess = isExternal
-    ? (myGrantedModules.has(grantKey) || LEGAL_VIEWS.has(activeView))
-    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(grantKey)));
+    ? (granted || LEGAL_VIEWS.has(activeView))
+    : (!minRole || can('administrator') || (minRole !== 'administrator' && granted));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
   // after login) is bounced to their first granted module instead of being
