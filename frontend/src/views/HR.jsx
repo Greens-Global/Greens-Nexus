@@ -40,6 +40,8 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
+import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
+import { divisionColor as divColorFor } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -2261,24 +2263,14 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 }
 
 // ── Org chart (Phase 5) - top-down node chart on a pan/zoom canvas ────────────
+// The canvas (layout, connectors, pan, zoom, fit, focus) is the shared
+// components/orgchart/OrgChartCanvas, which the Contact Directory's read-only
+// Org Chart lens draws with too. This tab adds what only HR may do: drag a
+// card to change who someone reports to, and the side panel that edits the
+// reporting line, title, department and division head tag.
 // Functional divisions colour the chart: a person's division is their own
 // head-tag if set, else inherited from the nearest tagged manager above them.
-// A fixed palette keeps each division's colour stable across renders.
-const DIVISION_PALETTE = [
-  '212 90% 52%',   // blue
-  '150 60% 40%',   // green
-  '270 68% 58%',   // purple
-  '26 88% 52%',    // orange
-  '338 74% 56%',   // pink
-  '188 72% 40%',   // teal
-  '45 88% 48%',    // amber
-  '0 72% 56%',     // red
-];
-const divColorFor = (name, names) => {
-  if (!name) return '';
-  const i = names.indexOf(name);
-  return DIVISION_PALETTE[(i < 0 ? 0 : i) % DIVISION_PALETTE.length];
-};
+// The palette lives with the canvas so both charts colour a division alike.
 
 // A single node card - minimal, fixed-width, avatar-forward, with a coloured
 // division accent bar down its left edge. The reports pill hangs off the bottom
@@ -2333,56 +2325,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
           )}
         </div>
       </div>
-      {kids > 0 && (
-        <button onClick={ev => { ev.stopPropagation(); onToggle(email); }}
-          title={isCollapsed ? 'Show team' : 'Hide team'}
-          style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 11px', borderRadius: 20,
-            border: '1.5px solid var(--line)', background: isCollapsed ? 'var(--mist)' : 'var(--card)',
-            fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', cursor: 'pointer',
-            fontFamily: 'Inter,sans-serif', boxShadow: 'var(--shadow-sm)', whiteSpace: 'nowrap' }}>
-          {kids}
-          <ChevronRight size={11} style={{ transform: isCollapsed ? 'rotate(90deg)' : 'rotate(-90deg)', transition: 'transform 0.12s' }} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-// Recursive top-down layout with pure-div connectors: parent stub → sibling
-// rail (outer halves transparent at the ends) → child stub.
-function OrgTreeNode({ e, ctx }) {
-  const email = (e.workEmail || '').toLowerCase();
-  const kids = ctx.visChildren.get(email) || [];
-  const open = kids.length > 0 && !ctx.collapsedSet.has(email);
-  const div = ctx.divisionOf(e);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <OrgNodeCard e={e} kids={kids.length} isCollapsed={ctx.collapsedSet.has(email)}
-        onToggle={ctx.toggle} onSelect={ctx.setSelected} dnd={ctx.dnd}
-        entityName={ctx.entityName} highlight={ctx.isHighlight(e)}
-        divName={div} divColor={ctx.divColor(div)} isHead={!!(e.division || '').trim()}
-        dim={ctx.activeDiv && div !== ctx.activeDiv}
-        onUnlink={e.managerEmail ? ctx.onUnlink : null} />
-      {open && (
-        <>
-          <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
-          <div style={{ display: 'flex', alignItems: 'flex-start' }}>
-            {kids.map((k, i) => (
-              <div key={k.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px' }}>
-                {kids.length > 1 && (
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', height: 2 }}>
-                    <div style={{ flex: 1, background: i === 0 ? 'transparent' : 'var(--line)' }} />
-                    <div style={{ flex: 1, background: i === kids.length - 1 ? 'transparent' : 'var(--line)' }} />
-                  </div>
-                )}
-                <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
-                <OrgTreeNode e={k} ctx={ctx} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      <ReportsPill count={kids} collapsed={isCollapsed} onToggle={() => onToggle(email)} />
     </div>
   );
 }
@@ -2507,11 +2450,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [collapsedSet, setCollapsedSet] = useState(new Set());
   const [seeded, setSeeded] = useState(false);
   const [activeDiv, setActiveDiv] = useState('');   // legend highlight filter
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 40, y: 24 });
   const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
-  const canvasRef = useRef(null);
-  const contentRef = useRef(null);
+  const chartRef = useRef(null);                      // the shared canvas: centerView / fitToView / focusOn / bounds
   const dragRef = useRef(null);
   const people = employees.filter(e => e.status !== 'offboarded');
 
@@ -2631,8 +2571,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           // Dropped in open space, beyond snapping reach of any card: that IS
           // the gesture for "take them out of the reporting line" - but only
           // inside the chart canvas, so releasing over the toolbar is a no-op.
-          const c = canvasRef.current && st.last
-            ? canvasRef.current.getBoundingClientRect() : null;
+          const c = chartRef.current && st.last ? chartRef.current.bounds() : null;
           const inCanvas = c && st.last.x >= c.left && st.last.x <= c.right
             && st.last.y >= c.top && st.last.y <= c.bottom;
           if (inCanvas && st.person.managerEmail) drop('__none__', st.person);
@@ -2663,8 +2602,10 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   // inherited from the nearest tagged manager up the chain. Memoised per email.
   const divisionNames = [...new Set(people.map(e => (e.division || '').trim()).filter(Boolean))].sort();
   const divColor = name => divColorFor(name, divisionNames);
+  // Resolved for everyone up front (the cards render inside the shared
+  // canvas later, and must not mutate anything of this render then).
   const _divCache = new Map();
-  const divisionOf = (person) => {
+  const _resolveDivision = (person) => {
     let cur = person, hops = 0;
     while (cur && hops < 30) {
       const em = (cur.workEmail || '').toLowerCase();
@@ -2679,6 +2620,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     if (em0) _divCache.set(em0, '');
     return '';
   };
+  for (const p of people) _resolveDivision(p);
+  const divisionOf = (person) => _divCache.get((person.workEmail || '').toLowerCase()) || '';
   const divisionCounts = {};
   for (const p of people) { const d = divisionOf(p); if (d) divisionCounts[d] = (divisionCounts[d] || 0) + 1; }
 
@@ -2718,34 +2661,25 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     return n;
   });
 
-  const ctx = {
-    visChildren, collapsedSet, toggle, setSelected, dnd, entityName,
-    isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
-    divisionOf, divColor, activeDiv,
-    onUnlink: (person) => drop('__none__', person),
+  const isHighlight = (e) => !!q && fullName(e).toLowerCase().includes(q);
+  const onUnlink = (person) => drop('__none__', person);
+  const keyOf = (e) => (e.workEmail || '').toLowerCase();
+  const childrenOf = (e) => visChildren.get(keyOf(e)) || [];
+  const renderCard = (e, meta) => {
+    const div = divisionOf(e);
+    return (
+      <OrgNodeCard e={e} kids={meta.kids} isCollapsed={meta.collapsed}
+        onToggle={toggle} onSelect={setSelected} dnd={dnd}
+        entityName={entityName} highlight={isHighlight(e)}
+        divName={div} divColor={divColor(div)} isHead={!!(e.division || '').trim()}
+        dim={activeDiv && div !== activeDiv}
+        onUnlink={e.managerEmail ? onUnlink : null} />
+    );
   };
 
-  // ── Pan & zoom canvas - the chart never overflows the page; you pan/zoom
-  // within a fixed viewport. Default = 100% zoom, centered; Fit is opt-in.
-  const centerView = () => requestAnimationFrame(() => {
-    const c = canvasRef.current, k = contentRef.current;
-    if (!c || !k) return;
-    const kw = k.scrollWidth;
-    setZoom(1);
-    // Centre on the content midpoint - when the tree is wider than the canvas
-    // this puts the middle in view (edges pan-reachable) rather than left-pinning.
-    setPan({ x: (c.clientWidth - kw) / 2, y: 24 });
-  });
-  const fitToView = () => requestAnimationFrame(() => {
-    const c = canvasRef.current, k = contentRef.current;
-    if (!c || !k) return;
-    // scrollWidth reports untransformed layout size - no zoom correction needed
-    const kw = k.scrollWidth, kh = k.scrollHeight;
-    if (!kw || !kh) return;
-    const s = Math.max(0.35, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
-    setZoom(s);
-    setPan({ x: Math.max(24, (c.clientWidth - kw * s) / 2), y: 24 });
-  });
+  // The canvas never overflows the page; you pan/zoom within a fixed viewport.
+  // Default = 100% zoom, centered on a filter change; Fit is opt-in.
+  const centerView = () => chartRef.current && chartRef.current.centerView();
   useEffect(() => { if (seeded) centerView(); }, [orgCompany, orgDept, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Search = find & focus: expand every ancestor of the first match (plus the
@@ -2772,28 +2706,9 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       return n;
     });
     // Let the expansion render, then centre the card in the viewport.
-    const t = setTimeout(() => {
-      const c = canvasRef.current, k = contentRef.current;
-      const el = k && me ? k.querySelector(`[data-email="${me.replace(/"/g, '')}"]`) : null;
-      if (!c || !el) return;
-      const er = el.getBoundingClientRect(), cr = c.getBoundingClientRect();
-      setPan(p => ({
-        x: p.x + (cr.width / 2 - (er.left + er.width / 2 - cr.left)),
-        y: p.y + (cr.height / 3 - (er.top + er.height / 2 - cr.top)),
-      }));
-    }, 80);
+    const t = setTimeout(() => { if (me && chartRef.current) chartRef.current.focusOn(me); }, 80);
     return () => clearTimeout(t);
   }, [q, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const startPan = (ev) => {
-    if (ev.target.closest && ev.target.closest('[data-orgcard]')) return;   // card press, not a pan
-    const sx = ev.clientX - pan.x, sy = ev.clientY - pan.y;
-    const move = (m) => setPan({ x: m.clientX - sx, y: m.clientY - sy });
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-  const zoomBy = (f) => setZoom(z => Math.max(0.3, Math.min(1.6, +(z * f).toFixed(3))));
 
   if (!people.length) return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
@@ -2882,40 +2797,15 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      {/* The chart canvas - drag empty space to pan, controls to zoom/fit.
-          Card drag is pointer-based (see onCardPointerDown), so it works with a
-          finger and resolves the drop target through the zoom transform. */}
-      <div ref={canvasRef} onPointerDown={startPan}
-        style={{ position: 'relative', height: 'max(480px, calc(100vh - 380px))', overflow: 'hidden',
-          borderRadius: 16, border: `1px solid ${draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}`, cursor: 'grab', touchAction: 'none',
-          background: 'var(--card)',
-          backgroundImage: 'radial-gradient(circle, var(--line) 1px, transparent 1px)', backgroundSize: '26px 26px' }}>
-        {visRoots.length === 0 && visUnlinked.length === 0 ? (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
-            No one matches these filters.
-          </div>
-        ) : (
-          <div ref={contentRef} style={{ position: 'absolute', left: 0, top: 0,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0',
-            display: 'flex', alignItems: 'flex-start', gap: 48, padding: 4, width: 'max-content' }}>
-            {visRoots.map(r => <OrgTreeNode key={r.id} e={r} ctx={ctx} />)}
-          </div>
-        )}
-
-        {/* Zoom controls */}
-        <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', gap: 6, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 5, boxShadow: 'var(--shadow-md)' }}>
-          {[['−', () => zoomBy(1 / 1.25)], [`${Math.round(zoom * 100)}%`, fitToView], ['+', () => zoomBy(1.25)]].map(([label, fn], i) => (
-            <button key={i} onClick={fn} title={i === 1 ? 'Fit to view' : ''}
-              style={{ minWidth: 34, height: 30, borderRadius: 8, border: 'none', background: i === 1 ? 'var(--mist)' : 'transparent',
-                fontSize: i === 1 ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
-          Drag a card near someone to re-assign · drop in open space (or press ×) to remove the reporting line · tap for details
-        </span>
-      </div>
+      {/* The chart canvas - drag empty space to pan, wheel / pinch / controls
+          to zoom, fit on the % button. Card drag is pointer-based (see
+          onCardPointerDown), so it works with a finger and resolves the drop
+          target through the zoom transform; a press on a card is never a pan. */}
+      <OrgChartCanvas ref={chartRef} roots={visRoots} childrenOf={childrenOf} keyOf={keyOf} renderCard={renderCard}
+        collapsed={collapsedSet} onToggle={toggle} ariaLabel="Org chart"
+        borderColor={draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}
+        emptyText={visUnlinked.length ? 'No reporting lines yet - everyone is listed below.' : 'No one matches these filters.'}
+        hint="Drag a card near someone to re-assign · drop in open space (or press ×) to remove the reporting line · tap for details" />
 
       {visUnlinked.length > 0 && (
         <div style={{ marginTop: 14 }}>

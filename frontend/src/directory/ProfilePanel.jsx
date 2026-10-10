@@ -119,7 +119,7 @@ function Row({ icon: Icon, label, children }) {
 }
 
 export default function ProfilePanel({
-  person, people, byEmail, me, pinned, onPin, onSelect, onBack, onDepartment,
+  person, people, byEmail, me, pinned, onPin, onSelect, onBack, onDepartment, onViewChart,
   canOpenPeople, onOpenPeople, canOpenTasks, onOpenTasks, mobile,
 }) {
   const [, tick] = useState(0);
@@ -275,6 +275,7 @@ export default function ProfilePanel({
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 18, paddingTop: 14, borderTop: `1px solid ${NX.border}` }}>
         <Tool icon={Download} onClick={saveCard}>Save Contact</Tool>
+        {onViewChart && <Tool icon={Network} onClick={() => onViewChart(p)}>View on Chart</Tool>}
         {canOpenTasks && <Tool icon={ListTodo} onClick={() => onOpenTasks(p)}>View Tasks</Tool>}
         {canOpenPeople && <Tool icon={User} onClick={() => onOpenPeople(p)}>Open in People</Tool>}
       </div>
