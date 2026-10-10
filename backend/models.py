@@ -115,6 +115,10 @@ class Task(Base):
     # print "3/5" without a query per task. Never written anywhere else.
     checklist_total   = Column(Integer, default=0)
     checklist_done    = Column(Integer, default=0)
+    # Time entries (Oct 2026, task_time_entries). While a task has entries,
+    # actual_hours is their rolled-up total (routers/tasks._recount_time) and
+    # cannot be typed over; with none, actual_hours stays the old free number.
+    time_entry_count  = Column(Integer, default=0)
 
 
 class PurchaseRequest(Base):
@@ -5769,3 +5773,24 @@ class TaskChecklistItem(Base):
     position       = Column(Float, default=0)
     created_at     = Column(String, default="")
     created_by     = Column(String, default="")
+
+
+class TaskTimeEntry(Base):
+    """One stretch of time a person spent on a task (Oct 2026): a timer they
+    started and stopped, or minutes they typed in afterwards. Deliberately
+    NOT a Time Clock punch: punches are attendance and payroll
+    (timeclock.py); this is effort against a task, and nothing here touches a
+    timesheet. One running entry (ended_at blank) per person at a time.
+    New table - create_all builds it; main._enable_rls_everywhere turns RLS on
+    at startup."""
+    __tablename__ = "task_time_entries"
+    id           = Column(String, primary_key=True)
+    task_id      = Column(String, default="", index=True)
+    person_email = Column(String, default="", index=True)
+    started_at   = Column(String, default="")          # UTC iso; for a manual entry, the day it was for (noon UTC)
+    ended_at     = Column(String, default="", index=True)   # blank while the timer runs
+    minutes      = Column(Integer, default=0)          # whole minutes, set when stopped or typed
+    note         = Column(String, default="")
+    billable     = Column(Boolean, default=False)
+    source       = Column(String, default="timer")     # timer|manual
+    created_at   = Column(String, default="")

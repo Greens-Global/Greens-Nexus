@@ -856,3 +856,34 @@ export function threadComments(rows) {
 
 // The reactions a comment can carry - mirrors backend COMMENT_REACTIONS.
 export const COMMENT_REACTIONS = ['👍', '❤️', '🎉', '👏', '😂', '🔥', '👀', '✅'];
+
+// Time entries (Oct 2026).
+/** "1h 05m" / "45m" / "0m" from whole minutes. */
+export function fmtMinutes(m) {
+  const total = Math.max(0, Math.round(Number(m) || 0));
+  const h = Math.floor(total / 60), mm = total % 60;
+  if (!h) return `${mm}m`;
+  return mm ? `${h}h ${String(mm).padStart(2, '0')}m` : `${h}h`;
+}
+
+/** "00:12:34" for a running timer started at `startedAt` (ISO), as of `now`. */
+export function fmtElapsed(startedAt, now = Date.now()) {
+  const secs = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
+}
+
+/** Closed entries grouped by local day, newest day first, each with its
+ *  total: [{ day: 'YYYY-MM-DD', minutes, entries: [...] }]. */
+export function groupTimeByDay(entries) {
+  const byDay = new Map();
+  for (const e of entries || []) {
+    const d = new Date(e.startedAt);
+    const day = Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!byDay.has(day)) byDay.set(day, { day, minutes: 0, entries: [] });
+    const g = byDay.get(day);
+    g.minutes += Number(e.minutes) || 0;
+    g.entries.push(e);
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
+}

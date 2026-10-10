@@ -26,6 +26,7 @@ import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import Checklist from './Checklist';
 import CommentThread from './CommentThread';
+import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -944,7 +945,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 
       {/* Time tracking */}
       <Section defaultOpen={false} title="Time Tracking">
-        <TimeTracking task={task} patch={patch} />
+        <TimeTracking task={task} />
       </Section>
 
       {/* Approval */}
@@ -1158,29 +1159,6 @@ function DescriptionInput({ task, value, onCommit, refresh }) {
       onAttachFile={attach}
       minHeight={90}
     />
-  );
-}
-
-function TimeTracking({ task, patch }) {
-  const [hrs, setHrs] = useState('');
-  const [mins, setMins] = useState('');
-  const log = () => {
-    const h = (Number(hrs) || 0) + (Number(mins) || 0) / 60;
-    if (h > 0) { patch({ actualHours: (task.actualHours || 0) + h }); setHrs(''); setMins(''); }
-  };
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 13, flexWrap: 'wrap' }}>
-      <div><div style={{ color: NX.faint }}>Estimate</div><div style={{ fontWeight: 700, color: NX.ink }}>{fmtHours(task.estimateHours)}</div></div>
-      <div><div style={{ color: NX.faint }}>Actual</div><div style={{ fontWeight: 700, color: NX.blue }}>{fmtHours(task.actualHours)}</div></div>
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input value={hrs} onChange={(e) => setHrs(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" step="1" placeholder="hrs"
-          style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
-        <span style={{ color: NX.faint }}>:</span>
-        <input value={mins} onChange={(e) => setMins(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" max="59" step="5" placeholder="min"
-          style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
-        <button onClick={log} style={{ ...btn('primary'), padding: '7px 11px', fontSize: 12 }}><Clock size={13} /> Log</button>
-      </div>
-    </div>
   );
 }
 

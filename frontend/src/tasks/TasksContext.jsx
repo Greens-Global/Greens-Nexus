@@ -137,6 +137,9 @@ export function TasksProvider({ children }) {
   const ticketsLoadedRef = useRef(false);
   ticketsLoadedRef.current = ticketsLoaded;
   const commentCache = useRef({});   // taskId -> comment[]
+  // The caller's running task timer (Oct 2026): {entry, task} or null. One
+  // per person at a time; the module bar's chip and the drawer both read it.
+  const [runningTimer, setRunningTimer] = useState(null);
   // Last server timestamp a task fetch is known-good as of - see refetchTasks.
   // A ref, not state: read inside a stable useCallback, must not itself
   // trigger a re-render when it changes.
@@ -188,7 +191,11 @@ export function TasksProvider({ children }) {
     setBookmarks(new Set(rows.map((b) => b.projectId)));
   }, []);
 
-  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); }, [loadCore, loadNotifications, loadBookmarks]);
+  const loadRunningTimer = useCallback(async () => {
+    setRunningTimer(await api.getRunningTaskTimer().catch(() => null));
+  }, []);
+
+  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); loadRunningTimer(); }, [loadCore, loadNotifications, loadBookmarks, loadRunningTimer]);
 
   // Keep the module-scope cache in step with what's on screen, so the next
   // mount (Tasks -> Tickets, or a return trip from another module) starts from
@@ -632,6 +639,21 @@ export function TasksProvider({ children }) {
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
+    // Timer (Oct 2026). Starting on a second task stops the first; the
+    // stopped task comes back with its new total and lands in the store too.
+    runningTimer,
+    startTimer: async (taskId) => {
+      const r = await api.startTaskTimer(taskId);
+      if (r?.stopped?.task) patchLocalTask(r.stopped.task.id, r.stopped.task);
+      setRunningTimer(r ? { entry: r.entry, task: r.task } : null);
+      return r;
+    },
+    stopTimer: async (data = {}) => {
+      const r = await api.stopTaskTimer(data);
+      if (r?.task) patchLocalTask(r.task.id, r.task);
+      setRunningTimer(null);
+      return r;
+    },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
     // Bookmarks live HERE, not in `actions` below. That object is

@@ -442,7 +442,10 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // actual
         actual: (
         <div className="rl-cell" style={{ ...editCell, gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0"
+            readOnly={t.timeEntryCount > 0} title={t.timeEntryCount > 0 ? `From ${t.timeEntryCount} time ${t.timeEntryCount === 1 ? 'entry' : 'entries'} - edit them in the task` : undefined}
+            onChange={(e) => { if (t.timeEntryCount > 0) return; store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) }); }}
+            style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT, cursor: t.timeEntryCount > 0 ? 'default' : 'text' }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),

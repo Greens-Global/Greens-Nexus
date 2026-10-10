@@ -19,6 +19,7 @@ import TemplatesView from '../tasks/TemplatesView';
 import TeamsView from '../tasks/TeamsView';
 import ManageView from '../tasks/ManageView';
 import CreateMenu from '../tasks/CreateMenu';
+import RunningTimerChip from '../tasks/RunningTimerChip';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn as btnStyle } from '../tasks/theme';
@@ -250,6 +251,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               It sits here rather than in the page body so the module's
               top-level controls read as one group in the same bar, instead of
               one floating over the widget grid a row below the other. */}
+          <RunningTimerChip />
           <div id="nx-tasks-bar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }} />
           {/* Outside the tab strip's own scroller, so it cannot scroll away on
               a narrow window the way Manage used to. */}
