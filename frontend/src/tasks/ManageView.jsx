@@ -17,7 +17,11 @@ import {
   NX, FONT, card, chip, btn, input as inputStyle,
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
-import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect } from './components';
+import { Avatar, EmptyState, Modal, SearchSelect, ChipMultiSelect, PersonSelect, usePeople } from './components';
+import {
+  TRIGGER_TYPES, ACTION_TYPES, CONDITION_FIELDS, CONDITION_OPS, MAX_CONDITIONS, MAX_ACTIONS,
+  COMMENT_PLACEHOLDERS, ruleDraft, ruleProblem, defaultActionValue, describeRule,
+} from './automationRules';
 import { taskStats, topLevel, fmtDateTime, teamProjectIds } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import AnchoredMenu from '../components/AnchoredMenu';
@@ -69,6 +73,7 @@ function IconButton({ icon: Icon, onClick, title, danger }) {
 
 const STATUS_KEYS = STATUS_ORDER;
 const PRIORITY_KEYS = PRIORITY_ORDER;
+const humanize = (s = '') => String(s).replace(/_/g, ' ');
 const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pink, NX.dim];
 
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
@@ -244,52 +249,53 @@ function TeamsTab({ store }) {
 }
 
 // ── 1. Automation rules ───────────────────────────────────────────────────────
-const TRIGGER_TYPES = [
-  { value: 'status_changed', label: 'When status changes to' },
-  { value: 'priority_changed', label: 'When priority changes to' },
-  { value: 'created', label: 'When a task is created' },
-  { value: 'completed_early', label: 'When completed before its due date' },
-];
-const NO_TRIGGER_VALUE = ['created', 'completed_early'];
-const ACTION_TYPES = [
-  { value: 'set_priority', label: 'Set priority' },
-  { value: 'set_status', label: 'Set status' },
-  { value: 'add_tag', label: 'Add tag' },
-  { value: 'set_milestone', label: 'Mark as milestone' },
-];
-const NO_ACTION_VALUE = ['set_milestone'];
-const humanize = (s = '') => String(s).replace(/_/g, ' ');
+// Vocabulary (triggers, conditions, actions, the one-line summaries) lives in
+// automationRules.js; the backend engine that runs them is task_automation.py.
 
-function describeTrigger(trigger = {}) {
-  const t = TRIGGER_TYPES.find((x) => x.value === trigger.type)?.label || trigger.type || 'Trigger';
-  return trigger.value ? `${t} ${humanize(trigger.value)}` : t;
-}
-function describeAction(a = {}) {
-  if (a.type === 'set_milestone') return 'mark as milestone';
-  return `${humanize(a.type)} ${humanize(a.value)}`.trim();
+/** Option lists every value picker in the rule editor draws from. */
+function useRuleContext() {
+  const { statusOrder, statusMeta, projects, teams, nameOf } = useTasks();
+  const people = usePeople();
+  return useMemo(() => ({
+    statusOrder, statusMeta, projects: projects || [], teams: teams || [], people,
+    statusLabel: (id) => statusMeta[id]?.label || id,
+    priorityLabel: (k) => PRIORITY_META[k]?.label || k,
+    projectName: (id) => (projects || []).find((p) => p.id === id)?.name || id,
+    teamName: (id) => (teams || []).find((t) => t.id === id)?.name || id,
+    personName: (email) => nameOf(email) || email,
+  }), [statusOrder, statusMeta, projects, teams, people, nameOf]);
 }
 
 function RulesTab({ store }) {
   const { rules, createRule, updateRule, deleteRule } = store;
+  const ctx = useRuleContext();
   const [editing, setEditing] = useState(null); // rule object or 'new'
+  const [runsFor, setRunsFor] = useState(null); // null | '' (all) | rule id
 
   return (
     <div>
       <SectionHead
         title="Automation Rules"
-        hint="Trigger → action rules that run automatically across tasks."
-        action={<button style={btn('primary')} onClick={() => setEditing('new')}><Plus size={15} />Add Rule</button>}
+        hint="When something happens to a task, do something about it. Rules run on every edit, including bulk edits, and on the clock for due dates."
+        action={(
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={btn('outline')} onClick={() => setRunsFor('')}><ActivityIcon size={15} />Runs</button>
+            <button style={btn('primary')} onClick={() => setEditing('new')}><Plus size={15} />Add Rule</button>
+          </div>
+        )}
       />
       {rules.length === 0 ? (
-        <EmptyState icon={Zap} title="No Rules Yet" hint="Add a rule to automate status, priority and tagging." />
+        <EmptyState icon={Zap} title="No Rules Yet" hint="Add a rule to route, re-date, tag or escalate tasks automatically." />
       ) : rules.map((r) => (
         <RowCard key={r.id}>
-          <span style={{ ...iconBadge, color: NX.amber }}><Zap size={16} /></span>
+          <span style={{ ...iconBadge, color: r.enabled ? NX.amber : NX.faint }}><Zap size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{r.name}</div>
-            <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>
-              {describeTrigger(r.trigger)} → {(r.actions || []).map(describeAction).join(', ') || '-'}
-            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: r.enabled ? NX.ink : NX.dim }}>{r.name}</div>
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{describeRule(r, ctx)}</div>
+            <button type="button" onClick={() => setRunsFor(r.id)} title="Show this rule's runs"
+              style={{ ...btn('ghost'), padding: 0, height: 'auto', fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
+              {r.runCount ? `Ran ${r.runCount} time${r.runCount === 1 ? '' : 's'} · last ${fmtDateTime(r.lastRunAt)}` : 'Never run'}
+            </button>
           </div>
           <Toggle on={!!r.enabled} onChange={() => updateRule(r.id, { enabled: !r.enabled })} />
           <IconButton icon={Pencil} title="Edit Rule" onClick={() => setEditing(r)} />
@@ -299,6 +305,7 @@ function RulesTab({ store }) {
       {editing && (
         <RuleModal
           rule={editing === 'new' ? null : editing}
+          ctx={ctx}
           onClose={() => setEditing(null)}
           onSave={async (data) => {
             if (editing === 'new') await createRule(data);
@@ -306,6 +313,9 @@ function RulesTab({ store }) {
             setEditing(null);
           }}
         />
+      )}
+      {runsFor !== null && (
+        <RuleRunsModal ruleId={runsFor} rules={rules} onClose={() => setRunsFor(null)} />
       )}
     </div>
   );
@@ -322,94 +332,247 @@ function Toggle({ on, onChange }) {
   );
 }
 
-function RuleModal({ rule, onClose, onSave }) {
-  const { statusOrder, statusMeta } = useTasks();
-  const [name, setName] = useState(rule?.name || '');
-  const [enabled, setEnabled] = useState(rule ? !!rule.enabled : true);
-  const [trigger, setTrigger] = useState(rule?.trigger?.type || 'status_changed');
-  const [triggerValue, setTriggerValue] = useState(rule?.trigger?.value || 'not_started');
-  const [actions, setActions] = useState(
-    rule?.actions?.length ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' })) : [{ type: 'set_priority', value: 'urgent' }],
-  );
-  const initial = useMemo(() => ({
-    name: rule?.name || '', enabled: rule ? !!rule.enabled : true,
-    trigger: rule?.trigger?.type || 'status_changed', triggerValue: rule?.trigger?.value || 'not_started',
-    actions: rule?.actions?.length ? rule.actions.map((a) => ({ type: a.type, value: a.value ?? '' })) : [{ type: 'set_priority', value: 'urgent' }],
-  }), [rule]);
-  const dirty = name !== initial.name || enabled !== initial.enabled || trigger !== initial.trigger
-    || triggerValue !== initial.triggerValue || JSON.stringify(actions) !== JSON.stringify(initial.actions);
+/** One value control, chosen by what the trigger / condition / action expects. */
+function RuleValueInput({ kind, value, onChange, ctx, anyLabel }) {
+  const style = { ...selectStyle, flex: 1, minWidth: 0 };
+  if (kind === 'none') return null;
+  if (kind === 'status') {
+    return (
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={style}>
+        {anyLabel && <option value="">{anyLabel}</option>}
+        {ctx.statusOrder.map((s) => <option key={s} value={s}>{ctx.statusLabel(s)}</option>)}
+      </select>
+    );
+  }
+  if (kind === 'priority') {
+    return (
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} style={style}>
+        {anyLabel && <option value="">{anyLabel}</option>}
+        {PRIORITY_KEYS.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+      </select>
+    );
+  }
+  if (kind === 'project' || kind === 'team') {
+    const rows = kind === 'project' ? ctx.projects.filter((p) => !p.archived && !p.deletedAt) : ctx.teams;
+    const options = [...(anyLabel ? [{ id: '', label: anyLabel }] : []), ...rows.map((r) => ({ id: r.id, label: r.name }))];
+    return (
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <SearchSelect options={options} value={value ?? ''} onPick={(o) => onChange(o.id)}
+          placeholder={anyLabel || (kind === 'project' ? 'Choose a project' : 'Choose a team')}
+          buttonStyle={{ width: '100%' }} />
+      </div>
+    );
+  }
+  if (kind === 'person') {
+    return (
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <PersonSelect value={value || ''} onChange={(email) => onChange(email || '')} people={ctx.people}
+          placeholder={anyLabel || 'Choose a person'} />
+      </div>
+    );
+  }
+  if (kind === 'days') {
+    return (
+      <input type="number" step={1} value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+        style={{ ...inputStyle, width: 96, flexShrink: 0 }} />
+    );
+  }
+  if (kind === 'comment') {
+    return (
+      <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={2}
+        placeholder="e.g. {assignee}, {title} is due {due} - please confirm the date."
+        style={{ ...inputStyle, flex: 1, minWidth: 0, height: 'auto', resize: 'vertical', fontFamily: FONT }} />
+    );
+  }
+  return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} placeholder={kind === 'text' ? 'Tag' : ''} style={{ ...inputStyle, flex: 1, minWidth: 0 }} />;
+}
 
-  const setAction = (i, patch) => setActions((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
-  const addAction = () => setActions((prev) => [...prev, { type: 'set_priority', value: 'urgent' }]);
-  const removeAction = (i) => setActions((prev) => prev.filter((_, idx) => idx !== i));
+function RuleModal({ rule, ctx, onClose, onSave }) {
+  const [draft, setDraft] = useState(() => ruleDraft(rule));
+  const initial = useMemo(() => JSON.stringify(ruleDraft(rule)), [rule]);
+  const dirty = JSON.stringify(draft) !== initial;
+  const problem = ruleProblem(draft);
+  const triggerDef = TRIGGER_TYPES.find((t) => t.value === draft.trigger.type) || TRIGGER_TYPES[0];
+  const [tried, setTried] = useState(false);
+
+  const set = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const setTrigger = (type) => set({ trigger: { type, value: type === 'due_date_arrives' ? 0 : '' } });
+  const setCond = (i, patch) => set({ conditions: draft.conditions.map((c, idx) => (idx === i ? { ...c, ...patch } : c)) });
+  const setAction = (i, patch) => set({ actions: draft.actions.map((a, idx) => (idx === i ? { ...a, ...patch } : a)) });
 
   const save = () => {
-    if (!name.trim()) return;
+    setTried(true);
+    if (problem) return;
     onSave({
-      name: name.trim(),
-      enabled,
-      trigger: { type: trigger, value: NO_TRIGGER_VALUE.includes(trigger) ? undefined : triggerValue },
-      actions: actions.map((a) => ({ type: a.type, value: NO_ACTION_VALUE.includes(a.type) ? '' : a.value })),
+      name: draft.name.trim(),
+      enabled: draft.enabled,
+      trigger: { type: draft.trigger.type, value: triggerDef.valueKind === 'none' ? '' : draft.trigger.value },
+      conditions: draft.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value })),
+      actions: draft.actions.map((a) => {
+        const kind = ACTION_TYPES.find((x) => x.value === a.type)?.valueKind;
+        return { type: a.type, value: kind === 'none' ? '' : kind === 'days' ? Number(a.value) : a.value };
+      }),
     });
   };
 
+  const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
+  const anyLabel = {
+    status: 'Any status', priority: 'Any priority', person: 'Anyone', project: 'Any project',
+  }[triggerDef.valueKind];
+
   return (
-    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} isDirty={dirty} onSave={name.trim() ? save : undefined} footer={
+    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} isDirty={dirty} onSave={save} footer={
       <>
+        {tried && problem && <span style={{ fontSize: 12.5, color: NX.red, marginRight: 'auto' }}>{problem}</span>}
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>{rule ? 'Save rule' : 'Add rule'}</button>
+        <button style={btn('primary')} onClick={save}>{rule ? 'Save Rule' : 'Add Rule'}</button>
       </>
     }>
       <Field label="Rule name">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Escalate urgent bugs" style={inputStyle} />
+        <input value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Escalate anything two days from due" style={inputStyle} />
       </Field>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <Toggle on={enabled} onChange={() => setEnabled((v) => !v)} />
-        <span style={{ fontSize: 13, color: NX.dim }}>{enabled ? 'Enabled' : 'Disabled'}</span>
+        <Toggle on={draft.enabled} onChange={() => set({ enabled: !draft.enabled })} />
+        <span style={{ fontSize: 13, color: NX.dim }}>{draft.enabled ? 'Enabled' : 'Disabled'}</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: NO_TRIGGER_VALUE.includes(trigger) ? '1fr' : '1fr 1fr', gap: 12 }}>
-        <Field label="Trigger">
-          <select value={trigger} onChange={(e) => setTrigger(e.target.value)} style={selectStyle}>
-            {TRIGGER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </Field>
-        {!NO_TRIGGER_VALUE.includes(trigger) && (
-          <Field label="Value">
-            <select value={triggerValue} onChange={(e) => setTriggerValue(e.target.value)} style={selectStyle}>
-              {(trigger === 'status_changed' ? statusOrder : PRIORITY_KEYS).map((k) => (
-                <option key={k} value={k}>{trigger === 'status_changed' ? (statusMeta[k]?.label || k) : PRIORITY_META[k].label}</option>
-              ))}
-            </select>
-          </Field>
+      <label style={fieldLabel}>When</label>
+      <div style={{ ...rowStyle, marginBottom: 4 }}>
+        <select value={draft.trigger.type} onChange={(e) => setTrigger(e.target.value)} style={{ ...selectStyle, flex: 1, minWidth: 200 }}>
+          {TRIGGER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        {triggerDef.valueKind === 'days' ? (
+          <DaysOffsetInput value={draft.trigger.value} onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
+        ) : (
+          <RuleValueInput kind={triggerDef.valueKind} value={draft.trigger.value} ctx={ctx} anyLabel={anyLabel}
+            onChange={(v) => set({ trigger: { ...draft.trigger, value: v } })} />
         )}
       </div>
-
-      <label style={fieldLabel}>Actions</label>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {actions.map((a, i) => (
-          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <select value={a.type} onChange={(e) => setAction(i, { type: e.target.value, value: e.target.value === 'set_status' ? 'in_progress' : e.target.value === 'set_priority' ? 'urgent' : '' })} style={{ ...selectStyle, flex: 1 }}>
-              {ACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            {!NO_ACTION_VALUE.includes(a.type) && (
-              a.type === 'set_priority' ? (
-                <select value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} style={{ ...selectStyle, flex: 1 }}>
-                  {PRIORITY_KEYS.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-                </select>
-              ) : a.type === 'set_status' ? (
-                <select value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} style={{ ...selectStyle, flex: 1 }}>
-                  {statusOrder.map((s) => <option key={s} value={s}>{statusMeta[s]?.label || s}</option>)}
-                </select>
-              ) : (
-                <input value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} placeholder="Tag" style={{ ...inputStyle, flex: 1 }} />
-              )
-            )}
-            <IconButton icon={X} title="Remove Action" onClick={() => removeAction(i)} />
-          </div>
-        ))}
+      <div style={{ fontSize: 12, color: NX.faint, marginBottom: 14 }}>
+        {draft.trigger.type === 'due_date_arrives'
+          ? 'Checked hourly. Each open task is acted on once per date; a task whose date moves is checked again on its new date.'
+          : 'Runs when a person makes this change, including through a bulk edit. Changes made by other rules do not count.'}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={addAction}><Plus size={14} />Add Action</button>
+
+      <label style={fieldLabel}>Only if</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {draft.conditions.length === 0 && <div style={{ fontSize: 12.5, color: NX.faint }}>Every task that matches the trigger. Add a condition to narrow it.</div>}
+        {draft.conditions.map((c, i) => {
+          const f = CONDITION_FIELDS.find((x) => x.value === c.field) || CONDITION_FIELDS[0];
+          return (
+            <div key={i} style={rowStyle}>
+              <select value={c.field} onChange={(e) => setCond(i, { field: e.target.value, value: '' })} style={{ ...selectStyle, width: 130, flexShrink: 0 }}>
+                {CONDITION_FIELDS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+              </select>
+              <select value={c.op} onChange={(e) => setCond(i, { op: e.target.value })} style={{ ...selectStyle, width: 90, flexShrink: 0 }}>
+                {CONDITION_OPS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+              </select>
+              <RuleValueInput kind={f.valueKind} value={c.value} ctx={ctx} onChange={(v) => setCond(i, { value: v })} />
+              <IconButton icon={X} title="Remove Condition" onClick={() => set({ conditions: draft.conditions.filter((_, idx) => idx !== i) })} />
+            </div>
+          );
+        })}
+      </div>
+      {draft.conditions.length < MAX_CONDITIONS && (
+        <button style={{ ...btn('outline'), marginTop: 8, marginBottom: 14 }}
+          onClick={() => set({ conditions: [...draft.conditions, { field: 'project', op: 'is', value: '' }] })}>
+          <Plus size={14} />Add Condition
+        </button>
+      )}
+
+      <label style={fieldLabel}>Then</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {draft.actions.map((a, i) => {
+          const def = ACTION_TYPES.find((x) => x.value === a.type) || ACTION_TYPES[0];
+          return (
+            <div key={i} style={{ ...rowStyle, alignItems: def.valueKind === 'comment' ? 'flex-start' : 'center' }}>
+              <select value={a.type} onChange={(e) => setAction(i, { type: e.target.value, value: defaultActionValue(e.target.value) })} style={{ ...selectStyle, width: 220, flexShrink: 0 }}>
+                {ACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              <RuleValueInput kind={def.valueKind} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />
+              <IconButton icon={X} title="Remove Action" onClick={() => set({ actions: draft.actions.filter((_, idx) => idx !== i) })} />
+              {def.valueKind === 'comment' && (
+                <div style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint, marginTop: -4 }}>
+                  Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}. Posted by "Automation" and emailed like any comment.
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {draft.actions.length < MAX_ACTIONS && (
+        <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => set({ actions: [...draft.actions, { type: 'set_priority', value: 'high' }] })}>
+          <Plus size={14} />Add Action
+        </button>
+      )}
+    </Modal>
+  );
+}
+
+/** "2 days [before|after] the due date" as a number plus a direction. */
+function DaysOffsetInput({ value, onChange }) {
+  const n = Number(value || 0);
+  const dir = n < 0 ? 'before' : n > 0 ? 'after' : 'on';
+  const abs = Math.abs(n);
+  const setDir = (d) => onChange(d === 'on' ? 0 : d === 'before' ? -(abs || 1) : (abs || 1));
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {dir !== 'on' && (
+        <input type="number" min={1} step={1} value={abs} onChange={(e) => { const v = Math.max(1, Math.floor(Number(e.target.value) || 1)); onChange(dir === 'before' ? -v : v); }}
+          style={{ ...inputStyle, width: 72 }} />
+      )}
+      <select value={dir} onChange={(e) => setDir(e.target.value)} style={{ ...selectStyle, width: 190 }}>
+        <option value="before">{dir === 'before' ? 'day(s) before the due date' : 'Before the due date'}</option>
+        <option value="on">On the due date</option>
+        <option value="after">{dir === 'after' ? 'day(s) after the due date' : 'After the due date'}</option>
+      </select>
+    </div>
+  );
+}
+
+function RuleRunsModal({ ruleId, rules, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [filter, setFilter] = useState(ruleId || '');
+  useEffect(() => {
+    // Stale rows stay on screen while the next filter loads - no flash to empty.
+    let alive = true;
+    api.getTaskAutomationRuns(filter, 100).then((r) => { if (alive) setRows(r || []); }).catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [filter]);
+  const openTask = (id) => { if (id) window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: id } })); };
+  return (
+    <Modal title="Automation Runs" onClose={onClose} footer={<button style={btn('ghost')} onClick={onClose}>Close</button>}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...selectStyle, maxWidth: 320 }}>
+          <option value="">All rules</option>
+          {rules.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: NX.faint }}>Newest first, last 100.</span>
+      </div>
+      {rows === null ? <LoadingState /> : rows.length === 0 ? (
+        <EmptyState icon={Zap} title="No Runs Yet" hint="A line appears here each time a rule fires on a task." />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {rows.map((x) => (
+            <div key={x.id} style={{ ...card, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5 }}>
+              <span style={{ ...iconBadge, width: 26, height: 26, color: x.status === 'error' ? NX.red : NX.amber }}>
+                {x.status === 'error' ? <AlertTriangle size={14} /> : <Zap size={14} />}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div>
+                  <span style={{ fontWeight: 700 }}>{x.ruleName}</span>
+                  <span style={{ color: NX.dim }}> on </span>
+                  <button type="button" onClick={() => openTask(x.taskId)} style={{ ...btn('ghost'), padding: 0, height: 'auto', fontWeight: 600, color: NX.blue }}>{x.taskTitle || 'a task'}</button>
+                </div>
+                <div style={{ color: x.status === 'error' ? NX.red : NX.dim, marginTop: 1 }}>
+                  {x.status === 'error' ? `Failed: ${x.detail}` : (x.actions || []).join('; ')}
+                </div>
+              </div>
+              <div style={{ color: NX.faint, whiteSpace: 'nowrap', fontSize: 11.5 }}>{fmtDateTime(x.at)}<br />{x.event}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </Modal>
   );
 }

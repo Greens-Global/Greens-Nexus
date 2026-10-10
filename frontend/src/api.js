@@ -542,6 +542,8 @@ export const api = {
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
   updateTaskAutomationRule: (id, data) => req(`/task-automation-rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskAutomationRule: (id) => req(`/task-automation-rules/${id}`, { method: "DELETE" }),
+  // What the rules actually did (task_automation.py run log), newest first. Manager-only.
+  getTaskAutomationRuns: (ruleId = "", limit = 50) => req(`/task-automation-runs?rule_id=${encodeURIComponent(ruleId)}&limit=${limit}`),
   getTaskTemplates: () => req("/task-templates"),
   createTaskTemplate: (data) => req("/task-templates", { method: "POST", body: JSON.stringify(data) }),
   deleteTaskTemplate: (id) => req(`/task-templates/${id}`, { method: "DELETE" }),

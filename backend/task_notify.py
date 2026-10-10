@@ -714,6 +714,13 @@ def _task_scan_once(do_due: bool, do_retry: bool = True) -> None:
                 _recurrence_once(db)
             except Exception:
                 db.rollback()
+            # Automation rules on a clock ("due date arrives"): once per rule
+            # per task per date, see task_automation.run_scheduled.
+            try:
+                import task_automation
+                task_automation.run_scheduled(db, _business_today())
+            except Exception:
+                db.rollback()
             _due_reminders_once(db)
     finally:
         db.close()
