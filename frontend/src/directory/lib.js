@@ -169,6 +169,39 @@ export function myTeam(me, people) {
     || (p.managerEmail || '').toLowerCase() === me.email));
 }
 
+// ── Org Chart lens ────────────────────────────────────────────────────────
+// A chart draws the trees; a root with nobody under them is not a tree, it is
+// a person who is not connected (no manager on record, or a manager outside
+// the companies the viewer can see), and is listed beside the chart instead
+// of stretching it one lone card wider.
+export function splitTree(tree) {
+  return {
+    trees: tree.filter((n) => n.children.length > 0),
+    loose: tree.filter((n) => n.children.length === 0).map((n) => n.person),
+  };
+}
+
+// The functional division a person belongs to: their own tag when they lead
+// one, else the nearest tagged manager above them - the same rule People's
+// org chart colors by, so a division reads the same on both charts.
+export function inheritedDivision(person, byEmail, cache = new Map()) {
+  let cur = person;
+  const path = [];
+  for (let hops = 0; cur && hops < 30; hops++) {
+    if (cache.has(cur.email)) { const d = cache.get(cur.email); path.forEach((e) => cache.set(e, d)); return d; }
+    const own = (cur.division || '').trim();
+    if (own) { path.forEach((e) => cache.set(e, own)); cache.set(cur.email, own); return own; }
+    path.push(cur.email);
+    const m = byEmail.get((cur.managerEmail || '').toLowerCase());
+    if (!m || m.email === cur.email || path.includes(m.email)) break;
+    cur = m;
+  }
+  path.forEach((e) => cache.set(e, ''));
+  return '';
+}
+
+export const divisionNames = (people) => [...new Set(people.map((p) => (p.division || '').trim()).filter(Boolean))].sort();
+
 // ── Local time ────────────────────────────────────────────────────────────
 export function localTimeLabel(timeZone, now = new Date()) {
   try {

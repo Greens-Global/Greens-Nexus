@@ -5,7 +5,11 @@
 // screen was HR > People, which needs the HR grant. Now anyone in the company
 // can find anyone: one navigator on the left you flip between Departments and
 // Reporting Line, one profile panel on the right that is the same whichever
-// way you got there (Neil, 10/09: "one screen, two lenses").
+// way you got there (Neil, 10/09: "one screen, two lenses"). The third lens,
+// Org Chart (10/10), draws the same reporting data as a tree of cards on the
+// pan/zoom canvas People's org chart uses (components/orgchart) - read-only,
+// with Teams presence and today's availability on every card; it takes the
+// full width and the contact card opens beside it.
 //
 // Data: GET /directory (routers/directory.py) - contact fields only, company
 // wall applied server-side, with today's availability (time off, leave,
@@ -13,8 +17,8 @@
 // call. Availability is refreshed here every minute while the tab is visible.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Search, Users, Network, Building2, MapPin, ChevronDown, ChevronRight, MessageSquare, Phone, Mail,
-  Download, AlertTriangle, Star, X,
+  Search, Users, Network, ListTree, Building2, MapPin, ChevronDown, ChevronRight, MessageSquare, Phone, Mail,
+  Download, FileText, AlertTriangle, Star, X,
 } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT } from '../tasks/theme';
@@ -25,20 +29,23 @@ import { takePendingOpen } from '../lib/pendingOpen';
 import { CONTACT_OPEN_KIND, CONTACT_EVENT } from '../lib/contactNav';
 import { openPersonProfile } from '../lib/personNav';
 import ProfilePanel, { Avatar, RoleBadge, AvailabilityChip } from '../directory/ProfilePanel';
+import OrgChartLens from '../directory/OrgChartLens';
 import {
   searchPeople, groupByDepartment, buildTree, myTeam, isOffToday, teamsChat, teamsCall, mailto,
   csvOf, downloadText, readPins, writePins, byLastName,
 } from '../directory/lib';
+import { exportDirectoryPdf } from '../directory/pdf';
 
 const REFRESH_MS = 60_000;
 const PRESENCE_MS = 30_000;   // Teams presence poll; the server holds one Graph answer per 30 s
 const LENS_KEY = 'nexus-directory-lens';
+const LENSES = [['dept', 'Departments', Building2], ['org', 'Reporting Line', ListTree], ['chart', 'Org Chart', Network]];
 const QUICK = [
   ['all', 'Everyone'], ['team', 'My Team'], ['leads', 'Department Leads'], ['off', 'Off Today'], ['pinned', 'Pinned'],
 ];
 
 function readLens() {
-  try { return localStorage.getItem(LENS_KEY) === 'org' ? 'org' : 'dept'; } catch { return 'dept'; }
+  try { const v = localStorage.getItem(LENS_KEY); return LENSES.some(([k]) => k === v) ? v : 'dept'; } catch { return 'dept'; }
 }
 
 export default function Directory() {
@@ -113,7 +120,10 @@ export default function Directory() {
   const offices = useMemo(() => [...new Set(people.map((p) => p.location).filter(Boolean))].sort(), [people]);
   const companies = data?.companies || [];
 
-  const filtered = useMemo(() => {
+  // Company / office / quick chips FILTER the set; search FINDS within it.
+  // The lists show the search hits; the chart keeps the whole filtered tree
+  // and highlights the hits (cutting a name out would cut out their team).
+  const base = useMemo(() => {
     let rows = people;
     if (company) rows = rows.filter((p) => p.company === company);
     if (office) rows = rows.filter((p) => p.location === office);
@@ -121,17 +131,20 @@ export default function Directory() {
     else if (quick === 'leads') rows = rows.filter((p) => p.departmentRole);
     else if (quick === 'off') rows = rows.filter(isOffToday);
     else if (quick === 'pinned') rows = rows.filter((p) => pins.includes(p.email));
-    return searchPeople(rows, query);
-  }, [people, company, office, quick, me, pins, query]);
+    return rows;
+  }, [people, company, office, quick, me, pins]);
+  const filtered = useMemo(() => searchPeople(base, query), [base, query]);
 
+  const chart = lens === 'chart';
   const searching = query.trim().length > 0;
-  const groups = useMemo(() => (lens === 'dept' || searching ? groupByDepartment(filtered) : []), [lens, searching, filtered]);
+  const groups = useMemo(() => (!chart && (lens === 'dept' || searching) ? groupByDepartment(filtered) : []), [chart, lens, searching, filtered]);
   const tree = useMemo(() => (lens === 'org' && !searching ? buildTree(filtered) : []), [lens, searching, filtered]);
-  const pinnedRows = useMemo(() => (quick === 'pinned' || searching ? [] : filtered.filter((p) => pins.includes(p.email)).sort(byLastName)), [filtered, pins, quick, searching]);
+  const pinnedRows = useMemo(() => (chart || quick === 'pinned' || searching ? [] : filtered.filter((p) => pins.includes(p.email)).sort(byLastName)), [chart, filtered, pins, quick, searching]);
 
-  // The flat order rows appear in, for arrow keys.
+  // The flat order rows appear in, for arrow keys (the chart has no rows).
   const flat = useMemo(() => {
     const out = [];
+    if (chart) return out;
     pinnedRows.forEach((p) => out.push(p.email));
     if (lens === 'dept' || searching) {
       groups.forEach((g) => { if (!collapsed.has(g.name) || searching) g.people.forEach((p) => out.push(p.email)); });
@@ -140,7 +153,7 @@ export default function Directory() {
       tree.forEach(walk);
     }
     return out;
-  }, [pinnedRows, lens, searching, groups, tree, collapsed]);
+  }, [chart, pinnedRows, lens, searching, groups, tree, collapsed]);
 
   const person = selected ? byEmail.get(selected) : null;
   // A pending jump to someone outside the viewer's wall: say so rather than
@@ -176,7 +189,25 @@ export default function Directory() {
     }
   };
 
-  const canExport = can?.('manager');
+  // PDF: anyone - it is the contact sheet of what they already see on screen
+  // (Neil, 10/10). CSV stays a manager's tool: bulk, machine-readable data.
+  const canExportCsv = can?.('manager');
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const exportPdf = async () => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const scope = [
+        company ? `Company: ${companies.find((c) => c.id === company)?.name || company}` : '',
+        office ? `Office: ${office}` : '',
+        quick !== 'all' ? `Showing: ${QUICK.find(([k]) => k === quick)?.[1] || quick}` : '',
+        query.trim() ? `Search: "${query.trim()}"` : '',
+      ].filter(Boolean).join('  ·  ');
+      const companyName = companies.length === 1 ? companies[0].name : (company ? companies.find((c) => c.id === company)?.name || '' : '');
+      await exportDirectoryPdf({ people: filtered, companyName, scope });
+    } catch (e) { setError(e?.message || 'Could not build the PDF.'); }
+    finally { setPdfBusy(false); }
+  };
   const canOpenPeople = !!(can?.('administrator') || myGrantedModules?.has('hr'));
   const canOpenTasks = !!(can?.('administrator') || myGrantedModules?.has('tasks'));
   const openTasks = (p) => {
@@ -189,6 +220,77 @@ export default function Directory() {
   // ── render ─────────────────────────────────────────────────────────────
   const showList = !mobile || !showing;
   const showProfile = !mobile || showing;
+
+  // The same search / lens / quick-filter block heads the list column and,
+  // laid out in a row, the chart.
+  const toolbar = (horizontal) => (
+    <div style={{ padding: 12, borderBottom: `1px solid ${NX.border}`, display: 'flex', flexDirection: horizontal ? 'row' : 'column', flexWrap: horizontal ? 'wrap' : 'nowrap', alignItems: horizontal ? 'center' : 'stretch', gap: 9 }}>
+      <div style={{ position: 'relative', flex: horizontal ? '1 1 240px' : undefined, minWidth: horizontal ? 200 : undefined, maxWidth: horizontal ? 380 : undefined }}>
+        <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+        <input ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
+          onKeyDown={onListKey} placeholder={chart ? 'Find someone on the chart…' : 'Search name, title, department, office…'} aria-label="Search people"
+          style={{ width: '100%', paddingLeft: 30, paddingRight: query ? 30 : 12, fontSize: mobile ? 16 : 13.5 }} />
+        {query && (
+          <button type="button" onClick={() => setQuery('')} aria-label="Clear search" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: NX.faint, cursor: 'pointer', padding: 4, display: 'flex' }}>
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flex: horizontal ? '0 0 auto' : undefined }}>
+        {LENSES.map(([k, lab, Icon]) => (
+          <button key={k} type="button" role="tab" aria-selected={lens === k} onClick={() => { setLens(k); setCursor(-1); }} style={{
+            flex: horizontal ? '0 0 auto' : 1, border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 700, padding: horizontal ? '6px 12px' : '6px 8px', borderRadius: 7,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+            background: lens === k ? NX.surface : 'transparent', color: lens === k ? NX.ink : NX.dim, boxShadow: lens === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+          }}><Icon size={13} /> {lab}</button>
+        ))}
+      </div>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 6, flex: horizontal ? '0 0 auto' : undefined }}>
+        {QUICK.filter(([k]) => k !== 'pinned' || pins.length).map(([k, lab]) => (
+          <button key={k} type="button" aria-pressed={quick === k} onClick={() => { setQuick(k); setCursor(-1); }} style={{
+            fontFamily: FONT, fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap', cursor: 'pointer',
+            border: `1px solid ${quick === k ? 'transparent' : NX.border}`, background: quick === k ? 'rgba(37,99,235,0.12)' : NX.surface, color: quick === k ? NX.blue : NX.dim,
+          }}>{k === 'pinned' ? <Star size={11} style={{ verticalAlign: -1, marginRight: 4 }} /> : null}{lab}</button>
+        ))}
+      </div>
+      {(companies.length > 1 || offices.length > 1) && (
+        <div style={{ display: 'flex', gap: 6, flex: horizontal ? '0 0 auto' : undefined }}>
+          {companies.length > 1 && (
+            <select className="form-input" value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company" style={{ flex: 1, minWidth: 0, width: horizontal ? 150 : undefined, fontSize: 12.5, padding: '5px 8px' }}>
+              <option value="">All Companies</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
+          {offices.length > 1 && (
+            <select className="form-input" value={office} onChange={(e) => setOffice(e.target.value)} aria-label="Office" style={{ flex: 1, minWidth: 0, width: horizontal ? 150 : undefined, fontSize: 12.5, padding: '5px 8px' }}>
+              <option value="">All Offices</option>
+              {offices.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // One contact card whichever lens found the person. Capped at a readable
+  // width: on a wide monitor the action bar and the detail rows would
+  // otherwise stretch across the screen.
+  const profile = (
+    <div style={{ maxWidth: 680 }}>
+      {missing ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
+          <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>Not in your directory</div>
+          <div style={{ fontSize: 13 }}>That person is not listed for you, or is no longer with the company.</div>
+        </div>
+      ) : (
+        <ProfilePanel person={person} people={people} byEmail={byEmail} me={(myEmail || '').toLowerCase()} pinned={pins}
+          onPin={togglePin} onSelect={select} onBack={() => setShowing(false)} onDepartment={goDepartment} mobile={mobile}
+          onViewChart={chart ? null : (p) => { setLens('chart'); setCursor(-1); select(p.email); }}
+          canOpenPeople={canOpenPeople} onOpenPeople={(p) => openPersonProfile(p.email)}
+          canOpenTasks={canOpenTasks} onOpenTasks={openTasks} />
+      )}
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, fontFamily: FONT }}>
@@ -206,12 +308,20 @@ export default function Directory() {
               <AlertTriangle size={14} /> {gapCount} to complete
             </button>
           )}
-          {canExport && data && (
+          {data && filtered.length > 0 && (
+            <button type="button" onClick={exportPdf} disabled={pdfBusy} className="dir-tool" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
+              border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600, opacity: pdfBusy ? 0.6 : 1,
+            }} title={`A printable contact sheet of the ${filtered.length} people shown, with the reporting line`}>
+              <FileText size={14} /> {pdfBusy ? 'Building PDF…' : 'Export PDF'}
+            </button>
+          )}
+          {canExportCsv && data && filtered.length > 0 && (
             <button type="button" onClick={() => downloadText(`contact-directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
               border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
             }} title={`Export the ${filtered.length} people shown as CSV`}>
-              <Download size={14} /> Export
+              <Download size={14} /> Export CSV
             </button>
           )}
         </div>
@@ -220,58 +330,39 @@ export default function Directory() {
       {gapsOpen && gaps && <GapsPanel gaps={gaps} byEmail={byEmail} onClose={() => setGapsOpen(false)} onOpen={canOpenPeople ? (em) => openPersonProfile(em) : select} />}
 
       {error && !data && <ErrorBanner message={error} onRetry={() => load(false, true)} />}
+      {error && data && <ErrorBanner message={error} onRetry={() => setError('')} />}
 
       {!data && !error ? <LoadingState label="Loading the directory…" /> : data && (
         <div className="dash-card" style={{ padding: 0, overflow: 'hidden' }}>
+          {chart ? (
+            // Org Chart: toolbar across the top, the chart below taking the
+            // width, the contact card in a column on the right once someone
+            // is picked (on a phone it replaces the chart, as in the lists).
+            <>
+              {showList && toolbar(true)}
+              <div style={{ display: 'grid', gridTemplateColumns: mobile || !(person || missing) ? '1fr' : 'minmax(0, 1fr) minmax(320px, 400px)', minHeight: 560 }}>
+                {showList && (
+                  <OrgChartLens people={base} query={query} me={(myEmail || '').toLowerCase()} selected={selected} onSelect={select} mobile={mobile} canOpenPeople={canOpenPeople} />
+                )}
+                {showProfile && (person || missing) && (
+                  <div style={{ borderLeft: mobile ? 'none' : `1px solid ${NX.border}`, padding: mobile ? 16 : '10px 22px 22px', minWidth: 0, overflowY: 'auto', maxHeight: mobile ? 'none' : 'calc(100vh - 200px)' }}>
+                    {!mobile && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 2 }}>
+                        <button type="button" onClick={() => setSelected('')} aria-label="Close contact card" title="Close" style={{ border: 'none', background: 'none', color: NX.faint, cursor: 'pointer', padding: 6, display: 'flex', borderRadius: 8 }}>
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
+                    {profile}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
           <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(300px, 380px) minmax(0, 1fr)', minHeight: 560 }}>
             {showList && (
               <div style={{ borderRight: mobile ? 'none' : `1px solid ${NX.border}`, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <div style={{ padding: 12, borderBottom: `1px solid ${NX.border}`, display: 'flex', flexDirection: 'column', gap: 9 }}>
-                  <div style={{ position: 'relative' }}>
-                    <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-                    <input ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
-                      onKeyDown={onListKey} placeholder="Search name, title, department, office…" aria-label="Search people"
-                      style={{ width: '100%', paddingLeft: 30, paddingRight: query ? 30 : 12, fontSize: mobile ? 16 : 13.5 }} />
-                    {query && (
-                      <button type="button" onClick={() => setQuery('')} aria-label="Clear search" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: NX.faint, cursor: 'pointer', padding: 4, display: 'flex' }}>
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
-                    {[['dept', 'Departments', Building2], ['org', 'Reporting Line', Network]].map(([k, lab, Icon]) => (
-                      <button key={k} type="button" role="tab" aria-selected={lens === k} onClick={() => { setLens(k); setCursor(-1); }} style={{
-                        flex: 1, border: 'none', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 700, padding: '6px 10px', borderRadius: 7,
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
-                        background: lens === k ? NX.surface : 'transparent', color: lens === k ? NX.ink : NX.dim, boxShadow: lens === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-                      }}><Icon size={13} /> {lab}</button>
-                    ))}
-                  </div>
-                  <div className="scroll-tabs" style={{ display: 'flex', gap: 6 }}>
-                    {QUICK.filter(([k]) => k !== 'pinned' || pins.length).map(([k, lab]) => (
-                      <button key={k} type="button" aria-pressed={quick === k} onClick={() => { setQuick(k); setCursor(-1); }} style={{
-                        fontFamily: FONT, fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap', cursor: 'pointer',
-                        border: `1px solid ${quick === k ? 'transparent' : NX.border}`, background: quick === k ? 'rgba(37,99,235,0.12)' : NX.surface, color: quick === k ? NX.blue : NX.dim,
-                      }}>{k === 'pinned' ? <Star size={11} style={{ verticalAlign: -1, marginRight: 4 }} /> : null}{lab}</button>
-                    ))}
-                  </div>
-                  {(companies.length > 1 || offices.length > 1) && (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      {companies.length > 1 && (
-                        <select className="form-input" value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company" style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: '5px 8px' }}>
-                          <option value="">All Companies</option>
-                          {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      )}
-                      {offices.length > 1 && (
-                        <select className="form-input" value={office} onChange={(e) => setOffice(e.target.value)} aria-label="Office" style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: '5px 8px' }}>
-                          <option value="">All Offices</option>
-                          {offices.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {toolbar(false)}
 
                 <div ref={listRef} onKeyDown={onListKey} tabIndex={-1} style={{ overflowY: 'auto', maxHeight: mobile ? 'none' : 'calc(100vh - 300px)', minHeight: 300, outline: 'none' }}>
                   {filtered.length === 0 ? (
@@ -303,24 +394,11 @@ export default function Directory() {
 
             {showProfile && (
               <div style={{ padding: mobile ? 16 : 22, minWidth: 0, overflowY: 'auto', maxHeight: mobile ? 'none' : 'calc(100vh - 200px)' }}>
-                {/* Capped at a readable width: on a wide monitor the action bar
-                    and the detail rows would otherwise stretch across the screen. */}
-                <div style={{ maxWidth: 680 }}>
-                {missing ? (
-                  <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>Not in your directory</div>
-                    <div style={{ fontSize: 13 }}>That person is not listed for you, or is no longer with the company.</div>
-                  </div>
-                ) : (
-                  <ProfilePanel person={person} people={people} byEmail={byEmail} me={(myEmail || '').toLowerCase()} pinned={pins}
-                    onPin={togglePin} onSelect={select} onBack={() => setShowing(false)} onDepartment={goDepartment} mobile={mobile}
-                    canOpenPeople={canOpenPeople} onOpenPeople={(p) => openPersonProfile(p.email)}
-                    canOpenTasks={canOpenTasks} onOpenTasks={openTasks} />
-                )}
-                </div>
+                {profile}
               </div>
             )}
           </div>
+          )}
         </div>
       )}
     </div>
