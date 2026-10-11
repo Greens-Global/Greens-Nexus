@@ -1,0 +1,320 @@
+{
+  "id": "greens-storage-escondido",
+  "name": "Greens Storage Escondido",
+  "address": "25260 N Centre City Pkwy, Escondido, CA 92026",
+  "apn": "187-170-63-00",
+  "acreage": 25.79,
+  "opened": "September 2023",
+  "cubbyFacilityId": "fac_UvKP7sgZpMz",
+  "frame": {
+    "lat0": 33.171,
+    "lon0": -117.1075,
+    "bearingDeg": 141.5,
+    "mPerDegLon": 93200,
+    "mPerDegLat": 110900
+  },
+  "image": {
+    "file": "frontend/public/site-models/greens-storage-escondido/ground.jpg",
+    "bbox": [
+      -117.1098,
+      33.1692,
+      -117.1052,
+      33.1726
+    ],
+    "px": [
+      2000,
+      1478
+    ],
+    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+  },
+  "gates": [
+    {
+      "id": "main",
+      "name": "Main Gate",
+      "px": [
+        1262,
+        884
+      ]
+    },
+    {
+      "id": "north",
+      "name": "North Gate",
+      "px": [
+        775,
+        345
+      ]
+    }
+  ],
+  "pad": {
+    "px": [
+      [
+        760,
+        330
+      ],
+      [
+        1230,
+        700
+      ],
+      [
+        1540,
+        980
+      ],
+      [
+        1560,
+        1190
+      ],
+      [
+        1430,
+        1260
+      ],
+      [
+        1000,
+        1300
+      ],
+      [
+        880,
+        1230
+      ],
+      [
+        560,
+        760
+      ],
+      [
+        590,
+        650
+      ]
+    ]
+  },
+  "buildings": [
+    {
+      "id": "A",
+      "letters": [
+        "A"
+      ],
+      "name": "Building A",
+      "kind": "garage",
+      "u": [
+        -50,
+        -21.5
+      ],
+      "v": [
+        -45.7,
+        -31.5
+      ],
+      "height": 4.5,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Five 15x40 / 15x45 RV garages with power. Matched to the small building at the north tip by size."
+    },
+    {
+      "id": "EF",
+      "letters": [
+        "E",
+        "F"
+      ],
+      "name": "Building E / F",
+      "kind": "garage",
+      "u": [
+        -48,
+        45
+      ],
+      "v": [
+        -76,
+        -63
+      ],
+      "height": 6.0,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "both",
+      "inferred": true,
+      "note": "Drive-up vehicle garages (E) and six 15x44 powered garages (F) in the northwest half of the long west building."
+    },
+    {
+      "id": "D",
+      "letters": [
+        "D"
+      ],
+      "name": "Building D",
+      "kind": "storage",
+      "u": [
+        45,
+        110
+      ],
+      "v": [
+        -77,
+        -63
+      ],
+      "height": 6.0,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Southeast half of the long west building: drive-up D001-D021 outside, climate-controlled D022-D057 inside."
+    },
+    {
+      "id": "C",
+      "letters": [
+        "C"
+      ],
+      "name": "Building C",
+      "kind": "storage",
+      "u": [
+        -15,
+        146
+      ],
+      "v": [
+        -48,
+        -21
+      ],
+      "height": 7.0,
+      "floors": 1,
+      "roof": "solar",
+      "doorSide": "both",
+      "inferred": true,
+      "note": "Main climate-controlled building under the solar roof; drive-up C units on the outside walls. Unit area exceeds one floor of this footprint, so the schematic adds a second level - confirm the real floor count."
+    },
+    {
+      "id": "B",
+      "letters": [
+        "B"
+      ],
+      "name": "Building B",
+      "kind": "storage",
+      "u": [
+        -21.5,
+        60.7
+      ],
+      "v": [
+        -14,
+        2
+      ],
+      "height": 5.1,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "both",
+      "inferred": true,
+      "note": "Building along the parkway: drive-up vehicle units B001-B024, climate-controlled B025-B084 inside."
+    },
+    {
+      "id": "OFFICE",
+      "letters": [
+        "M"
+      ],
+      "name": "Office",
+      "kind": "office",
+      "u": [
+        80,
+        126
+      ],
+      "v": [
+        -11,
+        3
+      ],
+      "height": 5.0,
+      "floors": 1,
+      "roof": "red",
+      "doorSide": "sw",
+      "inferred": true,
+      "note": "Lobby (2,300 sq ft), conference room and the 77 rental mailboxes (M100-M176)."
+    },
+    {
+      "id": "Z",
+      "letters": [
+        "Z"
+      ],
+      "name": "Building Z",
+      "kind": "storage",
+      "u": [
+        126,
+        162
+      ],
+      "v": [
+        -11,
+        3
+      ],
+      "height": 4.3,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "sw",
+      "inferred": true,
+      "note": "Southeast building beside the office; holds the 60x45 swing-door space Z001."
+    }
+  ],
+  "zones": [
+    {
+      "id": "RV",
+      "name": "RV Lot (unpaved)",
+      "kind": "rv-lot",
+      "units": "G001-G078",
+      "aisleAlong": "u",
+      "px": [
+        [
+          690,
+          318
+        ],
+        [
+          1240,
+          700
+        ],
+        [
+          960,
+          625
+        ],
+        [
+          830,
+          590
+        ],
+        [
+          600,
+          592
+        ],
+        [
+          562,
+          500
+        ]
+      ]
+    },
+    {
+      "id": "RVP",
+      "name": "RV Parking (paved)",
+      "kind": "rv-lot",
+      "units": "G105-G117",
+      "aisleAlong": "u",
+      "px": [
+        [
+          1370,
+          900
+        ],
+        [
+          1560,
+          980
+        ],
+        [
+          1590,
+          1180
+        ],
+        [
+          1450,
+          1240
+        ]
+      ]
+    }
+  ],
+  "sources": [
+    "Parcel: SANDAG / San Diego County Assessor parcel service (APN 1871706300, 25.79 ac)",
+    "Building massing: Microsoft Open Building Footprints (heights) refined against Esri World Imagery",
+    "Units: Cubby FMS inventory export, Oct 11, 2026 (884 active units)",
+    "Facility facts: Modern Storage Media, 2023 Green Facility of the Year"
+  ],
+  "imageWide": {
+    "file": "frontend/public/site-models/greens-storage-escondido/ground-wide.jpg",
+    "bbox": [
+      -117.119,
+      33.1624,
+      -117.096,
+      33.1794
+    ]
+  }
+}

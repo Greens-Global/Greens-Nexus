@@ -200,7 +200,13 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // its VITE_SUPABASE_* variables keep the Supabase client in. No new
 // dependency. Same lines in both PRs so the second to merge does not
 // conflict. Deliberate.
-const TOTAL_KB     = 11500;
+// Oct 12, 2026: 11500 -> 12000. Site Models (Neil): the to-scale 3D property
+// model (Asset Management property page + the public /map/{id} unit finder)
+// brings three.js, ~690 KB minified, in its own vendor-three chunk so it only
+// loads for those two screens. Measured 11576 KB total with it in. A whole
+// new capability, taken deliberately; the mammoth note above still names the
+// cheapest real lever if the total needs to come back down.
+const TOTAL_KB     = 12000;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

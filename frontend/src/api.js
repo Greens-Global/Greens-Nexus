@@ -2015,6 +2015,16 @@ export const api = {
   createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
   // A property's tickets for Asset Management > Maintenance, and Follow.
   getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
+
+  // Site Models (Neil, Oct 11 2026): to-scale 3D models of a property. The
+  // public customer page uses getPublicSiteModel (no login); owners get the
+  // full model plus markup pins through the property-asset grant.
+  getSiteModels:          () => req('/site-models'),
+  getSiteModel:           (id) => req(`/site-models/${encodeURIComponent(id)}`),
+  getSiteModelMarkups:    (id) => req(`/site-models/${encodeURIComponent(id)}/markups`),
+  addSiteModelMarkup:     (id, body) => req(`/site-models/${encodeURIComponent(id)}/markups`, { method: 'POST', body: JSON.stringify(body) }),
+  updateSiteModelMarkup:  (id, mid, body) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteSiteModelMarkup:  (id, mid) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'DELETE' }),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
   // Maintenance record + recurring services (Pranshu, 10/06).
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
@@ -2127,3 +2137,11 @@ export const api = {
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.
 export const API_BASE = BASE;
+
+// Public unit finder (/map/{propertyId}) - a customer looking for their unit
+// has no Nexus login, so this is a plain fetch of the customer-safe model.
+export async function fetchPublicSiteModel(id) {
+  const res = await fetch(`${BASE}/site-models/public/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(res.status === 404 ? 'No map for this property' : `Could not load the map (${res.status})`);
+  return res.json();
+}

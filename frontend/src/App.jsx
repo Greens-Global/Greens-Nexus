@@ -66,6 +66,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
+const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
@@ -488,6 +489,17 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicVerify token={token} />
+      </Suspense>
+    );
+  }
+  // Public unit finder (/map/{propertyId}) - a storage customer looking for
+  // their unit on the 3D site model has no login; the model served to them
+  // carries geometry and unit numbers only (routers/site_models.py).
+  if (parsePath().view === 'map') {
+    const pid = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicUnitFinder propertyId={pid} />
       </Suspense>
     );
   }

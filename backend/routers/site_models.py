@@ -1,0 +1,214 @@
+"""Site Models - to-scale 3D models of a property (Neil, Oct 11 2026).
+
+A site model is a JSON file in backend/site_models/<property-id>.json built by
+site_models/build/build_site_model.py from the county parcel, building
+footprints digitized against imagery, and the Cubby unit inventory. Every unit
+is a rectangle in a local meter frame (u along the site axis, v toward the
+northeast) so the frontend viewer (frontend/src/sitemodel/) can draw it to
+scale, let a customer find a unit, and let an owner pin markup on the exact
+spot. Unit positions are SCHEMATIC until an as-built plan replaces them - the
+file carries `layout.flags` saying so.
+
+Two faces of the same file:
+  * GET /site-models/{id}            - owners (property-asset grant): everything,
+                                       including occupancy and out-of-service flags.
+  * GET /site-models/public/{id}     - customers, no login: geometry + unit numbers,
+                                       sizes and types only. Never occupancy, never
+                                       tenant data, never the layout notes.
+
+Markup pins live in site_model_markups (create_all builds it; ENABLE ROW LEVEL
+SECURITY on dev and prod as part of the release - see docs/Site-Models.md).
+"""
+import json
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from auth import require_module_grant
+from database import get_db
+from models import SiteModelMarkup
+
+router = APIRouter(tags=["Site Models"])
+
+require_asset_read = require_module_grant("property-asset", "viewer")
+require_asset_write = require_module_grant("property-asset", "editor")
+
+MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "site_models")
+_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,80}$")
+_cache: Dict[str, tuple] = {}
+
+# What a customer may see of a unit: where it is and what it is.
+PUBLIC_UNIT_KEYS = ("n", "b", "f", "u", "v", "wu", "dv", "door", "k", "veh", "pw", "w", "d")
+PUBLIC_PROPERTY_KEYS = ("id", "name", "address")
+PUBLIC_BUILDING_KEYS = ("id", "letters", "name", "kind", "u", "v", "height", "floors", "roof")
+CATEGORIES = ("maintenance", "inspection", "note")
+STATUSES = ("open", "done")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _path(pid: str) -> str:
+    if not _SLUG.match(pid or ""):
+        raise HTTPException(status_code=404, detail="No site model for this property")
+    return os.path.join(MODEL_DIR, pid + ".json")
+
+
+def load_model(pid: str) -> Dict[str, Any]:
+    path = _path(pid)
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        raise HTTPException(status_code=404, detail="No site model for this property")
+    hit = _cache.get(pid)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    with open(path, encoding="utf-8") as f:
+        model = json.load(f)
+    _cache[pid] = (mtime, model)
+    return model
+
+
+def list_models() -> List[Dict[str, Any]]:
+    out = []
+    if not os.path.isdir(MODEL_DIR):
+        return out
+    for name in sorted(os.listdir(MODEL_DIR)):
+        if not name.endswith(".json"):
+            continue
+        pid = name[:-5]
+        if not _SLUG.match(pid):
+            continue
+        try:
+            prop = load_model(pid).get("property") or {}
+        except HTTPException:
+            continue
+        out.append({"id": pid, "name": prop.get("name", ""), "address": prop.get("address", ""),
+                    "apn": prop.get("apn", ""), "cubbyFacilityId": prop.get("cubbyFacilityId", "")})
+    return out
+
+
+def public_view(model: Dict[str, Any]) -> Dict[str, Any]:
+    """Customer-safe copy: the site and where each unit is, nothing about who rents it."""
+    pick = lambda d, keys: {k: d.get(k) for k in keys if k in d}  # noqa: E731
+    units = [pick(u, PUBLIC_UNIT_KEYS) for u in model.get("units", [])]
+    return {
+        "property": pick(model.get("property") or {}, PUBLIC_PROPERTY_KEYS), "frame": model.get("frame"), "image": model.get("image"),
+        "imageWide": model.get("imageWide"), "parcel": model.get("parcel"), "pad": model.get("pad"),
+        "gates": model.get("gates"), "buildings": [pick(b, PUBLIC_BUILDING_KEYS) for b in model.get("buildings", [])], "zones": model.get("zones"),
+        "units": units, "sources": model.get("sources"),
+        "layout": {"schematic": bool((model.get("layout") or {}).get("schematic", True))},
+    }
+
+
+@router.get("/site-models")
+def get_site_models(user=Depends(require_asset_read)):
+    return list_models()
+
+
+@router.get("/site-models/public/{pid}")
+def get_public_site_model(pid: str):
+    return public_view(load_model(pid))
+
+
+@router.get("/site-models/{pid}")
+def get_site_model(pid: str, user=Depends(require_asset_read)):
+    return load_model(pid)
+
+
+# ---- markup pins ----------------------------------------------------------
+
+def _ser(m: SiteModelMarkup) -> Dict[str, Any]:
+    return {"id": m.id, "propertyId": m.property_id, "unit": m.unit or "", "building": m.building or "",
+            "u": m.u, "v": m.v, "y": m.y, "title": m.title or "", "category": m.category or "maintenance",
+            "status": m.status or "open", "ticketId": m.ticket_id or "", "createdBy": m.created_by or "",
+            "createdAt": m.created_at or "", "updatedAt": m.updated_at or ""}
+
+
+class MarkupIn(BaseModel):
+    title: str
+    category: str = "maintenance"
+    unit: Optional[str] = ""
+    building: Optional[str] = ""
+    u: float = 0.0
+    v: float = 0.0
+    y: float = 0.0
+    ticketId: Optional[str] = ""
+
+
+class MarkupPatch(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    status: Optional[str] = None
+    ticketId: Optional[str] = None
+
+
+def _clean_title(t: str) -> str:
+    t = (t or "").strip()
+    if not t:
+        raise HTTPException(status_code=400, detail="A pin needs a title")
+    return t[:120]
+
+
+@router.get("/site-models/{pid}/markups")
+def get_markups(pid: str, db: Session = Depends(get_db), user=Depends(require_asset_read)):
+    load_model(pid)
+    rows = db.query(SiteModelMarkup).filter(SiteModelMarkup.property_id == pid).order_by(SiteModelMarkup.created_at.desc()).all()
+    return [_ser(m) for m in rows]
+
+
+@router.post("/site-models/{pid}/markups")
+def add_markup(pid: str, body: MarkupIn, db: Session = Depends(get_db), user=Depends(require_asset_write)):
+    model = load_model(pid)
+    unit = (body.unit or "").strip().upper()
+    if unit and not any(u.get("n") == unit for u in model.get("units", [])):
+        raise HTTPException(status_code=400, detail=f"No unit {unit} on this model")
+    if body.category not in CATEGORIES:
+        raise HTTPException(status_code=400, detail="Unknown pin category")
+    now = _now()
+    m = SiteModelMarkup(id=str(uuid.uuid4()), property_id=pid, unit=unit, building=(body.building or "")[:40],
+                        u=float(body.u), v=float(body.v), y=float(body.y), title=_clean_title(body.title),
+                        category=body.category, status="open", ticket_id=(body.ticketId or "")[:40],
+                        created_by=(user or {}).get("email", ""), created_at=now, updated_at=now)
+    db.add(m)
+    db.commit()
+    return _ser(m)
+
+
+@router.patch("/site-models/{pid}/markups/{mid}")
+def patch_markup(pid: str, mid: str, body: MarkupPatch, db: Session = Depends(get_db), user=Depends(require_asset_write)):
+    m = db.get(SiteModelMarkup, mid)
+    if not m or m.property_id != pid:
+        raise HTTPException(status_code=404, detail="Pin not found")
+    if body.title is not None:
+        m.title = _clean_title(body.title)
+    if body.category is not None:
+        if body.category not in CATEGORIES:
+            raise HTTPException(status_code=400, detail="Unknown pin category")
+        m.category = body.category
+    if body.status is not None:
+        if body.status not in STATUSES:
+            raise HTTPException(status_code=400, detail="Unknown pin status")
+        m.status = body.status
+    if body.ticketId is not None:
+        m.ticket_id = body.ticketId[:40]
+    m.updated_at = _now()
+    db.commit()
+    return _ser(m)
+
+
+@router.delete("/site-models/{pid}/markups/{mid}")
+def delete_markup(pid: str, mid: str, db: Session = Depends(get_db), user=Depends(require_asset_write)):
+    m = db.get(SiteModelMarkup, mid)
+    if not m or m.property_id != pid:
+        raise HTTPException(status_code=404, detail="Pin not found")
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
