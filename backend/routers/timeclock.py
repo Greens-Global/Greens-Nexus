@@ -6034,10 +6034,15 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                                                            ScheduleDayNote.group_id.in_([""] + group_ids)).all()
                  if n.note]
 
+    # Weather bands per group and day (Weather Call, Oct 2026) - what the
+    # scan last wrote, never a live forecast call from here.
+    import weather_watch
+    weather = weather_watch.outlook_rows(db, start, end, group_ids)
+
     last = _last_publish(db) if can_write else {}
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
-            "timeoff": timeoff, "holidays": holidays,
+            "timeoff": timeoff, "holidays": holidays, "weather": weather,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
             "me": (user.get("email") or "").lower(),

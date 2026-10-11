@@ -727,6 +727,26 @@ describe('Views, options, export, drag', () => {
     expect(document.querySelector('[data-weather-setup]')).toBeNull();
   });
 
+  // Weather Call (Oct 2026): the band the watch last wrote for a group-day
+  // shows on the day header - the worst band among the groups on screen,
+  // naming them - and quiet days carry nothing.
+  it('shows the weather band on the day header for the groups in view', async () => {
+    allTeams();
+    timeSchedule.mockResolvedValue({ ...data([shift({ groupId: 'g1' }), shift({ id: 's2', email: 'bob@greensglobal.com', groupId: 'g2' })]),
+      groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true }, { id: 'g2', name: 'Yard', members: ['bob@greensglobal.com'], canEdit: true }],
+      weather: [
+        { groupId: 'g1', date: monday, band: 'heads_up', chance: 45, inches: 0.12, windowStart: '9:00 AM', windowEnd: '5:00 PM' },
+        { groupId: 'g2', date: monday, band: 'major', chance: 85, inches: 0.9, windowStart: '7:00 AM', windowEnd: '3:30 PM' },
+        { groupId: 'g2', date: plusDays(monday, 1), band: 'quiet', chance: 5, inches: 0 },
+      ] });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const chips = document.querySelectorAll('[data-weather]');
+    expect(chips.length).toBe(1);
+    expect(chips[0].getAttribute('data-weather')).toBe('major');
+    expect(chips[0].getAttribute('aria-label')).toBe('Major rain: 85% chance, 0.90 in during 7:00 AM - 3:30 PM (Front, Yard)');
+  });
+
   it('exports what is on screen with the group and unpaid activities', async () => {
     timeSchedule.mockResolvedValue({ ...data([shift({ breakMin: 30, groupId: 'g1', activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] })]),
       groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true }] });

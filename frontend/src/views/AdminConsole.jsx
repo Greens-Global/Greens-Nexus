@@ -59,7 +59,7 @@ import {
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
-  Clock, Users,
+  Clock, Users, CloudRain,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -99,6 +99,8 @@ const SignInPolicyPanel = lazy(() => import('./BrandingPoliciesSettings').then(m
 const ShiftSettingsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftSettingsPanel })));
 const ShiftTypesPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftTypesPanel })));
 const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftGroupsPanel })));
+// Weather Alerts (Weather Call, Oct 2026): the per-company switch and the rain thresholds.
+const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -142,7 +144,7 @@ const GLOBAL_CATEGORIES = [
   { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
     desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.' },
   { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
-    desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, and the groups people are scheduled in.' },
+    desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -210,6 +212,9 @@ const GLOBAL_SECTIONS = [
   { id: 'shift-groups', category: 'shifts', icon: Users, title: 'Groups',
     sub: 'Who is scheduled together, the order they appear in, who may build each group\'s schedule, and the Teams chat its BOD / EOD messages go to.',
     keywords: 'shifts groups teams members schedulers order teams chat bod eod' },
+  { id: 'shift-weather', category: 'shifts', icon: CloudRain, title: 'Weather Alerts',
+    sub: 'Which companies the weather watch runs for, what counts as major rain, quiet hours, and the heads-up line in Teams. Nexus advises; a manager makes the weather call.',
+    keywords: 'weather rain forecast alerts advisory storm thunderstorm warning nws quiet hours deciders weather call' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -1047,6 +1052,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }

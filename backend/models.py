@@ -5745,3 +5745,52 @@ class NexusWorkforceScorecardLog(Base):
     absent_count  = Column(Integer, default=0)          # absent all week
     below_count   = Column(Integer, default=0)          # below expected + well below
     created_at    = Column(String, default="")
+
+
+class WeatherOutlook(Base):
+    """The latest forecast band for one shift group on one day (Weather Call,
+    Oct 2026) - written by weather_watch.scan_once every half hour, read by
+    the schedule grid, which never calls a weather service itself. id is
+    "<group_id>:<YYYY-MM-DD>" so the scan upserts. New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_outlook"
+    id           = Column(String, primary_key=True)
+    group_id     = Column(String, default="", index=True)
+    work_date    = Column(String, default="", index=True)   # YYYY-MM-DD, site-local
+    band         = Column(String, default="quiet")          # quiet | heads_up | major | warning
+    chance       = Column(Integer, default=0)               # highest rain chance in the scheduled hours, %
+    inches       = Column(Float, default=0)                 # rain expected over the scheduled hours
+    storm        = Column(Integer, default=0)               # 1 = a thunderstorm hour reached the storm chance
+    alerts_json  = Column(String, default="")               # NWS warnings in force that day (JSON list of events)
+    window_start = Column(String, default="")               # "7:00 AM" - the scheduled hours the band covers
+    window_end   = Column(String, default="")
+    hourly_json  = Column(String, default="")               # [{time, chance, inches, code}] for those hours
+    shifts       = Column(Integer, default=0)
+    people       = Column(Integer, default=0)
+    timezone     = Column(String, default="")               # the site's zone, from the forecast
+    updated_at   = Column(String, default="")
+
+
+class WeatherAdvisory(Base):
+    """Every weather notice the watch sent for a group-day (Weather Call,
+    Oct 2026): the record for later ("we told them on Thursday at 4 PM, here
+    is the forecast as it stood") and the dedupe - one notice per group, day
+    and band. band is major | warning (the advisory), heads_up (the quiet
+    Teams line) or eased (the all-clear bell). channels_json says what went
+    where and why anything did not. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_advisories"
+    id              = Column(String, primary_key=True)
+    group_id        = Column(String, default="", index=True)
+    work_date       = Column(String, default="", index=True)
+    band            = Column(String, default="")
+    chance          = Column(Integer, default=0)
+    inches          = Column(Float, default=0)
+    storm           = Column(Integer, default=0)
+    alerts_json     = Column(String, default="")
+    window_start    = Column(String, default="")
+    window_end      = Column(String, default="")
+    recipients_json = Column(String, default="")   # who was told (emails)
+    channels_json   = Column(String, default="")   # {"bell": n, "teams": "ok" | reason, "email": n, "dayNote": bool}
+    snapshot_json   = Column(String, default="")   # the hours the band was computed from
+    created_at      = Column(String, default="", index=True)

@@ -2675,6 +2675,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] workforce scorecard loop skipped: {e}")
         try:
+            # Weather Call (Oct 2026): the rain advisory per shift group, every
+            # half hour, behind the per-company switch. See weather_watch.py.
+            from weather_watch import weather_watch_loop
+            _tasks.append(_a.create_task(weather_watch_loop()))
+        except Exception as e:
+            print(f"[startup] weather watch loop skipped: {e}")
+        try:
             from routers.hr_interviews import interview_followup_loop
             _tasks.append(_a.create_task(interview_followup_loop()))
         except Exception as e:
@@ -3214,6 +3221,8 @@ from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
 from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
+from routers import weather_watch as weather_watch_router  # noqa: E402
+app.include_router(weather_watch_router.router)  # Weather Alerts settings + Check Now (Weather Call, Oct 2026)
 from routers import accounting_flux  # noqa: E402
 app.include_router(accounting_flux.router)  # Accounting > Reports > Flux Analysis explanation notes (routers/accounting_flux.py)
 from routers import accounting_budgets, accounting_partners, accounting_allocations  # noqa: E402

@@ -23,6 +23,7 @@
 // through `on`; without `on` the grid is read-only.
 import { Fragment } from 'react';
 import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, CalendarDays, StickyNote, MoreHorizontal } from 'lucide-react';
+import WeatherChip from './WeatherChip';
 import { formatDate, formatMonthDay } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
@@ -117,7 +118,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
 
 // A day header: "Mon 28" bold (the month said once, where the view enters
 // it), "8 · 65 Hrs" muted under it, a note icon whose text is the hover.
-export function DayHeader({ d, stats, isToday, isHol, note, canManage, compact, coarse, onOpen, onNote, coverage = null, style, ...rest }) {
+export function DayHeader({ d, stats, isToday, isHol, note, weather = null, canManage, compact, coarse, onOpen, onNote, coverage = null, style, ...rest }) {
   const ds = isoDate(d);
   const month = (d.getDate() === 1 || stats?.first) ? formatMonthDay(d).replace(/ \d+$/, '') : '';
   const noteIcon = note ? (
@@ -146,6 +147,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, canManage, compact, 
         </button>
         {isHol && !compact && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>Holiday</span>}
         <span style={{ flex: 1 }} />
+        <WeatherChip w={weather} compact={compact} />
         {noteIcon}
       </div>
       {stats && (
@@ -248,7 +250,7 @@ export function CoverageChip({ c, compact = false, onShort }) {
 }
 
 export default function WeekGrid({ days, compact = false, sections, byCell, openCells, offOn, holOn = () => null, availOn = () => null, usualOf = () => null,
-  notes = {}, holidayDates = new Set(), me = '', prefs = {}, teamZone = '', canManage = false,
+  notes = {}, weather = {}, holidayDates = new Set(), me = '', prefs = {}, teamZone = '', canManage = false,
   rowEditable = () => false, empWeekMin, dayStats, weekMin, overWeeks = () => [], copied = null, dropKey = '', dragId = '',
   isCollapsed = () => false, on = null, dragProps = () => ({}), personDragProps = null, dropProps = () => ({}), dropStyle = () => ({}),
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null,
@@ -342,7 +344,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       {days.map((d, i) => {
         const ds = isoDate(d);
         return (
-          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0 }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]}
+          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0 }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]} weather={weather[ds]}
             canManage={canManage} compact={compact} coarse={coarse} onOpen={on ? () => on.openDay(ds) : undefined} onNote={on ? () => on.noteEdit(ds) : undefined}
             coverage={headCover ? <CoverageChip c={headCover[i]} compact={compact} onShort={onCoverage} /> : null}
             style={{ gridRow: hr, gridColumn: i + 2, position: 'sticky', top: 0, zIndex: 3, background: solid(colBg(d, today)) }} />
