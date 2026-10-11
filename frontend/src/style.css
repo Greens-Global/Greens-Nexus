@@ -1012,6 +1012,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
    row's own background and hover state are untouched. */
 .nx-flash { position: absolute; inset: 0; border-radius: inherit; background: var(--flash, var(--wk-brand)); pointer-events: none; z-index: 1; animation: nx-flash-out 900ms var(--ease-out) both; }
 @keyframes nx-flash-out { from { opacity: .26; } to { opacity: 0; } }
+/* Saved cue (SavedCheck.jsx): the check draws itself while the word fades
+   in; the whole cue fades when the caller clears its flag. */
+.nx-saved { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; animation: nx-fade-in var(--dur-sm) ease-out both; }
+.nx-saved svg { flex: none; }
+.nx-saved path { stroke-dasharray: 15; stroke-dashoffset: 15; animation: nx-check-draw var(--dur-lg) var(--ease-out) forwards; }
+@keyframes nx-check-draw { to { stroke-dashoffset: 0; } }
+.nx-saved.is-closing { animation: nx-fade-out var(--dur-xs) ease-in forwards; }
+@media (prefers-reduced-motion: reduce) { .nx-saved, .nx-saved path { animation: none; } .nx-saved path { stroke-dashoffset: 0; } }
 
 .modal-header {
   display: flex;
