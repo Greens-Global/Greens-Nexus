@@ -27,9 +27,9 @@
   50%  { stroke-dasharray: 86 126; stroke-dashoffset: -22; }
   100% { stroke-dasharray: 86 126; stroke-dashoffset: -125; }
 }
-.nxl-in { animation: nxl-in .28s cubic-bezier(.16, 1, .3, 1) both; }
+.nxl-in { animation: nxl-in .28s var(--ease-out) both; }
 @keyframes nxl-in { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
-.nx-rise { animation: nx-rise .44s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.nx-rise { animation: nx-rise .44s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
 @keyframes nx-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .nx-skel { display: block; border-radius: 8px; background: linear-gradient(100deg, var(--skel) 36%, var(--skel-sheen) 50%, var(--skel) 64%); background-size: 320% 100%; animation: nx-sheen 1.7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 90ms); }
 @keyframes nx-sheen { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
@@ -4382,8 +4382,8 @@ button, [role="button"], select { touch-action: manipulation; }
 /* Motion: one vocabulary - menus and dialogs pop, revealed lists slide in.
    All of it sits behind prefers-reduced-motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .egx-menu { animation: egxPop .14s cubic-bezier(.16, 1, .3, 1); transform-origin: top right; }
-  .egx-pop { animation: egxPop .16s cubic-bezier(.16, 1, .3, 1); }
+  .egx-menu { animation: egxPop .14s var(--ease-out); transform-origin: top right; }
+  .egx-pop { animation: egxPop .16s var(--ease-out); }
   .egx-overlay { animation: egxFade .15s ease; }
   .egx-tree-kids { animation: egxReveal .16s ease-out; }
   .egx-selbar { animation: egxReveal .15s ease-out; }
@@ -4909,8 +4909,8 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
    into "x" while its options are open. */
 .nx-fab {
   box-shadow: 0 6px 16px rgba(23, 26, 38, .18), 0 2px 4px rgba(23, 26, 38, .10);
-  transition: box-shadow .18s cubic-bezier(.16, 1, .3, 1),
-              transform .18s cubic-bezier(.16, 1, .3, 1),
+  transition: box-shadow .18s var(--ease-out),
+              transform .18s var(--ease-out),
               filter .18s ease;
 }
 .nx-fab:hover {
@@ -4923,7 +4923,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   outline: 2px solid var(--wk-brand, #2b45e1);
   outline-offset: 3px;
 }
-.nx-fab-icon { transition: transform .2s cubic-bezier(.16, 1, .3, 1); }
+.nx-fab-icon { transition: transform .2s var(--ease-out); }
 
 /* Checkboxes in the Task module read as greyed out until they are ticked
    (Neil, Sept 8): an unchecked box is an offer, a checked one is a decision, and
@@ -4972,7 +4972,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(23, 26, 38, .14);
-  animation: nx-fab-in .26s cubic-bezier(.16, 1, .3, 1) both;
+  animation: nx-fab-in .26s var(--ease-out) both;
   transition: border-color .15s ease, transform .15s ease;
 }
 .nx-fab-item:hover { border-color: var(--wk-brand, #2b45e1); transform: translateX(-2px); }

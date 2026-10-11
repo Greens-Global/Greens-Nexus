@@ -362,7 +362,7 @@ function PresenceBadges({ pres }) {
               <div style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 3001, minWidth: 200, maxWidth: 280,
                 background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
                 boxShadow: '0 16px 44px rgba(0,0,0,0.30)', padding: 6, transformOrigin: 'top right',
-                animation: 'nexusPresPop 0.15s cubic-bezier(0.16,1,0.3,1)' }}>
+                animation: 'nexusPresPop 0.15s var(--ease-out)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px 7px' }}>
                   <Eye size={12} style={{ color: 'hsl(var(--color-blue))' }} />
                   <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Watching now</span>
