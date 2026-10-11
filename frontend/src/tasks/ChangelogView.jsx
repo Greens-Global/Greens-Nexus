@@ -1188,7 +1188,7 @@ function readAsDataUrl(file) {
 function ScreenshotDropzone({ label, value, onChange }) {
   const onPaste = async (e) => { const [f] = filesFromPaste(e); if (f) { e.preventDefault(); onChange(await readAsDataUrl(f)); } };
   return (
-    <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
+    <div onPaste={onPaste} tabIndex={0}>
       <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, color: NX.faint }}>{label}</div>
       {value ? (
         <div style={{ position: 'relative' }}>

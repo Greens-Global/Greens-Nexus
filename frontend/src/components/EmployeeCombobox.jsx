@@ -58,7 +58,7 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
             else if (e.key === 'Enter') { if (open && shown[hi]) { e.preventDefault(); pick(shown[hi]); } }
             else if (e.key === 'Escape') { e.preventDefault(); close(); inputRef.current?.blur(); }
           }}
-          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 'inherit', fontWeight: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0, textOverflow: 'ellipsis' }} />
+          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', fontSize: 'inherit', fontWeight: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0, textOverflow: 'ellipsis' }} />
         <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </div>
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={close} role="listbox"

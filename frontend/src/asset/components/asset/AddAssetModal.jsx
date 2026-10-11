@@ -459,7 +459,7 @@ export function AddAssetModal({ row, draft, properties, onSave, onDelete, onClos
 
       {/* Step 1 (or editing): image uploader. */}
       {showFieldForm && (
-        <div onPaste={handleImagePaste} tabIndex={0} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)', outline: 'none' }}>
+        <div onPaste={handleImagePaste} tabIndex={0} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
           <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Image</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {values.image ? (

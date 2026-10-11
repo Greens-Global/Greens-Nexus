@@ -134,7 +134,7 @@ export default function ProjectPicker({
                 if (first) pick(first.id);
               }
             }}
-            style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1,
+            style={{ border: 'none', background: 'transparent', flex: 1,
               fontSize: 13.5, color: NX.ink, fontFamily: FONT }} />
         </div>
 

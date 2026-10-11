@@ -3055,7 +3055,7 @@ function PeopleFilter({ employees, selected, onChange }) {
           if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
         }}
         placeholder={selected.length ? 'Add another person…' : 'Filter by person - type a name…'}
-        style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
+        style={{ flex: 1, minWidth: 140, border: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
       {selected.length > 0 && (
         <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
       )}

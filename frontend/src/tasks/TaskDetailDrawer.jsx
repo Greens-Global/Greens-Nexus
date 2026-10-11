@@ -149,7 +149,7 @@ function DependencyPickerBody({ candidates, onPick }) {
     <div>
       <input
         autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…"
-        style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '7px 9px', marginBottom: 4, fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }}
+        style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '7px 9px', marginBottom: 4, fontSize: 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }}
       />
       <div style={{ maxHeight: 230, overflowY: 'auto' }}>
         {filtered.length ? filtered.slice(0, 40).map((c) => (
@@ -500,7 +500,7 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
         onKeyDown={onEnterPickFirst(filtered, (u) => pick(u.email))}
-        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, background: 'transparent', color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {filtered.map((u) => (
           <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
@@ -529,7 +529,7 @@ function ProjectMenuBody({ projects, exclude, onPick }) {
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Also in Project</div>
       <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
-        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, background: 'transparent', color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {filtered.map((p) => (
           <button key={p.id} type="button" onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
@@ -621,7 +621,7 @@ function TitleInput({ value, completed, onCommit }) {
       onChange={(e) => setV(e.target.value)}
       onBlur={() => onCommit(v)}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-      style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
+      style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
     />
   );
 }
@@ -1433,7 +1433,7 @@ function AttachmentsTab({ task, refresh }) {
   return (
     <div onPaste={onPaste} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
       tabIndex={0} style={{
-        marginTop: 14, outline: 'none', borderRadius: 10, transition: 'background-color .12s ease',
+        marginTop: 14, borderRadius: 10, transition: 'background-color .12s ease',
         ...(dragOver ? { background: NX.hover || NX.border2, boxShadow: `0 0 0 2px ${NX.primary} inset` } : {}),
       }}>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
@@ -1554,7 +1554,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
-          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
         {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
         <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
         <input ref={dateRef} type="date" value={dueOn} min={localTodayISO()} onChange={(e) => setDueOn(notPast(e.target.value))} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
@@ -1672,7 +1672,7 @@ function LabelsEditor({ tags, onChange }) {
         </span>
       ))}
       <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
-        placeholder="Add label…" style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
+        placeholder="Add label…" style={{ border: 'none', background: 'transparent', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
     </span>
   );
 }

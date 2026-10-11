@@ -582,7 +582,7 @@ function PersonalLinksWidget() {
     </button>
   );
   return (
-    <div tabIndex={-1} onPaste={onPaste} style={{ height: '100%', outline: 'none' }}>
+    <div tabIndex={-1} onPaste={onPaste} style={{ height: '100%' }}>
       <DashCard title="My Personal Links" sub={note || 'Only visible to you'}
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
@@ -748,7 +748,7 @@ function NotesWidget({ config, updateConfig }) {
     <DashCard title="Notes" action={<StickyNote size={15} style={{ color: C('orange') }} />}>
       <textarea value={text} onChange={e => setText(e.target.value)} onBlur={() => updateConfig({ text })}
         placeholder="Jot something down…"
-        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', background: 'transparent', outline: 'none', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
+        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', background: 'transparent', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
     </DashCard>
   );
 }

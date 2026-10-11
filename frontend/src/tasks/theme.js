@@ -116,6 +116,6 @@ export const btn = (variant = 'ghost') => {
 };
 export const input = {
   width: '100%', padding: '8px 11px', borderRadius: 8, border: `1px solid ${NX.border}`,
-  fontSize: 14, fontFamily: FONT, color: NX.ink, background: NX.surface, outline: 'none',
+  fontSize: 14, fontFamily: FONT, color: NX.ink, background: NX.surface,
   boxSizing: 'border-box',
 };

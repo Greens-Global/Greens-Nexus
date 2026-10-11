@@ -3986,7 +3986,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
   const onRecChange = returnToTicketAfterRecording(ticketId);
 
   return (
-    <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
+    <div onPaste={onPaste} tabIndex={0}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <RecordUploadButtons onFile={sendFile} disabled={busy} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
           onRecordingChange={onRecChange} />

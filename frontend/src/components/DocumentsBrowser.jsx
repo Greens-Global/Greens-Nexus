@@ -323,7 +323,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
               ))}
               <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onTagKey} onBlur={() => addTag(draft)}
                 aria-label="Add a tag" placeholder={tags.length ? '' : 'Add a tag and press Enter'}
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
+                style={{ border: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               Tags are searchable from the Documents search bar. Up to 20 per document.

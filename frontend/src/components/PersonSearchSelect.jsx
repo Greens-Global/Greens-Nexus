@@ -38,7 +38,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
             else if (e.key === 'Enter' && open && flat[hi]) { e.preventDefault(); pick(flat[hi]); }
             else if (e.key === 'Escape') { close(); inputRef.current?.blur(); }
           }}
-          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0 }} />
+          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', fontSize: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0 }} />
         <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </div>
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={close} role="listbox"

@@ -117,7 +117,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
         style={{ width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)' }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
           onKeyDown={onEnterPickFirst(filtered, (u) => toggle(u.email))}
-          style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+          style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, background: 'transparent', color: NX.ink }} />
         <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
           {filtered.map((u) => (
             <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>

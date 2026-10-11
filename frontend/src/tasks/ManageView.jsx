@@ -1293,7 +1293,7 @@ function MultiSelectDropdown({ label, options, value, onChange, placeholder, sea
           <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
             {searchable && (
               <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${label.toLowerCase()}…`}
-                style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+                style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
             )}
             {filtered.map((o) => {
               const on = value.includes(o.key);
