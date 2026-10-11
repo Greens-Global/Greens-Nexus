@@ -344,7 +344,7 @@ function PresenceBadges({ pres }) {
         <span title={`${controller.name} is giving remote support`}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800,
             color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '3px 9px', borderRadius: 999 }}>
-          <Wrench size={12} style={{ transformOrigin: 'center', animation: 'nexusWrenchWork 1.1s ease-in-out infinite' }} />
+          <Wrench size={12} />
           <Avatar email={controller.email} name={controller.name} size={16} card={false} />
         </span>
       )}
@@ -353,7 +353,7 @@ function PresenceBadges({ pres }) {
           <button ref={btnRef} onClick={() => (open ? setOpen(false) : openMenu())} title={`${watchers.length} watching - click to see who`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, cursor: 'pointer',
               color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', border: 'none', padding: '3px 9px', borderRadius: 999 }}>
-            <Eye size={13} style={{ animation: 'nexusEyeWatch 1.4s ease-in-out infinite' }} />
+            <Eye size={13} />
             {watchers.length}
           </button>
           {open && pos && createPortal(
@@ -629,8 +629,6 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         70% { box-shadow: 0 0 0 5px transparent; }
         100% { box-shadow: 0 0 0 0 transparent; }
       }
-      @keyframes nexusEyeWatch { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.14); } }
-      @keyframes nexusWrenchWork { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
       @keyframes nexusPresPop { from { opacity: 0; transform: translateY(-6px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }`}</style>
 
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}

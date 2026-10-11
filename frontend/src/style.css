@@ -3757,6 +3757,25 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 [data-theme="dark"] .secondary-btn:hover, [data-theme="dark"] .btn-sm:hover { background: var(--mist); }
 
+/* Press feedback (Oct 11, 2026): every shared tappable answers the press at
+   once - a small scale, transform only, released over --dur-xs. The transition
+   lists restate each class's own properties because the shorthand replaces
+   them. Disabled controls stay still, and so does everything under reduced
+   motion. Dashboard tiles (.dk-action) and the phone nav already do this. */
+.primary-btn, .btn-primary { transition: background .15s, transform var(--dur-xs) var(--ease-standard); }
+.secondary-btn, .btn-sm { transition: background .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
+.icon-btn { transition: background var(--transition-fast), transform var(--dur-xs) var(--ease-standard); }
+.hdr-tab { transition: background .15s, color .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
+.module-tab-inline-btn { transition: color .15s, transform var(--dur-xs) var(--ease-standard); }
+.primary-btn:active:not(:disabled), .btn-primary:active:not(:disabled),
+.secondary-btn:active:not(:disabled), .btn-sm:active:not(:disabled) { transform: scale(.97); }
+.icon-btn:active:not(:disabled) { transform: scale(.92); }
+.hdr-tab:active, .module-tab-inline-btn:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) {
+  .primary-btn:active, .btn-primary:active, .secondary-btn:active, .btn-sm:active,
+  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active { transform: none; }
+}
+
 /* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
    -5px jump reads as bouncy next to the quiet cards) */
 .kpi-card:hover {
