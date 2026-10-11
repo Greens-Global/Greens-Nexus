@@ -903,7 +903,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
 
       {managing && weatherSetup.length > 0 && !weatherSetupHidden && (
-        <div role="status" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 12.5, flexWrap: 'wrap',
+        <div role="note" aria-label="Weather setup" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 12.5, flexWrap: 'wrap',
           background: 'hsl(var(--color-orange) / 0.1)', color: 'var(--ink)', border: '1px solid hsl(var(--color-orange) / 0.35)' }}>
           <CloudRain size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 200 }}>
