@@ -58,6 +58,9 @@ export function DialogHost() {
   useEffect(() => {
     _present = (it) => {
       clearTimeout(exitTimer.current); exitTimer.current = null; setClosing(false);
+      // Synced here as well as in the effect: a close that lands before that
+      // effect runs must still find the item to resolve.
+      itemRef.current = it;
       setValue(it.defaultValue || ''); setConfirmingDiscard(false); setItem(it);
     };
     if (_queue.length) _present(_queue.shift());
