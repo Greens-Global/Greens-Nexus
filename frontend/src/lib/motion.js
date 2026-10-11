@@ -77,7 +77,13 @@ export function useExit(onClose, ms = MOTION.exit) {
   const cb = useRef(onClose);
   const alive = useRef(true);
   useLayoutEffect(() => { cb.current = onClose; });
-  useEffect(() => () => { alive.current = false; clearTimeout(timer.current); }, []);
+  // Set inside the effect, not at declaration: StrictMode runs mount ->
+  // cleanup -> mount in development, and a ref that is only ever cleared
+  // would stay false after the re-run and swallow every close.
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; clearTimeout(timer.current); };
+  }, []);
   const requestClose = useCallback((...args) => {
     // A close that lands after the surface is gone (an awaited confirm whose
     // Modal unmounted meanwhile) has nothing to exit and no parent to tell.

@@ -85,3 +85,13 @@ describe('useExit after unmount', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+describe('useExit under StrictMode', () => {
+  it('still closes after the development mount/cleanup/mount cycle', () => {
+    const onClose = vi.fn();
+    const { result } = renderHook(() => useExit(onClose, 100), { reactStrictMode: true });
+    act(() => { result.current[1](); });
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
