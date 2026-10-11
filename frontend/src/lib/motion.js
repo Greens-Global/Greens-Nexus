@@ -201,3 +201,23 @@ export function useFlip(ref) {
 
   useEffect(() => () => { cancelAnimationFrame(raf.current); refresh.current?.off?.(); }, []);
 }
+
+// A value that just changed (a row's status, a card's column) gets one brief
+// glow. Returns 0 while idle and a fresh positive number for each change, so
+// a `key={n}` on the glow element restarts its animation even when two
+// changes land inside one glow. Silent on mount and when motion is off.
+export function useChangeFlash(value, ms = 900) {
+  const [tick, setTick] = useState(0);
+  const prev = useRef(value);
+  const count = useRef(0);
+  useEffect(() => {
+    if (Object.is(prev.current, value)) return undefined;
+    prev.current = value;
+    const wait = motionWait(ms);
+    if (wait === 0) return undefined;
+    setTick(++count.current);
+    const t = setTimeout(() => setTick(0), wait);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return tick;
+}

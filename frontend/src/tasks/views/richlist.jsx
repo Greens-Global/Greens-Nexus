@@ -22,6 +22,7 @@ import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 import DueBadge from '../DueBadge';
 import { useFlip } from '../../lib/motion';
+import ChangeFlash from '../../components/ChangeFlash';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -500,13 +501,14 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
       style={{
-        borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
+        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
         // Manual-reorder drop indicator: a colored line on whichever edge the
         // cursor is over, so dropping "reads" as inserting there rather than
         // replacing the row.
         boxShadow: dropEdge === 'above' ? `inset 0 2px 0 ${groupColor}`
           : dropEdge === 'below' ? `inset 0 -2px 0 ${groupColor}` : 'none',
       }}>
+      <ChangeFlash value={t.status} color={sm.color} />
       <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {cols.map((c) => <Fragment key={c.key}>{cells[c.key] ?? cfCell(c.key)}</Fragment>)}
         <div />
