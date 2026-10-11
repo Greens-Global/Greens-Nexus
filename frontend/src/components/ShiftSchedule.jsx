@@ -18,6 +18,7 @@ import { MOTION, useReducedMotion } from './shifts/motion';
 import { CopyModal, ClearModal, BulkModal } from './shifts/ScheduleDialogs';
 import WeekGrid, { TOOL_BTN } from './shifts/WeekGrid';
 import { weatherByDay } from './shifts/WeatherChip';
+import WeatherCallDialog from './shifts/WeatherCallDialog';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
@@ -92,6 +93,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const [ghost, setGhost] = useState(null);
   const [dropKey, setDropKey] = useState('');
   const [open, setOpen] = useState('');            // which dialog: share | copy | clear | fill | import | view | note | reorder
+  const [weatherCall, setWeatherCall] = useState(null);   // { groupId, date } while the Weather Call is open
   const [noteDate, setNoteDate] = useState('');
   const [addTo, setAddTo] = useState(null);
   const [undo, setUndo] = useState(null);          // { msg, fn, key } - the 5-second Undo bar
@@ -198,8 +200,18 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   useEffect(() => {
     if (!focusDate) return;
     setCursor(parseIso(focusDate));
-    if (focusGroup) { setTeamPick(focusGroup); try { localStorage.setItem(teamKey, focusGroup); } catch { /* private mode */ } }
+    if (focusGroup) {
+      setTeamPick(focusGroup);
+      try { localStorage.setItem(teamKey, focusGroup); } catch { /* private mode */ }
+      setWeatherCall({ groupId: focusGroup, date: focusDate });   // the advisory said "make the weather call"
+    }
   }, [focusDate, focusGroup]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The Weather Call for a day: the group on screen, else the day's worst group.
+  const openWeatherCall = (ds) => {
+    const w = weather[ds];
+    const gid = groupFilter || w?.groupIds?.[0] || groups.find((g) => !g.archived)?.id || '';
+    if (gid) setWeatherCall({ groupId: gid, date: ds });
+  };
   // Back where you were in that team's list.
   useLayoutEffect(() => {
     const grid = rootRef.current?.querySelector('.week-grid');
@@ -740,6 +752,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const toggleCollapse = (key) => setFold({ ...fold, [key]: !collapsed.has(key) });
 
   const gridOn = {
+    weather: managing ? (ds) => openWeatherCall(ds) : null,
     cellClick: (email, ds, groupId, e) => {
       if (copied) { pasteInto(email, ds, groupId); return; }
       const usual = !e?.shiftKey && ghostOf(email, ds);
@@ -1007,6 +1020,9 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {open === 'note' && (
         <DayNoteDialog date={noteDate} onDateChange={setNoteDate} groups={groups.filter((g) => !g.archived)} notes={data?.dayNotes || []} busy={busy}
           onSave={saveDayNote} onClose={() => setOpen('')} />
+      )}
+      {weatherCall && (
+        <WeatherCallDialog groupId={weatherCall.groupId} date={weatherCall.date} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
       {open === 'view' && (
         <ViewOptionsDialog prefs={prefs} onPrefs={setPrefs} query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy}

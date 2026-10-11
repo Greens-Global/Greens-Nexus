@@ -18,8 +18,9 @@ export function weatherByDay(rows = [], visibleGroupIds = null, groupNames = {})
     if (visibleGroupIds && visibleGroupIds.size && !visibleGroupIds.has(w.groupId)) return;
     const cur = out[w.date];
     const name = groupNames[w.groupId] || '';
-    if (!cur || BAND_RANK[w.band] > BAND_RANK[cur.band]) out[w.date] = { ...w, groups: [...(cur?.groups || []), name].filter(Boolean) };
-    else cur.groups = [...cur.groups, name].filter(Boolean);
+    // The worst band's group comes first in groupIds: a click opens that one.
+    if (!cur || BAND_RANK[w.band] > BAND_RANK[cur.band]) out[w.date] = { ...w, groups: [...(cur?.groups || []), name].filter(Boolean), groupIds: [w.groupId, ...(cur?.groupIds || [])] };
+    else { cur.groups = [...cur.groups, name].filter(Boolean); cur.groupIds = [...cur.groupIds, w.groupId]; }
   });
   return out;
 }

@@ -104,7 +104,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
           <span style={{ fontSize: 13, fontWeight: 800 }}>{d ? dayShort(d) : ''}</span>
           <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{stats.shifts} · {fmtHrs(stats.min)}</span>
           {hol && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))' }}>Holiday</span>}
-          <WeatherChip w={weather[ds]} size={12} />
+          <WeatherChip w={weather[ds]} size={12} onClick={on?.weather && weather[ds] ? () => on.weather(ds) : null} />
           <span style={{ flex: 1 }} />
           {(notes[ds] || canManage) && (
             <button type="button" onClick={() => on.noteEdit(ds)} disabled={!canManage} aria-label={notes[ds] ? `Edit the note for ${formatDate(ds)}` : `Add a note for ${formatDate(ds)}`} title={notes[ds] || 'Add a day note'}

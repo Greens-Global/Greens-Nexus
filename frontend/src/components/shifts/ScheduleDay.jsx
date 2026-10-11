@@ -76,7 +76,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
           <div style={{ ...STICKY_LEFT, zIndex: 4, background: 'var(--bg)', padding: '8px 12px' }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={11} /> {people.size} {people.size === 1 ? 'person' : 'people'} · {fmtHrs(dayMin)}
-              <WeatherChip w={weather[date]} size={12} />
+              <WeatherChip w={weather[date]} size={12} onClick={on?.weather && weather[date] ? () => on.weather(date) : null} />
             </div>
             {(notes[date] || canManage) && (
               <div className="sched-hdr" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontWeight: 600, minWidth: 0 }}>

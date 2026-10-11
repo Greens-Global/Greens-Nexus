@@ -37,7 +37,12 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const typeName = s.shiftName && s.shiftName !== code ? s.shiftName : '';
   const label = ownLabel || typeName;
   const draft = s.published === false && !s.hasChanges && !s.pendingDelete;
-  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, st.title, unpaid, s.note,
+  // Weather Call (Oct 2026): a cancelled day stays on the grid, struck
+  // through and unpaid; a delayed, shortened or moved shift says so on hover.
+  const weather = s.weatherStatus === 'cancelled' ? 'Cancelled for weather (unpaid)' : s.weatherStatus === 'delayed' ? 'Start delayed for weather'
+    : s.weatherStatus === 'shortened' ? 'Ending early for weather' : s.weatherStatus === 'moved' ? 'Moved for weather' : s.weatherStatus === 'kept' ? 'Weather call: going ahead' : '';
+  const cancelled = s.weatherStatus === 'cancelled';
+  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, weather, st.title, unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
@@ -45,8 +50,8 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const warn = showConflicts && s.conflicts?.length > 0;
   const share = (compact ? 11 : 9.5) - (slots ? 1.3 : 0) - (otherZone ? 1.3 : 0);
   return (
-    <div data-shift={s.id} data-conflict={warn ? '' : undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
-      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}` : undefined}
+    <div data-shift={s.id} data-conflict={warn ? '' : undefined} data-weather-status={s.weatherStatus || undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
+      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}` : undefined}
       title={title} className={`sched-chip${className ? ` ${className}` : ''}`}
       onClick={interactive ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
@@ -56,7 +61,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px ${open ? 'double' : 'solid'} ${color}`,
         padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
-        opacity: dragging ? 0.4 : s.pendingDelete ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
+        opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete || cancelled ? 'line-through' : 'none', ...style }}>
       {warn && (
         <span data-conflict-dot="" title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join('; ')}`}
           style={{ position: 'absolute', top: 3, right: s.hasChanges && !s.pendingDelete ? 11 : 4, width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-orange))', boxShadow: '0 0 0 1.5px var(--card)', zIndex: 1 }} />
@@ -71,6 +76,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
       </div>
       {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3 }}>{label}</div>}
+      {cancelled && !compact && <div style={{ ...LINE, fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-orange))', lineHeight: 1.3, textDecoration: 'none' }}>Weather - unpaid</div>}
       {children}
     </div>
   );

@@ -149,7 +149,7 @@ class CallTests(unittest.TestCase):
         names = [p["name"] for p in j["roster"]]
         self.assertEqual(names, ["Ann X", "Bob X", "Cal X", "Open shifts"])
         by = {p["email"]: p for p in j["roster"]}
-        self.assertEqual((by[ANN]["phone"], by[ANN]["smsOn"]), (True, True))
+        self.assertEqual((by[ANN]["phone"], by[ANN]["smsOn"], by[ANN]["phoneNumber"]), (True, True, "(949) 555-0101"))
         self.assertEqual((by[BOB]["phone"], by[BOB]["smsOn"]), (True, False))
         self.assertEqual((by[CAL]["phone"], by[CAL]["smsOn"]), (False, True))
         self.assertIsNone(j["decision"])

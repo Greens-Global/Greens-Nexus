@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Info, StickyNote, ArrowLeftRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Info, StickyNote, ArrowLeftRight, CloudRain, Check } from 'lucide-react';
 import { api } from '../api';
 import { zoneClock, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { zoneOptionLabel } from '../lib/worldClockZones';
@@ -57,6 +57,31 @@ export default function MyShifts() {
   const [flash, setFlash] = useState('');
   const done = (msg) => { setAsk(null); setFlash(msg); reloadReqs(); setReload((n) => n + 1); };
   const [busyOpen, setBusyOpen] = useState('');
+  // Weather calls on my days (Weather Call, Oct 2026): what a manager
+  // decided and whether I have acknowledged it - one tap here does it.
+  // And my own switch for the texts a weather call sends.
+  const [calls, setCalls] = useState([]);
+  const [prefs, setPrefs] = useState(null);
+  const [acking, setAcking] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.weatherCallMine?.().then((r) => { if (live) setCalls(Array.isArray(r?.calls) ? r.calls : []); }).catch(() => {});
+    api.weatherCallMyPrefs?.().then((r) => { if (live && r) setPrefs(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [reload]);
+  async function acknowledge(c) {
+    setAcking(c.id);
+    try { await api.weatherCallAck(c.id); setCalls((cs) => cs.map((x) => (x.id === c.id ? { ...x, ackAt: new Date().toISOString() } : x))); setFlash('Acknowledged. Your manager can see you saw it.'); }
+    catch (e) { setFlash(e?.message || 'Could not acknowledge.'); }
+    setAcking('');
+  }
+  async function setWeatherSms(on) {
+    const before = prefs;
+    setPrefs((p) => ({ ...p, weatherSms: on }));
+    try { setPrefs(await api.weatherCallMyPrefsSave({ weatherSms: on })); }
+    catch { setPrefs(before); setFlash('Could not save that.'); }
+  }
+  const openCalls = calls.filter((c) => !c.ackAt);
   async function requestOpen(s) {
     setBusyOpen(s.id);
     try { await api.shiftRequestCreate({ kind: 'open', shift_id: s.id }); done('Request sent. A manager will approve it.'); }
@@ -157,6 +182,24 @@ export default function MyShifts() {
         <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
       </div>
 
+      {openCalls.length > 0 && (
+        <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+          {openCalls.map((c) => (
+            <div key={c.id} role="alert" data-weather-call={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12,
+              background: c.status === 'reinstated' ? 'hsl(var(--color-green) / 0.1)' : 'hsl(var(--color-orange) / 0.1)', border: `1px solid ${c.status === 'reinstated' ? 'hsl(var(--color-green) / 0.4)' : 'hsl(var(--color-orange) / 0.4)'}` }}>
+              <CloudRain size={16} style={{ color: c.status === 'reinstated' ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{c.headline}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.groupName} · {formatMonthDay(parseIso(c.date))}{c.reason ? ` · ${c.reason}` : ''}{c.outcome === 'cancelled' && c.status === 'active' ? ' · The day is unpaid.' : ''}</div>
+              </div>
+              <button type="button" className="primary-btn" onClick={() => acknowledge(c)} disabled={acking === c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <Check size={13} /> Acknowledge
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {glance && !error && (
         <div role="status" aria-label="Week summary" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
           {thisWeek ? 'This week' : 'That week'}: <b style={{ color: 'var(--ink)' }}>{glance.shiftCount} shift{glance.shiftCount === 1 ? '' : 's'}</b>
@@ -239,6 +282,12 @@ export default function MyShifts() {
           {' '}Swaps, offers and open-shift requests are in Workday &gt; Time Off.
         </span>
       </div>
+      {prefs && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+          <input type="checkbox" checked={prefs.weatherSms !== false} onChange={(e) => setWeatherSms(e.target.checked)} aria-label="Text me when a weather call changes my shift" />
+          Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}
+        </label>
+      )}
     </div>
   );
 }

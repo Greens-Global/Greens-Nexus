@@ -14,9 +14,17 @@ const shiftRequestsMine = vi.fn();
 const shiftRequestCreate = vi.fn();
 const availabilityMine = vi.fn();
 const availabilitySave = vi.fn();
+const weatherCallMine = vi.fn();
+const weatherCallMyPrefs = vi.fn();
+const weatherCallAck = vi.fn();
+const weatherCallMyPrefsSave = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
+    weatherCallMine: (...a) => weatherCallMine(...a),
+    weatherCallMyPrefs: (...a) => weatherCallMyPrefs(...a),
+    weatherCallAck: (...a) => weatherCallAck(...a),
+    weatherCallMyPrefsSave: (...a) => weatherCallMyPrefsSave(...a),
     shiftRequestsMine: (...a) => shiftRequestsMine(...a),
     shiftRequestCreate: (...a) => shiftRequestCreate(...a),
     shiftRequestRespond: vi.fn(), shiftRequestCancel: vi.fn(),
@@ -56,6 +64,34 @@ beforeEach(() => {
   shiftRequestCreate.mockReset().mockResolvedValue({});
   availabilityMine.mockReset().mockResolvedValue({ days: [] });
   availabilitySave.mockReset().mockImplementation(async (b) => ({ days: b.days.filter((d) => d.kind !== 'any') }));
+});
+
+describe('MyShifts weather calls', () => {
+  // Weather Call (Oct 2026): a call on one of my days sits at the top until
+  // I acknowledge it; the texts switch is mine.
+  it('shows an open weather call with Acknowledge, and the texts switch', async () => {
+    weatherCallMine.mockResolvedValue({ calls: [
+      { id: 'd1', groupName: 'Yard Crew', date: plus(1), kind: 'cancel', status: 'active', outcome: 'cancelled', reason: 'Flooded road', headline: 'Day cancelled for weather (unpaid)', ackAt: '' },
+      { id: 'd0', groupName: 'Yard Crew', date: PAST || DAY, kind: 'delay', status: 'active', outcome: 'delayed', reason: '', headline: 'Start delayed to 10:00 AM for weather', ackAt: '2026-10-01T00:00:00Z' },
+    ] });
+    weatherCallMyPrefs.mockResolvedValue({ weatherSms: true, phone: false });
+    weatherCallAck.mockResolvedValue({ ok: true });
+    weatherCallMyPrefsSave.mockImplementation(async (b) => ({ weatherSms: b.weatherSms, phone: false }));
+    render(<MyShifts />);
+    const card = await screen.findByRole('alert');
+    expect(card.textContent).toContain('Day cancelled for weather (unpaid)');
+    expect(card.textContent).toContain('Yard Crew');
+    expect(card.textContent).toContain('Flooded road · The day is unpaid.');
+    expect(screen.queryByText('Start delayed to 10:00 AM for weather')).toBeNull();   // already acknowledged
+    fireEvent.click(within(card).getByRole('button', { name: /Acknowledge/ }));
+    await waitFor(() => expect(weatherCallAck).toHaveBeenCalledWith('d1'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    const sw = await screen.findByLabelText('Text me when a weather call changes my shift');
+    expect(sw.checked).toBe(true);
+    expect(screen.getByText(/no phone number on file/)).toBeTruthy();
+    fireEvent.click(sw);
+    await waitFor(() => expect(weatherCallMyPrefsSave).toHaveBeenCalledWith({ weatherSms: false }));
+  });
 });
 
 describe('MyShifts week and group grid', () => {

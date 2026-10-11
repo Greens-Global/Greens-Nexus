@@ -118,7 +118,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
 
 // A day header: "Mon 28" bold (the month said once, where the view enters
 // it), "8 · 65 Hrs" muted under it, a note icon whose text is the hover.
-export function DayHeader({ d, stats, isToday, isHol, note, weather = null, canManage, compact, coarse, onOpen, onNote, coverage = null, style, ...rest }) {
+export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWeather = null, canManage, compact, coarse, onOpen, onNote, coverage = null, style, ...rest }) {
   const ds = isoDate(d);
   const month = (d.getDate() === 1 || stats?.first) ? formatMonthDay(d).replace(/ \d+$/, '') : '';
   const noteIcon = note ? (
@@ -147,7 +147,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, weather = null, canM
         </button>
         {isHol && !compact && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>Holiday</span>}
         <span style={{ flex: 1 }} />
-        <WeatherChip w={weather} compact={compact} />
+        <WeatherChip w={weather} compact={compact} onClick={onWeather} />
         {noteIcon}
       </div>
       {stats && (
@@ -344,7 +344,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
       {days.map((d, i) => {
         const ds = isoDate(d);
         return (
-          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0 }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]} weather={weather[ds]}
+          <DayHeader key={ds} data-today={ds === today ? '' : undefined} d={d} stats={{ ...dayStats(d), first: i === 0 }} isToday={ds === today} isHol={holidayDates.has(ds)} note={notes[ds]} weather={weather[ds]} onWeather={on?.weather && weather[ds] ? () => on.weather(ds) : null}
             canManage={canManage} compact={compact} coarse={coarse} onOpen={on ? () => on.openDay(ds) : undefined} onNote={on ? () => on.noteEdit(ds) : undefined}
             coverage={headCover ? <CoverageChip c={headCover[i]} compact={compact} onShort={onCoverage} /> : null}
             style={{ gridRow: hr, gridColumn: i + 2, position: 'sticky', top: 0, zIndex: 3, background: solid(colBg(d, today)) }} />

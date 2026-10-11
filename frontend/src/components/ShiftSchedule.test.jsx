@@ -33,9 +33,11 @@ const sheetRows = { current: [] };
 vi.mock('xlsx', () => ({ read: () => ({ SheetNames: ['S'], Sheets: { S: {} } }), utils: { sheet_to_json: () => sheetRows.current } }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: vi.fn() } }));
 vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
+const weatherCallScreen = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
+    weatherCallScreen: (...a) => weatherCallScreen(...a),
     timeShiftAssign: (...a) => timeShiftAssign(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
@@ -739,12 +741,30 @@ describe('Views, options, export, drag', () => {
         { groupId: 'g2', date: monday, band: 'major', chance: 85, inches: 0.9, windowStart: '7:00 AM', windowEnd: '3:30 PM' },
         { groupId: 'g2', date: plusDays(monday, 1), band: 'quiet', chance: 5, inches: 0 },
       ] });
+    weatherCallScreen.mockReset().mockResolvedValue({ group: { id: 'g2', name: 'Yard', workSiteName: '', deciders: [] }, date: monday, outlook: {}, roster: [], decision: null, canDecide: true, smsDefault: true });
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     const chips = document.querySelectorAll('[data-weather]');
     expect(chips.length).toBe(1);
     expect(chips[0].getAttribute('data-weather')).toBe('major');
     expect(chips[0].getAttribute('aria-label')).toBe('Major rain: 85% chance, 0.90 in during 7:00 AM - 3:30 PM (Front, Yard)');
+    // A manager's click opens the Weather Call for the worst band's group.
+    fireEvent.click(chips[0]);
+    expect(await screen.findByRole('dialog', { name: 'Weather Call' })).toBeTruthy();
+    await waitFor(() => expect(weatherCallScreen).toHaveBeenCalledWith('g2', monday));
+  });
+
+  it('shows a weather-cancelled shift struck through, unpaid', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ weatherStatus: 'cancelled', paidMin: 0 }), shift({ id: 's2', email: 'bob@greensglobal.com', weatherStatus: 'delayed', start: '10:00' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const gone = blockOf('s1');
+    expect(gone.getAttribute('data-weather-status')).toBe('cancelled');
+    expect(gone.style.textDecoration).toBe('line-through');
+    expect(gone.textContent).toContain('Weather - unpaid');
+    expect(gone.getAttribute('title')).toContain('Cancelled for weather (unpaid)');
+    expect(blockOf('s2').getAttribute('title')).toContain('Start delayed for weather');
+    expect(screen.getByText('Week · 7 Hrs')).toBeTruthy();   // Amy's cancelled day counts nothing; Bob's 10-5
   });
 
   it('exports what is on screen with the group and unpaid activities', async () => {
