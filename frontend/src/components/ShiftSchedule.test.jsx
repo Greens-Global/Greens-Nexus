@@ -1011,7 +1011,11 @@ describe('Groups on the grid', () => {
     unmount();
     timeSchedule.mockResolvedValue({ ...data([]), weekStart: 'sunday' });
     render(<ShiftSchedule toastOk={toastOk} />);
-    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(plusDays(monday, -1), plusDays(monday, 5)));
+    // The Sunday-first week that holds TODAY: the Sunday before this
+    // week's Monday - except on a Sunday, when it is today (this used to
+    // say "Monday minus one" and failed every Sunday in CI).
+    const sunday = plusDays(monday, new Date().getDay() === 0 ? 6 : -1);
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(sunday, plusDays(sunday, 6)));
   });
 });
 
