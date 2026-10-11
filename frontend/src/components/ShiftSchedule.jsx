@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon } from 'lucide-react';
+import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon, CloudRain } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -151,6 +151,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const names = useMemo(() => Object.fromEntries((data?.employees || []).map((e) => [e.email, nameOf(e.email, e.name)])), [data, nameOf]);
   const empByEmail = useMemo(() => Object.fromEntries((data?.employees || []).map((e) => [e.email, { ...e, name: nameOf(e.email, e.name), availability: data?.availability?.[e.email] || [] }])), [data, nameOf]);
   const groups = useMemo(() => orderGroups(data?.groups || []), [data]);
+  // Weather Call setup (Oct 2026): a watched group with no work site cannot
+  // get a forecast. Its managers see one line here until a site is set (or
+  // the watch is turned off for it) - dismissable for this visit.
+  const [weatherSetupHidden, setWeatherSetupHidden] = useState(false);
+  const weatherSetup = useMemo(() => groups.filter((g) => !g.archived && g.canEdit !== false && g.weatherAlerts !== false
+    && (!g.workSiteId || g.siteLocated === false)), [groups]);
 
   // ── The team on screen (10/02): one team at a time ─────────────────────
   // The remembered choice, else the first team the signed-in person is in,
@@ -895,6 +901,22 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, discardCount, shortcuts: () => setKeysOpen(true),
           coverage: showCoverage, toggleCoverage: () => setPrefs({ ...prefs, coverage: !showCoverage }),
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
+
+      {managing && weatherSetup.length > 0 && !weatherSetupHidden && (
+        <div role="status" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 12.5, flexWrap: 'wrap',
+          background: 'hsl(var(--color-orange) / 0.1)', color: 'var(--ink)', border: '1px solid hsl(var(--color-orange) / 0.35)' }}>
+          <CloudRain size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 200 }}>
+            {weatherSetup.length === 1
+              ? <><strong>{weatherSetup[0].name}</strong> has no work site{weatherSetup[0].workSiteId ? ' with coordinates' : ''}, so weather alerts cannot watch it.</>
+              : <><strong>{weatherSetup.length} groups</strong> have no work site, so weather alerts cannot watch them: {weatherSetup.map((g) => g.name).join(', ')}.</>}
+          </span>
+          <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-shifts' } }))}>Set a Work Site</button>
+          <button type="button" onClick={() => setWeatherSetupHidden(true)} aria-label="Hide the weather setup note" title="Hide for now"
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><XIcon size={14} /></button>
+        </div>
+      )}
 
       {(query.trim() || presetFilter || prefs.mine) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>

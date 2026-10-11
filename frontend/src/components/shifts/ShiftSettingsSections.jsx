@@ -6,7 +6,7 @@
 // scheduled together, who schedules them, their Teams chat). Registered in
 // views/AdminConsole.jsx GLOBAL_CATEGORIES / GLOBAL_SECTIONS.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash } from 'lucide-react';
+import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain } from 'lucide-react';
 import { api } from '../../api';
 import TeamsTargetPicker from '../TeamsTargetPicker';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
@@ -257,12 +257,26 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
 // Who is scheduled together, who may build their schedule, and the Teams
 // chat their BOD / EOD messages go to. Members come from the curated Nexus
 // People list.
+// One line per group on the weather watch (Weather Call, Oct 2026).
+export function weatherLine(g) {
+  if (g.weatherAlerts === false) return g.workSiteName ? `${g.workSiteName} · Weather alerts off` : 'Weather alerts off';
+  if (!g.workSiteId) return 'No work site - weather alerts cannot watch this group';
+  if (g.siteLocated === false) return `${g.workSiteName || 'Work site'} has no coordinates - weather alerts cannot watch this group`;
+  const n = (g.weatherDeciders || []).length;
+  return `${g.workSiteName || 'Work site'} · Weather alerts on · ${n ? `${n} decider${n === 1 ? '' : 's'}` : 'schedulers decide'}`;
+}
+const weatherTone = (g) => (g.weatherAlerts === false ? 'var(--muted)' : (!g.workSiteId || g.siteLocated === false) ? 'hsl(var(--color-orange))' : 'var(--wk-brand)');
+
 export function ShiftGroupsPanel({ toastOk, toastErr }) {
   const nameOf = useNameResolver();
   const [groups, setGroups] = useState(null);
   const [error, setError] = useState(null);
   const [tick, setTick] = useState(0);
   const [people, setPeople] = useState([]);
+  // The work-site library (Weather Call, Oct 2026): a group's site is where
+  // the weather watch looks. [] until it loads, or when the caller has no
+  // People access to the library - the picker then shows only the saved one.
+  const [sites, setSites] = useState([]);
   const [canGroups, setCanGroups] = useState(true);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -273,6 +287,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
     api.timeShiftGroups().then((r) => { if (live) { setGroups(orderGroups(r.groups || [])); setCanGroups(r.canManageGroups !== false); } })
       .catch((e) => { if (live) setError(e?.message || 'Could not load the groups.'); });
     api.getPeopleDirectory().then((rows) => { if (live) setPeople(Array.isArray(rows) ? rows : []); }).catch(() => {});
+    api.getWorkSites?.().then((rows) => { if (live) setSites(Array.isArray(rows) ? rows : []); }).catch(() => {});
     return () => { live = false; };
   }, [tick]);
   const reload = () => setTick((t) => t + 1);
@@ -283,7 +298,8 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
     if (!form.name.trim()) { toastErr?.('Name the group.'); return; }
     setBusy(true);
     const payload = { name: form.name, members: form.members, schedulers: form.schedulers || [], teams_chat_id: form.teamsChatId || '', teams_chat_name: form.teamsChatName || '',
-      teams_target: form.teamsTarget || 'chat', teams_team_id: form.teamsTeamId || '', teams_team_name: form.teamsTeamName || '' };
+      teams_target: form.teamsTarget || 'chat', teams_team_id: form.teamsTeamId || '', teams_team_name: form.teamsTeamName || '',
+      work_site_id: form.workSiteId || '', weather_deciders: form.weatherDeciders || [], weather_alerts: form.weatherAlerts !== false };
     try {
       if (form.id) await api.timeShiftGroupSet(form.id, payload); else await api.timeShiftGroupCreate(payload);
       toastOk?.('Group saved.'); setForm(null); reload();
@@ -310,8 +326,10 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
   const openForm = (g) => {
     setQ('');
     setForm(g ? { id: g.id, name: g.name, members: g.members, schedulers: g.schedulers || [], teamsChatId: g.chatId || '', teamsChatName: g.chatName || '',
-      teamsTarget: g.teamsTarget || 'chat', teamsTeamId: g.teamId || '', teamsTeamName: g.teamName || '' }
-      : { name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '', teamsTarget: 'chat', teamsTeamId: '', teamsTeamName: '' });
+      teamsTarget: g.teamsTarget || 'chat', teamsTeamId: g.teamId || '', teamsTeamName: g.teamName || '',
+      workSiteId: g.workSiteId || '', weatherDeciders: g.weatherDeciders || [], weatherAlerts: g.weatherAlerts !== false }
+      : { name: '', members: [], schedulers: [], teamsChatId: '', teamsChatName: '', teamsTarget: 'chat', teamsTeamId: '', teamsTeamName: '',
+        workSiteId: '', weatherDeciders: [], weatherAlerts: true });
   };
   const toggleMember = (em) => setForm((f) => ({ ...f, members: f.members.includes(em) ? f.members.filter((x) => x !== em) : [...f.members, em] }));
   const listed = directory.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
@@ -345,6 +363,10 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
                   {!g.chatId ? 'No chat or channel bound'
                     : g.teamsTarget === 'channel' ? `${g.teamName || 'Team'} › ${g.chatName || 'Channel'}`
                       : (g.chatName || 'Chat bound')}
+                </div>
+                <div style={{ fontSize: 11.5, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5, color: weatherTone(g) }}>
+                  <CloudRain size={12} style={{ flexShrink: 0 }} />
+                  <span>{weatherLine(g)}</span>
                 </div>
               </span>
               {canGroups && <button type="button" className="secondary-btn" onClick={() => openForm(g)} style={{ fontSize: 12 }}>Edit</button>}
@@ -390,6 +412,38 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
                     <option value="">Add a scheduler…</option>
                     {directory.filter((p) => !(form.schedulers || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
                   </select>
+                </div>
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CloudRain size={12} /> Weather - where this group works, and who makes the weather call</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                  The weather watch reads the forecast for the group's work site. Without a site the group is not watched. Deciders need Manage access to Shifts (manager and above); with none named, the schedulers and then the company's managers are told.
+                </div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <label><div style={LBL}>Work Site</div>
+                    <select className="form-input" aria-label="Work site" value={form.workSiteId || ''} onChange={(e) => setForm({ ...form, workSiteId: e.target.value })} style={{ width: '100%', fontSize: 13 }}>
+                      <option value="">No work site</option>
+                      {sites.map((s) => <option key={s.id} value={s.id}>{s.name}{s.latitude && s.longitude ? '' : ' (no coordinates)'}</option>)}
+                      {form.workSiteId && !sites.some((s) => s.id === form.workSiteId) && <option value={form.workSiteId}>{groups?.find((g) => g.id === form.id)?.workSiteName || 'Current site'}</option>}
+                    </select>
+                  </label>
+                  <div>
+                    <div style={LBL}>Weather Deciders</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      {(form.weatherDeciders || []).map((em) => (
+                        <button key={em} type="button" style={chip(true)} aria-label={`Remove weather decider ${who(em)}`} onClick={() => setForm({ ...form, weatherDeciders: form.weatherDeciders.filter((x) => x !== em) })}>{who(em)} ×</button>
+                      ))}
+                      <select className="form-input" value="" aria-label="Add a weather decider" style={{ width: 'auto', fontSize: 12.5 }}
+                        onChange={(e) => { const em = e.target.value; if (em) setForm({ ...form, weatherDeciders: [...(form.weatherDeciders || []), em] }); }}>
+                        <option value="">Add a decider…</option>
+                        {directory.filter((p) => !(form.weatherDeciders || []).includes(p.email)).map((p) => <option key={p.email} value={p.email}>{p.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={form.weatherAlerts !== false} onChange={(e) => setForm({ ...form, weatherAlerts: e.target.checked })} aria-label="Watch the weather for this group" />
+                    Watch the weather for this group
+                  </label>
                 </div>
               </div>
               <div style={{ marginTop: 14 }}>

@@ -2439,6 +2439,16 @@ class ShiftGroup(Base):
     # sort_order is the manager's own order (Reorder Teams), then name.
     archived        = Column(Integer, default=0)
     sort_order      = Column(Integer, default=0)
+    # Weather Call (Neil, Oct 10 2026): where this group works - an HrWorkSite
+    # whose coordinates the weather watch reads. '' = no site, which means no
+    # weather advisory for the group (the schedule says so to its managers).
+    work_site_id    = Column(String, default="")
+    # Who makes this group's weather call (JSON list of emails). Each must
+    # hold Manage access to Shifts (manager and above). Empty = the group's
+    # schedulers, then the company's managers.
+    weather_decider_emails = Column(String, default="")
+    # 1 = the weather watch includes this group (when its company is switched on).
+    weather_alerts  = Column(Integer, default=1)
 
 
 class ShiftGroupMember(Base):

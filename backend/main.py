@@ -935,6 +935,10 @@ def _run_migrations():
             "ALTER TABLE punch_requests ADD COLUMN category VARCHAR DEFAULT ''",
             # The weekly New Feature bar's dismissal (Oct 12). models.ChangelogSeen.banner_seen_at.
             "ALTER TABLE changelog_seen ADD COLUMN banner_seen_at VARCHAR DEFAULT ''",
+            # Weather Call (Oct 2026): a group's work site, deciders and switch. models.ShiftGroup.
+            "ALTER TABLE shift_groups ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN weather_decider_emails TEXT DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN weather_alerts INTEGER DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2092,6 +2096,10 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS backup_manager_email VARCHAR DEFAULT ''",
         "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE changelog_seen ADD COLUMN IF NOT EXISTS banner_seen_at VARCHAR DEFAULT ''",
+        # Weather Call (Oct 2026): a group's work site, deciders and switch. models.ShiftGroup.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS weather_decider_emails TEXT DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS weather_alerts INTEGER DEFAULT 1",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

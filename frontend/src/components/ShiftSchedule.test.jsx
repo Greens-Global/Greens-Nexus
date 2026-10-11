@@ -711,6 +711,22 @@ describe('Views, options, export, drag', () => {
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(monday, plusDays(monday, 13)));
   });
 
+  // Weather Call (Oct 2026): a watched group with no work site cannot get a
+  // forecast - its managers see one line until a site is set, and can hide it.
+  it('tells managers which groups have no work site for the weather watch', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift({ groupId: 'g1' })]),
+      groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true, workSiteId: 's1', siteLocated: true },
+        { id: 'g2', name: 'Yard Crew', members: ['bob@greensglobal.com'], canEdit: true, workSiteId: '' },
+        { id: 'g3', name: 'Office', members: [], canEdit: true, workSiteId: '', weatherAlerts: false }] });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const note = document.querySelector('[data-weather-setup]');
+    expect(note.textContent).toContain('Yard Crew has no work site, so weather alerts cannot watch it.');
+    expect(note.textContent).not.toContain('Office');          // the watch is off for it on purpose
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the weather setup note' }));
+    expect(document.querySelector('[data-weather-setup]')).toBeNull();
+  });
+
   it('exports what is on screen with the group and unpaid activities', async () => {
     timeSchedule.mockResolvedValue({ ...data([shift({ breakMin: 30, groupId: 'g1', activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] })]),
       groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true }] });
