@@ -158,12 +158,14 @@ export function useMyCharts() {
   // the lift is not lost under the load landing after it.
   useEffect(() => {
     let alive = true;
-    whenTablePrefsLoaded().then((all) => {
-      if (!alive || all?.charts?.data !== undefined) return;
+    whenTablePrefsLoaded().then(({ prefs, fromServer }) => {
+      if (!alive || !fromServer || prefs?.charts?.data !== undefined) return;
       const legacy = readLegacy();
       if (legacy && typeof legacy === 'object' && Object.keys(legacy).length) {
-        setData(legacy);
-        try { localStorage.removeItem(LEGACY_KEY); } catch { /* private mode */ }
+        // The old copy goes only once the profile holds it.
+        Promise.resolve(setData(legacy))
+          .then(() => { try { localStorage.removeItem(LEGACY_KEY); } catch { /* private mode */ } })
+          .catch(() => {});
       }
     });
     return () => { alive = false; };
@@ -176,9 +178,12 @@ const autoTitle = (cfg) => {
 };
 
 function passes(t, f) {
-  if (f.statuses.length && !f.statuses.includes(t.status)) return false;
-  if (f.priorities.length && !f.priorities.includes(t.priority)) return false;
-  if (f.assigneeIds.length && !taskAssignees(t).some((e) => f.assigneeIds.includes(e))) return false;
+  // A chart from an older document, or shared by someone else, may lack a
+  // filter list; missing means "no filter", never a crash for every viewer.
+  const list = (k) => (Array.isArray(f?.[k]) ? f[k] : []);
+  if (list('statuses').length && !list('statuses').includes(t.status)) return false;
+  if (list('priorities').length && !list('priorities').includes(t.priority)) return false;
+  if (list('assigneeIds').length && !taskAssignees(t).some((e) => list('assigneeIds').includes(e))) return false;
   return true;
 }
 
@@ -274,18 +279,26 @@ export function CustomChartsPanel({ scopeKey, tasks, store }) {
   const [err, setErr] = useState('');
 
   const persistMine = (next) => setAll({ ...all, [scopeKey]: next });
-  const persistShared = async (next) => {
+  // Shared charts go one at a time (upsert / remove by id) and the server
+  // merges them under a row lock. Each answers whether it landed, so the
+  // personal copy only moves once the project actually holds the chart - a
+  // 403, a 422 or a dropped connection must not lose it.
+  const putShared = async (cfg) => {
     setErr('');
-    try { await store.updateProject(project.id, { sharedCharts: next }); } catch (e) { setErr(e?.message || 'That did not save.'); }
+    try { await store.shareProjectChart(project.id, cfg); return true; } catch (e) { setErr(e?.message || 'That did not save.'); return false; }
+  };
+  const dropShared = async (cfg) => {
+    setErr('');
+    try { await store.unshareProjectChart(project.id, cfg.id); return true; } catch (e) { setErr(e?.message || 'That did not save.'); return false; }
   };
   const save = (cfg, isShared) => {
-    if (isShared) return persistShared(shared.some((c) => c.id === cfg.id) ? shared.map((c) => (c.id === cfg.id ? cfg : c)) : [...shared, cfg]);
+    if (isShared) return putShared(cfg);
     persistMine(charts.some((c) => c.id === cfg.id) ? charts.map((c) => (c.id === cfg.id ? cfg : c)) : [...charts, cfg]);
   };
-  const remove = (cfg, isShared) => (isShared ? persistShared(shared.filter((c) => c.id !== cfg.id)) : persistMine(charts.filter((c) => c.id !== cfg.id)));
+  const remove = (cfg, isShared) => (isShared ? dropShared(cfg) : persistMine(charts.filter((c) => c.id !== cfg.id)));
   // Sharing MOVES the chart: one copy, on the project, for everyone.
-  const share = async (cfg) => { await persistShared([...shared, cfg]); persistMine(charts.filter((c) => c.id !== cfg.id)); };
-  const unshare = async (cfg) => { persistMine([...charts, cfg]); await persistShared(shared.filter((c) => c.id !== cfg.id)); };
+  const share = async (cfg) => { if (await putShared(cfg)) persistMine(charts.filter((c) => c.id !== cfg.id)); };
+  const unshare = async (cfg) => { if (await dropShared(cfg)) persistMine([...charts, cfg]); };
 
   const grid = (list, isShared) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>

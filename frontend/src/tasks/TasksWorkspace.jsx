@@ -250,7 +250,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
         {lockedProjectId && (view === 'list' || view === 'board') && (canSetDefault || isProjectDefault) && (
           isProjectDefault
-            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project default</span>
+            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project Default</span>
             : <button type="button" onClick={makeDefault} disabled={defaultSaving} title="Everyone will open this project in this view and grouping unless they pick another"
                 style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 11.5, color: NX.dim, whiteSpace: 'nowrap' }}><Pin size={12} /> Make Default View</button>
         )}

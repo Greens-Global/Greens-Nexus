@@ -512,6 +512,11 @@ export function TasksProvider({ children }) {
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
+    // One shared chart at a time (upsert / remove by id). The server merges
+    // under a row lock, so two editors sharing at once both land. Not through
+    // toBody: a chart is data, its keys stay as the Dashboard wrote them.
+    shareProjectChart: async (id, chart) => { const r = await api.putTaskProjectChart(id, chart.id, chart); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    unshareProjectChart: async (id, chartId) => { const r = await api.deleteTaskProjectChart(id, chartId); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     // Not mkDel: a project delete bins its tasks server-side too, so the
     // whole core has to be refetched rather than just dropping the project
     // from its own list.

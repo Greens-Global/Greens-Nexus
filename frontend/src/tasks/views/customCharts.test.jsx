@@ -7,9 +7,10 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 
 const saveTaskTablePrefs = vi.fn(() => Promise.resolve({}));
 let serverPrefs = {};
+let serverDown = false;
 vi.mock('../../api', () => ({
   api: {
-    getTaskTablePrefs: () => Promise.resolve({ prefs: serverPrefs }),
+    getTaskTablePrefs: () => (serverDown ? Promise.reject(new Error('down')) : Promise.resolve({ prefs: serverPrefs })),
     saveTaskTablePrefs: (...a) => saveTaskTablePrefs(...a),
     resetTaskTablePrefs: () => Promise.resolve({}),
     resetAllTaskTablePrefs: () => Promise.resolve({}),
@@ -23,13 +24,16 @@ const { __setTablePrefsCache } = await import('../tableCols');
 
 const chart = { id: 'c1', title: 'Open by status', style: 'bar', dimension: 'status', metric: 'count', filters: { statuses: [], priorities: [], assigneeIds: [] } };
 const tasks = [{ id: 't1', status: 'in_progress', priority: 'high', assigneeIds: [] }];
-const baseStore = { myEmail: 'me@greensglobal.com', nameOf: (e) => e, projectName: () => '', teamName: () => '', customStatuses: [], teams: [], projects: [], updateProject: vi.fn(() => Promise.resolve({})), projectById: () => null };
+const baseStore = { myEmail: 'me@greensglobal.com', nameOf: (e) => e, projectName: () => '', teamName: () => '', customStatuses: [], teams: [], projects: [], shareProjectChart: vi.fn(() => Promise.resolve({})), unshareProjectChart: vi.fn(() => Promise.resolve({})), projectById: () => null };
 
 describe('CustomChartsPanel persistence', () => {
   beforeEach(() => {
     saveTaskTablePrefs.mockClear();
-    baseStore.updateProject.mockClear();
+    saveTaskTablePrefs.mockImplementation(() => Promise.resolve({}));
+    baseStore.shareProjectChart.mockReset(); baseStore.shareProjectChart.mockImplementation(() => Promise.resolve({}));
+    baseStore.unshareProjectChart.mockReset(); baseStore.unshareProjectChart.mockImplementation(() => Promise.resolve({}));
     serverPrefs = {};
+    serverDown = false;
     localStorage.clear();
     __setTablePrefsCache(null);
   });
@@ -48,6 +52,15 @@ describe('CustomChartsPanel persistence', () => {
     expect(localStorage.getItem('nexus.customCharts')).toBeNull();
   });
 
+  it('does not lift while the server cannot be reached', async () => {
+    serverDown = true;
+    localStorage.setItem('nexus.customCharts', JSON.stringify({ workspace: [chart] }));
+    render(<CustomChartsPanel scopeKey="workspace" tasks={tasks} store={baseStore} />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(saveTaskTablePrefs).not.toHaveBeenCalled();
+    expect(localStorage.getItem('nexus.customCharts')).not.toBeNull();
+  });
+
   it('removing a chart saves the whole document back', async () => {
     serverPrefs = { charts: { data: { workspace: [chart], p1: [{ ...chart, id: 'c2', title: 'Other' }] } } };
     render(<CustomChartsPanel scopeKey="workspace" tasks={tasks} store={baseStore} />);
@@ -64,8 +77,21 @@ describe('CustomChartsPanel persistence', () => {
     expect(await screen.findByText('Team view')).toBeInTheDocument();
     expect(screen.getByText('Project Charts')).toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByLabelText('Share Open by status')); });
-    expect(store.updateProject).toHaveBeenCalledWith('p1', { sharedCharts: [{ ...chart, id: 's1', title: 'Team view' }, chart] });
+    expect(store.shareProjectChart).toHaveBeenCalledWith('p1', chart);
     expect(saveTaskTablePrefs).toHaveBeenCalledWith('charts', { data: { p1: [] } });
+  });
+
+  it('a share the server refuses leaves the personal chart where it was', async () => {
+    serverPrefs = { charts: { data: { p1: [chart] } } };
+    const project = { id: 'p1', ownerId: 'me@greensglobal.com', accessLevel: 'restricted', sharedCharts: [] };
+    const store = { ...baseStore, projectById: () => project };
+    store.shareProjectChart.mockImplementation(() => Promise.reject(new Error('At most 24 shared charts per project')));
+    render(<CustomChartsPanel scopeKey="p1" tasks={tasks} store={store} />);
+    await screen.findByText('Open by status');
+    await act(async () => { fireEvent.click(screen.getByLabelText('Share Open by status')); });
+    expect(saveTaskTablePrefs).not.toHaveBeenCalled();
+    expect(screen.getByText('Open by status')).toBeInTheDocument();
+    expect(screen.getByText('At most 24 shared charts per project')).toBeInTheDocument();
   });
 
   it('a viewer sees shared charts but no share controls', async () => {

@@ -229,20 +229,94 @@ def clean_default_view(v) -> Optional[dict]:
     return out or None
 
 
-def clean_shared_charts(charts) -> list:
+# The vocabulary views/charts.jsx draws (STYLE_OPTIONS / DIMENSIONS / METRICS).
+CHART_STYLES = ("bar", "lollipop", "line", "donut", "number")
+CHART_DIMENSIONS = ("status", "priority", "assignee", "project", "team")
+CHART_METRICS = ("count", "sum_estimate", "sum_actual")
+CHART_FILTERS = ("statuses", "priorities", "assigneeIds")
+
+
+def clean_shared_chart(c) -> dict:
+    """One chart in exactly the shape the Dashboard renders, nothing else. A
+    shared chart is drawn on every member's Dashboard, so a stray key or a
+    wrong type here would crash the screen for the whole project."""
     import json as _json
+    if not isinstance(c, dict) or not str(c.get("id") or "").strip():
+        raise HTTPException(422, "Each shared chart needs an id")
+    style = c.get("style") or "bar"
+    dimension = c.get("dimension") or "status"
+    metric = c.get("metric") or "count"
+    if style not in CHART_STYLES or dimension not in CHART_DIMENSIONS or metric not in CHART_METRICS:
+        raise HTTPException(422, "That chart is not one the Dashboard can draw")
+    raw = c.get("filters") if isinstance(c.get("filters"), dict) else {}
+    filters = {}
+    for k in CHART_FILTERS:
+        vals = raw.get(k) or []
+        if not isinstance(vals, list) or len(vals) > 200 or any(not isinstance(v, str) for v in vals):
+            raise HTTPException(422, "A chart filter must be a list of ids")
+        filters[k] = vals
+    out = {"id": str(c["id"]).strip()[:64], "title": str(c.get("title") or "")[:120], "style": style,
+           "dimension": dimension, "metric": metric, "filters": filters,
+           "dataLabels": bool(c.get("dataLabels", True))}
+    if len(_json.dumps(out).encode("utf-8")) > MAX_CHART_BYTES:
+        raise HTTPException(422, "A shared chart is too large")
+    return out
+
+
+def clean_shared_charts(charts) -> list:
     if not isinstance(charts, list):
         raise HTTPException(422, "shared_charts must be a list")
     if len(charts) > MAX_SHARED_CHARTS:
         raise HTTPException(422, f"At most {MAX_SHARED_CHARTS} shared charts per project")
-    out = []
+    out, seen = [], set()
     for c in charts:
-        if not isinstance(c, dict) or not str(c.get("id") or "").strip():
-            raise HTTPException(422, "Each shared chart needs an id")
-        if len(_json.dumps(c).encode("utf-8")) > MAX_CHART_BYTES:
-            raise HTTPException(422, "A shared chart is too large")
-        out.append(c)
+        clean = clean_shared_chart(c)
+        if clean["id"] in seen:
+            continue
+        seen.add(clean["id"])
+        out.append(clean)
     return out
+
+
+@router.put("/task-projects/{project_id}/shared-charts/{chart_id}")
+def put_shared_chart(project_id: str, chart_id: str, body: dict,
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Share one chart onto the project, or save a shared one: an upsert by id
+    under a row lock, so two editors sharing at the same moment both land.
+    (PATCHing the whole list from the client was a read-modify-write that
+    dropped whichever landed first.) Editor work, like the tasks."""
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    require_project_role(db, user, p, "editor")
+    chart = clean_shared_chart({**(body or {}), "id": chart_id})
+    charts = [c for c in (p.shared_charts or []) if isinstance(c, dict)]
+    idx = next((i for i, c in enumerate(charts) if c.get("id") == chart["id"]), None)
+    if idx is None:
+        if len(charts) >= MAX_SHARED_CHARTS:
+            raise HTTPException(422, f"At most {MAX_SHARED_CHARTS} shared charts per project")
+        charts.append(chart)
+    else:
+        charts[idx] = chart
+    p.shared_charts = charts   # reassigned, not mutated - JSON column
+    p.modified_at = now_iso()
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
+
+
+@router.delete("/task-projects/{project_id}/shared-charts/{chart_id}")
+def delete_shared_chart(project_id: str, chart_id: str,
+                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    require_project_role(db, user, p, "editor")
+    p.shared_charts = [c for c in (p.shared_charts or []) if not (isinstance(c, dict) and c.get("id") == chart_id)]
+    p.modified_at = now_iso()
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
 
 
 @router.get("/task-projects/meta/departments")
@@ -301,6 +375,8 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         archived=bool(body.archived),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
         custom_field_values=coerce_custom_field_values(db, body.custom_field_values or {}),
+        # The Create modal offers the same Default View control as Edit.
+        default_view=clean_default_view(body.default_view) if body.default_view is not None else None,
     )
     db.add(p)
     db.flush()   # the helper queries portfolios; the row must exist first

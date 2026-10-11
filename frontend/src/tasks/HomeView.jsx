@@ -110,15 +110,18 @@ export default function HomeView({ onNavigate }) {
   const [homeData, setHomeData] = useTableValue('home', 'data', undefined);
   useEffect(() => {
     let alive = true;
-    whenTablePrefsLoaded().then((all) => {
-      if (!alive || all?.home?.data !== undefined) return;   // the profile already has a layout
+    whenTablePrefsLoaded().then(({ prefs, fromServer }) => {
+      // Only after the server answered (not the offline fallback) and only
+      // when the profile has no layout yet.
+      if (!alive || !fromServer || prefs?.home?.data !== undefined) return;
       try {
         const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
         const autofitRaw = localStorage.getItem('nexus.homeAutofit');
         if ((Array.isArray(raw) && raw.length) || autofitRaw !== null) {
-          setHomeData({ widgets: Array.isArray(raw) && raw.length ? raw : DEFAULT_LAYOUT, autofit: autofitRaw !== '0' });
-          localStorage.removeItem(LAYOUT_KEY);
-          localStorage.removeItem('nexus.homeAutofit');
+          // The old copy goes only once the profile holds it.
+          Promise.resolve(setHomeData({ widgets: Array.isArray(raw) && raw.length ? raw : DEFAULT_LAYOUT, autofit: autofitRaw !== '0' }))
+            .then(() => { try { localStorage.removeItem(LAYOUT_KEY); localStorage.removeItem('nexus.homeAutofit'); } catch { /* private mode */ } })
+            .catch(() => {});
         }
       } catch { /* private mode */ }
     });

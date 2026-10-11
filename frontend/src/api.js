@@ -492,6 +492,9 @@ export const api = {
   getTaskProjects: () => req("/task-projects"),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
+  putTaskProjectChart: (id, chartId, chart) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "PUT", body: JSON.stringify(chart) }),
+  deleteTaskProjectChart: (id, chartId) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "DELETE" }),
   deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.

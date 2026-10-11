@@ -37,6 +37,8 @@ MIN_WIDTH, MAX_WIDTH = 40, 2000
 # widget layout, per-project view choices - Oct 2026). Capped by serialized
 # size so one person cannot grow their row without bound.
 MAX_DATA_BYTES = 64 * 1024
+# ...and the whole document, which every table on every page load fetches.
+MAX_DOC_BYTES = 256 * 1024
 
 
 def _now() -> str:
@@ -155,6 +157,8 @@ def set_table_prefs(table: str, body: TablePrefIn,
     # Merged, not replaced: the width save and the order save are separate
     # calls, and a width write must not wipe the order the user just set.
     prefs[table] = {**prefs.get(table, {}), **_clean(body)}
+    if len(json.dumps(prefs).encode("utf-8")) > MAX_DOC_BYTES:
+        raise HTTPException(400, "Your saved layouts are too large to add to; reset some tables first")
     row.prefs = prefs           # reassigned, not mutated - JSON columns only
     row.updated_at = _now()     # detect a change when the object is replaced
     db.commit()
