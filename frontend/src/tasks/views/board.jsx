@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } from '../lib';
+import { useFlip } from '../../lib/motion';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
 import { fmtDate } from '../lib';
@@ -72,6 +73,9 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const [sectionName, setSectionName] = useState('');
   const [swimOpen, setSwimOpen] = useState(false);
   const swimRef = useRef(null);
+  // Cards glide when a drop, a status change or a filter moves them.
+  const flipRef = useRef(null);
+  useFlip(flipRef);
   const [wip, setWip] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus.board.wip') || '{}'); } catch { return {}; } });
 
   const setLimit = (status, n) => setWip((prev) => {
@@ -216,7 +220,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
     const projColor = proj?.color || NX.purple;
     return (
-      <div key={t.id} draggable data-task-row
+      <div key={t.id} draggable data-task-row data-flip={t.id}
         onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
         onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
@@ -295,7 +299,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const swimLabel = SWIMLANE_OPTIONS.find((o) => o.key === swimlane).label;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
+    <div ref={flipRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
       {/* Board toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0 }}>
         <div>

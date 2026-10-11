@@ -21,6 +21,7 @@ import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, Unas
 import { emailToName, rootZoom } from '../../lib/utils';
 import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 import DueBadge from '../DueBadge';
+import { useFlip } from '../../lib/motion';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -494,7 +495,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
       // split Excel and every file manager make. A bare click still opens.
       if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); onPick(t.id, e); return; }
       onOpen(t.id);
-    }} data-task-row data-row-id={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
+    }} data-task-row data-row-id={t.id} data-flip={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
@@ -1019,6 +1020,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
       ...customFields.map((f) => ({ key: f.id, width: 150 }))],
     [visibleCols, customFields, anyExtended],
   );
+  // Rows glide when a sort, a group change, a drop or a filter moves them.
+  const flipRef = useRef(null);
+  useFlip(flipRef);
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
     table: 'richlist', cols: gridCols, trailing: '12px',
   });
@@ -1246,7 +1250,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   );
 
   return (
-    <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
+    <div ref={flipRef} className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
       <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
         {groups.map((g, gi) => {
           const isCol = collapsed.has(g.key);

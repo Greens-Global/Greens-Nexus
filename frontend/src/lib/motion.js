@@ -102,3 +102,102 @@ export function useExit(onClose, ms = MOTION.exit) {
   }, [ms]);
   return [closing, requestClose];
 }
+
+// FLIP for lists. Children of `ref` that carry `data-flip="<key>"` glide to
+// their new place when they reorder, change group or close a gap, and a key
+// seen for the first time fades in. Removal is instant: the neighbors closing
+// the gap are the motion. Web Animations API, so an item's own inline
+// transform / transition is never touched and jsdom (no animate()) is inert.
+//
+// The "before" positions are a cache of the last known layout, kept relative
+// to the container so window scroll cannot skew it, refreshed after paint
+// when a commit changes nothing in the list and whenever something inside
+// the container scrolls. A commit that changes the set or order of keys does
+// the forced layout read and animates right there.
+const FLIP_EASE_MOVE = 'cubic-bezier(.2,.8,.2,1)';   // mirrors --ease-standard
+const FLIP_EASE_ENTER = 'cubic-bezier(.16,1,.3,1)';  // mirrors --ease-out
+const FLIP_BULK = 12;  // more new items than this in one commit = a load, not an add
+
+export function useFlip(ref) {
+  const cache = useRef(new Map());   // key -> { x, y } relative to the container
+  const bound = useRef(null);
+  const raf = useRef(0);
+  const refresh = useRef(null);
+
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root || !enabled || prefersReducedMotion() || typeof root.animate !== 'function') return;
+
+    const items = () => {
+      const out = new Map(); const dup = new Set();
+      for (const el of root.querySelectorAll('[data-flip]')) {
+        const k = el.getAttribute('data-flip');
+        if (out.has(k)) dup.add(k); else out.set(k, el);
+      }
+      for (const k of dup) out.delete(k);   // ambiguous key: nobody moves
+      return out;
+    };
+    const place = (el, c) => { const r = el.getBoundingClientRect(); return { x: r.left - c.left, y: r.top - c.top }; };
+    const running = (el) => (el.getAnimations?.() || []);
+
+    if (bound.current !== root) {
+      // New container (or first run): nothing to animate from yet.
+      refresh.current?.off?.();
+      const fn = () => {
+        cancelAnimationFrame(raf.current);
+        raf.current = requestAnimationFrame(() => {
+          if (!root.isConnected) return;
+          const c = root.getBoundingClientRect();
+          const next = new Map();
+          for (const [k, el] of items()) {
+            // Mid-glide the rect is the visual, not the layout, position; keep
+            // the layout target we already know for that one.
+            next.set(k, running(el).length && cache.current.has(k) ? cache.current.get(k) : place(el, c));
+          }
+          cache.current = next;
+        });
+      };
+      root.addEventListener('scroll', fn, { capture: true, passive: true });
+      fn.off = () => root.removeEventListener('scroll', fn, true);
+      refresh.current = fn;
+      bound.current = root;
+      cache.current = new Map();
+    }
+
+    const els = items();
+    const prevKeys = [...cache.current.keys()].join('\u0001');
+    const nextKeys = [...els.keys()].join('\u0001');
+    if (prevKeys === nextKeys) { refresh.current(); return; }
+
+    const c = root.getBoundingClientRect();
+    const prev = new Map(cache.current);
+    // An item still gliding from the last change starts this one from where
+    // it visually is, not from where it was heading.
+    for (const [k, el] of els) {
+      const anims = running(el);
+      if (!anims.length) continue;
+      prev.set(k, place(el, c));
+      anims.forEach((a) => a.cancel());
+    }
+    const next = new Map();
+    for (const [k, el] of els) next.set(k, place(el, c));
+    cache.current = next;
+
+    let fresh = 0;
+    for (const k of next.keys()) if (!prev.has(k)) fresh++;
+    const bulk = prev.size === 0 || fresh > FLIP_BULK;
+    for (const [k, el] of els) {
+      const p = prev.get(k);
+      if (!p) {
+        if (!bulk) el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: MOTION.sm, easing: FLIP_EASE_ENTER });
+        continue;
+      }
+      const n = next.get(k);
+      const dx = p.x - n.x; const dy = p.y - n.y;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: MOTION.md, easing: FLIP_EASE_MOVE });
+    }
+  });
+
+  useEffect(() => () => { cancelAnimationFrame(raf.current); refresh.current?.off?.(); }, []);
+}
