@@ -60,6 +60,10 @@ const reqs = (over = {}) => ({
 
 beforeEach(() => {
   timeMySchedule.mockReset().mockResolvedValue(sched);
+  weatherCallMine.mockReset().mockResolvedValue({ calls: [] });
+  weatherCallMyPrefs.mockReset().mockResolvedValue(null);
+  weatherCallAck.mockReset().mockResolvedValue({ ok: true });
+  weatherCallMyPrefsSave.mockReset().mockResolvedValue({ weatherSms: false, phone: false });
   shiftRequestsMine.mockReset().mockResolvedValue(reqs());
   shiftRequestCreate.mockReset().mockResolvedValue({});
   availabilityMine.mockReset().mockResolvedValue({ days: [] });

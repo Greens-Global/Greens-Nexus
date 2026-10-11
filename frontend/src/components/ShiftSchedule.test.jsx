@@ -760,7 +760,8 @@ describe('Views, options, export, drag', () => {
     await screen.findByText('Amy Adams');
     const gone = blockOf('s1');
     expect(gone.getAttribute('data-weather-status')).toBe('cancelled');
-    expect(gone.style.textDecoration).toBe('line-through');
+    expect(gone.querySelector('[data-shift-time]').style.textDecoration).toBe('line-through');
+    expect(gone.style.textDecoration).toBe('none');          // the "Weather - unpaid" tag is not struck
     expect(gone.textContent).toContain('Weather - unpaid');
     expect(gone.getAttribute('title')).toContain('Cancelled for weather (unpaid)');
     expect(blockOf('s2').getAttribute('title')).toContain('Start delayed for weather');

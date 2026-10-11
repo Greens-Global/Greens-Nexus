@@ -75,7 +75,7 @@ describe('Weather Call dialog', () => {
     fireEvent.change(within(dlg).getByLabelText('Reason'), { target: { value: 'Flooded access road' } });
     fireEvent.click(within(dlg).getByRole('button', { name: /Make the Call/ }));
     await waitFor(() => expect(confirmAsk).toHaveBeenCalledTimes(1));
-    expect(confirmAsk.mock.calls[0][0]).toContain('Cancel the day for 2 of 3 on 10/16/2026? Their day is unpaid.');
+    expect(confirmAsk.mock.calls[0][0]).toContain('Cancel the Day for 2 of 3 on 10/16/2026? Their day is unpaid.');
     await waitFor(() => expect(weatherCallDecide).toHaveBeenCalledTimes(1));
     expect(weatherCallDecide.mock.calls[0].slice(0, 2)).toEqual(['g1', DAY]);
     expect(weatherCallDecide.mock.calls[0][2]).toMatchObject({ kind: 'cancel', emails: ['ann@x.com', 'cal@x.com'], reason: 'Flooded access road', sms: true });
@@ -87,13 +87,13 @@ describe('Weather Call dialog', () => {
     confirmAsk.mockResolvedValue(false);
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
     const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
-    fireEvent.click(within(dlg).getByLabelText('Delay the start'));
+    fireEvent.click(within(dlg).getByLabelText('Delay the Start'));
     fireEvent.change(within(dlg).getByLabelText('New start time'), { target: { value: '10:30' } });
     fireEvent.change(within(dlg).getByLabelText('Reason'), { target: { value: 'Rain until mid-morning' } });
     fireEvent.click(within(dlg).getByLabelText('Text the crew'));
     fireEvent.click(within(dlg).getByRole('button', { name: /Make the Call/ }));
     await waitFor(() => expect(confirmAsk).toHaveBeenCalledTimes(1));
-    expect(confirmAsk.mock.calls[0][0]).toContain('Delay the start for 3 of 3');
+    expect(confirmAsk.mock.calls[0][0]).toContain('Delay the Start for 3 of 3');
     expect(confirmAsk.mock.calls[0][0]).not.toContain('including a text');
     expect(weatherCallDecide).not.toHaveBeenCalled();
     confirmAsk.mockResolvedValue(true);
@@ -115,7 +115,7 @@ describe('Weather Call dialog', () => {
     expect(cal.textContent).toContain('(949) 555-0103');           // waiting: call them
     expect(cal.textContent).toContain('Waiting');
     expect(cal.textContent).toContain('text: no phone on file');
-    expect(bob.textContent).toContain('Shift stands');
+    expect(bob.textContent).toContain('Shift Stands');
     expect(within(dlg).queryByRole('button', { name: /Make the Call/ })).toBeNull();   // the form is behind "Make Another Call"
     fireEvent.click(within(dlg).getByRole('button', { name: /Remind the Silent/ }));
     await waitFor(() => expect(weatherCallRemind).toHaveBeenCalledWith('d1'));

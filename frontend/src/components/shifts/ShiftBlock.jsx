@@ -61,7 +61,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px ${open ? 'double' : 'solid'} ${color}`,
         padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
-        opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete || cancelled ? 'line-through' : 'none', ...style }}>
+        opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
       {warn && (
         <span data-conflict-dot="" title={s.conflicts.join('\n')} aria-label={`Warning: ${s.conflicts.join('; ')}`}
           style={{ position: 'absolute', top: 3, right: s.hasChanges && !s.pendingDelete ? 11 : 4, width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-orange))', boxShadow: '0 0 0 1.5px var(--card)', zIndex: 1 }} />
@@ -69,14 +69,14 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
       {s.hasChanges && !s.pendingDelete && (
         <span aria-hidden="true" title="Edited, not shared" style={{ position: 'absolute', top: 0, right: 0, width: 8, height: 8, background: color, clipPath: 'polygon(100% 0, 0 0, 100% 100%)' }} />
       )}
-      <div style={{ ...LINE, display: 'flex', alignItems: 'baseline', gap: 4, fontSize: fit(share, compact ? 11 : 12), fontWeight: 700, lineHeight: 1.3 }}>
+      <div data-shift-time="" style={{ ...LINE, display: 'flex', alignItems: 'baseline', gap: 4, fontSize: fit(share, compact ? 11 : 12), fontWeight: 700, lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>
         <span style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{shiftShortText(s)}</span>
         {code && <span style={{ ...LINE, color, fontSize: '0.85em', fontWeight: 800, letterSpacing: '.02em', flexShrink: 1 }}>{code}</span>}
         {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
       </div>
-      {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3 }}>{label}</div>}
-      {cancelled && !compact && <div style={{ ...LINE, fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-orange))', lineHeight: 1.3, textDecoration: 'none' }}>Weather - unpaid</div>}
+      {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>{label}</div>}
+      {cancelled && !compact && <div style={{ ...LINE, fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-orange))', lineHeight: 1.3 }}>Weather - unpaid</div>}
       {children}
     </div>
   );

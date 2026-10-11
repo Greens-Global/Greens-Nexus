@@ -16,13 +16,13 @@ import { BAND_LABEL } from './WeatherChip';
 // Remind / Reinstate / Make Another Call buttons. Nexus never decides.
 
 const KINDS = [
-  ['cancel', 'Cancel the day', 'The picked people are off. The day is unpaid.'],
-  ['delay', 'Delay the start', 'Everyone picked starts later; a start past the end of a shift cancels it.'],
-  ['end_early', 'End early', 'Everyone picked finishes earlier.'],
-  ['move', 'Move the crew', 'Another site or indoor work; the times stay.'],
-  ['proceed', 'Proceed as planned', 'Tell the crew the shift goes ahead despite the forecast.'],
+  ['cancel', 'Cancel the Day', 'The picked people are off. The day is unpaid.'],
+  ['delay', 'Delay the Start', 'Everyone picked starts later; a start past the end of a shift cancels it.'],
+  ['end_early', 'End Early', 'Everyone picked finishes earlier.'],
+  ['move', 'Move the Crew', 'Another site or indoor work; the times stay.'],
+  ['proceed', 'Proceed as Planned', 'Tell the crew the shift goes ahead despite the forecast.'],
 ];
-const OUTCOME_TEXT = { cancelled: 'Cancelled (unpaid)', delayed: 'Delayed', shortened: 'Ends early', moved: 'Moved', kept: 'Shift stands' };
+const OUTCOME_TEXT = { cancelled: 'Cancelled (Unpaid)', delayed: 'Delayed', shortened: 'Ends Early', moved: 'Moved', kept: 'Shift Stands' };
 const BAND_COLOR = { heads_up: 'hsl(var(--color-blue))', major: 'hsl(var(--color-orange))', warning: 'hsl(var(--color-red))', quiet: 'var(--muted)' };
 const CELL = { padding: '6px 8px', fontSize: 12.5, borderTop: '1px solid var(--line)', verticalAlign: 'top' };
 
@@ -74,9 +74,11 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
     setError(null);
     api.weatherCallScreen(groupId, date).then((r) => {
       if (!live) return;
-      setData(r);
+      setData((prev) => {
+        if (prev === null) setSms(r.smsDefault !== false);   // the setting seeds the switch once; the decider's choice then stands
+        return r;
+      });
       setPicked((p) => p ?? new Set(r.roster.filter((x) => x.email).map((x) => x.email)));
-      setSms(r.smsDefault !== false);
     }).catch((e) => { if (live) setError(e?.message || 'The weather call could not be loaded.'); });
     return () => { live = false; };
   }, [groupId, date, tick]);

@@ -803,7 +803,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // is today, 1-9 pick a team while the schedule has focus.
   const [keysOpen, setKeysOpen] = useState(false);
   const navRef = useRef(null);
-  useEffect(() => { navRef.current = { shiftRange, goToday, pickTeam, liveGroups, blocked: !!panel || !!open || !!menu || !!personMenu || keysOpen }; });
+  useEffect(() => { navRef.current = { shiftRange, goToday, pickTeam, liveGroups, blocked: !!panel || !!open || !!menu || !!personMenu || keysOpen || !!weatherCall }; });
   useEffect(() => {
     const onKey = (e) => {
       const k = navRef.current;
@@ -1022,7 +1022,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           onSave={saveDayNote} onClose={() => setOpen('')} />
       )}
       {weatherCall && (
-        <WeatherCallDialog groupId={weatherCall.groupId} date={weatherCall.date} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+        <WeatherCallDialog key={`${weatherCall.groupId}|${weatherCall.date}`} groupId={weatherCall.groupId} date={weatherCall.date} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
       {open === 'view' && (
         <ViewOptionsDialog prefs={prefs} onPrefs={setPrefs} query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy}

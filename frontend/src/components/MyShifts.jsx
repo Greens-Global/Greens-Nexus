@@ -65,8 +65,8 @@ export default function MyShifts() {
   const [acking, setAcking] = useState('');
   useEffect(() => {
     let live = true;
-    api.weatherCallMine?.().then((r) => { if (live) setCalls(Array.isArray(r?.calls) ? r.calls : []); }).catch(() => {});
-    api.weatherCallMyPrefs?.().then((r) => { if (live && r) setPrefs(r); }).catch(() => {});
+    api.weatherCallMine().then((r) => { if (live) setCalls(Array.isArray(r?.calls) ? r.calls : []); }).catch(() => {});
+    api.weatherCallMyPrefs().then((r) => { if (live && r) setPrefs(r); }).catch(() => {});
     return () => { live = false; };
   }, [reload]);
   async function acknowledge(c) {
