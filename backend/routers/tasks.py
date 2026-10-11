@@ -19,6 +19,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -1941,6 +1942,11 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
         row.deleted_at = deleted_stamp
         row.deleted_by = user["email"]
         row.modified_at = deleted_stamp
+    # A timer still running on a trashed task would otherwise sit there
+    # unstoppable and block that person's next Start; close it with the trash.
+    for e in (db.query(models.TaskTimeEntry)
+                .filter(models.TaskTimeEntry.task_id.in_(gone_ids), models.TaskTimeEntry.ended_at == "").all()):
+        _stop_entry(db, e)
     log_activity(db, type="deleted", actor_email=user["email"], entity_id=task_id,
                  entity_code=t.code, entity_title=t.title, detail="moved this task to Trash")
     db.commit()
@@ -2484,9 +2490,14 @@ def _recount_time(db: Session, t: models.Task) -> None:
     db.flush()
     rows = (db.query(models.TaskTimeEntry.minutes)
             .filter(models.TaskTimeEntry.task_id == t.id, models.TaskTimeEntry.ended_at != "").all())
+    had_entries = (t.time_entry_count or 0) > 0
     t.time_entry_count = len(rows)
     if rows:
         t.actual_hours = round(sum(int(m or 0) for (m,) in rows) / 60.0, 2)
+    elif had_entries:
+        # The last entry went: the rollup goes with it rather than surviving
+        # as a typed-in number nobody typed.
+        t.actual_hours = None
     t.modified_at = now_iso()
 
 
@@ -2510,7 +2521,13 @@ def _stop_entry(db: Session, e: models.TaskTimeEntry, *, note: str = "", billabl
         e.note = (note or "")[:1000]
     if billable is not None:
         e.billable = bool(billable)
-    t = _get_task(db, e.task_id)
+    # Through the soft-delete filter: a timer left running on a task that was
+    # then trashed must still stop (and must not block the person's next
+    # Start). A task purged underneath it leaves nothing to roll into.
+    t = (db.query(models.Task).execution_options(include_deleted=True)
+           .filter(models.Task.id == e.task_id).first())
+    if t is None:
+        return None
     _recount_time(db, t)
     t.activity_ids = list(t.activity_ids or []) + [log_activity(
         db, type="time_logged", actor_email=e.person_email, entity_id=t.id, entity_code=t.code,
@@ -2564,9 +2581,10 @@ def stop_my_timer(body: TimerStop, user: dict = Depends(get_current_user), db: S
     t = _stop_entry(db, e, note=body.note or "", billable=body.billable)
     db.commit()
     db.refresh(e)
-    db.refresh(t)
-    fire_task_event(t.id, "updated")
-    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t)}
+    if t is not None:
+        db.refresh(t)
+        fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t) if t is not None else None}
 
 
 @router.get("/{task_id}/time")
@@ -2589,6 +2607,8 @@ def add_time_entry(task_id: str, body: TimeEntryCreate, user: dict = Depends(get
         raise HTTPException(422, "Minutes must be between 1 and 1440")
     on = (body.on or "")[:10] or now_iso()[:10]
     _check_iso_date(on, "on")
+    if on > (task_automation.business_today() + timedelta(days=1)).isoformat():
+        raise HTTPException(422, "That day has not happened yet")
     me = user["email"].lower()
     e = models.TaskTimeEntry(id=gen_id(), task_id=task_id, person_email=me, started_at=f"{on}T12:00:00+00:00",
                              ended_at=now_iso(), minutes=int(body.minutes), note=(body.note or "")[:1000],
@@ -2618,13 +2638,19 @@ def start_timer(task_id: str, user: dict = Depends(get_current_user), db: Sessio
         if prev.task_id == task_id:
             return {"entry": time_entry_to_dict(prev), "task": task_to_dict(t), "stopped": None}
         pt = _stop_entry(db, prev)
-        stopped = {"entry": time_entry_to_dict(prev), "task": task_to_dict(pt)}
+        stopped = {"entry": time_entry_to_dict(prev), "task": task_to_dict(pt) if pt is not None else None}
     e = models.TaskTimeEntry(id=gen_id(), task_id=task_id, person_email=me, started_at=now_iso(), ended_at="",
                              minutes=0, note="", billable=False, source="timer", created_at=now_iso())
     db.add(e)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # ux_task_time_running: a double-click or a second tab started one at
+        # the same moment. One running entry per person is the rule.
+        db.rollback()
+        raise HTTPException(409, "Your timer is already running. Stop it first.")
     db.refresh(e)
-    if stopped:
+    if stopped and stopped["task"]:
         fire_task_event(stopped["task"]["id"], "updated")
     return {"entry": time_entry_to_dict(e), "task": task_to_dict(t), "stopped": stopped}
 

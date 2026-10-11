@@ -18,6 +18,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 
 from fastapi import BackgroundTasks, HTTPException  # noqa: E402
 
+from sqlalchemy.exc import IntegrityError  # noqa: E402
+
 import database  # noqa: E402
 import models  # noqa: E402
 import task_notify  # noqa: E402
@@ -143,6 +145,43 @@ class TimeEntryTests(unittest.TestCase):
             delete_time_entry(e["id"], user=PRIYA, db=self.db)
         out = delete_time_entry(e["id"], user=SAM, db=self.db)
         self.assertEqual(out["task"]["timeEntryCount"], 0)
+
+    def test_deleting_the_last_entry_frees_the_rollup(self):
+        e = add_time_entry(self.a["id"], TimeEntryCreate(minutes=60), user=SAM, db=self.db)["entry"]
+        out = delete_time_entry(e["id"], user=SAM, db=self.db)
+        self.assertEqual(out["task"]["timeEntryCount"], 0)
+        self.assertIsNone(out["task"]["actualHours"], "the rollup goes with the last entry")
+        # ...and the field is a free number again.
+        update_task(self.a["id"], TaskUpdate(actual_hours=2.5), self.bg, user=MANAGER, db=self.db)
+        self.assertEqual(self._task(self.a["id"]).actual_hours, 2.5)
+
+    def test_a_manual_entry_cannot_be_in_the_future(self):
+        with self.assertRaises(HTTPException) as cm:
+            add_time_entry(self.a["id"], TimeEntryCreate(minutes=10, on="2099-01-01"), user=SAM, db=self.db)
+        self.assertEqual(cm.exception.status_code, 422)
+
+    def test_a_timer_on_a_trashed_task_still_stops(self):
+        start_timer(self.a["id"], user=SAM, db=self.db)
+        delete_task(self.a["id"], self.bg, user=MANAGER, db=self.db)
+        self.assertIsNone(my_running_timer(user=SAM, db=self.db), "the trash closed it")
+        # And a timer stopped by hand on a task trashed meanwhile (another
+        # session) does not 404 or block the next Start.
+        start_timer(self.b["id"], user=SAM, db=self.db)
+        row = self.db.query(models.Task).filter(models.Task.id == self.b["id"]).first()
+        row.deleted_at = now_iso()
+        self.db.commit()
+        out = stop_my_timer(TimerStop(), user=SAM, db=self.db)
+        self.assertFalse(out["entry"]["running"])
+        self.assertIsNone(my_running_timer(user=SAM, db=self.db))
+
+    def test_the_database_allows_one_running_entry_per_person(self):
+        for _ in range(2):
+            self.db.add(models.TaskTimeEntry(id=gen_id(), task_id=self.a["id"], person_email=SAM["email"],
+                                             started_at=now_iso(), ended_at="", minutes=0, source="timer",
+                                             created_at=now_iso()))
+        with self.assertRaises(IntegrityError):
+            self.db.commit()
+        self.db.rollback()
 
     # ── the weekly sheet ────────────────────────────────────────────────────
     def test_my_entries_in_a_window(self):

@@ -29,6 +29,7 @@ export default function TimeTracking({ task, canLog = true }) {
   const [hrs, setHrs] = useState('');
   const [mins, setMins] = useState('');
   const [note, setNote] = useState('');
+  const [billable, setBillable] = useState(false);
   const [on, setOn] = useState(localTodayISO());
   const [stopNote, setStopNote] = useState('');
   const [editing, setEditing] = useState(null);   // { id, minutes, note }
@@ -53,9 +54,9 @@ export default function TimeTracking({ task, canLog = true }) {
     const minutes = (Number(hrs) || 0) * 60 + (Number(mins) || 0);
     if (minutes < 1) return;
     run(async () => {
-      const res = await api.addTaskTime(taskId, { minutes, note: note.trim(), on });
+      const res = await api.addTaskTime(taskId, { minutes, note: note.trim(), on, billable });
       if (res?.task) applyServerTask(res.task);
-      setHrs(''); setMins(''); setNote('');
+      setHrs(''); setMins(''); setNote(''); setBillable(false);
       await load();
     });
   };
@@ -124,6 +125,9 @@ export default function TimeTracking({ task, canLog = true }) {
             style={{ ...inputStyle, flex: 1, minWidth: 120, padding: '6px 8px', fontSize: 12 }} />
           <input type="date" value={on} max={localTodayISO()} onChange={(e) => setOn(e.target.value || localTodayISO())} aria-label="Day"
             style={{ ...inputStyle, width: 140, padding: '6px 8px', fontSize: 12 }} />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: NX.dim, whiteSpace: 'nowrap' }}>
+            <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} /> Billable
+          </label>
           <button type="button" onClick={addManual} disabled={busy || ((Number(hrs) || 0) * 60 + (Number(mins) || 0)) < 1} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12 }}>Log Time</button>
         </div>
       )}
@@ -155,7 +159,7 @@ export default function TimeTracking({ task, canLog = true }) {
                       <>
                         <span style={{ fontWeight: 700, color: NX.ink, width: 64, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmtMinutes(e.minutes)}</span>
                         <span style={{ flex: 1, minWidth: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.note || (e.source === 'timer' ? 'Timer' : '')}</span>
-                        {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>BILLABLE</span>}
+                        {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>Billable</span>}
                         {mine && (
                           <>
                             <button type="button" onClick={() => setEditing({ id: e.id, minutes: e.minutes, note: e.note || '' })} aria-label="Edit entry" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>

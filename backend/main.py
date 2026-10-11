@@ -955,6 +955,7 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
             # Time entries (Oct 2026). models.Task.time_entry_count.
             "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2131,6 +2132,7 @@ def _run_migrations():
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
         # Time entries (Oct 2026). models.Task.time_entry_count.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -4,11 +4,12 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 // Time on a task (Oct 2026): start and stop a timer through the store, log
 // typed-in minutes, and the helpers behind the durations and the weekly sheet.
 
-const calls = { add: vi.fn(), del: vi.fn(), upd: vi.fn() };
+const calls = { add: vi.fn(), del: vi.fn(), upd: vi.fn(), mine: vi.fn(() => Promise.resolve([])) };
 let serverEntries = [];
 vi.mock('../api', () => ({
   api: {
     getTaskTime: () => Promise.resolve(serverEntries),
+    getMyTaskTime: (...a) => calls.mine(...a),
     addTaskTime: (...a) => calls.add(...a),
     deleteTaskTime: (...a) => calls.del(...a),
     updateTaskTime: (...a) => calls.upd(...a),
@@ -22,6 +23,7 @@ vi.mock('./TasksContext', () => ({ useTasks: () => store }));
 
 const TimeTracking = (await import('./TimeTracking')).default;
 const { fmtMinutes, fmtElapsed, groupTimeByDay } = await import('./lib');
+const TimeSheetView = (await import('./TimeSheetView')).default;
 const { weekStart } = await import('./TimeSheetView');
 
 const task = { id: 't1', title: 'Fix the pump', estimateHours: 2, actualHours: 0.5 };
@@ -67,9 +69,10 @@ describe('TimeTracking', () => {
     fireEvent.change(screen.getByLabelText('Hours'), { target: { value: '1' } });
     fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '30' } });
     fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'calls' } });
+    fireEvent.click(screen.getByLabelText('Billable'));
     serverEntries = [{ id: 'e9', minutes: 90, note: 'calls', startedAt: '2026-10-10T12:00:00Z', personId: 'me@greensglobal.com' }];
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Log Time' })); });
-    expect(calls.add).toHaveBeenCalledWith('t1', expect.objectContaining({ minutes: 90, note: 'calls' }));
+    expect(calls.add).toHaveBeenCalledWith('t1', expect.objectContaining({ minutes: 90, note: 'calls', billable: true }));
     expect(store.applyServerTask).toHaveBeenCalledWith(expect.objectContaining({ timeEntryCount: 1 }));
     await waitFor(() => expect(screen.getByText('1h 30m')).toBeInTheDocument());
   });
@@ -80,6 +83,24 @@ describe('TimeTracking', () => {
     expect(await screen.findByText('20m')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Start Timer/ })).toBeNull();
     expect(screen.queryByLabelText('Hours')).toBeNull();
+  });
+});
+
+describe('TimeSheetView', () => {
+  it('asks a day wider than the week and keeps only local days inside it', async () => {
+    const monday = weekStart(new Date());
+    const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const shift = (n) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + n);
+    const inWeek = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 2, 9, 0, 0);
+    const before = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 1, 23, 0, 0);
+    calls.mine.mockImplementation(() => Promise.resolve([
+      { id: 'in', taskId: 't1', taskTitle: 'Inside', minutes: 30, startedAt: inWeek.toISOString() },
+      { id: 'out', taskId: 't2', taskTitle: 'Outside', minutes: 45, startedAt: before.toISOString() },
+    ]));
+    render(<TimeSheetView onOpen={() => {}} />);
+    expect(await screen.findByText('Inside')).toBeInTheDocument();
+    expect(screen.queryByText('Outside')).toBeNull();
+    expect(calls.mine).toHaveBeenCalledWith(day(shift(-1)), day(shift(7)));
   });
 });
 

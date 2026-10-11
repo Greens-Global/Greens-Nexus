@@ -32,10 +32,16 @@ export default function TimeSheetView({ onOpen }) {
   useEffect(() => {
     let alive = true;
     setRows(null);
-    api.getMyTaskTime(from, to).then((r) => { if (alive) setRows(r || []); }).catch(() => { if (alive) setRows([]); });
+    // The server keeps UTC and this sheet is local days: ask a day wider on
+    // each side and keep what falls in the week here, so an evening entry
+    // does not land in next week's sheet.
+    const wider = (d, n) => iso(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+    api.getMyTaskTime(wider(start, -1), wider(end, 1))
+      .then((r) => { if (alive) setRows((r || []).filter((e) => { const k = iso(new Date(e.startedAt)); return k >= from && k <= to; })); })
+      .catch(() => { if (alive) setRows([]); });
     return () => { alive = false; };
     // Refetch when a timer stops - the entry it closed belongs on this sheet.
-  }, [from, to, runningTimer?.entry?.id]);
+  }, [start, end, from, to, runningTimer?.entry?.id]);
 
   const groups = useMemo(() => groupTimeByDay(rows || []), [rows]);
   const total = groups.reduce((n, g) => n + g.minutes, 0);
@@ -70,7 +76,7 @@ export default function TimeSheetView({ onOpen }) {
                 <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: `1px solid ${NX.border2 || NX.border}`, fontSize: 13 }}>
                   <button type="button" onClick={() => onOpen?.(e.taskId)} style={{ ...btn('ghost'), padding: 0, fontWeight: 600, color: NX.ink, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{e.taskTitle || 'Task'}</button>
                   <span style={{ flex: 1, minWidth: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.note || (e.source === 'timer' ? 'Timer' : '')}</span>
-                  {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>BILLABLE</span>}
+                  {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>Billable</span>}
                   <span style={{ fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', width: 64, textAlign: 'right' }}>{fmtMinutes(e.minutes)}</span>
                   <button type="button" onClick={() => remove(e)} aria-label="Delete entry" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={13} /></button>
                 </div>

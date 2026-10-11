@@ -5831,3 +5831,11 @@ class TaskTimeEntry(Base):
     billable     = Column(Boolean, default=False)
     source       = Column(String, default="timer")     # timer|manual
     created_at   = Column(String, default="")
+    # One running entry per person, enforced by the database: two Starts at
+    # the same moment (double-click, second tab) cannot both land. Partial
+    # unique index - SQLite and Postgres both support the WHERE. Existing
+    # databases get it from main.py's migration lists.
+    __table_args__ = (
+        Index("ux_task_time_running", "person_email", unique=True,
+              sqlite_where=(ended_at == ""), postgresql_where=(ended_at == "")),
+    )
