@@ -2917,6 +2917,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # Weather call acknowledgment (Oct 2026): the form on the signed-link
+    # page - the token is the credential - see routers/weather_call.py.
+    "/weather-call/ack",
     # ...and the Outlook card version of the briefing (Outlook's own JWT names
     # who clicked, same as /mail-actions/card).
     "/briefing-actions/card",

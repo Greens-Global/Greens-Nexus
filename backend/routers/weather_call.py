@@ -6,23 +6,27 @@ weather_call.py for what a call does; this file is the routes.
   POST /weather-call/{decision}/reinstate     undo it
   POST /weather-call/{decision}/remind        a second text to the silent, by hand
   POST /weather-call/{decision}/ack           acknowledge from inside Nexus (My Shifts)
-  GET  /weather-call/ack?t=                   acknowledge from a text or email (signed link, no sign-in)
+  GET  /weather-call/ack?t=                   the call, with an Acknowledge button (signed link, no sign-in)
+  POST /weather-call/ack  (form: t)           the button: acknowledges. GET never changes anything.
   GET/PUT /weather-call/my-prefs              a person's own texts switch
   GET  /weather-call/mine                     the open calls on the caller's shifts (My Shifts)
 """
+import asyncio
 import json
+from datetime import date, timedelta
 from html import escape
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
 import weather_call
 from auth import get_current_user
-from database import get_db
+from database import SessionLocal, get_db
 from routers.timeclock import require_shift_manage, _parse_day
 
 router = APIRouter(prefix="/weather-call", tags=["weather-call"])
@@ -54,17 +58,41 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
 <style>body{{margin:0;background:#f3f4f6;font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#111827}}
 .card{{max-width:480px;margin:48px auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px 24px}}
 h1{{font-size:20px;margin:0 0 10px}} p{{font-size:15px;line-height:1.55;color:#374151;margin:0}}
-.ok{{display:inline-block;width:40px;height:40px;border-radius:50%;background:#dcfce7;color:#15803d;text-align:center;line-height:40px;font-size:22px;margin-bottom:12px}}</style></head>
-<body><div class="card">{mark}<h1>{title}</h1><p>{text}</p></div></body></html>"""
+.ok{{display:inline-block;width:40px;height:40px;border-radius:50%;background:#dcfce7;color:#15803d;text-align:center;line-height:40px;font-size:22px;margin-bottom:12px}}
+button{{margin-top:18px;border:none;border-radius:8px;background:#248f4b;color:#fff;font:600 15px 'Segoe UI',Arial,sans-serif;padding:12px 26px;cursor:pointer}}</style></head>
+<body><div class="card">{mark}<h1>{title}</h1><p>{text}</p>{form}</div></body></html>"""
+
+
+def _render(status: int, title: str, text: str, show_button: bool, token: str) -> HTMLResponse:
+    mark = '<div class="ok">&#10003;</div>' if status == 200 and not show_button else ""
+    form = (f'<form method="post" action="/weather-call/ack"><input type="hidden" name="t" value="{escape(token)}">'
+            '<button type="submit">Acknowledge</button></form>') if show_button else ""
+    return HTMLResponse(_PAGE.format(title=escape(title), text=escape(text), mark=mark, form=form), status_code=status)
 
 
 @router.get("/ack", response_class=HTMLResponse)
 def ack_by_link(t: str = "", db: Session = Depends(get_db)):
-    """The tap from a text or an email. The signed token is the credential -
-    no sign-in - same as the task email buttons (routers/mail_actions.py)."""
-    status, title, text = weather_call.ack_page(db, t)
-    mark = '<div class="ok">&#10003;</div>' if status == 200 else ""
-    return HTMLResponse(_PAGE.format(title=escape(title), text=escape(text), mark=mark), status_code=status)
+    """The tap from a text or an email: the call and an Acknowledge button.
+    The signed token is the credential - no sign-in - same as the task
+    email buttons (routers/mail_actions.py). GET only shows: a mail scanner
+    that prefetches the link must not acknowledge for the person."""
+    return _render(*weather_call.ack_page(db, t, do=False), t)
+
+
+def _ack_submit_sync(token: str) -> HTMLResponse:
+    db = SessionLocal()
+    try:
+        return _render(*weather_call.ack_page(db, token, do=True), token)
+    finally:
+        db.close()
+
+
+@router.post("/ack", response_class=HTMLResponse)
+async def ack_submit(request: Request):
+    """The button on the page above (a form POST; CSRF-exempt in main.py like
+    /mail-actions/page - the token is the credential). DB work in a thread."""
+    form = await request.form()
+    return await asyncio.to_thread(_ack_submit_sync, str(form.get("t") or ""))
 
 
 # ── Mine ──────────────────────────────────────────────────────────────────
@@ -75,8 +103,14 @@ def my_calls(user: dict = Depends(get_current_user), db: Session = Depends(get_d
     acknowledgment, newest first - My Shifts shows them with the button."""
     me = (user.get("email") or "").lower()
     out = []
+    # Yesterday onward (a day that has passed needs no acknowledgment), and
+    # only calls that name this person - matched in SQL before the limit,
+    # so a busy company's other calls never push theirs out.
+    since = (date.today() - timedelta(days=1)).isoformat()
     for d in (db.query(models.WeatherDecision)
-              .filter(models.WeatherDecision.status.in_(["active", "reinstated"]))
+              .filter(models.WeatherDecision.status.in_(["active", "reinstated"]),
+                      models.WeatherDecision.work_date >= since,
+                      models.WeatherDecision.people_json.like(f'%"{me}"%'))
               .order_by(models.WeatherDecision.decided_at.desc()).limit(60).all()):
         try:
             ppl = json.loads(d.people_json or "[]")
@@ -109,7 +143,7 @@ class PrefsIn(BaseModel):
 @router.get("/my-prefs")
 def my_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(models.NexusPersonPref).filter(models.NexusPersonPref.email == user["email"].lower()).first()
-    emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == user["email"].lower()).first()
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == user["email"].lower()).first()
     return {"weatherSms": bool(int(row.weather_sms if row is not None and row.weather_sms is not None else 1)),
             "phone": bool(emp is not None and (emp.phone or "").strip())}
 

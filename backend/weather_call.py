@@ -42,6 +42,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from html import escape
 
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 import models
@@ -138,13 +139,15 @@ def _members(db: Session, group_id: str) -> list:
 def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False) -> list:
     """The group's published shifts that day: rows on the group, plus older
     rows with no group on its members. Open slots (no person) included."""
-    q = (db.query(models.ScheduledShift)
-         .filter(models.ScheduledShift.work_date == day, models.ScheduledShift.published == 1,
-                 models.ScheduledShift.pending_delete == 0))
+    S = models.ScheduledShift
+    q = (db.query(S)
+         .filter(S.work_date == day, S.published == 1, S.pending_delete == 0,
+                 or_(S.group_id == g.id,
+                     and_(or_(S.group_id == "", S.group_id == None),   # noqa: E711 - older rows with no group
+                          func.lower(S.employee_email).in_(list(member_emails) or ["-"])))))
     if lock:
-        q = q.with_for_update()
-    return [r for r in q.all()
-            if (r.group_id or "") == g.id or (not (r.group_id or "") and (r.employee_email or "").lower() in member_emails)]
+        q = q.with_for_update()   # these rows only - never the whole day's schedule
+    return q.all()
 
 
 def _prefs(db: Session, emails: list) -> dict:
@@ -256,12 +259,28 @@ def screen(db: Session, user: dict, g, day: str) -> dict:
             .filter(models.ScheduleDayNote.work_date == day, models.ScheduleDayNote.group_id == g.id).first())
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
     cfg = weather_watch.get_config(db)
-    return {"group": {"id": g.id, "name": g.name, "workSiteName": site.name if site else "",
+    can = may_decide(db, user, g, cid)
+    head = {"group": {"id": g.id, "name": g.name, "workSiteName": site.name if site else "",
                       "deciders": [{"email": e, "name": _name(people.get(e)) or e} for e in deciders]},
-            "date": day, "outlook": _outlook(db, g.id, day), "roster": roster(db, g, day, people),
-            "decision": decision_dict(db, d, people) if d else None,
-            "canDecide": may_decide(db, user, g, cid), "smsDefault": bool(cfg.get("smsDefault", True)),
-            "dayNote": note.note if note else "", "companyId": cid}
+            "date": day, "outlook": _outlook(db, g.id, day), "canDecide": can,
+            "smsDefault": bool(cfg.get("smsDefault", True)), "dayNote": note.note if note else "", "companyId": cid}
+    if not can:
+        # A shift manager with no say over this group sees the forecast and
+        # who makes the call - never the roster or anyone's phone number.
+        return {**head, "roster": [], "decision": None}
+    # The decider's roster carries the numbers: a call may be needed for
+    # anyone who stays silent.
+    def phone_of(em):
+        e = people.get(em)
+        return (e.phone or "").strip() if e is not None else ""
+    ros = roster(db, g, day, people)
+    for p in ros:
+        p["phoneNumber"] = phone_of(p["email"]) if p["email"] else ""
+    dec = decision_dict(db, d, people) if d else None
+    if dec:
+        for p in dec["people"]:
+            p["phoneNumber"] = phone_of(p["email"])
+    return {**head, "roster": ros, "decision": dec}
 
 
 # ── Making the call ───────────────────────────────────────────────────────
@@ -270,8 +289,9 @@ def _check_hhmm(v: str, what: str) -> str:
     v = (v or "").strip()[:5]
     try:
         h, m = (int(x) for x in v.split(":"))
-        assert 0 <= h < 24 and 0 <= m < 60
-    except (ValueError, AssertionError):
+    except ValueError:
+        raise ValueError(f"{what} needs a time like 09:30.")
+    if not (0 <= h < 24 and 0 <= m < 60):
         raise ValueError(f"{what} needs a time like 09:30.")
     return f"{h:02d}:{m:02d}"
 
@@ -283,6 +303,8 @@ def _apply_to_shift(r, kind: str, new_start: str, new_end: str, move_to: str, de
         r.original_start_hhmm, r.original_end_hhmm = (r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5]
         r.original_label = r.label or ""
     r.weather_decision_id = decision_id
+    start, end = (r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5]
+    overnight = end <= start   # 10:00 PM - 4:00 AM: the end is the next morning
     if kind == "proceed":
         r.weather_status = "kept"
         return "kept"
@@ -290,13 +312,15 @@ def _apply_to_shift(r, kind: str, new_start: str, new_end: str, move_to: str, de
         r.weather_status = "cancelled"
         return "cancelled"
     if kind == "delay":
-        if new_start >= (r.end_hhmm or "")[:5] and (r.end_hhmm or "")[:5] > (r.start_hhmm or "")[:5]:
+        # A start at or past the end is no shift at all; on an overnight
+        # shift that means a start in the daytime gap between end and start.
+        if (not overnight and new_start >= end) or (overnight and end <= new_start < start):
             r.weather_status = "cancelled"
             return "cancelled"
         r.start_hhmm, r.weather_status = new_start, "delayed"
         return "delayed"
     if kind == "end_early":
-        if new_end <= (r.start_hhmm or "")[:5]:
+        if (not overnight and new_end <= start) or (overnight and end < new_end <= start):
             r.weather_status = "cancelled"
             return "cancelled"
         r.end_hhmm, r.weather_status = new_end, "shortened"
@@ -342,14 +366,19 @@ def decide(db: Session, user: dict, g, day: str, body: dict) -> dict:
         raise ValueError(f"Not on this day's roster: {', '.join(unknown)}")
     if not picked and kind != "proceed":
         raise ValueError("Pick at least one person the call applies to.")
+    if kind == "proceed" and not picked:
+        picked = set(on_day)   # "the plan stands" is for everyone on the day
     actor = (user.get("email") or "").lower()
     now = _iso()
-    # A later call on the same day supersedes the earlier one; the shifts
-    # keep the ORIGINAL times from the first call.
+    # A later call on the same day supersedes the earlier one: every shift
+    # the earlier call touched goes back to how it was first (quietly), and
+    # the new call starts from there - so nothing stays cancelled or
+    # delayed under a call nobody can reinstate any more.
     for old in (db.query(models.WeatherDecision)
                 .filter(models.WeatherDecision.group_id == g.id, models.WeatherDecision.work_date == day,
                         models.WeatherDecision.status == "active").all()):
         old.status = "superseded"
+        _restore_rows(db, old.id)
     d = models.WeatherDecision(id=str(uuid.uuid4()), group_id=g.id, work_date=day, company=cid, kind=kind,
                                new_start=new_start, new_end=new_end, move_to=move_to, reason=reason, sms=1 if sms else 0,
                                status="active", decided_by=actor, decided_at=now,
@@ -517,7 +546,7 @@ def notify_person(db: Session, d, g, p: dict, *, site_name: str, company_name: s
     _bell(db, p["email"], f"weather-call:{d.id}", title, body, action=MY_SHIFTS, company=d.company, priority=1)
     out["bell"] = "ok"
     if d.sms and p.get("phone") and p.get("smsOn", True):
-        emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == p["email"]).first()
+        emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == p["email"]).first()
         ok, err = _send_sms(emp.phone if emp else "", text)
         out["sms"] = "ok" if ok else (err or "failed")
     else:
@@ -529,33 +558,47 @@ def notify_person(db: Session, d, g, p: dict, *, site_name: str, company_name: s
     return out
 
 
+def _merge_people(db: Session, decision_id: str, fn) -> list:
+    """Change people_json under a row lock: load the FRESH roster, let `fn`
+    mutate it, save, commit. Sending to a crew takes seconds per person
+    (texts, email, Teams), and an acknowledgment that lands meanwhile must
+    not be written over by a stale copy."""
+    # populate_existing: the session already holds this row from decide();
+    # without it the lock re-reads the row but keeps the stale attributes.
+    d = (db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id)
+         .populate_existing().with_for_update().first())
+    ppl = json.loads(d.people_json or "[]")
+    fn(ppl)
+    d.people_json = json.dumps(ppl)
+    db.commit()
+    return ppl
+
+
 def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str) -> None:
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
     site_name = site.name if site else ""
     company_name = _company_name(db, cid)
     decider_name = _name(people.get(actor)) or actor
-    ppl = json.loads(d.people_json or "[]")
-    for p in ppl:
+    results = {}
+    for p in json.loads(d.people_json or "[]"):
         if p["selected"]:
-            p["channels"] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name, actor=actor, decider_name=decider_name)
+            results[p["email"]] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name, actor=actor, decider_name=decider_name)
         else:
             _bell(db, p["email"], f"weather-call:{d.id}", "Weather call: your shift stands",
                   f"{g.name}, {_day_label(d.work_date)}: a weather call was made for others on the day. Your shift goes ahead as scheduled.",
                   action=MY_SHIFTS, company=d.company, priority=0)
-            p["channels"] = {"bell": "ok"}
-    d.people_json = json.dumps(ppl)
-    n = sum(1 for p in ppl if p["selected"])
+            results[p["email"]] = {"bell": "ok"}
+    n = sum(1 for p in results.values() if "sms" in p)
     summary = (f"<p><b>Weather call for {escape(g.name)} - {escape(_day_label(d.work_date))}:</b> "
                f"{escape(headline(d.kind, d.new_start, d.new_end, d.move_to))} for {n} {'person' if n == 1 else 'people'}. "
                f"{escape(d.reason)} - {escape(decider_name)}</p>")
-    d.people_json = json.dumps(ppl)
-    db.commit()
     result = _teams_group(db, g, actor, summary)
-    ppl = json.loads(d.people_json or "[]")
-    for p in ppl:
-        p["channels"]["groupChat"] = result
-    d.people_json = json.dumps(ppl)
-    db.commit()
+
+    def apply(ppl):
+        for p in ppl:
+            p["channels"] = {**results.get(p["email"], {}), "groupChat": result}
+    _merge_people(db, d.id, apply)
+    db.refresh(d)
 
 
 # ── Acknowledging ─────────────────────────────────────────────────────────
@@ -563,7 +606,8 @@ def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str) -> No
 def acknowledge(db: Session, decision_id: str, email: str, via: str) -> dict | None:
     """Mark one person's acknowledgment; closes their bell. Returns the
     person's entry, or None when they are not on the decision."""
-    d = db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id).with_for_update().first()
+    d = (db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id)
+         .populate_existing().with_for_update().first())
     if not d:
         return None
     email = (email or "").lower()
@@ -581,15 +625,25 @@ def acknowledge(db: Session, decision_id: str, email: str, via: str) -> dict | N
     return {**hit, "decision": {"id": d.id, "date": d.work_date, "kind": d.kind, "status": d.status}}
 
 
-def ack_page(db: Session, token: str) -> tuple:
-    """(status, title, text) for the public acknowledgment link."""
+def ack_page(db: Session, token: str, *, do: bool = False) -> tuple:
+    """(status, title, text, show_button) for the public acknowledgment link.
+    GET (do=False) only SHOWS the call with an Acknowledge button; the
+    button's POST (do=True) acknowledges. A link that acted on GET would be
+    "acknowledged" by every mail scanner that prefetches it (Safe Links),
+    seconds after the call and before the person saw a thing - the same
+    rule as the task email buttons (task_mail_actions.py)."""
     info = verify_ack(token)
     if not info:
-        return 400, "This link has expired", "Open Nexus > Shifts > My Shifts to see your schedule and acknowledge there."
+        return 400, "This link has expired", "Open Nexus > Shifts > My Shifts to see your schedule and acknowledge there.", False
     d = db.query(models.WeatherDecision).filter(models.WeatherDecision.id == info["decision_id"]).first()
-    hit = acknowledge(db, info["decision_id"], info["email"], "link")
-    if not d or not hit:
-        return 404, "Not found", "This weather call is no longer on record."
+    if not d:
+        return 404, "Not found", "This weather call is no longer on record.", False
+    if do:
+        hit = acknowledge(db, d.id, info["email"], "link")
+    else:
+        hit = next((p for p in json.loads(d.people_json or "[]") if p["email"] == info["email"]), None)
+    if not hit:
+        return 404, "Not found", "This weather call is no longer on record.", False
     g = _group(db, d.group_id)
     first = (hit.get("shifts") or [{}])[0]
     start = _t12(first.get("originalStart") or first.get("start") or "")
@@ -598,8 +652,11 @@ def ack_page(db: Session, token: str) -> tuple:
             "kept": f"your {start} shift goes ahead"}.get(hit.get("outcome"), "")
     if d.status == "reinstated":
         what = f"the call was reversed - your {start} shift is back on as scheduled"
+    where = f"{g.name if g else 'Your group'}, {_day_label(d.work_date)}"
     name = (hit.get("name") or "").split(" ")[0]
-    return 200, f"Thanks{', ' + name if name else ''}", f"{g.name if g else 'Your group'}, {_day_label(d.work_date)}: {what}. Your manager can see you acknowledged."
+    if do:
+        return 200, f"Thanks{', ' + name if name else ''}", f"{where}: {what}. Your manager can see you acknowledged.", False
+    return 200, f"Weather call: {where}", f"{what[0].upper() + what[1:]}. Tap Acknowledge so your manager knows you saw this.", True
 
 
 # ── Follow-up: remind, escalate, reinstate ────────────────────────────────
@@ -611,19 +668,25 @@ def remind_silent(db: Session, d, actor: str = "") -> int:
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
     company_name = _company_name(db, d.company)
     decider_name = _name(people.get(d.decided_by)) or d.decided_by
-    ppl = json.loads(d.people_json or "[]")
-    n = 0
-    for p in ppl:
+    reminded = {}
+    for p in json.loads(d.people_json or "[]"):
         if not p["selected"] or p.get("ackAt"):
             continue
         res = notify_person(db, d, g, p, site_name=site.name if site else "", company_name=company_name,
                             actor=actor or d.decided_by, decider_name=decider_name, reminder=True)
-        p["remindedAt"] = _iso()
-        p.setdefault("channels", {})["reminder"] = res.get("sms", "")
-        n += 1
-    d.people_json = json.dumps(ppl)
-    db.commit()
-    return n
+        reminded[p["email"]] = res.get("sms", "")
+    if not reminded:
+        return 0
+    stamp = _iso()
+
+    def apply(ppl):
+        for p in ppl:
+            if p["email"] in reminded:
+                p["remindedAt"] = stamp
+                p.setdefault("channels", {})["reminder"] = reminded[p["email"]]
+    _merge_people(db, d.id, apply)
+    db.refresh(d)
+    return len(reminded)
 
 
 def _escalate(db: Session, d) -> int:
@@ -669,6 +732,21 @@ def follow_up_once(db: Session, now_utc: datetime = None) -> dict:
     return out
 
 
+def _restore_rows(db: Session, decision_id: str) -> list:
+    """Every shift a call touched, back to how it was before it: original
+    times and label, no weather status. Used by Reinstate and when a later
+    call supersedes an earlier one. The caller commits."""
+    rows = (db.query(models.ScheduledShift).filter(models.ScheduledShift.weather_decision_id == decision_id)
+            .with_for_update().all())
+    for r in rows:
+        if getattr(r, "original_start_hhmm", ""):
+            r.start_hhmm, r.end_hhmm = r.original_start_hhmm, r.original_end_hhmm
+            r.label = r.original_label or ""
+        r.weather_status, r.weather_decision_id = "", ""
+        r.original_start_hhmm = r.original_end_hhmm = r.original_label = ""
+    return rows
+
+
 def reinstate(db: Session, user: dict, d) -> dict:
     """Undo the call: every touched shift back to its original times, label
     and status; the same people told on the same channels."""
@@ -677,13 +755,7 @@ def reinstate(db: Session, user: dict, d) -> dict:
     actor = (user.get("email") or "").lower()
     people = weather_watch._people(db)
     g = _group(db, d.group_id)
-    rows = (db.query(models.ScheduledShift).filter(models.ScheduledShift.weather_decision_id == d.id).with_for_update().all())
-    for r in rows:
-        if getattr(r, "original_start_hhmm", ""):
-            r.start_hhmm, r.end_hhmm = r.original_start_hhmm, r.original_end_hhmm
-            r.label = r.original_label or ""
-        r.weather_status, r.weather_decision_id = "", ""
-        r.original_start_hhmm = r.original_end_hhmm = r.original_label = ""
+    _restore_rows(db, d.id)
     d.status, d.reinstated_by, d.reinstated_at = "reinstated", actor, _iso()
     note = (db.query(models.ScheduleDayNote)
             .filter(models.ScheduleDayNote.work_date == d.work_date, models.ScheduleDayNote.group_id == d.group_id).first())
@@ -694,8 +766,8 @@ def reinstate(db: Session, user: dict, d) -> dict:
     db.commit()
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
     company_name = _company_name(db, d.company)
-    ppl = json.loads(d.people_json or "[]")
-    for p in ppl:
+    told = {}
+    for p in json.loads(d.people_json or "[]"):
         if not p["selected"]:
             continue
         first = (p.get("shifts") or [{}])[0]
@@ -708,14 +780,19 @@ def reinstate(db: Session, user: dict, d) -> dict:
               company=d.company, priority=1)
         res = {"bell": "ok"}
         if d.sms and p.get("phone") and p.get("smsOn", True):
-            emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == p["email"]).first()
+            emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == p["email"]).first()
             ok, err = _send_sms(emp.phone if emp else "", text)
             res["sms"] = "ok" if ok else (err or "failed")
         res["email"] = _send_email(p["email"], "Weather call reversed: your shift is back on",
                                    f"<p>{escape(text)}</p><p><a href=\"{escape(url)}\">Acknowledge</a></p>")
-        p["ackAt"], p["ackVia"], p["reinstateChannels"] = "", "", res
-    d.people_json = json.dumps(ppl)
-    db.commit()
+        told[p["email"]] = res
+
+    def apply(ppl):
+        for p in ppl:
+            if p["email"] in told:   # the reversal wants its own acknowledgment
+                p["ackAt"], p["ackVia"], p["reinstateChannels"] = "", "", told[p["email"]]
+    _merge_people(db, d.id, apply)
+    db.refresh(d)
     _teams_group(db, g, actor, f"<p><b>Weather call reversed for {escape(g.name)} - {escape(_day_label(d.work_date))}:</b> "
                                f"shifts are back on as scheduled. - {escape(decider_name)}</p>")
     return decision_dict(db, d, people)

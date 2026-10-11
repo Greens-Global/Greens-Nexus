@@ -7228,6 +7228,12 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             acts = pend.get("activities", _acts(r))
             r.activities_json = json.dumps(acts) if acts else ""
             r.color = pend.get("color", r.color or "") or ""
+            if getattr(r, "weather_status", "") or "":
+                # A manager who edits and shares a shift a weather call touched
+                # has set it by hand: the weather status and the saved
+                # originals no longer describe it (Weather Call, Oct 2026).
+                r.weather_status, r.weather_decision_id = "", ""
+                r.original_start_hhmm = r.original_end_hhmm = r.original_label = ""
             changes.append(shift_notify.change("changed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label, was=was))
             touched.append(r.id)
             updated += 1
