@@ -54,7 +54,10 @@ export function motionWait(ms) {
 }
 
 export function usePresence(open, ms = MOTION.exit) {
-  const wait = motionWait(ms);
+  // Reactive, not motionWait(): a reduced-motion toggle mid-exit re-renders
+  // here, and the derived branch below then drops the surface at once.
+  const reduce = useReducedMotion();
+  const wait = enabled && !reduce ? ms : 0;
   const [present, setPresent] = useState(!!open);
   // Derived during render, not in an effect: an opening surface must be in
   // the tree on the very render that asked for it (autoFocus, measuring).
@@ -72,10 +75,13 @@ export function useExit(onClose, ms = MOTION.exit) {
   const [closing, setClosing] = useState(false);
   const timer = useRef(null);
   const cb = useRef(onClose);
+  const alive = useRef(true);
   useLayoutEffect(() => { cb.current = onClose; });
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => () => { alive.current = false; clearTimeout(timer.current); }, []);
   const requestClose = useCallback((...args) => {
-    if (timer.current) return;                 // already on its way out
+    // A close that lands after the surface is gone (an awaited confirm whose
+    // Modal unmounted meanwhile) has nothing to exit and no parent to tell.
+    if (!alive.current || timer.current) return;
     const wait = motionWait(ms);
     if (wait === 0) { cb.current?.(...args); return; }
     setClosing(true);

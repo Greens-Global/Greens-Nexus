@@ -73,3 +73,15 @@ describe('useExit', () => {
     expect(motionWait(100)).toBe(0);
   });
 });
+
+describe('useExit after unmount', () => {
+  it('ignores a close that arrives once the surface is gone', () => {
+    const onClose = vi.fn();
+    const { result, unmount } = renderHook(() => useExit(onClose, 100));
+    const request = result.current[1];
+    unmount();
+    act(() => { request(); });
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
