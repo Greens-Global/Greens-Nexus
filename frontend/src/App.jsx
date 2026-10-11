@@ -773,7 +773,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
+            <div key={`${activeView}/${viewEpoch}`} className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>

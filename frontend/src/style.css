@@ -764,6 +764,10 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Viewport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
+/* Keyed per screen in App.jsx (Oct 11): a new screen fades in instead of
+   snapping. Opacity only - a transform here would re-anchor every fixed
+   overlay a screen opens while the animation runs. */
+.viewport { animation: nx-fade-in var(--dur-sm) ease-out both; }
 
 /* Task module manages its own full-height flex layout + internal scrolling
    (fixed header/tabs, scrolling body per sub-view) - the default .viewport
@@ -3704,6 +3708,23 @@ button, [role="button"], select { touch-action: manipulation; }
   color: #b9bbff;
   box-shadow: none;
 }
+
+/* Tab ink (Oct 11, 2026 - components/TabInk.jsx): the header strip and the
+   phone strip draw the active highlight as ONE element that glides between
+   tabs. The active button keeps its color and aria-current; the ink carries
+   the pill (header) or the underline (phone). Width is the one non-transform
+   property in the transition: a single small element, and scaleX would warp
+   the pill's corners. */
+.hdr-tabs, .module-tabs-inline { position: relative; }
+.hdr-tab, .module-tab-inline-btn { position: relative; z-index: 1; }
+.tab-ink { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; box-sizing: border-box; }
+.tab-ink--glide { transition: transform var(--dur-md) var(--ease-standard), width var(--dur-md) var(--ease-standard); }
+.tab-ink--pill { background: var(--wk-card); border: 1px solid var(--wk-line); border-radius: 9px; box-shadow: 0 1px 3px rgba(29,33,57,.08); }
+[data-theme="dark"] .tab-ink--pill { background: rgba(43,69,225,.18); border-color: var(--line); box-shadow: none; }
+.tab-ink--line { box-shadow: inset 0 -2.5px 0 var(--wk-brand); }
+.hdr-tabs:has(.tab-ink) .hdr-tab.active { background: none; border-color: transparent; box-shadow: none; }
+.module-tabs-inline:has(.tab-ink) .module-tab-inline-btn.active { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .tab-ink--glide { transition: none; } }
 
 /* ── Work OS buttons - app-wide restyle of the shared button classes ──────
    Primary: brand-filled (was near-black --pine). Secondary: white with a real
