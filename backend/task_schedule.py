@@ -28,6 +28,7 @@ from collections import deque
 from datetime import date, timedelta
 from typing import Callable
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 import models
@@ -35,6 +36,11 @@ import task_due
 from routers.task_util import now_iso
 
 MAX_CHAIN = 2000   # a chain longer than this is a data problem, not a schedule
+# A task pushed more often than this in one drag is in a loop, not a chain
+# (A -> B -> C -> B). The API refuses to create such links, but imported and
+# legacy rows can carry them; walking the loop to MAX_CHAIN would move the
+# dates out by years and write a history line per hop.
+MAX_PUSHES_PER_TASK = 50
 
 
 def _day(iso: str) -> date | None:
@@ -80,6 +86,8 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
     after both have settled where they can."""
     moved: dict[str, models.Task] = {}
     skipped: dict[str, models.Task] = {}
+    original_due: dict[str, str] = {}   # where each moved task's due stood before this drag
+    pushes: dict[str, int] = {}
     queue = deque([root])
     hops = 0
     while queue and hops < MAX_CHAIN:
@@ -103,15 +111,23 @@ def push_dependents(db: Session, root: models.Task, *, actor: str,
             if not can_edit(dep):
                 skipped[dep.id] = dep
                 continue
-            old_due = (dep.due_on or "")[:10]
+            pushes[dep.id] = pushes.get(dep.id, 0) + 1
+            if pushes[dep.id] > MAX_PUSHES_PER_TASK:
+                raise HTTPException(409, f"\"{dep.title}\" and the tasks it waits on depend on each other in a loop. "
+                                         "Fix those links before moving the chain.")
+            original_due.setdefault(dep.id, (dep.due_on or "")[:10])
             if dep.start_on:
                 dep.start_on = _plus(dep.start_on, delta)
             if dep.due_on:
                 dep.due_on = _plus(dep.due_on, delta)
             dep.modified_at = now_iso()
-            if (dep.due_on or "")[:10] != old_due:
-                task_due.record_due_change(db, dep, old_due, dep.due_on or "", actor=actor, source="cascade",
-                                           note=f"Moved with \"{root.title}\"")
             moved[dep.id] = dep
             queue.append(dep)
+    # One history line per task for one drag - from where it stood to where it
+    # ends - even when two blockers each pushed it on the way (A blocks B and
+    # C, B blocks C). A line per hop double-counted the extension.
+    for tid, dep in moved.items():
+        if (dep.due_on or "")[:10] != original_due[tid]:
+            task_due.record_due_change(db, dep, original_due[tid], dep.due_on or "", actor=actor, source="cascade",
+                                       note=f"Moved with \"{root.title}\"")
     return list(moved.values()), list(skipped.values())

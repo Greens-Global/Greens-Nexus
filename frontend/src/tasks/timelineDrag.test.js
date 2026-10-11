@@ -14,6 +14,8 @@ describe('timeline drag arithmetic', () => {
     expect(dragModeAt(100, 200)).toBe('move');
     expect(dragModeAt(196, 200)).toBe('end');
     expect(dragModeAt(2, 20)).toBe('move');   // a one-day bar has no edges to grab
+    expect(dragModeAt(2, 26)).toBe('move');   // the real one-day width (DAY_W)
+    expect(dragModeAt(24, 26)).toBe('move');
   });
 
   it('moves both dates together and keeps a missing one missing', () => {

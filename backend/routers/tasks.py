@@ -8,6 +8,7 @@ with email used as the person id) so the ported frontend maps cleanly.
 Reference implementation: routers/items.py.
 """
 import calendar
+import logging
 import io
 import json
 import re
@@ -1726,7 +1727,10 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
     apply; the dependents are then shifted only as far as their dependency
     type demands, each with its own due-history line, event and email.
     Answers {task, moved: [tasks], skipped: [{id, title}]} - `skipped` are
-    dependents the caller may not edit, left where they were."""
+    dependents the caller may not edit, left where they were. The task's own
+    move is committed by update_task before the cascade runs, so a cascade
+    that fails answers 200 with `cascadeError` and nothing moved: the drag DID
+    save, and a 500 would have had the UI say it did not."""
     fields = {k: v for k, v in (("start_on", body.start_on), ("due_on", body.due_on)) if v is not None}
     if not fields:
         raise HTTPException(422, "Nothing to move: send start_on and/or due_on")
@@ -1740,20 +1744,27 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
                 return True
             except HTTPException:
                 return False
-        moved, skipped = task_schedule.push_dependents(db, t, actor=user["email"], can_edit=_can_edit)
-        if moved:
-            for d in moved:
-                req = task_due.requester_of(d)
-                if req and req != user["email"].lower():
-                    task_notify(db, kind="task_due_changed", for_email=req,
-                                title="Due date moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
-                                nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
-            db.commit()
-            for d in moved:
-                db.refresh(d)
-                fire_task_event(d.id, "updated")
-                background_tasks.add_task(notify_task_event, d.id, "modified", user["email"],
-                                          update_kind=f"Rescheduled after \"{t.title}\" moved", due_changed=True)
+        try:
+            moved, skipped = task_schedule.push_dependents(db, t, actor=user["email"], can_edit=_can_edit)
+            if moved:
+                for d in moved:
+                    req = task_due.requester_of(d)
+                    if req and req != user["email"].lower():
+                        task_notify(db, kind="task_due_changed", for_email=req,
+                                    title="Due date moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
+                                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                db.commit()
+        except Exception as e:   # the dependents' rows are uncommitted; the task's own move stands
+            db.rollback()
+            detail = e.detail if isinstance(e, HTTPException) else "The tasks waiting on it could not be moved."
+            if not isinstance(e, HTTPException):
+                logging.getLogger(__name__).exception("reschedule cascade failed for task %s", task_id)
+            return {"task": primary, "moved": [], "skipped": [], "cascadeError": detail}
+        for d in moved:
+            db.refresh(d)
+            fire_task_event(d.id, "updated")
+            background_tasks.add_task(notify_task_event, d.id, "modified", user["email"],
+                                      update_kind=f"Rescheduled after \"{t.title}\" moved", due_changed=True)
     return {"task": primary, "moved": [task_to_dict(d) for d in moved],
             "skipped": [{"id": d.id, "title": d.title} for d in skipped]}
 

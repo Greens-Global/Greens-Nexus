@@ -166,6 +166,40 @@ class RescheduleTests(unittest.TestCase):
         self.assertEqual([s["title"] for s in out["skipped"]], ["B"])
         self.assertEqual(self._fresh(b).start_on, "2026-10-03")
 
+    def test_a_task_two_blockers_push_gets_one_history_line(self):
+        # A blocks B and C; B blocks C. C is relaxed against A, then again
+        # against B - one drag, one line, one extension counted.
+        a, b = self._chain(("A", "2026-10-01", "2026-10-03", None), ("B", "2026-10-03", "2026-10-05", "FS"))
+        c = _task(title="C", start_on="2026-10-05", due_on="2026-10-06",
+                  blocked_by_ids=[a.id, b.id], dependency_types={a.id: "FS", b.id: "FS"})
+        a.blocking_ids = list(a.blocking_ids) + [c.id]
+        b.blocking_ids = [c.id]
+        self.db.add(c)
+        self.db.commit()
+        out = reschedule_task(a.id, RescheduleBody(due_on="2026-10-10"), self.bg, user=MANAGER, db=self.db)
+        self.assertEqual(sorted(m["title"] for m in out["moved"]), ["B", "C"])
+        c2 = self._fresh(c)
+        self.assertEqual((c2.start_on, c2.due_on), ("2026-10-12", "2026-10-13"))
+        lines = [h for h in (c2.due_history or []) if h.get("source") == "cascade"]
+        self.assertEqual(len(lines), 1, lines)
+        self.assertEqual((lines[0]["from"], lines[0]["to"]), ("2026-10-06", "2026-10-13"))
+
+    def test_a_dependency_loop_answers_without_moving_anything_but_the_task(self):
+        a, b, c = self._chain(("A", "2026-10-01", "2026-10-03", None),
+                              ("B", "2026-10-03", "2026-10-04", "FS"),
+                              ("C", "2026-10-04", "2026-10-05", "FS"))
+        # Legacy data: C also blocks B.
+        c.blocking_ids = [b.id]
+        b.blocked_by_ids = [a.id, c.id]
+        b.dependency_types = {a.id: "FS", c.id: "FS"}
+        self.db.commit()
+        out = reschedule_task(a.id, RescheduleBody(due_on="2026-10-10"), self.bg, user=MANAGER, db=self.db)
+        self.assertEqual(out["task"]["dueOn"], "2026-10-10", "the task's own move saved")
+        self.assertEqual(out["moved"], [])
+        self.assertIn("loop", out["cascadeError"])
+        self.assertEqual(self._fresh(b).due_on, "2026-10-04", "nothing downstream was written")
+        self.assertEqual(self._fresh(c).due_on, "2026-10-05")
+
     def test_nothing_to_move_is_refused(self):
         (a,) = self._chain(("A", "2026-10-01", "2026-10-03", None))
         with self.assertRaises(HTTPException):

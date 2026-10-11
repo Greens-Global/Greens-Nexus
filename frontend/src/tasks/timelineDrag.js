@@ -19,8 +19,8 @@ export function daysFromPixels(dx, dayW = DAY_W) {
 }
 
 /** Which drag a pointer-down at `offsetX` inside a bar of `width` starts. */
-export function dragModeAt(offsetX, width, handle = HANDLE_W) {
-  if (width <= handle * 3) return 'move';   // a one-day bar is all handle: just move it
+export function dragModeAt(offsetX, width, handle = HANDLE_W, dayW = DAY_W) {
+  if (width <= dayW) return 'move';   // a one-day bar is all handle: just move it
   if (offsetX <= handle) return 'start';
   if (offsetX >= width - handle) return 'end';
   return 'move';

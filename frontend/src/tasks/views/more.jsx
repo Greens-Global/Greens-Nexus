@@ -96,15 +96,20 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
     const days = daysFromPixels(e.clientX - drag.startX);
     const dates = dragDates(t, drag.mode, days);
     setDrag(null);
+    // Any real travel swallows the trailing click, whether or not it netted a
+    // new date - a wobble back to the same day must not open the drawer.
+    if (Math.abs(e.clientX - drag.startX) > 6) {   // a quarter day: a wobble is still a click
+      justDragged.current = true;
+      setTimeout(() => { justDragged.current = false; }, 0);
+    }
     if (!dates) return;
-    justDragged.current = true;
-    setTimeout(() => { justDragged.current = false; }, 0);
     setBusyId(t.id);
     try {
       const res = await api.rescheduleTask(t.id, { start_on: dates.startOn, due_on: dates.dueOn });
       if (res?.task) applyServerTask(res.task);
       for (const m of res?.moved || []) applyServerTask(m);
-      say(describeMove(t.title, dates, (res?.moved || []).length, (res?.skipped || []).length, fmtDate));
+      const text = describeMove(t.title, dates, (res?.moved || []).length, (res?.skipped || []).length, fmtDate);
+      say(res?.cascadeError ? `${text}. The tasks waiting on it did not move: ${res.cascadeError}` : text);
     } catch (err) {
       say(err?.message || 'That move did not save. Try again.');
     } finally {
