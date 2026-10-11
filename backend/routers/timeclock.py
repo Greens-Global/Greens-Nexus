@@ -5702,13 +5702,19 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
     acts = pend.get("activities", _acts(row))
     acts = [{"paid": True, **a} for a in acts if isinstance(a, dict)]
     break_min = _break_for(acts, int(pend.get("breakMin", getattr(row, "break_min", 0)) or 0))
+    # Weather Call (Oct 2026): a cancelled day stays on the grid, struck
+    # through, and counts no paid hours.
+    weather_status = getattr(row, "weather_status", "") or ""
     return {"id": row.id, "email": row.employee_email, "date": row.work_date,
             "shiftId": shift_id, "start": start, "end": end,
             "label": pend.get("label", row.label), "note": pend.get("note", row.note),
             "published": bool(row.published) and not pend and not removing,
             "hasChanges": bool(pend), "pendingDelete": removing,
             "openSlots": int(pend.get("openSlots", getattr(row, "open_slots", 0)) or 0),
-            "breakMin": break_min, "paidMin": max(0, _shift_minutes(start, end) - break_min),
+            "weatherStatus": weather_status,
+            "weatherDecisionId": getattr(row, "weather_decision_id", "") or "",
+            "breakMin": break_min,
+            "paidMin": 0 if weather_status == "cancelled" else max(0, _shift_minutes(start, end) - break_min),
             "activities": acts,
             "groupId": getattr(row, "group_id", "") or "",
             "timeZone": _shift_tz(row, p, team_tz),
