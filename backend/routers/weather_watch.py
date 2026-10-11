@@ -87,6 +87,7 @@ def scan_now(user: dict = Depends(require_shift_manage), db: Session = Depends(g
 def list_advisories(group_id: str = "", limit: int = 50, user: dict = Depends(require_shift_manage),
                     db: Session = Depends(get_db)):
     """The record: what was sent, when, to whom, and where it went."""
+    _require_unscoped_team(user, db, "The weather record")
     q = db.query(models.WeatherAdvisory).order_by(models.WeatherAdvisory.created_at.desc())
     if group_id.strip():
         q = q.filter(models.WeatherAdvisory.group_id == group_id.strip())

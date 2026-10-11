@@ -19,7 +19,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -175,18 +175,25 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(s["advisories"], 0)
         self.assertEqual(len(self._bells(MGR)), 1)
         self.assertEqual(self.db.query(models.WeatherAdvisory).count(), 1)
-        # It eases: one quiet bell, the note says so, and the outlook follows.
+        # It eases: not announced until the advisory is an hour old (a
+        # forecast hovering at the line must not page people every tick)...
         weather_watch.fetch_forecast.return_value = forecast(20, 0.0)
-        s = weather_watch.scan_once(self.db, NOW)
+        s = weather_watch.scan_once(self.db, NOW + timedelta(minutes=30))
+        self.assertEqual((s["eased"], s["held"]), (0, 1))
+        self.assertEqual(self._outlook().band, "quiet", "the grid follows at once")
+        # ...then one quiet bell, and the note says so.
+        s = weather_watch.scan_once(self.db, NOW + timedelta(minutes=61))
         self.assertEqual(s["eased"], 1)
         eased = [b for b in self._bells(MGR) if b.ref_id.startswith("weather-eased:")]
         self.assertEqual(len(eased), 1)
         self.assertEqual(eased[0].priority, 0)
         self.assertTrue(self._note().startswith("Weather: forecast eased."))
-        self.assertEqual(self._outlook().band, "quiet")
-        # Back to major: told again (the band changed).
+        # Back to major within three hours of easing: held, not re-sent...
         weather_watch.fetch_forecast.return_value = forecast()
-        s = weather_watch.scan_once(self.db, NOW)
+        s = weather_watch.scan_once(self.db, NOW + timedelta(minutes=90))
+        self.assertEqual((s["advisories"], s["held"]), (0, 1))
+        # ...after that, told again.
+        s = weather_watch.scan_once(self.db, NOW + timedelta(minutes=61 + 181))
         self.assertEqual(s["advisories"], 1)
 
     def test_advisories_wait_through_quiet_hours_but_warnings_do_not(self):
@@ -202,6 +209,11 @@ class WatchTests(unittest.TestCase):
         # Morning comes: the warning was already sent, nothing doubles.
         s = weather_watch.scan_once(self.db, NOW)
         self.assertEqual(s["advisories"], 0)
+        # The warning lapses while the rain stays: still Major, not news again.
+        weather_watch.fetch_alerts.return_value = []
+        s = weather_watch.scan_once(self.db, NOW + timedelta(hours=2))
+        self.assertEqual((s["advisories"], self._outlook().band), (0, "major"))
+        self.assertEqual(len([b for b in self._bells(MGR) if b.ref_id.startswith("weather:")]), 1)
 
     def test_a_heads_up_is_one_quiet_teams_line(self):
         weather_watch.fetch_forecast.return_value = forecast(50, 0.02)

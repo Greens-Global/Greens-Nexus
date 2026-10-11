@@ -57,6 +57,13 @@ from database import SessionLocal
 SETTINGS_KEY = "weather_watch_config"
 WEATHER_SCAN_SEC = 30 * 60
 LOOKAHEAD_DAYS = 2
+OUTLOOK_KEEP_DAYS = 14
+# Hysteresis: a forecast hovering at the line must not page people every
+# half hour. An easing is announced only once the advisory is an hour old,
+# and a day that eased is not re-advised as Major for three hours (a
+# WARNING always goes).
+EASE_AFTER_MIN = 60
+READVISE_AFTER_MIN = 180
 _TIMEOUT = 10.0
 _CACHE_TTL = 10 * 60
 _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -515,6 +522,13 @@ def in_quiet_hours(cfg: dict, local: datetime) -> bool:
     return (a <= cur < b) if a < b else (cur >= a or cur < b)
 
 
+def _age_minutes(row, now_utc: datetime) -> float:
+    try:
+        return (now_utc - datetime.fromisoformat(row.created_at)).total_seconds() / 60
+    except (TypeError, ValueError):
+        return 10 ** 6
+
+
 def _last_advisory(db: Session, group_id: str, day: str):
     return (db.query(models.WeatherAdvisory)
             .filter(models.WeatherAdvisory.group_id == group_id, models.WeatherAdvisory.work_date == day)
@@ -535,16 +549,18 @@ def _upsert_outlook(db: Session, g, day: str, o: dict, hours: list, tz: str) -> 
     row.updated_at = datetime.now(timezone.utc).isoformat()
 
 
-def _record(db: Session, g, day: str, o: dict, hours: list, recipients: list, channels: dict, band: str = "") -> None:
+def _record(db: Session, g, day: str, o: dict, hours: list, recipients: list, channels: dict, band: str = "",
+            now_utc: datetime = None) -> None:
+    """created_at is the scan's clock, which the hysteresis measures against."""
     db.add(models.WeatherAdvisory(
         id=str(uuid.uuid4()), group_id=g.id, work_date=day, band=band or o["band"], chance=int(o["chance"]),
         inches=float(o["inches"]), storm=1 if o.get("storm") else 0, alerts_json=json.dumps(o.get("alerts") or []),
         window_start=_t12(o["windowStart"]), window_end=_t12(o["windowEnd"]), recipients_json=json.dumps(recipients),
         channels_json=json.dumps(channels), snapshot_json=json.dumps(hours),
-        created_at=datetime.now(timezone.utc).isoformat()))
+        created_at=(now_utc or datetime.now(timezone.utc)).isoformat()))
 
 
-def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: list) -> dict:
+def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
     """Send the Major / Warning advisory for one group-day. Returns what went where."""
     deciders, told = deciders_for(db, g, company_id)
     link_sub = f"schedule:{day}:{g.id}"
@@ -571,12 +587,12 @@ def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: lis
         channels["email"] = _send_email(deciders, subject, mail_html)
     except Exception as e:   # noqa: BLE001
         channels["email"] = f"failed: {str(e)[:160]}"
-    _record(db, g, day, o, hours, told, channels)
+    _record(db, g, day, o, hours, told, channels, now_utc=now_utc)
     db.commit()
     return channels
 
 
-def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list) -> dict:
+def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
     """The quiet Teams line for a heads-up day (Neil: no bell)."""
     deciders, told = deciders_for(db, g, company_id)
     html = (f"<p>🌦️ Heads-up for {escape(g.name)} - {escape(_day_label(day))}: {escape(summary_line(o))} "
@@ -586,12 +602,12 @@ def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list) -
     except Exception as e:   # noqa: BLE001
         result = f"failed: {str(e)[:160]}"
     channels = {"teams": result}
-    _record(db, g, day, o, hours, [], channels)
+    _record(db, g, day, o, hours, [], channels, now_utc=now_utc)
     db.commit()
     return channels
 
 
-def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list) -> dict:
+def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
     """A day that was advised has eased below Major: one quiet bell, and the
     weather day note says so."""
     deciders, told = deciders_for(db, g, company_id)
@@ -601,7 +617,7 @@ def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list) -> d
               f"The forecast no longer reaches the major band. {summary_line(o)}", action=action, company=company_id, priority=0)
     _set_day_note(db, g.id, day, f"Weather: forecast eased. {summary_line(o)}")
     channels = {"bell": len(told)}
-    _record(db, g, day, o, hours, told, channels, band="eased")
+    _record(db, g, day, o, hours, told, channels, band="eased", now_utc=now_utc)
     db.commit()
     return channels
 
@@ -638,6 +654,11 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
         return summary
     groups = watched_groups(db, cfg)
     summary["groups"] = len(groups)
+    # The outlook is a rolling window (the grid's icons); the record of what
+    # was sent is weather_advisories. Old bands go.
+    gone = (now_utc.date() - timedelta(days=OUTLOOK_KEEP_DAYS)).isoformat()
+    db.query(models.WeatherOutlook).filter(models.WeatherOutlook.work_date < gone).delete(synchronize_session=False)
+    db.commit()
     if not groups:
         return summary
     for g, site, cid, member_emails in groups:
@@ -672,19 +693,28 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
             db.commit()
             last = _last_advisory(db, g.id, day)
             last_band = last.band if last else ""
+            age_min = _age_minutes(last, now_utc) if last else None
             if o["band"] in ("major", "warning"):
-                if last_band == o["band"]:
+                # Already told - or told something stronger: a warning that
+                # lapses while the rain stays is not news.
+                if last_band == o["band"] or (last_band == "warning" and o["band"] == "major"):
+                    continue
+                if last_band == "eased" and o["band"] == "major" and age_min is not None and age_min < READVISE_AFTER_MIN:
+                    summary["held"] += 1
                     continue
                 if o["band"] == "major" and in_quiet_hours(cfg, local):
                     summary["held"] += 1
                     continue
-                _advise(db, g, site, cid, day, o, hours)
+                _advise(db, g, site, cid, day, o, hours, now_utc=now_utc)
                 summary["advisories"] += 1
             elif last_band in ("major", "warning"):
-                _eased(db, g, cid, day, o, hours)
+                if age_min is not None and age_min < EASE_AFTER_MIN:
+                    summary["held"] += 1   # let the easing stick before saying so
+                    continue
+                _eased(db, g, cid, day, o, hours, now_utc=now_utc)
                 summary["eased"] += 1
             elif o["band"] == "heads_up" and cfg.get("headsUpTeams") and not last_band:
-                _heads_up(db, g, cid, day, o, hours)
+                _heads_up(db, g, cid, day, o, hours, now_utc=now_utc)
                 summary["headsUp"] += 1
     return summary
 
