@@ -5,12 +5,14 @@
 // never occupancy or tenant data). An #anchor like /map/<id>#C214 preselects.
 import { useEffect, useState } from 'react';
 import { fetchPublicSiteModel } from '../api.js';
-import { SiteModelPanel, siteModelImages } from '../sitemodel/SiteModelPanel.jsx';
+import { SiteModelPanel, siteModelImages, normalizeQuery } from '../sitemodel/SiteModelPanel.jsx';
 
 export default function PublicUnitFinder({ propertyId }) {
   const [model, setModel] = useState(null); const [error, setError] = useState('');
   useEffect(() => { let on = true; fetchPublicSiteModel(propertyId).then((m) => on && setModel(m)).catch((e) => on && setError(e.message || 'Could not load the map')); return () => { on = false; }; }, [propertyId]);
-  const initial = (window.location.hash || '').slice(1).toUpperCase();
+  // The anchor takes the same short forms as the search box: #c14 and #C%20214 both find C014 / C214.
+  let initial = '';
+  try { initial = normalizeQuery(decodeURIComponent((window.location.hash || '').slice(1))); } catch { initial = normalizeQuery((window.location.hash || '').slice(1)); }
   const name = model?.property?.name || 'Greens Storage';
   useEffect(() => { document.title = `${name} - Find Your Unit`; }, [name]);
   return (

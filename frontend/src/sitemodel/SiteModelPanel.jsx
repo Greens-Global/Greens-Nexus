@@ -19,7 +19,7 @@ const UnitList = memo(function UnitList({ units }) { return <datalist id="site-m
 const h2 = { fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted, #5f6358)', margin: '0 0 6px', fontWeight: 700 };
 const card = { border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 10, padding: 12, background: 'var(--bg-primary, #fff)' };
 
-function normalizeQuery(q) {
+export function normalizeQuery(q) {
   const s = (q || '').trim().toUpperCase().replace(/\s+/g, '');
   const m = s.match(/^([A-Z])(\d{1,3})([A-Z]?)$/);
   return m ? m[1] + m[2].padStart(3, '0') + m[3] : s;
@@ -69,7 +69,9 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const unplaced = live.unplaced || [];
   const find = (e) => {
     e.preventDefault(); const name = normalizeQuery(query);
-    if (viewerRef.current?.selectUnit(name)) { setQuery(name); setNotFound(''); return; }
+    // Without WebGL the viewer never mounted; the panel still answers from the unit list.
+    const found = viewerRef.current ? viewerRef.current.selectUnit(name) : !!byName[name];
+    if (found) { if (!viewerRef.current) { setSelected(name); setBuilding(null); } setQuery(name); setNotFound(''); return; }
     if (unplaced.some((x) => x.n === name)) setNotFound(`Unit ${name} is at this property but not on the map yet - the office can point you to it.`);
     else setNotFound(`No unit ${name || '?'} at this property.`);
   };
@@ -111,12 +113,12 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           <section>
             <h2 style={h2}>Inventory</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {[[active.length, 'active units + stalls'], [`${active.length ? (100 * leased / active.length).toFixed(1) : 0}%`, `leased (${leased})`], [vacant, 'vacant, rentable'], [bad.length, 'out of service']].map(([v, l]) => (
+              {[[active.length, 'Active Units and Stalls'], [`${active.length ? (100 * leased / active.length).toFixed(1) : 0}%`, `Leased (${leased})`], [vacant, 'Vacant, Rentable'], [bad.length, 'Out of Service']].map(([v, l]) => (
                 <div key={l} style={{ ...card, padding: '8px 10px' }}><b style={{ display: 'block', fontSize: 20, fontVariantNumeric: 'tabular-nums' }}>{v}</b><span style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{l}</span></div>
               ))}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: 8 }}>
-              {[['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
+              {[['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of Service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
             </div>
             <div style={{ fontSize: 12, color: live.source === 'cubby' && !live.error ? '#3f8f5f' : 'var(--text-muted, #5f6358)', marginTop: 6 }}><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, marginRight: 6, verticalAlign: 0, background: live.source === 'cubby' && !live.error ? '#3f8f5f' : '#b8b4a8' }} />{liveLine}</div>
           </section>

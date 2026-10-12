@@ -2061,6 +2061,8 @@ def _run_migrations():
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
         "ALTER TABLE hr_packet_settings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_life_events ENABLE ROW LEVEL SECURITY",
+        # Site model markup pins (Neil, Oct 11): new table - RLS per CLAUDE.md. models.SiteModelMarkup, routers/site_models.py.
+        "ALTER TABLE site_model_markups ENABLE ROW LEVEL SECURITY",
         # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
         # Interview scheduling (Neil, Oct 8): who the interview is with. models.HrInterview.

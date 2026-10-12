@@ -34,8 +34,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-_TIMEOUT = 30
+_TIMEOUT = 8          # a slow Cubby must not hold a worker thread for long: the routes are sync
+_FAIL_BACKOFF = 60    # seconds before a failed facility is tried again
 _cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_failed: Dict[str, float] = {}
+_locks: Dict[str, threading.Lock] = {}
 _lock = threading.Lock()
 
 
@@ -113,7 +116,8 @@ def normalize(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             "why": str(rent.get("unrentableReason") or "") if rent.get("rentable") is False else "",
             "note": str(rent.get("unrentableReasonNote") or "")[:160] if rent.get("rentable") is False else "",
             "floor": _floor(u.get("floorName")),
-            "pw": 1 if ("power" in feats or "electric" in feats) else 0,
+            # None = the pricing group said nothing about power; the model's own classification then stands
+            "pw": 1 if ("power" in feats or "electric" in feats) else None,
             "cc": 1 if ("climate" in feats and "not climate" not in feats) else 0,
             "du": 1 if "drive" in feats else 0,
             "group": g.get("name") or "",
@@ -127,33 +131,46 @@ def fetch_units(facility_id: str) -> List[Dict[str, Any]]:
     return normalize(data)
 
 
+def _facility_lock(facility_id: str) -> threading.Lock:
+    with _lock:
+        return _locks.setdefault(facility_id, threading.Lock())
+
+
 def units_for(facility_id: str, max_age: Optional[int] = None) -> Tuple[Optional[List[Dict[str, Any]]], str, str]:
     """(units, as_of ISO time, error). A failed refresh falls back to the last
     good answer for this facility (with the error alongside) so a Cubby blip
-    never blanks the owner's screen; with nothing cached it returns (None, '', error)."""
+    never blanks the owner's screen; with nothing cached it returns (None, '', error).
+    One Cubby call per facility at a time, and a failure is not retried for
+    _FAIL_BACKOFF seconds, so an outage costs one short call a minute instead
+    of one per request."""
     ttl = _ttl() if max_age is None else max_age
-    now = time.time()
-    with _lock:
-        hit = _cache.get(facility_id)
-    if hit and now - hit[0] < ttl:
-        return hit[1], _iso(hit[0]), ""
-    try:
-        units = fetch_units(facility_id)
-    except CubbyError as e:
-        if hit:
-            return hit[1], _iso(hit[0]), str(e)
-        return None, "", str(e)
-    with _lock:
-        _cache[facility_id] = (now, units)
-    return units, _iso(now), ""
+    with _facility_lock(facility_id):
+        now = time.time()
+        with _lock:
+            hit = _cache.get(facility_id); failed_at = _failed.get(facility_id)
+        if hit and now - hit[0] < ttl:
+            return hit[1], _iso(hit[0]), ""
+        if failed_at and now - failed_at < _FAIL_BACKOFF:
+            return (hit[1], _iso(hit[0]), "Cubby is not responding") if hit else (None, "", "Cubby is not responding")
+        try:
+            units = fetch_units(facility_id)
+        except CubbyError as e:
+            with _lock:
+                _failed[facility_id] = now
+            if hit:
+                return hit[1], _iso(hit[0]), str(e)
+            return None, "", str(e)
+        with _lock:
+            _cache[facility_id] = (now, units); _failed.pop(facility_id, None)
+        return units, _iso(now), ""
 
 
 def forget(facility_id: Optional[str] = None) -> None:
     with _lock:
         if facility_id:
-            _cache.pop(facility_id, None)
+            _cache.pop(facility_id, None); _failed.pop(facility_id, None)
         else:
-            _cache.clear()
+            _cache.clear(); _failed.clear()
 
 
 def _iso(ts: float) -> str:

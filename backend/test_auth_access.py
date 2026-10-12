@@ -44,6 +44,7 @@ KNOWN_PUBLIC = {
     "/health/schema",
     "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
+    "/site-models/public/{pid}",           # customer unit finder (/map/<id>): geometry + unit numbers, never occupancy (routers/site_models.public_view)
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     # Boot-failure beacon from public/guard.js: fired while the app cannot

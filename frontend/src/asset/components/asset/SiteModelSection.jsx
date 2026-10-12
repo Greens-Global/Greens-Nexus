@@ -14,7 +14,10 @@ const digits = (s) => String(s || '').replace(/\D/g, '');
 export function matchSiteModel(list, p) {
   if (!list?.length || !p) return null;
   const id = String(p.id || ''); const apn = digits(p.apn); const name = String(p.name || '').toLowerCase();
-  const byName = (m) => { const rest = String(m.name || '').toLowerCase().replace(/^greens storage\s*/, '').trim(); return !!rest && name.includes(rest); };
+  // Name fallback is exact (ignoring case, spacing and punctuation): "Greens Storage Temecula" matches
+  // "greens storage temecula", never a "Temecula Land Parcel" that only shares the city word.
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const byName = (m) => !!norm(m.name) && norm(m.name) === norm(name);
   return list.find((m) => m.id === id)
     || (apn && list.find((m) => digits(m.apn) === apn))
     || (name && list.find(byName))

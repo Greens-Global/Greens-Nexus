@@ -30,7 +30,7 @@ import json
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -101,6 +101,15 @@ def _kind(x: Dict[str, Any]) -> str:
     return "in"
 
 
+def _days_since_build(model: Dict[str, Any]) -> int:
+    """Days from the model's build date to today, so a snapshot days-vacant figure keeps counting."""
+    try:
+        built = datetime.strptime((model.get("layout") or {}).get("generated", ""), "%b %d, %Y").date()
+    except ValueError:
+        return 0
+    return max(0, (date.today() - built).days)
+
+
 def with_live(model: Dict[str, Any]) -> Dict[str, Any]:
     """The model with Cubby's current inventory merged on (see the module doc).
     Pure given the Cubby answer; the Cubby call itself is cached per facility."""
@@ -111,6 +120,7 @@ def with_live(model: Dict[str, Any]) -> Dict[str, Any]:
     if live is None:
         return {**model, "live": _snapshot_live(model, enabled=True, ok=False, error=err)}
     by = {x["n"]: x for x in live}
+    aged = _days_since_build(model)
     units = []
     for u in model.get("units", []):
         x = by.get(u["n"])
@@ -118,9 +128,12 @@ def with_live(model: Dict[str, Any]) -> Dict[str, Any]:
             units.append({**u, "gone": 1})
             continue
         still_vacant = (not u.get("l")) and (not x["l"])
+        # The Operator API has no days-vacant figure: a unit vacant at the build and
+        # still vacant keeps counting from the build date; anything else is unknown (None).
         units.append({**u, "l": x["l"], "r": x["r"], "why": x["why"], "note": x["note"],
-                      "w": x["w"] or u.get("w"), "d": x["d"] or u.get("d"), "pw": x["pw"] if x.get("pw") is not None else u.get("pw"),
-                      "dvac": u.get("dvac") if still_vacant else (0 if x["l"] else None)})
+                      "w": x["w"] or u.get("w"), "d": x["d"] or u.get("d"),
+                      "pw": u.get("pw") if x.get("pw") is None else max(int(u.get("pw") or 0), int(x["pw"])),
+                      "dvac": int(u.get("dvac") or 0) + aged if still_vacant else (0 if x["l"] else None)})
     placed = {u["n"] for u in model.get("units", [])}
     unplaced = [{"n": x["n"], "w": x["w"], "d": x["d"], "k": _kind(x), "l": x["l"], "r": x["r"], "why": x["why"], "note": x["note"], "group": x.get("group", "")}
                 for x in live if x["n"] not in placed]
@@ -235,10 +248,14 @@ def get_markups(pid: str, db: Session = Depends(get_db), user=Depends(require_as
 def add_markup(pid: str, body: MarkupIn, db: Session = Depends(get_db), user=Depends(require_asset_write)):
     model = load_model(pid)
     unit = (body.unit or "").strip().upper()
-    if unit and not any(u.get("n") == unit for u in model.get("units", [])):
-        raise HTTPException(status_code=400, detail=f"No unit {unit} on this model")
     if not re.match(r"^[A-Z0-9-]{0,12}$", unit):
         raise HTTPException(status_code=400, detail="Unit numbers are letters and digits")
+    if unit:
+        # A pin may sit on a placed unit or on one Cubby lists that the map does not place yet.
+        live = with_live(model)
+        known = {u.get("n") for u in live.get("units", [])} | {x["n"] for x in (live.get("live") or {}).get("unplaced", [])}
+        if unit not in known:
+            raise HTTPException(status_code=400, detail=f"No unit {unit} at this property")
     if body.category not in CATEGORIES:
         raise HTTPException(status_code=400, detail="Unknown pin category")
     now = _now()
