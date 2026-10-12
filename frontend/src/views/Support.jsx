@@ -300,7 +300,7 @@ export default function Support({ activeSub, onSubChange }) {
     // a view id that no longer routed. Internal staff only: an external must
     // not be able to browse the company.
     ...(!isExternal ? [{ icon: Users, title: 'Contact Directory',
-      desc: 'Reach anyone in the company - Teams chat, call, email, who reports to whom, and who is off today.',
+      desc: 'Reach anyone in the company - Teams chat, call, email, the org chart, and who is off today.',
       onOpen: () => go('directory') }] : []),
     // The help panel the header's "?" opens: search, ask a question, What's
     // New, help for this page (support/HelpMenu.jsx listens for the event).
