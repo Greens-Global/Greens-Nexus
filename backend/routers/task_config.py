@@ -770,9 +770,15 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
 
     state = changelog_auto._read_state(db)
     skipped_before = [str(k) for k in (state.get("skipped_keys") or [])]
+    cursor = state.get("pr_cursor", "")
+    # When the skip rules change, look at the last few days once more with the
+    # new rules: forget the old skips and the cursor. Nothing is published
+    # twice - every published entry is known by its sourceKey.
+    if state.get("skip_rules") != changelog_prs.SKIP_RULES_VERSION:
+        skipped_before, cursor = [], ""
     try:
         prs, head = changelog_prs.fetch_merged_prs(
-            tracked_branch(), state.get("pr_cursor", ""), _known_changes(db) | set(skipped_before))
+            tracked_branch(), cursor, _known_changes(db) | set(skipped_before))
     except changelog_prs.GitHubError as e:
         print(f"[changelog] could not read merged PRs: {e}")
         return {"error": f"Could not read merged pull requests: {e}"}
@@ -829,6 +835,7 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     changelog_auto._write_state(db, {
         "pr_cursor": head,
         "skipped_keys": (skipped_before + [pr["key"] for pr in skipped])[-300:],
+        "skip_rules": changelog_prs.SKIP_RULES_VERSION,
         "last_polish_error": polish_note,
     })
     out = {"created": len(created), "scanned": len(prs), "skipped": len(skipped),

@@ -110,6 +110,15 @@ describe("What's New automatic publishing status", () => {
     expect(titles).toEqual(['Merged Last', 'Merged Second', 'Merged First']);
   });
 
+  it("shows the server's times in the viewer's own time zone", async () => {
+    const iso = '2026-10-08T21:18:00+00:00';
+    api.getTaskChangelogAutoStatus.mockResolvedValue({ ...healthy, lastRunAt: iso });
+    await openManage();
+    const local = new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const line = await screen.findByText(/Automatic publishing last ran/);
+    expect(line.textContent).toContain(local);
+  });
+
   it("says when an update went out in the pull request's own words", async () => {
     api.getTaskChangelogAutoStatus.mockResolvedValue({ ...healthy, polishNote: 'HTTP 400: Your credit balance is too low' });
     await openManage();

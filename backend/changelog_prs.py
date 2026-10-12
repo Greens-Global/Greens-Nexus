@@ -42,6 +42,9 @@ import httpx
 
 GITHUB_API = "https://api.github.com"
 MAX_PRS_PER_RUN = 25
+SKIP_RULES_VERSION = 2      # bump when skip_reason changes: the next run re-checks
+                            # the last few days (2: #484 was skipped for mentioning
+                            # the [skip changelog] marker in its description)
 BACKFILL_DAYS = 3           # first run on a server with no cursor yet
 _POLISH_MAX_TOKENS = 12000
 
@@ -342,7 +345,11 @@ def fetch_merged_prs(branch: str, cursor: str, known: set[str]) -> tuple[list[di
 
 def skip_reason(pr: dict) -> str:
     """Why a change is not worth a What's New entry, or "" when it is."""
-    if _SKIP_MARK_RE.search(pr.get("title", "")) or _SKIP_MARK_RE.search(pr.get("body", "")):
+    # The marker counts in the title, or as a line of its own in the
+    # description - not mentioned in passing: #484's description explained
+    # "anything marked `[skip changelog]`" and was skipped for it.
+    body_lines = [ln.strip() for ln in (pr.get("body") or "").splitlines()]
+    if _SKIP_MARK_RE.search(pr.get("title", "")) or any(_SKIP_MARK_RE.fullmatch(ln) for ln in body_lines):
         return "marked [skip changelog]"
     titles = pr.get("commits") if pr.get("kind") == "push" else [pr.get("title", "")]
     if titles and all(_CHORE_TITLE_RE.match(t or "") for t in titles):

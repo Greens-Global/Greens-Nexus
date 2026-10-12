@@ -58,6 +58,10 @@ const envColor = (e) => (ENVIRONMENT_META[e] || {}).color || NX.green;
 // ── Date helpers (ported from changelogDateFormat.ts / relativeDay.ts) ─────────
 function toLocalDate(iso) {
   if (!iso) return null;
+  // A server timestamp carries its zone ("...+00:00" / "Z"): convert it. The
+  // piecewise parse below read its UTC clock as local, so "last ran 9:18 PM"
+  // meant 9:18 PM UTC. Hand-entered "YYYY-MM-DDTHH:MM" values stay local.
+  if (/(Z|[+-]\d\d:?\d\d)$/.test(String(iso))) return new Date(iso);
   const [datePart, timePart] = String(iso).split('T');
   const [y, m, d] = datePart.split('-').map(Number);
   if (!timePart) return new Date(y, (m || 1) - 1, d || 1);

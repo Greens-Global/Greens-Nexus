@@ -102,9 +102,16 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(result["created"], 2)
         self.assertEqual(len(self.calls), 1)
         nxt = datetime.fromisoformat(self._state()["next_run_at"])
-        # Default interval is 24h; allow slack for the clock between the two reads.
-        self.assertGreater(nxt, datetime.now(timezone.utc) + timedelta(hours=23))
-        self.assertLess(nxt, datetime.now(timezone.utc) + timedelta(hours=25))
+        # GitHub is checked every 15 minutes - publishing no longer needs the
+        # webhook to be fast. Slack for the clock between the two reads.
+        self.assertGreater(nxt, datetime.now(timezone.utc) + timedelta(minutes=14))
+        self.assertLess(nxt, datetime.now(timezone.utc) + timedelta(minutes=16))
+
+    def test_an_old_24_hour_setting_cannot_slow_it_down(self):
+        with mock.patch.dict(os.environ, {"NEXUS_CHANGELOG_INTERVAL_HOURS": "24"}):
+            self.assertEqual(changelog_auto._interval_hours(), 0.25)
+        with mock.patch.dict(os.environ, {"NEXUS_CHANGELOG_POLL_MINUTES": "5"}):
+            self.assertAlmostEqual(changelog_auto._interval_hours(), 5 / 60)
 
     def test_restart_inside_the_interval_does_not_regenerate(self):
         self._stub()
@@ -256,6 +263,24 @@ class PublishTests(unittest.TestCase):
         self._generate()
         self.assertIn("pr:457", self.fetched[1][2])                # not reconsidered next run
 
+    def test_new_skip_rules_recheck_the_last_few_days_once(self):
+        db = database.SessionLocal()
+        changelog_auto._write_state(db, {"pr_cursor": "oldhead", "skipped_keys": ["pr:484"], "skip_rules": 1})
+        db.close()
+        self.prs = [_pr(484)]
+        out = self._generate()
+        self.assertEqual(out["created"], 1)                         # #484 published after all
+        self.assertEqual(self.fetched[0][1], "")                    # read the last few days again
+        self.assertNotIn("pr:484", self.fetched[0][2])
+        self._generate()
+        self.assertEqual(self.fetched[1][1], "headsha1")            # once: back to the cursor
+        self.assertEqual(len(self._entries()), 1)
+
+    def test_the_skip_marker_counts_on_its_own_line_not_in_passing(self):
+        self.assertEqual(changelog_prs.skip_reason(_pr(1, body="Tidy up.\n\n[skip changelog]\n")),
+                         "marked [skip changelog]")
+        self.assertEqual(changelog_prs.skip_reason(_pr(1, body="- anything marked `[skip changelog]` is skipped")), "")
+
     def test_github_unreadable_is_the_only_error(self):
         with mock.patch.object(changelog_prs, "fetch_merged_prs",
                                side_effect=changelog_prs.GitHubError("GITHUB_TOKEN is not set on this server.")):
@@ -369,7 +394,7 @@ class PrReadingTests(unittest.TestCase):
                          "only CI, docs or tests")
         self.assertEqual(changelog_prs.skip_reason(_pr(1, files=("backend/test_x.py", "frontend/src/a.test.jsx"))),
                          "only CI, docs or tests")
-        self.assertEqual(changelog_prs.skip_reason(_pr(1, body="tidy [skip changelog]")), "marked [skip changelog]")
+        self.assertEqual(changelog_prs.skip_reason(_pr(1, title="Tidy [skip changelog]")), "marked [skip changelog]")
         self.assertEqual(changelog_prs.skip_reason(_pr(1, title="chore: bump deps")), "chore")
         self.assertEqual(changelog_prs.skip_reason(_pr(1)), "")
         self.assertEqual(changelog_prs.skip_reason(_pr(1, files=())), "")     # files unknown: publish
