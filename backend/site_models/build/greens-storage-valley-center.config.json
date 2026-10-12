@@ -2,8 +2,8 @@
   "id": "greens-storage-valley-center",
   "name": "Greens Storage Valley Center",
   "address": "28407 Lizard Rocks Rd, Valley Center, CA 92082",
-  "apn": "188-250-45-00, 189-013-17-00",
-  "acreage": 8.81,
+  "apn": "188-250-45-00",
+  "acreage": 5.74,
   "opened": "Since 2014",
   "county": "San Diego",
   "parcelSource": "SANDAG parcel service",
@@ -121,44 +121,6 @@
       "note": "28 drive-up 10x10 units in the narrow row beside Building B. Inferred from size."
     },
     {
-      "id": "C1",
-      "name": "Building C (C001-C044)",
-      "kind": "storage",
-      "rect": {
-        "E": -59.4,
-        "N": -213.5,
-        "L": 106.5,
-        "W": 10.7,
-        "bearing": 88.8
-      },
-      "height": 3.9,
-      "floors": 1,
-      "roof": "solar",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "10x20 drive-up units along the long row at the south of the site. Inferred from size.",
-      "units": "^C0(0[1-9]|[1-3][0-9]|4[0-4])$"
-    },
-    {
-      "id": "C2",
-      "name": "Building C (C045-C071)",
-      "kind": "storage",
-      "rect": {
-        "E": -53.7,
-        "N": -233.8,
-        "L": 60.9,
-        "W": 11.4,
-        "bearing": 88.6
-      },
-      "height": 4.2,
-      "floors": 1,
-      "roof": "solar",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "12x35 drive-up units and the small C units in the southernmost row. Inferred from size.",
-      "units": "^C"
-    },
-    {
       "id": "D",
       "letters": [
         "D"
@@ -222,9 +184,29 @@
       "note": "Small 10x10 to 14x20 drive-up units. Inferred from size."
     },
     {
-      "id": "R1",
+      "id": "C1",
       "letters": [],
-      "name": "Row (letter unknown)",
+      "name": "Building C (C001-C044)",
+      "kind": "garage",
+      "rect": {
+        "E": 39.6,
+        "N": -104.9,
+        "L": 134.5,
+        "W": 6.1,
+        "bearing": 1.5
+      },
+      "height": 3.2,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Long single row on the east property line, doors facing Building B. 132 m holds the 43 10x20 drive-ups end to end. Measured from imagery Oct 11.",
+      "units": "^C0(0[1-9]|[1-3][0-9]|4[0-4])$"
+    },
+    {
+      "id": "C2",
+      "letters": [],
+      "name": "Building C (C045-C071)",
       "kind": "storage",
       "rect": {
         "E": -67.2,
@@ -238,26 +220,8 @@
       "roof": "white",
       "doorSide": "both",
       "inferred": true,
-      "note": "Footprint with no unit letter matched yet - confirm against the plan."
-    },
-    {
-      "id": "R2",
-      "letters": [],
-      "name": "Row (letter unknown)",
-      "kind": "storage",
-      "rect": {
-        "E": -86.3,
-        "N": -197.1,
-        "L": 94.4,
-        "W": 5.1,
-        "bearing": 88.8
-      },
-      "height": 3.0,
-      "floors": 1,
-      "roof": "white",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "Long narrow row with no unit letter matched yet - confirm against the plan."
+      "note": "Southwest corner building, the only open footprint on the parcel wide enough for the 12x35 C units. Inferred from size - confirm against the plan.",
+      "units": "^C"
     },
     {
       "id": "OFFICE",
@@ -312,7 +276,7 @@
     }
   ],
   "sources": [
-    "Parcels: SANDAG / San Diego County Assessor parcel service (APNs 1882504500 5.74 ac and 1890131700 3.07 ac)",
+    "Parcel: SANDAG / San Diego County Assessor parcel service (APN 1882504500, 28407 Lizard Rocks Rd, 5.74 ac)",
     "Building massing: Microsoft Open Building Footprints (heights) refined against Esri World Imagery",
     "Units: Cubby FMS inventory export, Oct 11, 2026 (851 active units)",
     "Facility facts: San Diego County PDS2020-STP-03-026W1 (existing 88,253 sq ft facility; 2-story 36,724 sq ft climate-controlled expansion)"

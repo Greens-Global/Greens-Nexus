@@ -133,11 +133,16 @@ Asset Management scope) and clear `layout.schematic`.
 * **Escondido** - Building C modeled as two levels (62,690 sq ft of C units
   cannot fit one floor of its footprint); Building E/F needs a second level
   for three 15x44 garages; the RV lot outline is approximate.
-* **Valley Center** - the facility spans two parcels (188-250-45 and
-  189-013-17, the Cole Grade Rd rows); Building B is the two-story
-  climate-controlled building from county permit STP-03-026W1 (B2xx/B3xx on
-  level 2, the schematic wants a third level); two footprints (R1, R2) have
-  no unit letter matched; C is split C001-C044 / C045-C071 across two rows.
+* **Valley Center** - one parcel only, 188-250-45 (28407 Lizard Rocks Rd,
+  5.74 ac). The storage rows on the parcel to the south (189-013-17, 28365
+  Cole Grade Rd) belong to a neighbor and are not part of the model (Neil,
+  Oct 11). Building B is the two-story climate-controlled building from county
+  permit STP-03-026W1 (B2xx/B3xx on level 2, the schematic wants a third
+  level). C001-C044 are on the long row along the east property line, doors
+  facing B (measured from imagery). C045-C071 (mostly 12x35) are placed in
+  the southwest corner building as the only footprint deep enough; it is too
+  small for all of them, so the last ones sit on a schematic second level.
+  Confirm both against the plan.
 * **Temecula** - the lot (parcels 918-200-025 and -027) is split into
   sections A-E in proportion to each section's stall area, containers (X) at
   the south tip; the two canopies are drawn but not tied to stall numbers.
