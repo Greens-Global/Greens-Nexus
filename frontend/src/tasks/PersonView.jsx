@@ -192,10 +192,8 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
               ) : [...openRows, ...(doneOpen ? doneRows : [])].map((t) => {
                 const overdue = !t.completed && t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10);
                 return (
-                  <div key={t.id} onClick={() => setOpenId(t.id)} className="stack-table-row"
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                  <div key={t.id} onClick={() => setOpenId(t.id)} className="stack-table-row nx-row-hover"
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}>
                     {t.completed
                       ? <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />
                       : <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />}
@@ -296,10 +294,8 @@ function DeadlineRecord({ record: r, onOpen }) {
         <div style={{ borderTop: `1px solid ${NX.border2}` }}>
           <div style={{ padding: '9px 16px 3px', fontSize: 11, color: NX.faint, textTransform: 'uppercase', letterSpacing: '.06em' }}>Most Extended</div>
           {r.mostExtended.map((t) => (
-            <div key={t.id} onClick={() => onOpen(t.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', cursor: 'pointer' }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+            <div key={t.id} onClick={() => onOpen(t.id)} className="nx-row-hover"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', cursor: 'pointer' }}>
               <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
               <DueBadge count={t.extensions} compact />

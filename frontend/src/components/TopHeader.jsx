@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail, Scale, Rocket } from "lucide-react";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -30,6 +30,7 @@ import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
 import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { usePersonPhoto } from "../lib/peoplePhotos";
+import { openContact } from "../lib/contactNav";
 import { api } from "../api";
 import { ModalLoading, Spinner } from './AsyncState';
 
@@ -228,9 +229,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       setTimeout(() => window.dispatchEvent(
         new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0);
     } else if (kind === 'people') {
-      toTasks('home');
-      setTimeout(() => window.dispatchEvent(
-        new CustomEvent('nexus:tasks-person', { detail: { email: item.email, name: item.name } })), 0);
+      // A person opens their Contact Directory card (Oct 2026) - chat, call,
+      // email, reporting line. Their tasks are one click further ("View
+      // Tasks" on the card, for anyone with the Tasks module).
+      openContact(item.email);
     } else if (kind === 'projects') {
       toTasks('projects');
     } else if (kind === 'portfolios') {
@@ -624,6 +626,19 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               {activeView === 'documents' && (
                 <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:documents-tour')); }}>
                   <PlayCircle size={14} /> Tour
+                </button>
+              )}
+
+              {/* Legal (Neil, 10/06): the Privacy Policy and Terms & Conditions,
+                  one page with a tab each - "nothing to do with Support". The
+                  Implementation Guide sits here too for administrators: how to
+                  set Nexus up for an organization (Support > Implementation Guide). */}
+              <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'legal', sub: 'privacy' } })); }}>
+                <Scale size={14} /> Legal
+              </button>
+              {!isExternal && can('administrator') && (
+                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support', sub: 'implementation' } })); }}>
+                  <Rocket size={14} /> Implementation Guide
                 </button>
               )}
 

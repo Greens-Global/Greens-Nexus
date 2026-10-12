@@ -691,6 +691,12 @@ def team_emails(db: Session, manager_email: str) -> set:
             if em not in seen and em != me:
                 seen.add(em)
                 todo.append(em)
+    # Plus the people `me` is Backup Manager for - THEM only, never the people
+    # who report to them: each of those has a backup of their own (by default
+    # their manager's manager), so covering Aarav must not open Aarav's team
+    # (Pranshu, Oct 13).
+    import backup_manager
+    seen |= backup_manager.backed_up_by(db, me) - {me}
     return seen
 
 

@@ -129,10 +129,15 @@ describe('Team switcher', () => {
     api.timeSchedule.mockResolvedValue(data([shift()]));
     render(<ShiftSchedule />);
     await screen.findByText('Amy Adams');
-    fireEvent.keyDown(document.body, { key: '2' });
-    expect(teamButton().textContent).toContain('Back');
+    // The 1-9 listener attaches in an effect after the data lands; on a busy
+    // CI runner the first key could beat it (failed once on PR #464), so
+    // press until the switch is seen rather than assuming it is instant.
+    await waitFor(() => {
+      fireEvent.keyDown(document.body, { key: '2' });
+      expect(teamButton().textContent).toContain('Back');
+    });
     fireEvent.keyDown(teamButton(), { key: '1' });
-    expect(teamButton().textContent).toContain('Front');
+    await waitFor(() => expect(teamButton().textContent).toContain('Front'));
   });
 });
 

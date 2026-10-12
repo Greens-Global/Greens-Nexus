@@ -28,7 +28,7 @@ export function buildSupportTourSteps() {
     {
       target: 'support-documentation',
       title: 'Documentation',
-      body: 'A plain-English guide to every Nexus module - what it is for, how to use it step by step, and what managers get extra. It is also the Documentation tab at the top of this page.',
+      body: 'A plain-English guide to every Nexus module - what it is for, how to use it step by step, and what managers get extra. Back to Support returns you to these cards.',
     },
     {
       target: 'support-open-tickets',

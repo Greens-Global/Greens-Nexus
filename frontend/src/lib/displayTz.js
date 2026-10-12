@@ -36,6 +36,37 @@ export function setDisplayTz(key) {
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
+/** 'india' when this browser runs on India time, else 'california'. */
+export function browserTzKey() {
+  try {
+    const z = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    return /Kolkata|Calcutta/.test(z) ? 'india' : 'california';
+  } catch { return 'california'; }
+}
+
+/** An employee's OWN timesheet reads in their own zone (Pranshu, Oct 13):
+ *  India-based staff saw California times, so "5 PM yesterday" typed from
+ *  India just after midnight was still in the future in California and the
+ *  request was refused. While `on`, the card uses the browser's zone without
+ *  touching the saved choice; leaving puts the saved choice back. */
+export function useOwnZone(on) {
+  useEffect(() => {
+    if (!on) return undefined;
+    const own = TZ_OPTIONS.find((o) => o.key === browserTzKey()) || TZ_OPTIONS[0];
+    if (own.key !== _current.key) {
+      _current = own;
+      window.dispatchEvent(new CustomEvent(EVENT));
+    }
+    return () => {
+      const saved = readStored();
+      if (saved.key !== _current.key) {
+        _current = saved;
+        window.dispatchEvent(new CustomEvent(EVENT));
+      }
+    };
+  }, [on]);
+}
+
 /** Subscribe a component to the current display timezone; re-renders on change. */
 export function useDisplayTz() {
   const [opt, setOpt] = useState(_current);
@@ -75,6 +106,17 @@ export function utcToInputTz(iso) {
     timeZone: _current.tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(iso + 'Z')).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+/** JS-style UTC offset (minutes, positive west - like getTimezoneOffset) of
+ *  the current display zone at a typed wall time. A punch added from the card
+ *  must be dated in the zone its time was typed in: sending the BROWSER's
+ *  offset with a California time put a 5 PM clock-out on the next day for
+ *  anyone browsing from India (Neil's call, Oct 13). */
+export function tzOffsetForInput(v) {
+  const utc = inputToUtcTz(v);
+  if (!utc) return new Date().getTimezoneOffset();
+  return -offsetMin(new Date(utc + 'Z'), _current.tz);
 }
 
 /** Wall time in the current display zone -> stored UTC "YYYY-MM-DDTHH:MM:SS". */

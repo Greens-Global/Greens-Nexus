@@ -190,7 +190,10 @@ def _change_refs(commits: list[dict]) -> list[dict]:
         msg = ((c.get("commit") or {}).get("message") or "").strip()
         subject, sha, parents = msg.split("\n", 1)[0], c.get("sha", ""), _parents(c)
         ref = {"sha": sha, "parents": parents, "message": msg, "number": None, "branch": "",
-               "author": _login(c.get("author"))}
+               "author": _login(c.get("author")),
+               # When it landed on the branch (a merge commit's own date) - the
+               # order What's New lists one run's entries in.
+               "date": ((c.get("commit") or {}).get("committer") or {}).get("date") or ""}
         m = _MERGE_RE.match(subject)
         local = _LOCAL_MERGE_RE.match(subject)
         if _is_line_merge(subject):
@@ -228,6 +231,7 @@ def _group_pushes(refs: list[dict]) -> list[dict]:
             if ref["title"] not in prev["subjects"]:
                 prev["shas"].append(ref["sha"])
                 prev["subjects"].append(ref["title"])
+            prev["date"] = max(prev.get("date") or "", ref.get("date") or "")
             continue
         out.append(ref)
     return out
@@ -270,7 +274,7 @@ def _details(client, ref: dict, names: dict | None = None) -> dict:
     kind, sha = ref.get("kind", "pr"), ref.get("sha", "")
     body_lines = ref.get("message", "").split("\n")[1:]
     change = {"key": ref.get("key") or f"pr:{ref.get('number')}", "kind": kind, "number": ref.get("number"),
-              "shas": list(ref.get("shas") or [sha]),
+              "shas": list(ref.get("shas") or [sha]), "mergedAt": ref.get("date", ""),
               "branch": ref.get("branch", ""), "sha": sha, "title": ref.get("title", ""),
               "body": "\n".join(body_lines).strip() if kind != "pr" else "",
               "files": [], "commits": [], "developers": [],

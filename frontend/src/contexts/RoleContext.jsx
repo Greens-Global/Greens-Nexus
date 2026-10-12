@@ -6,6 +6,7 @@ import { api, setActAsSessionId, getActAsSessionId } from '../api';
 import { apiTokenRequest } from '../authConfig';
 import { queryClient, qk } from '../lib/queryClient';
 import { BFF_MODE } from '../bffAuth';
+import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 
 const RoleCtx = createContext(null);
 
@@ -104,6 +105,11 @@ export function RoleProvider({ children }) {
   // Manager tier (Oct 6): People shows only their own team - the list, five
   // read-only profile tabs and Time - and never pay. Set by the server.
   const [hrTeam, setHrTeam] = useState(false);
+  // Time-tracking exempt (Oct 8): true = salaried, no time clock at all, so
+  // no time widget is placed or offered on the dashboard. null = not known
+  // yet. Seeded from the per-person memory (lib/timeTracking) so a known
+  // person never sees a time tile flash in before /roles/me answers.
+  const [timeTrackingExempt, setTimeTrackingExempt] = useState(null);
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -138,6 +144,9 @@ export function RoleProvider({ children }) {
   // Role fetch retries up to 3× with backoff; groups fail silently.
   useEffect(() => {
     let cancelled = false;
+    // Another person (Act As): their exemption is their own, back to the
+    // remembered answer until /roles/me says.
+    setTimeTrackingExempt(null);
     if (!myEmail) {
       // MSAL (and the dev-login bypass) start with an empty accounts[] on the
       // very first render - msal-react only populates it after
@@ -158,6 +167,10 @@ export function RoleProvider({ children }) {
             setIsExternal(!!data.is_external);
             setHrScope(Array.isArray(data.hr_scope) ? data.hr_scope : null);
             setHrTeam(!!data.hr_team);
+            if (typeof data.time_tracking_exempt === 'boolean') {
+              setTimeTrackingExempt(data.time_tracking_exempt);
+              rememberTimeExempt(data.email, data.time_tracking_exempt);
+            }
             setLoading(false);
           }
         })
@@ -351,6 +364,7 @@ export function RoleProvider({ children }) {
   return (
     <RoleCtx.Provider value={{
       myRole, myEmail, realEmail, loading, isExternal, hrScope, hrTeam,
+      timeTrackingExempt: timeTrackingExempt ?? recallTimeExempt(myEmail),
       allRoles, getRole, refreshAllRoles,
       can, assignRole, ROLES,
       groups, refreshGroups, createGroup, updateGroup, deleteGroup,

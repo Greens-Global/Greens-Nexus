@@ -5,6 +5,7 @@ import {
   Hash, MessageSquare,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
+import { openPersonProfile } from '../lib/personNav';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -974,14 +975,26 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               {eff.job_role
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}{eff.job_role.company_id ? ` · ${companyName(eff.job_role.company_id)}` : ''}</span>
                 : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
-              <RoleMenu roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} companyName={companyName}
-                placeholder={eff.job_role ? 'Change role…' : 'Assign a role…'} onPick={changeRole} />
-              <button className="secondary-btn" onClick={() => setPromoteOpen(true)} disabled={!roleChoices.length}
-                title="Pick the new role and see exactly what changes before committing"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
-                <TrendingUp size={13} /> Promote…
-              </button>
+              {/* Neil, Oct 8: "pull the promo and change role out of the
+                  settings. You need to leave roles in settings" - an employee's
+                  role changes in People (Promote / Change Role, with a letter).
+                  Settings keeps the first assignment and external users. */}
+              {eff.job_role && !extRec ? (
+                <button className="secondary-btn" onClick={() => openPersonProfile(person)}
+                  title="Promote or change their role from their People profile - it sends the letter they sign"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
+                  <TrendingUp size={13} /> Change In People
+                </button>
+              ) : (
+                <RoleMenu roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} companyName={companyName}
+                  placeholder={eff.job_role ? 'Change role…' : 'Assign a role…'} onPick={changeRole} />
+              )}
             </div>
+            {eff.job_role && !extRec && (
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
+                Promotions and role changes are made in People - the employee and their manager sign a letter, and pay and access change together.
+              </div>
+            )}
             {promoteOpen && (
               <PromoteModal person={person} eff={eff} nameOf={nameOf} companyName={companyName}
                 jobRoles={roleChoices.filter(r => r.id !== eff.job_role?.id)}

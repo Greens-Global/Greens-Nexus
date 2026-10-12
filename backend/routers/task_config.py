@@ -811,6 +811,9 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
             "authorId": "",
             "developers": pr.get("developers") or [],
             "sourceKey": pr["key"],
+            # One run publishes several entries at the same releasedAt; this
+            # orders them latest merge first.
+            "mergedAt": pr.get("mergedAt", ""),
             # A PR keeps its number; a local merge or a direct commit links its commit.
             **({"prNumber": pr["number"], "prRef": f"#{pr['number']}", "prUrl": pr.get("url", "")}
                if pr.get("number") else {"commitShas": [x[:8] for x in pr.get("shas") or [pr.get("sha", "")]], "commitUrl": pr.get("url", "")}),

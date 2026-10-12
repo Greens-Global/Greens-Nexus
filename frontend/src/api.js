@@ -941,6 +941,14 @@ export const api = {
   // Separate path = separate cache entry, so the default list stays clean.
   getPeopleDirectory:  (includeExternal = false) =>
     cachedGet(includeExternal ? '/myhr/directory?include_external=true' : '/myhr/directory'),
+  // Contact Directory (Support, Oct 2026): contact fields + today's
+  // availability for everyone the caller may see. Not cached here - the
+  // roster is cached server-side and availability must stay live.
+  getContactDirectory: ()             => req('/directory'),
+  // Teams presence dots (docs/Teams-Presence-Setup.md): {enabled, presence:
+  // {email: {availability, activity}}}. enabled=false until the Entra app
+  // has Presence.Read.All with admin consent - the directory then shows none.
+  getTeamsPresence:    ()             => req('/directory/presence'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),
@@ -1204,6 +1212,29 @@ export const api = {
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
+  hiringOptions:       (companyId = '') => req(`/hr/hiring/options?company_id=${encodeURIComponent(companyId || '')}`),
+  hiringAllRoles:      ()         => req('/hr/hiring/options?all_roles=true'),
+
+  // HR - life events through Nexus Sign (hiring packet, Oct 2026)
+  getPackets:          ()         => req('/hr/packets'),
+  savePacket:          (data)     => req('/hr/packets', { method: 'PUT', body: JSON.stringify(data) }),
+  savePacketWhole:     (data)     => req('/hr/packets/whole', { method: 'PUT', body: JSON.stringify(data) }),
+  deletePacket:        (id)       => req(`/hr/packets/${id}`, { method: 'DELETE' }),
+  hiringPacketOptions: (cid, params = {}) => req(`/hr/candidates/${cid}/hiring-packet/options?${new URLSearchParams(params)}`),
+  previewHiringPacket: (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  sendHiringPacket:    (cid, data) => req(`/hr/candidates/${cid}/hiring-packet`, { method: 'POST', body: JSON.stringify(data) }),
+  packetEmailPreview:  ({ event, entityId = '', templateId = '', note = '', role = 'subject', stage = 'invite' }) =>
+    req(`/hr/packets/email-preview?event=${encodeURIComponent(event)}&entity_id=${encodeURIComponent(entityId)}&template_id=${encodeURIComponent(templateId)}&role=${encodeURIComponent(role)}&stage=${encodeURIComponent(stage)}&note=${encodeURIComponent(note)}`),
+  getLifeEvents:       ({ candidateId = '', employeeId = '' } = {}) =>
+    req(`/hr/life-events?candidate_id=${encodeURIComponent(candidateId)}&employee_id=${encodeURIComponent(employeeId)}`),
+  retryLifeEventFiling: (id)      => req(`/hr/life-events/${id}/retry-filing`, { method: 'POST' }),
+  retryLifeEventApply: (id)       => req(`/hr/life-events/${id}/retry-apply`, { method: 'POST' }),
+  previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
+  previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
+  offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
+  cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),
+  voidLifeEvent:       (id)       => req(`/hr/life-events/${id}/void`, { method: 'POST' }),
 
   // HR - AI-assisted interviews (Teams invite + questionnaire + scoring)
   ivTemplates:       ()           => req('/hr/interview-templates'),
@@ -1213,7 +1244,13 @@ export const api = {
   ivSchedule:        (cid, data)  => req(`/hr/candidates/${cid}/interviews`, { method: 'POST', body: JSON.stringify(data) }),
   ivList:            (cid)        => req(`/hr/candidates/${cid}/interviews`),
   ivPatch:           (iid, data)  => req(`/hr/interviews/${iid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  ivCancel:          (iid)        => req(`/hr/interviews/${iid}/cancel`, { method: 'POST' }),
+  ivFinish:          (iid, data)  => req(`/hr/interviews/${iid}/finish`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  ivFollowupNow:     (iid)        => req(`/hr/interviews/${iid}/followup`, { method: 'POST' }),
   ivPullTranscript:  (iid)        => req(`/hr/interviews/${iid}/pull-transcript`, { method: 'POST' }),
+  ivPullRecording:   (iid)        => req(`/hr/interviews/${iid}/pull-recording`, { method: 'POST' }),
+  ivFile:            (iid, kind)  => req(`/hr/interviews/${iid}/file?kind=${encodeURIComponent(kind)}`),
+  getEmployeeInterviews: (eid)    => req(`/hr/employees/${eid}/interviews`),
   ivAutofill:        (iid)        => req(`/hr/interviews/${iid}/autofill`, { method: 'POST' }),
   ivCalibrate:       (iid)        => req(`/hr/interviews/${iid}/calibrate`, { method: 'POST' }),
   ivLeaderboard:     (tid)        => req(`/hr/interviews/leaderboard?template_id=${tid || ''}`),
@@ -1237,6 +1274,9 @@ export const api = {
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
   // Office & contact both ways with Microsoft 365, for one person, now (Oct 7).
   syncEmployeeM365:  (empId)        => req(`/hr/employees/${empId}/m365-sync`, { method: 'POST', timeoutMs: 30000 }),
+  // Support > Implementation Guide: one shared done-list for administrators (Oct 7).
+  getImplementationProgress: ()           => req('/implementation/progress'),
+  setImplementationCheck:    (id, done)   => req(`/implementation/progress/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ done }) }),
 
   // HR - leave tracker
   getLeave:         ()          => req('/hr/leave'),
@@ -1796,6 +1836,9 @@ export const api = {
   // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
   //    back as `notes` on timePayroll ──
   timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
+  // The employee's own note on a day of their timecard (Neil, Oct 12) - read
+  // back as `notes[date].employeeNote` on timeMyPayroll and timePayroll.
+  timeSetMyTimecardNote: (date, note) => req('/timeclock/my-timecard-notes', { method: 'PUT', body: JSON.stringify({ date, note }) }),
 
   // ── Work site from a Google Maps link (Sep 30) - the point in a pasted link
   //    or coordinates (short links opened server-side), and a check of recent

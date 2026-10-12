@@ -374,19 +374,21 @@ def delete_job_role(jr_id: str, user: dict = Depends(require_administrator), db:
     return {"deleted": jr_id}
 
 
-@router.post("/{jr_id}/assign")
-def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Set a person's primary job role: enforce single-membership across job-role
-    groups, add them to this one, and set their tier from the role."""
-    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
-    if not jr:
-        raise HTTPException(status_code=404, detail="Job role not found")
+def check_can_assign(db: Session, user: dict, jr: NexusGroup, email: str, hr_path: bool = False) -> str:
+    """The checks a role assignment must pass FOR THIS ACTOR (tier ceiling,
+    admin protection, company walls). Returns a warning ('' if none). Split
+    out so an HR promotion checks them when HR sends the letter and applies
+    the role when it is signed (hr_life_events.py).
 
-    email = body.email.lower().strip()
-    if not email:
-        raise HTTPException(status_code=400, detail="Email is required")
+    hr_path: promotions are HR's job (Neil, Oct 8), and HR is not always an
+    IT/Global Admin - People editors may move someone between roles up to
+    the Manager tier. Administrator/owner tiers stay an admin's decision."""
     tier = _clean_tier(jr.tier or "employee")
-    _guard_can_assign_tier(user, tier)
+    if hr_path and user["level"] < ROLE_LEVEL["administrator"]:
+        if ROLE_LEVEL.get(tier, 1) >= ROLE_LEVEL["administrator"]:
+            raise HTTPException(status_code=403, detail="Only an IT Admin or Global Admin can move someone into an administrator role.")
+    else:
+        _guard_can_assign_tier(user, tier)
     # A non-owner cannot reassign someone who is already an admin/owner.
     if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
@@ -397,7 +399,6 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     # Someone with no company on record is allowed (people are often set up
     # before their People record is complete), but the caller is told, since
     # the role is now what places them.
-    warning = ""
     role_company = (jr.company_id or "").strip()
     if role_company:
         person_company = _employee_company(db, email)
@@ -406,13 +407,19 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
                 f"This role belongs to {_company_name(db, role_company)} and this person works for "
                 f"{_company_name(db, person_company)}. Pick one of their company's roles or a shared role."))
         if not person_company:
-            warning = (f"This person has no company on their People record. Holding this role "
-                       f"places them in {_company_name(db, role_company)}.")
+            return (f"This person has no company on their People record. Holding this role "
+                    f"places them in {_company_name(db, role_company)}.")
+    return ""
 
+
+def apply_job_role(db: Session, jr: NexusGroup, email: str, by: str) -> str:
+    """Make `jr` the person's one job role: membership, title, default
+    manager, tier. Not committed; the caller has run check_can_assign."""
+    tier = _clean_tier(jr.tier or "employee")
     now = _ts()
     # single primary: drop membership in every OTHER job-role group
     other_ids = [g.id for g in db.query(NexusGroup.id).filter(
-        NexusGroup.is_job_role == 1, NexusGroup.id != jr_id).all()]  # noqa: E712
+        NexusGroup.is_job_role == 1, NexusGroup.id != jr.id).all()]  # noqa: E712
     if other_ids:
         db.query(NexusGroupMember).filter(
             NexusGroupMember.email == email,
@@ -420,8 +427,8 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
         ).delete(synchronize_session=False)
 
     if not db.query(NexusGroupMember).filter(
-        NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).first():
-        db.add(NexusGroupMember(group_id=jr_id, email=email, added_by=user["email"], added_at=now))
+        NexusGroupMember.group_id == jr.id, NexusGroupMember.email == email).first():
+        db.add(NexusGroupMember(group_id=jr.id, email=email, added_by=by, added_at=now))
 
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     # The job role IS the person's title now (Visesh, Jul 28): the card header
@@ -445,15 +452,30 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
         # (Re)assigning a job role means "follow this role's tier" - clear any prior
         # per-person override so future role-tier edits track again.
         row.role = tier
-        row.assigned_by = user["email"]
+        row.assigned_by = by
         row.tier_pinned = False
     else:
-        db.add(NexusRole(email=email, role=tier, assigned_by=user["email"]))
+        db.add(NexusRole(email=email, role=tier, assigned_by=by))
     invalidate_role_cache(email)
+    return tier
 
+
+@router.post("/{jr_id}/assign")
+def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Set a person's primary job role: enforce single-membership across job-role
+    groups, add them to this one, and set their tier from the role."""
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
+    if not jr:
+        raise HTTPException(status_code=404, detail="Job role not found")
+
+    email = body.email.lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    warning = check_can_assign(db, user, jr, email)
+    tier = apply_job_role(db, jr, email, user["email"])
     db.commit()
     return {"assigned": email, "job_role": jr.name, "tier": tier,
-            "company_id": role_company, "warning": warning}
+            "company_id": (jr.company_id or "").strip(), "warning": warning}
 
 
 @router.post("/{jr_id}/unassign")

@@ -5,7 +5,7 @@ import PolicyDoc from './PolicyDoc';
 // legal review and finalize before treating this as the company's official
 // policy - replace the contact address below with the real one.
 
-const SECTIONS = [
+export const PRIVACY_SECTIONS = [
   { h: '1. What this covers', p: [
     'Nexus is Greens Global’s internal company portal, used by employees, managers, and administrators for tasks, time tracking, HR, items and assets, documents, and related company operations. This policy explains what information Nexus collects about you, how it is used, and who can see it.',
     'It applies to your use of Nexus on company-managed devices and personal devices where you have signed in with your work account. It does not cover other Greens Global systems (e.g. Microsoft 365) beyond the data those systems exchange with Nexus.',
@@ -54,6 +54,8 @@ const SECTIONS = [
   ]},
 ];
 
+export const PRIVACY_UPDATED = 'August 5, 2026';
+
 export default function PrivacyPolicy({ embedded = false }) {
-  return <PolicyDoc title="Privacy Policy" updated="August 5, 2026" sections={SECTIONS} embedded={embedded} />;
+  return <PolicyDoc title="Privacy Policy" updated={PRIVACY_UPDATED} sections={PRIVACY_SECTIONS} embedded={embedded} />;
 }

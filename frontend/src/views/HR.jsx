@@ -1,14 +1,19 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
-import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
+import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
+import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
+import { PromoteModal, OffboardModal } from '../components/HrPersonActions';
+import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
+import { ScheduleInterviewModal } from '../components/HiringSchedule';
+import CandidateFormModal from '../components/HiringCandidateForm';
 import {
-  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check,
+  Users, Plus, Search, X, Mail, Phone, Briefcase, MapPin, Check, TrendingUp, LogOut,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw,
+  ListChecks, RefreshCw, Video,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -35,6 +40,8 @@ import { capabilityText } from '../lib/moduleCapabilities';
 import PersonHover from '../components/PersonHoverCard';
 import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
+import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
+import { divisionColor as divColorFor } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
@@ -67,6 +74,10 @@ const STATUS_META = {
   inactive:   { label: 'Inactive',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
+
+// The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
+// Inactive people stay in Nexus with their record, out of the working list.
+const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
 
 // The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
 // removal is orthogonal to employment status (a removed person keeps whatever
@@ -127,7 +138,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, canSeeComp = false, initialType = 'full_time', onClose, onSaved, toastOk, toastErr }) {
+function EmployeeFormModal({ employee, employees, externals = [], entities = [], isAdmin = false, canSeeComp = false, initialType = 'full_time', onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
@@ -145,6 +156,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     employment_type: e?.employmentType || initialType,
     start_date:      e?.startDate || '',
     manager_email:   e?.managerEmail || '',
+    backup_manager_email: e?.backupManagerEmail || '',
     status:          e?.status || 'active',
     location:        e?.location || '',
     country:         e?.country || '',
@@ -238,6 +250,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
 
   // Manager picker: anyone with a work email (yourself excluded when editing)
   const managers = employees.filter(e => e.workEmail && e.id !== employee?.id);
+  // External users can be a reporting line too (Neil, Oct 12) - a contractor
+  // or client-side lead someone answers to. Their own group under Nexus People.
+  const externalManagers = externals.filter(e => e.workEmail && e.id !== employee?.id);
 
   async function save() {
     if (!f.first_name.trim() || busy) return;
@@ -361,8 +376,36 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
             <label style={FL}>REPORTS TO</label>
             <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
               <option value="">- no reporting line -</option>
-              {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+              {externalManagers.length ? (
+                <>
+                  <optgroup label="Nexus People">
+                    {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+                  </optgroup>
+                  <optgroup label="External Users">
+                    {externalManagers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
+                  </optgroup>
+                </>
+              ) : managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
+          </div>
+          {/* Backup Manager (Neil, Oct 13): covers this person when their manager
+              is out, with the same rights over them. Blank = the default. */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={FL}>BACKUP MANAGER</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.backup_manager_email} onChange={e => set('backup_manager_email', e.target.value)}>
+              <option value="">Default - their manager's manager, or the company's HR contact</option>
+              {externalManagers.length ? (
+                <>
+                  <optgroup label="Nexus People">
+                    {managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+                  </optgroup>
+                  <optgroup label="External Users">
+                    {externalManagers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
+                  </optgroup>
+                </>
+              ) : managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - timesheets, punches, time off and approvals.</div>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
               (Neil, 10/07: HR updates these here instead of IT in the M365
@@ -1345,7 +1388,7 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged }) {
+function EmployeeAccess({ email, identityType = 'internal', companyId = '', toastOk, toastErr, onChanged, onChangeRole }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1390,9 +1433,18 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
             </div>
           ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
           {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
-          <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
-            <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
-          </button>
+          {/* Neil, Oct 8: changing someone's role is an HR action with a
+              letter (Promote / Change Role), not a silent switch. Setting the
+              FIRST role on a new record stays a direct pick. */}
+          {data.job_role && onChangeRole ? (
+            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={onChangeRole}>
+              <Shield size={13} /> Change Role
+            </button>
+          ) : (
+            <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
+              <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
+            </button>
+          )}
         </div>
         <div style={_accBox}>
           <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
@@ -1633,6 +1685,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [personalOpen, setPersonalOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
+  const [roleAction, setRoleAction] = useState(null);      // 'promotion' | 'role_change'
+  const [offboardOpen, setOffboardOpen] = useState(false);
+  const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
+  const [eventsKey, setEventsKey] = useState(0);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState(initialTab);
@@ -1696,6 +1753,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['assets', 'Assets', Briefcase],
     ['location', 'Work Mode', MapPinned],
     ['documents', 'Documents', FileText],
+    ['interviews', 'Interviews', Video],
     ['checklist', 'Checklist', ListChecks],
     isAdmin && ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
@@ -1717,7 +1775,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             <Camera size={11} />
           </span>
         </button>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* min width: with HR's actions in the header (Promote / Change Role /
+            Offboard) the buttons wrap to a second line instead of squeezing
+            the name into a one-word column. */}
+        <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
           <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {fullName(e)}
             {e.identityType && e.identityType !== 'internal' && (
@@ -1761,6 +1822,25 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        {canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' && (
+          <>
+            <button className="secondary-btn" onClick={() => setRoleAction('promotion')}
+              title="Promotion letter through Nexus Sign - new role, pay and date; the employee and their manager sign"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <TrendingUp size={13} /> Promote
+            </button>
+            <button className="secondary-btn" onClick={() => setRoleAction('role_change')}
+              title="Move them to a different role, with a letter they and their manager sign"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <Shield size={13} /> Change Role
+            </button>
+            <button className="secondary-btn" onClick={() => setOffboardOpen(true)}
+              title="Last day, the separation package through Nexus Sign, and everything that happens when they leave"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
+              <LogOut size={13} /> Offboard
+            </button>
+          </>
+        )}
         {isAdmin && (
           <button className="secondary-btn" onClick={removeFromNexus}
             title="Remove this person's Nexus record only - does not touch Microsoft 365"
@@ -1813,6 +1893,29 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
+      {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
+      {roleAction && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
+        onClose={() => setRoleAction(null)}
+        onSent={ev => {
+          setRoleAction(null); setEventsKey(n => n + 1);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
+        }} />}
+      {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
+        onClose={() => setOffboardOpen(false)}
+        onSent={ev => {
+          setOffboardOpen(false); setEventsKey(n => n + 1);
+          if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
+          const m = ev.result?.m365 || {};
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          toastOk(ev.applyStatus === 'applied'
+            ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
+            : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+        }} />}
+      <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
+        onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
       {/* Stat cards - all derived from the loaded record, no extra fetch */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
         <StatCard label="Tenure" value={fmtTenure(e.startDate) || '-'} sub={e.startDate ? `since ${formatDate(e.startDate)}` : 'no start date'} />
@@ -1855,6 +1958,16 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
               {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
+              {(() => {
+                // Backup Manager (Neil, Oct 13): the one set on the profile, else
+                // the default the server worked out for the People list.
+                const bk = (e.backupManagerEmail || e.backupManager || '').toLowerCase();
+                if (!bk) return null;
+                const person = employees.find(m => (m.workEmail || '').toLowerCase() === bk);
+                const who = bk === (viewerEmail || '').toLowerCase() ? 'You' : person ? fullName(person) : bk;
+                const why = e.backupManagerEmail ? '' : e.backupManagerSource === 'hr' ? ' (default - company HR contact)' : " (default - manager's manager)";
+                return row(Users, 'Backup manager', `${who}${why}`);
+              })()}
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
               {e.notes && row(FileText, 'Notes', e.notes)}
             </div>
@@ -1872,8 +1985,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             </div>
             <div>
               {row(CalendarDays, 'Date of birth', formatDate(e.personal?.dob))}
+              {row(Users, 'Gender', e.personal?.gender)}
               {row(Lock, 'National ID', e.personal?.nationalId ? maskId(e.personal.nationalId) : '')}
-              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · ') : '')}
+              {/* The whole personal record reads on the main screen, addresses
+                  included (Neil, Oct 12) - not only inside the Edit modal. */}
+              {row(MapPinned, 'Current address', e.personal?.currentAddress)}
+              {row(MapPinned, 'Permanent address', e.personal?.permanentAddress)}
+              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
             </div>
           </>
         )}
@@ -1923,11 +2041,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated} />}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('role_change') : undefined} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
         {tab === 'checklist' && <ChecklistSection employee={e} canEdit={canEditChecklist && !isRemoved} myEmail={viewerEmail} toastOk={toastOk} toastErr={toastErr} />}
+
+        {tab === 'interviews' && <EmployeeInterviews employeeId={e.id} toastErr={toastErr} />}
 
         {tab === 'documents' && (
           <>
@@ -1971,238 +2092,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 }
 
 // ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
-const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
-const STAGE_META = {
-  applied:   { label: 'Applied',   hue: '215,15%,55%' },
-  screening: { label: 'Screening', hue: '215,75%,45%' },
-  interview: { label: 'Interview', hue: '30,80%,48%' },
-  offer:     { label: 'Offer',     hue: '271,60%,48%' },
-  hired:     { label: 'Hired',     hue: '142,60%,35%' },
-  rejected:  { label: 'Rejected',  hue: '350,65%,48%' },
-};
-const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
-
-function CandidateFormModal({ onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', company: '', notes: '' });
-  const [busy, setBusy] = useState(false);
-  // Companies come server-filtered: a company-scoped admin only sees (and can
-  // only pick) their own, and the backend refuses anything else anyway.
-  const [entities, setEntities] = useState([]);
-  useEffect(() => { api.getEntities().then(setEntities).catch(() => {}); }, []);
-  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
-  async function save() {
-    if (!f.first_name.trim() || busy) return;
-    setBusy(true);
-    try { onSaved(await api.createCandidate(f)); onClose(); }
-    catch (err) { toastErr(err?.message || 'Could not add candidate.'); setBusy(false); }
-  }
-  const input = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
-  );
-  const dirty = Object.values(f).some(v => (v || '').trim() !== '');
-  const guard = useUnsavedGuard(dirty, onClose, f.first_name.trim() ? save : undefined);
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add Candidate</h3>
-          <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {input('FIRST NAME *', 'first_name', { autoFocus: true })}
-          {input('LAST NAME', 'last_name')}
-          {input('EMAIL', 'email', { type: 'email' })}
-          {input('PHONE', 'phone')}
-          {input('ROLE APPLYING FOR', 'role_title')}
-          {input('DEPARTMENT', 'department', { placeholder: 'target area - set for real on hire' })}
-          {input('EXPECTED START', 'expected_start', { type: 'date' })}
-          {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
-          <div><label style={FL}>HIRING COMPANY</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
-              <option value="">- pick a company -</option>
-              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-            </select></div>
-          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
-            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} /></div>
-        </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Spinner size={14} /> : <Plus size={14} />} Add Candidate
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={f.first_name.trim() ? guard.saveAndClose : undefined} saving={busy} />
-      )}
-    </div>
-  );
-}
-
-function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy }) {
-  const [history, setHistory] = useState(null);
-  const [note, setNote] = useState('');
-  const [ivEdit, setIvEdit] = useState(false);
-  const [ivAt, setIvAt] = useState(c.interviewAt ? c.interviewAt.slice(0, 16) : '');
-  const [ivBusy, setIvBusy] = useState(false);
-  const [resumeBusy, setResumeBusy] = useState(false);
-  const resumeRef = useRef(null);
-  useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
-  const idx = STAGES.indexOf(c.stage);
-  const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
-  const terminal = c.stage === 'hired' || c.stage === 'rejected';
-  const sm = STAGE_META[c.stage];
-
-  const saveInterview = async (value) => {
-    setIvBusy(true);
-    try { const u = await api.updateCandidate(c.id, { interview_at: value }); onUpdated?.(u); setIvEdit(false); }
-    catch { /* keep editor open */ }
-    finally { setIvBusy(false); }
-  };
-  const uploadResume = async (file) => {
-    if (!file) return;
-    setResumeBusy(true);
-    try { const u = await api.candidateResumeUpload(c.id, (() => { const f = new FormData(); f.append('file', file); return f; })()); onUpdated?.(u); }
-    catch { /* noop */ }
-    finally { setResumeBusy(false); if (resumeRef.current) resumeRef.current.value = ''; }
-  };
-  const viewResume = async () => {
-    try { const { url } = await api.candidateResumeUrl(c.id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
-  };
-  const prettyIv = c.interviewAt ? (() => {
-    try { return new Date(c.interviewAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
-    catch { return c.interviewAt; }
-  })() : '';
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{candName(c)}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>{[c.roleTitle, c.department, c.source].filter(Boolean).join(' · ')}</div>
-          </div>
-          <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: `hsla(${sm.hue},0.12)`, color: `hsl(${sm.hue})`, flexShrink: 0 }}>{sm.label}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
-          <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 5 }}>
-            {c.email && <span><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.email}</span>}
-            {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
-            {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
-            {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
-          </div>
-          {/* Interview + resume */}
-          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              {!ivEdit ? (
-                <>
-                  <span style={{ fontSize: 12.5, color: c.interviewAt ? 'var(--ink)' : 'var(--muted)', fontWeight: c.interviewAt ? 600 : 400 }}>
-                    {c.interviewAt ? `Interview: ${prettyIv}` : 'No interview scheduled'}
-                  </span>
-                  {!terminal && (
-                    <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => { setIvAt(c.interviewAt ? c.interviewAt.slice(0, 16) : ''); setIvEdit(true); }}>
-                      {c.interviewAt ? 'Reschedule' : 'Schedule interview'}
-                    </button>
-                  )}
-                  {c.interviewAt && !terminal && (
-                    <button onClick={() => saveInterview('')} disabled={ivBusy}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                      Clear
-                    </button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <input type="datetime-local" className="form-input" value={ivAt} onChange={e => setIvAt(e.target.value)}
-                    style={{ fontSize: 12.5, padding: '5px 9px', height: 'auto' }} />
-                  <button className="primary-btn" style={{ fontSize: 11.5, padding: '5px 12px' }} disabled={!ivAt || ivBusy} onClick={() => saveInterview(ivAt)}>
-                    {ivBusy ? 'Saving…' : 'Save'}
-                  </button>
-                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setIvEdit(false)}>Cancel</button>
-                </>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              {c.resumeUrl ? (
-                <button onClick={viewResume}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                  View Resume
-                </button>
-              ) : (
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No resume on file</span>
-              )}
-              <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => uploadResume(e.target.files?.[0])} />
-              <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} disabled={resumeBusy} onClick={() => resumeRef.current?.click()}>
-                {resumeBusy ? 'Uploading…' : c.resumeUrl ? 'Replace' : 'Upload resume'}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            {onOpenInterviews && !['rejected', 'hired'].includes(c.stage) && (
-              <button className="primary-btn" onClick={() => onOpenInterviews(c)}
-                title="Teams invite, live questionnaire, AI answer fill and calibrated scoring"
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CalendarDays size={13} /> Interview Room
-              </button>
-            )}
-            {c.email && onSendForSignature && c.stage !== 'rejected' && (
-              <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
-                title="Send an offer letter or other document to this candidate via a secure Nexus Sign link (no login needed)"
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <FileText size={13} /> Send for Signature
-              </button>
-            )}
-          </div>
-          {/* Stage history timeline */}
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-              <History size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Stage history
-            </div>
-            {history === null ? (
-              <Spinner size={16} />
-            ) : history.map((h, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--line)' }}>
-                <span style={{ fontWeight: 700, color: `hsl(${(STAGE_META[h.toStage] || STAGE_META.applied).hue})`, flexShrink: 0 }}>
-                  {(STAGE_META[h.toStage] || { label: h.toStage }).label}
-                </span>
-                <span style={{ color: 'var(--muted)', flex: 1 }}>{h.note}</span>
-                <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{new Date(h.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-              </div>
-            ))}
-          </div>
-          {!terminal && (
-            <div style={{ marginTop: 16 }}>
-              <label style={FL}>NOTE FOR THIS MOVE (optional)</label>
-              <input className="form-input" style={{ width: '100%' }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Round 2 cleared, strong references" />
-            </div>
-          )}
-        </div>
-        {!terminal && (
-          <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
-            <button onClick={() => onStage(c, 'rejected', note)} disabled={busy}
-              style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
-              <XCircle size={13} /> Reject
-            </button>
-            {next && (
-              <button className="primary-btn" onClick={() => onStage(c, next, note)} disabled={busy}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: next === 'hired' ? 'hsl(var(--color-green))' : undefined }}>
-                {busy ? <Spinner size={14} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
-                {next === 'hired' ? 'Mark Hired' : `Move to ${STAGE_META[next].label}`}
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature }) {
   const [candidates, setCandidates] = useState(null);
@@ -2214,20 +2104,40 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
+  const [editing, setEditing] = useState(null);            // candidate open in the edit form
+  const [scheduling, setScheduling] = useState(null);      // { candidate, replace } - the one scheduling path
+  const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
+  const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
+  const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
+  const [packetRefresh, setPacketRefresh] = useState(0);
+  const { canAccessModule } = useRole();
+  const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
+  // Roles typed in as Other on Add Candidate that have no hiring packet yet
+  // (Neil, Oct 12) - the Packets button carries the count until each has one.
+  const [needPackets, setNeedPackets] = useState([]);
+  const loadNeedPackets = useCallback(() => {
+    api.getPackets().then(p => setNeedPackets(p?.rolesNeedingPacket || [])).catch(() => {});
+  }, []);
+  useEffect(() => { loadNeedPackets(); }, [loadNeedPackets]);
 
   const loadCandidates = useCallback(() => {
     setLoadErr(false); setCandidates(null);
     api.getCandidates().then(setCandidates).catch(() => setLoadErr(true));
   }, []);
   useEffect(() => { loadCandidates(); }, [loadCandidates]);
+  // Refresh the board (and the open card) without the full-page spinner.
+  const refreshBoard = useCallback(() => api.getCandidates().then(rows => {
+    setCandidates(rows);
+    setDetail(d => (d ? rows.find(x => x.id === d.id) || d : d));
+  }).catch(() => {}), []);
 
   async function moveStage(c, stage, note) {
     if (busy) return;
     setBusy(true);
     try {
       const updated = await api.updateCandidate(c.id, { stage, stage_note: note || '' });
-      setCandidates(prev => prev.map(x => x.id === c.id ? updated : x));
-      setDetail(null);
+      setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, ...updated } : x));
+      setDetail(stage === 'hired' ? null : { ...c, ...updated });
       if (stage === 'hired') {
         toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
         if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
@@ -2259,12 +2169,22 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
-        {(c.interviewAt || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
+        {(c.interview || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
           <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-            {c.interviewAt && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'hsla(var(--color-purple),0.1)', color: 'hsl(var(--color-purple))' }}>
+            {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
+              <span title={c.interview.interviewers?.length ? `With ${c.interview.interviewers.join(', ')}` : ''}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
+                  background: c.interview.status === 'live' ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-purple),0.1)',
+                  color: c.interview.status === 'live' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-purple))' }}>
                 <CalendarDays size={10} />
-                {(() => { try { return new Date(c.interviewAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return c.interviewAt; } })()}
+                {c.interview.status === 'live' ? 'In Progress' : formatDateTime(c.interview.at)}
+                {c.interview.interviewers?.length ? ` · ${c.interview.interviewers.map(n => n.split(' ')[0]).join(', ')}` : ''}
+              </span>
+            )}
+            {c.interview?.status === 'completed' && (
+              <span title="Interview done - waiting on the transcript or the score"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
+                <CheckCircle size={10} /> Interviewed
               </span>
             )}
             {c.interviewScore != null && (
@@ -2286,6 +2206,16 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
+          <button className="secondary-btn" onClick={() => setPacketsOpen(true)}
+            title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no packet yet` : undefined}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6,
+              ...(needPackets.length ? { borderColor: '#b45309', color: '#b45309', background: 'rgba(180,83,9,0.08)', fontWeight: 700 } : {}) }}>
+            {needPackets.length > 0 && <AlertTriangle size={13} />}
+            Packets
+            {needPackets.length > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#b45309', color: '#fff' }}>{needPackets.length}</span>
+            )}
+          </button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
             {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
@@ -2299,7 +2229,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {/* Pipeline stats */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
         {[['card-blue', 'In pipeline', open.length, 'Applied → Offer'],
-          ['card-orange', 'Interviews booked', candidates.filter(c => c.interviewAt && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
+          ['card-orange', 'Interviews booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
           ['card-purple', 'Offers out', byStage('offer').length, 'Awaiting decision'],
           ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
           <div key={label} className={`kpi-card ${cls}`}>
@@ -2359,37 +2289,62 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         </div>
       )}
 
-      {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
-        onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
+      {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastOk={toastOk} toastErr={toastErr}
+        onSaved={c => {
+          setCandidates(prev => [c, ...prev]);
+          toastOk(c.roleCreated
+            ? `${candName(c)} added. "${c.roleCreated}" is now a role of the company - add its hiring packet under Packets.`
+            : `${candName(c)} added to the pipeline.`);
+          refreshBoard();
+          if (c.roleCreated) loadNeedPackets();
+        }} />}
       {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
-        onOpenInterviews={cand => { setDetail(null); setIvFor(cand); }}
-        onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }} />}
+        refreshKey={packetRefresh}
+        onUpdated={u => { if (u) { setCandidates(prev => prev.map(x => x.id === u.id ? { ...x, ...u } : x)); setDetail(d => d && d.id === u.id ? { ...d, ...u } : d); } else refreshBoard(); }}
+        onEdit={cand => setEditing(cand)}
+        onSchedule={(cand, replace) => setScheduling({ candidate: cand, replace: replace || null })}
+        onOpenRoom={cand => { setDetail(null); setIvFor(cand); }}
+        onSendPacket={cand => setPacketFor(cand)} onSignPacket={setSignParty}
+        toastOk={toastOk} toastErr={toastErr} />}
+      {scheduling && <ScheduleInterviewModal candidate={scheduling.candidate} replace={scheduling.replace}
+        onClose={() => setScheduling(null)} toastOk={toastOk} toastErr={toastErr}
+        onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
+      {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
+        onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
+      {packetsOpen && <PacketsModal onClose={() => { setPacketsOpen(false); loadNeedPackets(); }} toastOk={toastOk} toastErr={toastErr} />}
+      {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
+        onClose={() => setPacketFor(null)}
+        onSent={ev => {
+          setPacketFor(null); setPacketRefresh(n => n + 1);
+          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
+        }} />}
+      <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => { setSignParty(null); setPacketRefresh(n => n + 1); }}
+        onDone={() => {
+          setSignParty(null); setPacketRefresh(n => n + 1);
+          toastOk('Signed - the new hire has been emailed the packet to sign.');
+        }} />
       {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
-      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); api.getCandidates().then(setCandidates).catch(() => {}); }} toastOk={toastOk} toastErr={toastErr} />}
+      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
+        onDecision={(kind, cand) => {
+          if (kind === 'another') setScheduling({ candidate: cand, replace: null });
+          else moveStage(cand, kind === 'offer' ? 'offer' : 'rejected', kind === 'offer' ? 'After the interview' : 'Not a fit after the interview');
+        }} />}
     </div>
   );
 }
 
 // ── Org chart (Phase 5) - top-down node chart on a pan/zoom canvas ────────────
+// The canvas (layout, connectors, pan, zoom, fit, focus) is the shared
+// components/orgchart/OrgChartCanvas, which the Contact Directory's read-only
+// Org Chart lens draws with too. This tab adds what only HR may do: drag a
+// card to change who someone reports to, and the side panel that edits the
+// reporting line, title, department and division head tag.
 // Functional divisions colour the chart: a person's division is their own
 // head-tag if set, else inherited from the nearest tagged manager above them.
-// A fixed palette keeps each division's colour stable across renders.
-const DIVISION_PALETTE = [
-  '212 90% 52%',   // blue
-  '150 60% 40%',   // green
-  '270 68% 58%',   // purple
-  '26 88% 52%',    // orange
-  '338 74% 56%',   // pink
-  '188 72% 40%',   // teal
-  '45 88% 48%',    // amber
-  '0 72% 56%',     // red
-];
-const divColorFor = (name, names) => {
-  if (!name) return '';
-  const i = names.indexOf(name);
-  return DIVISION_PALETTE[(i < 0 ? 0 : i) % DIVISION_PALETTE.length];
-};
+// The palette lives with the canvas so both charts colour a division alike.
 
 // A single node card - minimal, fixed-width, avatar-forward, with a coloured
 // division accent bar down its left edge. The reports pill hangs off the bottom
@@ -2444,56 +2399,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
           )}
         </div>
       </div>
-      {kids > 0 && (
-        <button onClick={ev => { ev.stopPropagation(); onToggle(email); }}
-          title={isCollapsed ? 'Show team' : 'Hide team'}
-          style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 11px', borderRadius: 20,
-            border: '1.5px solid var(--line)', background: isCollapsed ? 'var(--mist)' : 'var(--card)',
-            fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', cursor: 'pointer',
-            fontFamily: 'Inter,sans-serif', boxShadow: 'var(--shadow-sm)', whiteSpace: 'nowrap' }}>
-          {kids}
-          <ChevronRight size={11} style={{ transform: isCollapsed ? 'rotate(90deg)' : 'rotate(-90deg)', transition: 'transform 0.12s' }} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-// Recursive top-down layout with pure-div connectors: parent stub → sibling
-// rail (outer halves transparent at the ends) → child stub.
-function OrgTreeNode({ e, ctx }) {
-  const email = (e.workEmail || '').toLowerCase();
-  const kids = ctx.visChildren.get(email) || [];
-  const open = kids.length > 0 && !ctx.collapsedSet.has(email);
-  const div = ctx.divisionOf(e);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <OrgNodeCard e={e} kids={kids.length} isCollapsed={ctx.collapsedSet.has(email)}
-        onToggle={ctx.toggle} onSelect={ctx.setSelected} dnd={ctx.dnd}
-        entityName={ctx.entityName} highlight={ctx.isHighlight(e)}
-        divName={div} divColor={ctx.divColor(div)} isHead={!!(e.division || '').trim()}
-        dim={ctx.activeDiv && div !== ctx.activeDiv}
-        onUnlink={e.managerEmail ? ctx.onUnlink : null} />
-      {open && (
-        <>
-          <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
-          <div style={{ display: 'flex', alignItems: 'flex-start' }}>
-            {kids.map((k, i) => (
-              <div key={k.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px' }}>
-                {kids.length > 1 && (
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', height: 2 }}>
-                    <div style={{ flex: 1, background: i === 0 ? 'transparent' : 'var(--line)' }} />
-                    <div style={{ flex: 1, background: i === kids.length - 1 ? 'transparent' : 'var(--line)' }} />
-                  </div>
-                )}
-                <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
-                <OrgTreeNode e={k} ctx={ctx} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      <ReportsPill count={kids} collapsed={isCollapsed} onToggle={() => onToggle(email)} />
     </div>
   );
 }
@@ -2618,11 +2524,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [collapsedSet, setCollapsedSet] = useState(new Set());
   const [seeded, setSeeded] = useState(false);
   const [activeDiv, setActiveDiv] = useState('');   // legend highlight filter
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 40, y: 24 });
   const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
-  const canvasRef = useRef(null);
-  const contentRef = useRef(null);
+  const chartRef = useRef(null);                      // the shared canvas: centerView / fitToView / focusOn / bounds
   const dragRef = useRef(null);
   const people = employees.filter(e => e.status !== 'offboarded');
 
@@ -2742,8 +2645,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           // Dropped in open space, beyond snapping reach of any card: that IS
           // the gesture for "take them out of the reporting line" - but only
           // inside the chart canvas, so releasing over the toolbar is a no-op.
-          const c = canvasRef.current && st.last
-            ? canvasRef.current.getBoundingClientRect() : null;
+          const c = chartRef.current && st.last ? chartRef.current.bounds() : null;
           const inCanvas = c && st.last.x >= c.left && st.last.x <= c.right
             && st.last.y >= c.top && st.last.y <= c.bottom;
           if (inCanvas && st.person.managerEmail) drop('__none__', st.person);
@@ -2774,8 +2676,10 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   // inherited from the nearest tagged manager up the chain. Memoised per email.
   const divisionNames = [...new Set(people.map(e => (e.division || '').trim()).filter(Boolean))].sort();
   const divColor = name => divColorFor(name, divisionNames);
+  // Resolved for everyone up front (the cards render inside the shared
+  // canvas later, and must not mutate anything of this render then).
   const _divCache = new Map();
-  const divisionOf = (person) => {
+  const _resolveDivision = (person) => {
     let cur = person, hops = 0;
     while (cur && hops < 30) {
       const em = (cur.workEmail || '').toLowerCase();
@@ -2790,6 +2694,8 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     if (em0) _divCache.set(em0, '');
     return '';
   };
+  for (const p of people) _resolveDivision(p);
+  const divisionOf = (person) => _divCache.get((person.workEmail || '').toLowerCase()) || '';
   const divisionCounts = {};
   for (const p of people) { const d = divisionOf(p); if (d) divisionCounts[d] = (divisionCounts[d] || 0) + 1; }
 
@@ -2829,34 +2735,28 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     return n;
   });
 
-  const ctx = {
-    visChildren, collapsedSet, toggle, setSelected, dnd, entityName,
-    isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
-    divisionOf, divColor, activeDiv,
-    onUnlink: (person) => drop('__none__', person),
+  const isHighlight = (e) => !!q && fullName(e).toLowerCase().includes(q);
+  const onUnlink = (person) => drop('__none__', person);
+  // Keyed by work email (what collapse, search and drag use); someone with
+  // no work email yet falls back to their record id so siblings never share
+  // a key. They can have no reports - reports are filed under an email.
+  const keyOf = (e) => (e.workEmail || '').toLowerCase() || `id:${e.id}`;
+  const childrenOf = (e) => visChildren.get((e.workEmail || '').toLowerCase()) || [];
+  const renderCard = (e, meta) => {
+    const div = divisionOf(e);
+    return (
+      <OrgNodeCard e={e} kids={meta.kids} isCollapsed={meta.collapsed}
+        onToggle={toggle} onSelect={setSelected} dnd={dnd}
+        entityName={entityName} highlight={isHighlight(e)}
+        divName={div} divColor={divColor(div)} isHead={!!(e.division || '').trim()}
+        dim={activeDiv && div !== activeDiv}
+        onUnlink={e.managerEmail ? onUnlink : null} />
+    );
   };
 
-  // ── Pan & zoom canvas - the chart never overflows the page; you pan/zoom
-  // within a fixed viewport. Default = 100% zoom, centered; Fit is opt-in.
-  const centerView = () => requestAnimationFrame(() => {
-    const c = canvasRef.current, k = contentRef.current;
-    if (!c || !k) return;
-    const kw = k.scrollWidth;
-    setZoom(1);
-    // Centre on the content midpoint - when the tree is wider than the canvas
-    // this puts the middle in view (edges pan-reachable) rather than left-pinning.
-    setPan({ x: (c.clientWidth - kw) / 2, y: 24 });
-  });
-  const fitToView = () => requestAnimationFrame(() => {
-    const c = canvasRef.current, k = contentRef.current;
-    if (!c || !k) return;
-    // scrollWidth reports untransformed layout size - no zoom correction needed
-    const kw = k.scrollWidth, kh = k.scrollHeight;
-    if (!kw || !kh) return;
-    const s = Math.max(0.35, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
-    setZoom(s);
-    setPan({ x: Math.max(24, (c.clientWidth - kw * s) / 2), y: 24 });
-  });
+  // The canvas never overflows the page; you pan/zoom within a fixed viewport.
+  // Default = 100% zoom, centered on a filter change; Fit is opt-in.
+  const centerView = () => chartRef.current && chartRef.current.centerView();
   useEffect(() => { if (seeded) centerView(); }, [orgCompany, orgDept, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Search = find & focus: expand every ancestor of the first match (plus the
@@ -2883,28 +2783,9 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       return n;
     });
     // Let the expansion render, then centre the card in the viewport.
-    const t = setTimeout(() => {
-      const c = canvasRef.current, k = contentRef.current;
-      const el = k && me ? k.querySelector(`[data-email="${me.replace(/"/g, '')}"]`) : null;
-      if (!c || !el) return;
-      const er = el.getBoundingClientRect(), cr = c.getBoundingClientRect();
-      setPan(p => ({
-        x: p.x + (cr.width / 2 - (er.left + er.width / 2 - cr.left)),
-        y: p.y + (cr.height / 3 - (er.top + er.height / 2 - cr.top)),
-      }));
-    }, 80);
+    const t = setTimeout(() => { if (me && chartRef.current) chartRef.current.focusOn(me); }, 80);
     return () => clearTimeout(t);
   }, [q, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const startPan = (ev) => {
-    if (ev.target.closest && ev.target.closest('[data-orgcard]')) return;   // card press, not a pan
-    const sx = ev.clientX - pan.x, sy = ev.clientY - pan.y;
-    const move = (m) => setPan({ x: m.clientX - sx, y: m.clientY - sy });
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-  const zoomBy = (f) => setZoom(z => Math.max(0.3, Math.min(1.6, +(z * f).toFixed(3))));
 
   if (!people.length) return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
@@ -2993,40 +2874,15 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      {/* The chart canvas - drag empty space to pan, controls to zoom/fit.
-          Card drag is pointer-based (see onCardPointerDown), so it works with a
-          finger and resolves the drop target through the zoom transform. */}
-      <div ref={canvasRef} onPointerDown={startPan}
-        style={{ position: 'relative', height: 'max(480px, calc(100vh - 380px))', overflow: 'hidden',
-          borderRadius: 16, border: `1px solid ${draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}`, cursor: 'grab', touchAction: 'none',
-          background: 'var(--card)',
-          backgroundImage: 'radial-gradient(circle, var(--line) 1px, transparent 1px)', backgroundSize: '26px 26px' }}>
-        {visRoots.length === 0 && visUnlinked.length === 0 ? (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
-            No one matches these filters.
-          </div>
-        ) : (
-          <div ref={contentRef} style={{ position: 'absolute', left: 0, top: 0,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0',
-            display: 'flex', alignItems: 'flex-start', gap: 48, padding: 4, width: 'max-content' }}>
-            {visRoots.map(r => <OrgTreeNode key={r.id} e={r} ctx={ctx} />)}
-          </div>
-        )}
-
-        {/* Zoom controls */}
-        <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', gap: 6, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 5, boxShadow: 'var(--shadow-md)' }}>
-          {[['−', () => zoomBy(1 / 1.25)], [`${Math.round(zoom * 100)}%`, fitToView], ['+', () => zoomBy(1.25)]].map(([label, fn], i) => (
-            <button key={i} onClick={fn} title={i === 1 ? 'Fit to view' : ''}
-              style={{ minWidth: 34, height: 30, borderRadius: 8, border: 'none', background: i === 1 ? 'var(--mist)' : 'transparent',
-                fontSize: i === 1 ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
-          Drag a card near someone to re-assign · drop in open space (or press ×) to remove the reporting line · tap for details
-        </span>
-      </div>
+      {/* The chart canvas - drag empty space to pan, wheel / pinch / controls
+          to zoom, fit on the % button. Card drag is pointer-based (see
+          onCardPointerDown), so it works with a finger and resolves the drop
+          target through the zoom transform; a press on a card is never a pan. */}
+      <OrgChartCanvas ref={chartRef} roots={visRoots} childrenOf={childrenOf} keyOf={keyOf} renderCard={renderCard}
+        collapsed={collapsedSet} onToggle={toggle} ariaLabel="Org chart"
+        borderColor={draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}
+        emptyText={visUnlinked.length ? 'No reporting lines yet - everyone is listed below.' : 'No one matches these filters.'}
+        hint="Drag a card near someone to re-assign · drop in open space (or press ×) to remove the reporting line · tap for details" />
 
       {visUnlinked.length > 0 && (
         <div style={{ marginTop: 14 }}>
@@ -5710,8 +5566,13 @@ function MonthlyBars({ employees }) {
 
 const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
 
-function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpToDirectory }) {
-  const total = employees.length;
+function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatusFilter, onJumpToDirectory }) {
+  // Total People counts the company's own people; external and guest users
+  // (their own list on this screen) read underneath as "+N external" - the
+  // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
+  const isExt = e => ['external', 'guest'].includes(e.identityType || 'internal');
+  const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
+  const total = employees.filter(e => !isExt(e)).length;
   const nActive = employees.filter(e => e.status === 'active').length;
   const nOnboarding = employees.filter(e => e.status === 'onboarding').length;
   const joined = employees.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
@@ -5727,8 +5588,9 @@ function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpT
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
       {/* 2×2 KPI tiles - solid brand hero + white siblings */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <KpiTile solid label="Total people" value={total} loading={loading}
-          delta={joined > 0 ? `↑ ${joined}` : undefined} sub="this year"
+        <KpiTile solid label="Total People" value={total} loading={loading}
+          delta={joined > 0 ? `↑ ${joined} this year` : undefined}
+          sub={nExternal ? `+${nExternal} external` : 'no external users'}
           onGo={onJumpToDirectory} goTitle="See the directory" />
         <KpiTile label="Active" value={nActive} loading={loading} sub={total ? `${Math.round((nActive / total) * 100)}% of people` : 'no people yet'}
           onGo={() => onStatusFilter?.('active')} goTitle="Filter directory to active" />
@@ -5817,6 +5679,10 @@ export default function HR({ activeSub, onSubChange }) {
   const [deptF,     setDeptF]     = useState('All');
   const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
+  // Active / Inactive lens on the list (Neil, Oct 12): someone who has Left
+  // or is Inactive is not removed, a status change moves them to the
+  // Inactive tab. The status dropdown narrows further inside a lens.
+  const [listTab,   setListTab]   = useState('active');
   const [typeF,     setTypeF]     = useState('All');   // All | employee | contractor | external
   // DELETED_F is a view, not a status: a removed person keeps whatever status
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
@@ -5939,6 +5805,7 @@ export default function HR({ activeSub, onSubChange }) {
     const source = showingDeleted ? deletedEmployees
       : [...employees, ...extEmployees].sort((a, b) => fullName(a).localeCompare(fullName(b)));
     return source.filter(e => {
+      if (!showingDeleted && statusF === 'All' && INACTIVE_STATUSES.has(e.status || 'active') !== (listTab === 'inactive')) return false;
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
@@ -5953,7 +5820,14 @@ export default function HR({ activeSub, onSubChange }) {
       }
       return true;
     });
-  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search]);
+  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab]);
+  // Tab counts over the whole directory (not the other filters), so the
+  // Inactive count reads the same whichever company or department is open.
+  const tabCounts = useMemo(() => {
+    const c = { active: 0, inactive: 0 };
+    for (const e of [...employees, ...extEmployees]) c[INACTIVE_STATUSES.has(e.status || 'active') ? 'inactive' : 'active'] += 1;
+    return c;
+  }, [employees, extEmployees]);
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -6128,7 +6002,7 @@ export default function HR({ activeSub, onSubChange }) {
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
-        <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
+        <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}
           onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
           onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }} />
 
@@ -6146,7 +6020,7 @@ export default function HR({ activeSub, onSubChange }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <ChevronLeft size={14} /> Back to directory
           </button>
-          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
+          <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
@@ -6202,6 +6076,17 @@ export default function HR({ activeSub, onSubChange }) {
                 </select>
               </div>
             </div>
+            {!showingDeleted && statusF === 'All' && (
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 14px', borderBottom: '1px solid var(--line)' }}>
+                {[['active', 'Active'], ['inactive', 'Inactive']].map(([id, label]) => (
+                  <button key={id} onClick={() => { setListTab(id); setSelectedId(null); setPage(1); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 12px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${listTab === id ? 'var(--pine)' : 'transparent'}`, color: listTab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
+                    {label}
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{tabCounts[id]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {(loading || (showingDeleted && deletedLoading)) ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                 <Spinner size="section" />
@@ -6315,7 +6200,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 <div style={{ padding: '16px 18px', minWidth: 0 }}>
                   {selected ? (
-                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
+                    <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
@@ -6337,7 +6222,7 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
+        <EmployeeFormModal employee={editing} employees={employees} externals={extEmployees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
           initialType={addPreset}
           onClose={() => { setFormOpen(false); setEditing(null); setAddPreset('full_time'); }}
           onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />

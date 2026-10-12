@@ -115,6 +115,18 @@ function statusOf(entry) {
 function releasedKey(entry) {
   return entry?.releasedAt || entry?.createdAt || '';
 }
+// Latest on top. Entries published by one automatic run share a releasedAt,
+// so they fall back to when each change merged (mergedAt), then the PR number
+// for entries published before mergedAt existed.
+function instant(iso) {
+  const t = new Date(iso || '').getTime();
+  return isNaN(t) ? 0 : t;
+}
+function newestFirst(a, b) {
+  return (instant(releasedKey(b)) - instant(releasedKey(a)))
+    || (instant(b.mergedAt) - instant(a.mergedAt))
+    || ((b.prNumber || 0) - (a.prNumber || 0));
+}
 
 // ── Small badge (ported from NxBadge) ─────────────────────────────────────────
 function Badge({ label, color, tint }) {
@@ -198,7 +210,7 @@ export default function Changelog({ onClose }) {
   }, [adding, editing, onClose]);
 
   const sorted = useMemo(
-    () => (entries || []).slice().sort((a, b) => String(releasedKey(b)).localeCompare(String(releasedKey(a)))),
+    () => (entries || []).slice().sort(newestFirst),
     [entries],
   );
   // Pending-review / draft entries stay out of the public-facing tabs.
@@ -639,7 +651,7 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
       if (!byVersion.has(v)) byVersion.set(v, { version: v, releasedAt: releasedKey(e), entries: [] });
       byVersion.get(v).entries.push(e);
     }
-    return [...byVersion.values()].sort((a, b) => (a.releasedAt < b.releasedAt ? 1 : -1));
+    return [...byVersion.values()].sort((a, b) => instant(b.releasedAt) - instant(a.releasedAt));
   }, [entries]);
 
   const [open, setOpen] = useState(groups[0]?.version || null);

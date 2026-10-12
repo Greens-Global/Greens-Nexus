@@ -97,6 +97,19 @@ describe("What's New automatic publishing status", () => {
     expect(screen.getByText('2 updates')).toBeTruthy();
   });
 
+  it('lists the latest merge on top when one run published several updates at once', async () => {
+    const run = '2026-10-09T04:18:00Z';
+    api.getTaskChangelog.mockResolvedValue([
+      { id: 'a', title: 'Merged First', description: 'x', type: 'Bug Fix', module: 'A', status: 'Released', releasedAt: run, mergedAt: '2026-10-08T10:00:00Z' },
+      { id: 'c', title: 'Merged Last', description: 'x', type: 'Bug Fix', module: 'A', status: 'Released', releasedAt: run, mergedAt: '2026-10-08T18:00:00Z' },
+      { id: 'b', title: 'Merged Second', description: 'x', type: 'Bug Fix', module: 'A', status: 'Released', releasedAt: run, mergedAt: '2026-10-08T12:00:00Z' },
+    ]);
+    render(<Changelog onClose={() => {}} />);
+    await screen.findByText('Merged Last');
+    const titles = screen.getAllByText(/^Merged (First|Second|Last)$/).map((n) => n.textContent);
+    expect(titles).toEqual(['Merged Last', 'Merged Second', 'Merged First']);
+  });
+
   it("says when an update went out in the pull request's own words", async () => {
     api.getTaskChangelogAutoStatus.mockResolvedValue({ ...healthy, polishNote: 'HTTP 400: Your credit balance is too low' });
     await openManage();

@@ -25,6 +25,7 @@ import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
+import { pairLocalAgent } from '../lib/agentPair';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -371,29 +372,6 @@ function AllDayToggle({ on, onChange }) {
       <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
     </button>
   );
-}
-
-// Shared-PC binding: mint a nonce and hand it to the LOCAL Nexus agent over
-// localhost, so the agent claims this PC's device identity with its own token
-// (the browser never sends a device_id). Returns the nonce to send with clock-in,
-// or '' if there's no agent - a personal machine then clocks in unbound, exactly
-// as before. Best-effort with a short timeout so it never blocks the punch.
-const NEXUS_AGENT_PORT = 47615;
-async function pairLocalAgent() {
-  try {
-    const { nonce } = await api.timeAgentPairChallenge();
-    if (!nonce) return '';
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2500);
-    let ok = false;
-    try {
-      const r = await fetch(`http://127.0.0.1:${NEXUS_AGENT_PORT}/nexus/pair?nonce=${encodeURIComponent(nonce)}`,
-        { signal: ctrl.signal });
-      ok = r.ok;
-    } catch { /* no agent reachable - unbound clock-in */ }
-    clearTimeout(t);
-    return ok ? nonce : '';
-  } catch { return ''; }
 }
 
 function GeoChip({ p }) {

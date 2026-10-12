@@ -339,6 +339,8 @@ class PrReadingTests(unittest.TestCase):
         ]
         line = changelog_prs._mainline(commits, "m2")
         self.assertEqual([x["sha"] for x in line], ["d2", "d3", "m2"])
+        # Each change carries when it landed, which orders a run's entries.
+        self.assertEqual([r["date"] for r in changelog_prs._change_refs(line)], ["2026-10-09T03", "2026-10-09T04"])
         self.assertEqual([r["key"] for r in changelog_prs._change_refs(line)], ["commit:d2", "pr:480"])
 
     def test_a_run_of_direct_commits_by_one_developer_is_one_update(self):
