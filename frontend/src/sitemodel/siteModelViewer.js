@@ -89,6 +89,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     pad: new THREE.MeshBasicMaterial({ color: 0x8a8f94, transparent: true, opacity: 0.28, depthWrite: false }),
     zone: new THREE.MeshBasicMaterial({ color: 0xd9b36a, transparent: true, opacity: 0.22, depthWrite: false }),
     zoneLine: new THREE.LineBasicMaterial({ color: 0xa87a1d }),
+    canopy: new THREE.MeshLambertMaterial({ color: 0xf4f2ec, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
     door: new THREE.MeshBasicMaterial({ color: 0x5a5d55 }),
     pin: { maintenance: new THREE.MeshLambertMaterial({ color: 0xe03a2f }), inspection: new THREE.MeshLambertMaterial({ color: 0x2f6fe0 }), note: new THREE.MeshLambertMaterial({ color: 0x8a5fd0 }) },
     marker: new THREE.MeshLambertMaterial({ color: 0xe03a2f, emissive: 0x330000 }),
@@ -114,9 +115,21 @@ export function createSiteModelViewer(container, model, options = {}) {
 
   function flatPoly(pts, material, y) { const s = new THREE.Shape(); pts.forEach((p, i) => (i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1]))); const m = new THREE.Mesh(new THREE.ShapeGeometry(s), material); m.rotation.x = -Math.PI / 2; m.position.y = y; return m; }
   function lineLoop(pts, material, y) { const g = new THREE.BufferGeometry().setFromPoints(pts.concat([pts[0]]).map((p) => W(p[0], p[1], y))); return new THREE.Line(g, material); }
-  if (model.pad) scene.add(flatPoly(model.pad, mat.pad, 0.02));
-  if (model.parcel) scene.add(lineLoop(model.parcel, mat.parcel, 0.4));
-  (model.zones || []).forEach((z) => { scene.add(flatPoly(z.uv, mat.zone, 0.04)); scene.add(lineLoop(z.uv, mat.zoneLine, 0.1)); const c = centroid(z.uv); const l = textSprite(z.name, { size: 48, bg: 'rgba(255,255,255,0.8)', worldHeight: 4 }); l.position.copy(W(c[0], c[1], 4)); scene.add(l); });
+  const pads = model.pads || (model.pad ? [model.pad] : []);
+  const parcels = model.parcels ? model.parcels.map((p) => p.uv) : model.parcel ? [model.parcel] : [];
+  pads.forEach((p) => { if (p && p.length > 2) scene.add(flatPoly(p, mat.pad, 0.02)); });
+  parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
+  (model.zones || []).forEach((z) => {
+    const polys = (z.polys && z.polys.length ? z.polys : [z.uv]).filter((p) => p && p.length > 2);
+    if (!polys.length) return;
+    if (z.kind === 'canopy') {
+      // A roof over open stalls: a translucent slab on posts, so the stalls under it stay visible.
+      polys.forEach((p) => { const slab = flatPoly(p, mat.canopy, 4.2); scene.add(slab); scene.add(lineLoop(p, mat.edge, 4.2)); p.forEach((c) => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4.2, 6), mat.door); post.position.copy(W(c[0], c[1], 2.1)); scene.add(post); }); });
+    } else {
+      polys.forEach((p) => { scene.add(flatPoly(p, mat.zone, 0.04)); scene.add(lineLoop(p, mat.zoneLine, 0.1)); });
+    }
+    const c = centroid(polys[0]); const l = textSprite(z.name, { size: 48, bg: 'rgba(255,255,255,0.8)', worldHeight: 4 }); l.position.copy(W(c[0], c[1], z.kind === 'canopy' ? 7 : 4)); scene.add(l);
+  });
   (model.gates || []).forEach((g) => { const l = textSprite(g.name, { size: 48, bg: 'rgba(31,111,74,0.9)', color: '#fff', worldHeight: 4 }); l.position.copy(W(g.uv[0], g.uv[1], 3)); scene.add(l); const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.5, 8), new THREE.MeshLambertMaterial({ color: 0x1f6f4a })); post.position.copy(W(g.uv[0], g.uv[1], 1.25)); scene.add(post); });
 
   // ---- buildings ----
@@ -130,7 +143,8 @@ export function createSiteModelViewer(container, model, options = {}) {
     mesh.userData.building = b; mesh.castShadow = true; scene.add(mesh); shells.push(mesh);
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), mat.edge); edges.position.copy(mesh.position); scene.add(edges);
     for (let f = 2; f <= b.floors; f++) { const y = b.height * (f - 1) / b.floors; scene.add(lineLoop([[b.u[0], b.v[0]], [b.u[1], b.v[0]], [b.u[1], b.v[1]], [b.u[0], b.v[1]]], mat.edge, y)); }
-    const label = textSprite(b.letters.join(' / '), { size: 72, bg: 'rgba(255,255,255,0.85)', worldHeight: 7 });
+    const short = b.letters && b.letters.length && b.letters.length <= 2 && b.letters.every((l) => l.length <= 2);
+    const label = textSprite(short ? b.letters.join(' / ') : b.name, { size: 72, bg: 'rgba(255,255,255,0.85)', worldHeight: short ? 7 : 4 });
     label.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height + 5)); scene.add(label);
   });
 
@@ -144,8 +158,15 @@ export function createSiteModelViewer(container, model, options = {}) {
     m.position.copy(W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + 0.03));
     m.userData.unit = u; scene.add(m); unitMeshes.push(m); meshOf[u.n] = { mesh: m };
     if (u.k !== 'park' && b) {
-      const d = new THREE.Mesh(cellGeo, mat.door); d.scale.set(Math.max(0.3, u.wu - 0.3), h + 0.02, 0.25);
-      const vz = u.door === 'ne' ? u.v + u.dv - 0.12 : u.v + 0.12; d.position.copy(W(u.u + u.wu / 2, vz, baseY + h / 2 + 0.03)); scene.add(d); meshOf[u.n].door = d;
+      const d = new THREE.Mesh(cellGeo, mat.door);
+      if (u.door === 'w' || u.door === 'e') {   // rows that run across the frame: the door is on a u face
+        d.scale.set(0.25, h + 0.02, Math.max(0.3, u.dv - 0.3));
+        d.position.copy(W(u.door === 'e' ? u.u + u.wu - 0.12 : u.u + 0.12, u.v + u.dv / 2, baseY + h / 2 + 0.03));
+      } else {
+        d.scale.set(Math.max(0.3, u.wu - 0.3), h + 0.02, 0.25);
+        const vz = u.door === 'ne' ? u.v + u.dv - 0.12 : u.v + 0.12; d.position.copy(W(u.u + u.wu / 2, vz, baseY + h / 2 + 0.03));
+      }
+      scene.add(d); meshOf[u.n].door = d;
     }
   });
 
@@ -207,7 +228,19 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
 
   // ---- camera ----
-  const ctrl = { target: new THREE.Vector3(50, 0, 30), theta: 0, phi: 0.9, radius: 320, min: 10, max: 1200 };
+  // Framed on the developed area (pads, else parcels, else buildings), so a
+  // 390 m RV lot and a 160 m yard both open filling the stage.
+  const bounds = (() => {
+    const pts = []; (pads.length ? pads : parcels).forEach((p) => p.forEach((q) => pts.push(q)));
+    (model.buildings || []).forEach((b) => { pts.push([b.u[0], b.v[0]]); pts.push([b.u[1], b.v[1]]); });
+    if (!pts.length) return { cu: 50, cv: 0, r: 320 };
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    pts.forEach(([u, v]) => { u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); });
+    return { cu: (u0 + u1) / 2, cv: (v0 + v1) / 2, r: Math.max(120, Math.hypot(u1 - u0, v1 - v0) * 0.95) };
+  })();
+  const ctrl = { target: W(bounds.cu, bounds.cv, 0), theta: 0, phi: 0.9, radius: bounds.r, min: 10, max: Math.max(1200, bounds.r * 3) };
+  sun.target.position.copy(ctrl.target); sun.position.copy(ctrl.target.clone().add(new THREE.Vector3(-160, 260, 120)));
+  Object.assign(sun.shadow.camera, { left: -bounds.r, right: bounds.r, top: bounds.r, bottom: -bounds.r }); sun.shadow.camera.updateProjectionMatrix();
   function applyCamera() {
     ctrl.phi = Math.max(0.08, Math.min(1.45, ctrl.phi)); ctrl.radius = Math.max(ctrl.min, Math.min(ctrl.max, ctrl.radius));
     camera.position.set(Math.sin(ctrl.theta) * Math.cos(ctrl.phi), Math.sin(ctrl.phi), Math.cos(ctrl.theta) * Math.cos(ctrl.phi)).multiplyScalar(ctrl.radius).add(ctrl.target); camera.lookAt(ctrl.target);
@@ -218,10 +251,12 @@ export function createSiteModelViewer(container, model, options = {}) {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ms = 0;
     anim = (now) => { const k = ms ? Math.min(1, (now - t0) / ms) : 1; const e = k < 0.5 ? 2 * k * k : -1 + (4 - 2 * k) * k; ctrl.target.lerpVectors(from.t, target, e); ctrl.theta = from.theta + (theta - from.theta) * e; ctrl.phi = from.phi + (phi - from.phi) * e; ctrl.radius = from.r + (radius - from.r) * e; applyCamera(); if (k >= 1) anim = null; };
   }
+  const gate0 = model.gates && model.gates.length ? model.gates[0].uv : null;
   const VIEWS = {
-    overview: () => flyTo(new THREE.Vector3(50, 0, 30), 0, 0.9, 320),
-    plan: () => flyTo(new THREE.Vector3(50, 0, 30), 0, 1.45, 300),
-    gate: () => flyTo(W(55, -25, 0), Math.PI, 0.22, 125),
+    overview: () => flyTo(W(bounds.cu, bounds.cv, 0), 0, 0.9, bounds.r),
+    plan: () => flyTo(W(bounds.cu, bounds.cv, 0), 0, 1.45, bounds.r * 0.95),
+    // Stand just outside the gate and look across the site.
+    gate: () => { const g = gate0 || [bounds.cu, bounds.cv]; const theta = Math.atan2(g[0] - bounds.cu, -(g[1] - bounds.cv)); flyTo(W(g[0], g[1], 0), theta, 0.22, Math.max(90, bounds.r * 0.4)); },
   };
   let drag = null; const touches = new Map();
   function pan(dx, dy) { const s = ctrl.radius * 0.0016; const right = new THREE.Vector3(Math.cos(ctrl.theta), 0, -Math.sin(ctrl.theta)); const fwd = new THREE.Vector3(-Math.sin(ctrl.theta), 0, -Math.cos(ctrl.theta)); ctrl.target.addScaledVector(right, -dx * s).addScaledVector(fwd, -dy * s); }
@@ -313,17 +348,27 @@ export function unitKindLabel(u) {
   return s;
 }
 
-const SIDE = { ne: 'northeast side, toward Centre City Pkwy', sw: 'southwest side, toward I-15' };
+const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
+
+/** Compass name of a door side: `ne` faces +v, `sw` faces -v, `e` faces +u, `w` faces -u, in the model's frame. */
+export function doorSideName(model, door) {
+  const b = (model.frame && model.frame.bearingDeg) || 0;   // bearing of +u, clockwise from north
+  const off = { e: 0, ne: -90, w: 180, sw: 90 }[door];
+  if (off === undefined) return '';
+  return COMPASS[Math.round((((b + off) % 360) + 360) % 360 / 45) % 8] + ' side';
+}
 
 /** Step-by-step walking directions from the main gate to a unit. */
 export function unitDirections(model, u) {
   const b = (model.buildings || []).find((x) => x.id === u.b); const z = (model.zones || []).find((x) => x.id === u.b);
-  const steps = ['Enter through the Main Gate and check in at the office if it is your first visit.'];
+  const gate = (model.gates && model.gates[0] && model.gates[0].name) || 'gate';
+  const steps = ['Enter through the ' + gate + ' and check in at the office if it is your first visit.'];
   if (z) { steps.push('Drive to the ' + z.name + '.'); steps.push('Stall ' + u.n + ' is marked on the model; stalls are numbered in order along each row.'); return steps; }
   if (!b) return steps;
   steps.push('Head to ' + b.name + (b.note ? ': ' + b.note.split('.')[0].toLowerCase() + '.' : '.'));
-  if (u.k === 'du' || u.k === 'ccdu') steps.push('Your door is on the outside wall, ' + (SIDE[u.door] || '') + '. Pull up to the roll-up door.');
+  const side = doorSideName(model, u.door);
+  if (u.k === 'du' || u.k === 'ccdu') steps.push('Your door is on the outside wall' + (side ? ', ' + side : '') + '. Pull up to the roll-up door.');
   else if (u.n[0] === 'M') steps.push('Mailboxes are inside the lobby.');
-  else steps.push('Go inside' + (u.f > 1 ? ', take the elevator or stairs to Level ' + u.f : '') + ' and follow the hallway; ' + u.n + ' is on the hallway ' + (u.door === 'ne' ? 'nearer the parkway side.' : 'nearer the freeway side.'));
+  else steps.push('Go inside' + (u.f > 1 ? ', take the elevator or stairs to Level ' + u.f : '') + ' and follow the hallway; ' + u.n + ' is on the hallway' + (side ? ' nearer the ' + side + '.' : '.'));
   return steps;
 }

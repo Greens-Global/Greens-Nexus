@@ -16,6 +16,13 @@ Two faces of the same file:
                                        sizes and types only. Never occupancy, never
                                        tenant data, never the layout notes.
 
+Live Cubby link: when CUBBY_API_KEY is set, every read merges the facility's
+current inventory from the Cubby Operator API (cubby_client.py) onto the
+model: occupancy and out-of-service flags come from Cubby, units Cubby has
+that the model does not are listed as `live.unplaced` (not on the map yet),
+and model units Cubby no longer has are marked `gone`. Without a key the model
+shows the snapshot it was built from and says so in `live`.
+
 Markup pins live in site_model_markups (create_all builds it; ENABLE ROW LEVEL
 SECURITY on dev and prod as part of the release - see docs/Site-Models.md).
 """
@@ -30,6 +37,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import cubby_client
 from auth import require_module_grant
 from database import get_db
 from models import SiteModelMarkup
@@ -47,6 +55,7 @@ _cache: Dict[str, tuple] = {}
 PUBLIC_UNIT_KEYS = ("n", "b", "f", "u", "v", "wu", "dv", "door", "k", "veh", "pw", "w", "d")
 PUBLIC_PROPERTY_KEYS = ("id", "name", "address")
 PUBLIC_BUILDING_KEYS = ("id", "letters", "name", "kind", "u", "v", "height", "floors", "roof")
+PUBLIC_UNPLACED_KEYS = ("n", "w", "d", "k")
 CATEGORIES = ("maintenance", "inspection", "note")
 STATUSES = ("open", "done")
 
@@ -76,6 +85,53 @@ def load_model(pid: str) -> Dict[str, Any]:
     return model
 
 
+def _snapshot_live(model: Dict[str, Any], **extra) -> Dict[str, Any]:
+    return {"source": "snapshot", "asOf": (model.get("layout") or {}).get("generated", ""), "unplaced": [], "missing": [], **extra}
+
+
+def _kind(x: Dict[str, Any]) -> str:
+    if x.get("t") == "P":
+        return "park"
+    if x.get("cc") and x.get("du"):
+        return "ccdu"
+    if x.get("cc"):
+        return "cc"
+    if x.get("du"):
+        return "du"
+    return "in"
+
+
+def with_live(model: Dict[str, Any]) -> Dict[str, Any]:
+    """The model with Cubby's current inventory merged on (see the module doc).
+    Pure given the Cubby answer; the Cubby call itself is cached per facility."""
+    fac = (model.get("property") or {}).get("cubbyFacilityId") or ""
+    if not fac or not cubby_client.enabled():
+        return {**model, "live": _snapshot_live(model, enabled=False, reason="CUBBY_API_KEY is not set" if fac else "No Cubby facility on this model")}
+    live, as_of, err = cubby_client.units_for(fac)
+    if live is None:
+        return {**model, "live": _snapshot_live(model, enabled=True, ok=False, error=err)}
+    by = {x["n"]: x for x in live}
+    units = []
+    for u in model.get("units", []):
+        x = by.get(u["n"])
+        if x is None:
+            units.append({**u, "gone": 1})
+            continue
+        still_vacant = (not u.get("l")) and (not x["l"])
+        units.append({**u, "l": x["l"], "r": x["r"], "why": x["why"], "note": x["note"],
+                      "w": x["w"] or u.get("w"), "d": x["d"] or u.get("d"), "pw": x["pw"] if x.get("pw") is not None else u.get("pw"),
+                      "dvac": u.get("dvac") if still_vacant else (0 if x["l"] else None)})
+    placed = {u["n"] for u in model.get("units", [])}
+    unplaced = [{"n": x["n"], "w": x["w"], "d": x["d"], "k": _kind(x), "l": x["l"], "r": x["r"], "why": x["why"], "note": x["note"], "group": x.get("group", "")}
+                for x in live if x["n"] not in placed]
+    missing = [u["n"] for u in units if u.get("gone")]
+    live_info = {"source": "cubby", "enabled": True, "ok": bool(not err), "asOf": as_of, "matched": len(units) - len(missing),
+                 "unplaced": unplaced, "missing": missing}
+    if err:
+        live_info["error"] = err   # stale answer served; the screen says when it is from
+    return {**model, "units": units, "live": live_info}
+
+
 def list_models() -> List[Dict[str, Any]]:
     out = []
     if not os.path.isdir(MODEL_DIR):
@@ -91,15 +147,18 @@ def list_models() -> List[Dict[str, Any]]:
         except HTTPException:
             continue
         out.append({"id": pid, "name": prop.get("name", ""), "address": prop.get("address", ""),
-                    "apn": prop.get("apn", ""), "cubbyFacilityId": prop.get("cubbyFacilityId", "")})
+                    "apn": prop.get("apn", ""), "cubbyFacilityId": prop.get("cubbyFacilityId", ""),
+                    "units": len(load_model(pid).get("units", [])), "live": cubby_client.enabled() and bool(prop.get("cubbyFacilityId"))})
     return out
 
 
 def public_view(model: Dict[str, Any]) -> Dict[str, Any]:
     """Customer-safe copy: the site and where each unit is, nothing about who rents it."""
     pick = lambda d, keys: {k: d.get(k) for k in keys if k in d}  # noqa: E731
-    units = [pick(u, PUBLIC_UNIT_KEYS) for u in model.get("units", [])]
+    units = [pick(u, PUBLIC_UNIT_KEYS) for u in model.get("units", []) if not u.get("gone")]
+    live = model.get("live") or {}
     return {
+        "live": {"source": live.get("source", "snapshot"), "unplaced": [pick(x, PUBLIC_UNPLACED_KEYS) for x in live.get("unplaced", [])]},
         "property": pick(model.get("property") or {}, PUBLIC_PROPERTY_KEYS), "frame": model.get("frame"), "image": model.get("image"),
         "imageWide": model.get("imageWide"), "parcel": model.get("parcel"), "pad": model.get("pad"),
         "gates": model.get("gates"), "buildings": [pick(b, PUBLIC_BUILDING_KEYS) for b in model.get("buildings", [])], "zones": model.get("zones"),
@@ -115,12 +174,20 @@ def get_site_models(user=Depends(require_asset_read)):
 
 @router.get("/site-models/public/{pid}")
 def get_public_site_model(pid: str):
-    return public_view(load_model(pid))
+    return public_view(with_live(load_model(pid)))
 
 
 @router.get("/site-models/{pid}")
 def get_site_model(pid: str, user=Depends(require_asset_read)):
-    return load_model(pid)
+    return with_live(load_model(pid))
+
+
+@router.post("/site-models/{pid}/refresh")
+def refresh_site_model(pid: str, user=Depends(require_asset_read)):
+    """Drop the cached Cubby answer for this facility and read it again."""
+    model = load_model(pid)
+    cubby_client.forget((model.get("property") or {}).get("cubbyFacilityId") or None)
+    return with_live(model).get("live")
 
 
 # ---- markup pins ----------------------------------------------------------
@@ -170,6 +237,8 @@ def add_markup(pid: str, body: MarkupIn, db: Session = Depends(get_db), user=Dep
     unit = (body.unit or "").strip().upper()
     if unit and not any(u.get("n") == unit for u in model.get("units", [])):
         raise HTTPException(status_code=400, detail=f"No unit {unit} on this model")
+    if not re.match(r"^[A-Z0-9-]{0,12}$", unit):
+        raise HTTPException(status_code=400, detail="Unit numbers are letters and digits")
     if body.category not in CATEGORIES:
         raise HTTPException(status_code=400, detail="Unknown pin category")
     now = _now()

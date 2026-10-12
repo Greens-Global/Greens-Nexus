@@ -45,6 +45,21 @@ describe('SiteModelPanel', () => {
     expect(screen.getByText(/Replace door spring/)).toBeTruthy();
     expect(screen.getByText('Layout Notes')).toBeTruthy();
   });
+  it('shows the live Cubby state and the units not on the map yet', () => {
+    const live = { ...model, live: { source: 'cubby', enabled: true, ok: true, asOf: '2026-10-11T20:00:00Z', matched: 2, unplaced: [{ n: 'Q001', w: 10, d: 20, k: 'park', l: 1, r: 1, group: 'RV 10x20' }], missing: [] } };
+    render(<SiteModelPanel model={live} mode="owner" images={{}} />);
+    expect(screen.getByText(/Live from Cubby/)).toBeTruthy();
+    expect(screen.getByText('Not On The Map Yet (1)')).toBeTruthy();
+    expect(screen.getByText('Q001')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'q1' } });
+    fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
+    expect(screen.getByRole('alert').textContent).toMatch(/not on the map yet/);
+  });
+  it('says when the model is a snapshot without a live link', () => {
+    render(<SiteModelPanel model={{ ...model, live: { source: 'snapshot', enabled: false, asOf: 'Oct 11, 2026', unplaced: [], missing: [] } }} mode="owner" images={{}} />);
+    expect(screen.getByText(/Cubby snapshot from Oct 11, 2026 · live link off/)).toBeTruthy();
+    expect(screen.queryByText(/Not On The Map Yet/)).toBeNull();
+  });
   it('tells the customer when a unit does not exist', () => {
     render(<SiteModelPanel model={model} mode="customer" images={{}} />);
     fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'Z999' } });

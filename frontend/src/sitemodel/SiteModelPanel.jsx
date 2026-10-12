@@ -6,7 +6,8 @@
 // All server traffic belongs to the parent (SiteModelSection / PublicUnitFinder);
 // this component only renders what it is given and reports what the user did.
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { createSiteModelViewer, unitKindLabel, unitDirections } from './siteModelViewer.js';
+import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName } from './siteModelViewer.js';
+import { formatDateTime } from '../lib/datetime.js';
 
 const FONT = "'Inter', system-ui, sans-serif";
 const PIN_CATEGORIES = [['maintenance', 'Maintenance'], ['inspection', 'Inspection'], ['note', 'Note']];
@@ -64,10 +65,20 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const u = selected ? byName[selected] : null;
   const bldg = (id) => (model.buildings || []).find((b) => b.id === id);
   const zone = (id) => (model.zones || []).find((z) => z.id === id);
-  const find = (e) => { e.preventDefault(); const name = normalizeQuery(query); if (viewerRef.current?.selectUnit(name)) { setQuery(name); setNotFound(''); } else setNotFound(`No unit ${name || '?'} at this property.`); };
+  const live = model.live || { source: 'snapshot' };
+  const unplaced = live.unplaced || [];
+  const find = (e) => {
+    e.preventDefault(); const name = normalizeQuery(query);
+    if (viewerRef.current?.selectUnit(name)) { setQuery(name); setNotFound(''); return; }
+    if (unplaced.some((x) => x.n === name)) setNotFound(`Unit ${name} is at this property but not on the map yet - the office can point you to it.`);
+    else setNotFound(`No unit ${name || '?'} at this property.`);
+  };
+  const liveLine = live.source === 'cubby'
+    ? `Live from Cubby${live.asOf ? ` · ${formatDateTime(live.asOf)}` : ''}${live.error ? ' · last good answer, Cubby is not responding' : ''}`
+    : `Cubby snapshot from ${live.asOf || 'the build date'}${live.enabled === false ? ' · live link off' : live.error ? ` · ${live.error}` : ''}`;
   const setLvl = (n) => { setLevel(n); viewerRef.current?.setLevel(n); };
   const owner = mode === 'owner';
-  const active = (model.units || []).filter((x) => x.n[0] !== 'M');
+  const active = (model.units || []).filter((x) => x.n[0] !== 'M' && !x.gone);
   const leased = active.filter((x) => x.l === 1).length; const bad = active.filter((x) => x.r === 0); const vacant = active.filter((x) => x.l === 0 && x.r === 1).length;
   const savePin = (e) => { e.preventDefault(); if (!pending || !pinTitle.trim()) return; onAddPin?.({ ...pending, title: pinTitle.trim(), category: pinCat }); setPending(null); setPinTitle(''); };
 
@@ -107,8 +118,17 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: 8 }}>
               {[['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
             </div>
+            <div style={{ fontSize: 12, color: live.source === 'cubby' && !live.error ? '#3f8f5f' : 'var(--text-muted, #5f6358)', marginTop: 6 }}><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, marginRight: 6, verticalAlign: 0, background: live.source === 'cubby' && !live.error ? '#3f8f5f' : '#b8b4a8' }} />{liveLine}</div>
           </section>
         )}
+        {owner && (unplaced.length || live.missing?.length) ? (
+          <section style={card}>
+            <h2 style={h2}>Not On The Map Yet ({unplaced.length})</h2>
+            <p style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', margin: '0 0 6px' }}>Cubby has these units but the model does not place them. Add them to the build config to put them on the map.</p>
+            {unplaced.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 160, overflow: 'auto', fontSize: 12 }}>{unplaced.map((x) => <li key={x.n}><span style={{ font: `500 12px ui-monospace, Menlo, monospace` }}>{x.n}</span> <span style={{ color: 'var(--text-muted, #5f6358)' }}>{x.w && x.d ? `${x.w} × ${x.d} ft` : ''}{x.group ? ` · ${x.group}` : ''}{x.r === 0 ? ' · out of service' : x.l ? ' · leased' : ' · vacant'}</span></li>)}</ul> : null}
+            {live.missing?.length ? <p style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', margin: '8px 0 0' }}>No longer in Cubby ({live.missing.length}): {live.missing.slice(0, 12).join(', ')}{live.missing.length > 12 ? '…' : ''}</p> : null}
+          </section>
+        ) : null}
         {pending && (
           <section style={card}>
             <h2 style={h2}>New Pin</h2>
@@ -130,8 +150,9 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Type</dt><dd style={{ margin: 0 }}>{unitKindLabel(u)}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Size</dt><dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{u.w && u.d ? `${u.w} × ${u.d} ft (${(u.w * u.d).toLocaleString()} sq ft)` : u.d ? `${u.d} in. mailbox` : 'not listed'}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Location</dt><dd style={{ margin: 0 }}>{bldg(u.b)?.name || zone(u.b)?.name || ''}{bldg(u.b)?.floors > 1 ? `, Level ${u.f}` : ''}</dd>
-              {u.door && u.k !== 'park' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Door</dt><dd style={{ margin: 0 }}>{u.k === 'du' || u.k === 'ccdu' ? `Outside wall, ${u.door === 'ne' ? 'northeast side' : 'southwest side'}` : 'Hallway'}</dd></>}
-              {owner && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days vacant</dt><dd style={{ margin: 0 }}>{u.l ? '-' : u.dvac}</dd>{u.r === 0 && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{u.why || 'not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}</>}
+              {u.door && u.k !== 'park' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Door</dt><dd style={{ margin: 0 }}>{u.k === 'du' || u.k === 'ccdu' ? `Outside wall${doorSideName(model, u.door) ? `, ${doorSideName(model, u.door)}` : ''}` : 'Hallway'}</dd></>}
+              {owner && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days vacant</dt><dd style={{ margin: 0 }}>{u.l ? '-' : typeof u.dvac === 'number' ? u.dvac : 'since the last build'}</dd>{u.r === 0 && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{u.why || 'not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}</>}
+              {u.gone ? <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Cubby</dt><dd style={{ margin: 0, color: '#c43d2f' }}>No longer in Cubby's inventory</dd></> : null}
             </dl>
             <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
               <b>How to Get There</b>
@@ -151,7 +172,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 13, margin: '8px 0 0' }}>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Footprint</dt><dd style={{ margin: 0 }}>{Math.round((building.u[1] - building.u[0]) * 3.281)} × {Math.round((building.v[1] - building.v[0]) * 3.281)} ft</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Height</dt><dd style={{ margin: 0 }}>{Math.round(building.height * 3.281)} ft, {building.floors} level{building.floors > 1 ? 's' : ''}</dd>
-              <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Units</dt><dd style={{ margin: 0 }}>{(model.units || []).filter((x) => x.b === building.id).length}</dd>
+              <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Units</dt><dd style={{ margin: 0 }}>{(model.units || []).filter((x) => x.b === building.id).length || 'none matched yet'}</dd>
             </dl>
             <p style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', margin: '8px 0 0' }}>{building.note}</p>
           </section>

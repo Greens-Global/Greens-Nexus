@@ -1,167 +1,60 @@
 """Build a to-scale site model JSON for one property.
 
-Inputs: a property config (frame, buildings, zones in local meters or image
-pixels), the parcel GeoJSON, and the Cubby unit export. Output: site.json with
-every unit placed as a rectangle in the local (u,v) frame. Unit positions are
-SCHEMATIC until an as-built plan replaces them: drive-up units are laid along
-the exterior walls in unit-number order, interior units along double-loaded
-corridors, parking stalls in rows across the lot.
+    python build_site_model.py <config.json> <parcel.geojson> <units.json> <out.json>
+
+Inputs: a property config (frame, buildings, zones, classification rules), the
+parcel GeoJSON (one feature per parcel the facility sits on), and the Cubby
+unit export. Output: site.json with every unit placed as a rectangle in the
+local (u,v) meter frame. Unit positions are SCHEMATIC until an as-built plan
+replaces them: drive-up units are laid along the exterior walls in unit-number
+order, interior units along double-loaded corridors, parking stalls in rows
+across the lot.
+
+Config reference (see the *.config.json files beside this script):
+
+  frame        lat0/lon0 origin, bearingDeg of the u axis (clockwise from north),
+               mPerDegLon / mPerDegLat.
+  image        detail imagery: file, bbox [W,S,E,N], px [w,h], attribution.
+               imageWide: context imagery, bbox only.
+  classify     ordered rules [{match: regex on the unit name, k: cc|ccdu|du|in|park|'',
+               veh: 0|1, f: floor}]; the first rule that carries a property wins it.
+               Units with no matching rule fall back to the Cubby fields
+               (t = P parking / S enclosed, cc / du feature flags).
+  buildings    id, letters (unit-name prefixes) or units (regex), kind, height,
+               floors, roof, doorSide (sw|ne|both), note, inferred, and the
+               footprint as either u/v ranges, a `rect` {E,N,L,W,bearing} from
+               Microsoft Open Buildings (meters from the frame origin, bearing of
+               the long side), or `px` corners on the detail image.
+  zones        open lots: id, name, kind, letters or units regex, and the outline
+               as px / ll / uv polygon or `parcels: [apn...]` (the parcel rings).
+  gates        id, name, px or ll.
+  pad          developed-area outline (px / ll); defaults to the parcels.
 """
-import json, math, re, sys
+import json
+import math
+import re
+import sys
+from datetime import date
 
 FT = 0.3048
 CORRIDOR = 1.6   # m, interior hallway
-AISLE = 6.0      # m, RV drive aisle
+AISLE = 6.0      # m, drive aisle between stall rows
 
-cfg = json.load(open(sys.argv[1]))
-parcel = json.load(open(sys.argv[2]))['features'][0]['geometry']
-units = json.load(open(sys.argv[3]))
-out_path = sys.argv[4]
-
-fr = cfg['frame']
-b = math.radians(fr['bearingDeg'])
-su, cu = math.sin(b), math.cos(b)
-
-def ll_to_uv(lon, lat):
-    E = (lon - fr['lon0']) * fr['mPerDegLon']
-    N = (lat - fr['lat0']) * fr['mPerDegLat']
-    return [round(E * su + N * cu, 2), round(-E * cu + N * su, 2)]  # u along bearing (SE), v toward NE
-
-def uv_to_ll(u, v):
-    E = u * su - v * cu
-    N = u * cu + v * su
-    return [fr['lon0'] + E / fr['mPerDegLon'], fr['lat0'] + N / fr['mPerDegLat']]
-
-img = cfg['image']
-W, S, E_, N_ = img['bbox']; pw, ph = img['px']
-def px_to_uv(x, y):
-    return ll_to_uv(W + x / pw * (E_ - W), N_ - y / ph * (N_ - S))
-
-# ---- unit classification (feature strings are not in the slim export) ----
-def num(n):
-    m = re.match(r'[A-Z]+(\d+)', n); return int(m.group(1)) if m else 0
-def classify(n):
-    L, k = n[0], num(n)
-    if L == 'G': return 'park' if n != 'G105' else ''
-    if L == 'M': return 'in'
-    if L in 'AEFZ': return 'du'
-    if L == 'B': return '' if n.startswith('BC') else ('du' if k <= 24 else 'cc')
-    if L == 'D': return 'du' if k <= 21 else 'cc'
-    if L == 'C':
-        if n in ('C436', 'C509'): return ''
-        if n == 'C343': return 'ccdu'
-        if k <= 44 or 300 <= k <= 340: return 'du'
-        return 'cc'
-    return ''
-def vehicle(n):
-    L, k = n[0], num(n)
-    if L in 'AF': return True
-    if L == 'B': return 1 <= k <= 24 and n != 'B002'
-    if L == 'C': return (1 <= k <= 13 and n != 'C001') or 24 <= k <= 44 or 300 <= k <= 339
-    if L == 'D': return k <= 19
-    if L == 'E': return k <= 18
-    return False
-for u in units:
-    u['k'] = classify(u['n']); u['veh'] = 1 if vehicle(u['n']) else 0
-    u['wm'] = round(u['w'] * FT, 2); u['dm'] = round(u['d'] * FT, 2)
 
 def natkey(n):
-    m = re.match(r'([A-Z]+)(\d+)([A-Z]*)', n)
+    m = re.match(r'([A-Z]*)(\d+)([A-Z]*)', n)
     return (m.group(1), int(m.group(2)), m.group(3)) if m else (n, 0, '')
-units.sort(key=lambda u: natkey(u['n']))
 
-placed = []
-flags = []
 
-def place(u, bid, floor, u0, v0, w, d, door):
-    # Geometry: u,v = corner, wu = size along u, dv = size along v (meters).
-    # Occupancy from Cubby: l leased, r rentable, why/note, dvac = days vacant.
-    placed.append({**{k: u[k] for k in ('n', 'w', 'd', 'k', 'veh', 'pw', 'l', 'r', 'why', 'note')}, 'dvac': u.get('dv', 0),
-                   'b': bid, 'f': floor, 'u': round(u0, 2), 'v': round(v0, 2),
-                   'wu': round(w, 2), 'dv': round(d, 2), 'door': door})
+def prefix(n):
+    m = re.match(r'[A-Z]+', n)
+    return m.group(0) if m else ''
 
-def take_row(items, i, ua, ub):
-    row = []; uu = ua; rowd = 0.0
-    while i < len(items):
-        x = items[i]; w, d = x['wm'], x['dm']
-        if w <= 0.3: w, d = 1.0, 1.0            # mailbox / unsized cell
-        if uu + w > ub + 0.01: break
-        row.append((x, uu, w, d)); uu += w; rowd = max(rowd, d); i += 1
-    return row, rowd, i
 
-def fill_rows(bd, items, i, floor, ua, ub, iv0, iv1):
-    """Double-loaded corridors: row A (doors toward +v), corridor, row B (doors toward -v), back to back."""
-    v = iv0
-    while i < len(items):
-        rowA, dA, iA = take_row(items, i, ua, ub)
-        if not rowA:
-            flags.append(f"{bd['id']}: unit {items[i]['n']} is wider than the building"); i += 1; continue
-        rowB, dB, iB = take_row(items, iA, ua, ub)
-        need = dA + CORRIDOR + dB
-        if v + need > iv1 + 0.01:
-            if v > iv0 + 0.01: return i            # next floor retries this row
-            if rowB and v + dA + CORRIDOR <= iv1 + 0.01:   # only row A fits here
-                rowB, dB, iB = [], 0.0, iA; need = dA + CORRIDOR
-            else:
-                return i
-        for x, uu, w, d in rowA: place(x, bd['id'], floor, uu, v, w, d, 'ne')
-        for x, uu, w, d in rowB: place(x, bd['id'], floor, uu, v + dA + CORRIDOR + (dB - d), w, d, 'sw')
-        v += need; i = iB
-    return i
+def num(n):
+    m = re.match(r'[A-Z]*(\d+)', n)
+    return int(m.group(1)) if m else 0
 
-def layout_building(bd, items):
-    u0, u1 = bd['u']; v0, v1 = bd['v']; Wd = v1 - v0
-    du = [x for x in items if x['k'] in ('du', 'ccdu')]
-    inner = [x for x in items if x['k'] not in ('du', 'ccdu')]
-    # Same-depth units share a row so a row is never as deep as its one deepest unit.
-    inner.sort(key=lambda x: (-x['dm'], natkey(x['n'])))
-    side = bd.get('doorSide', 'both')
-    primary = 'sw' if side in ('sw', 'both') else 'ne'
-    secondary = 'ne' if primary == 'sw' else 'sw'
-    for x in du:
-        if x['wm'] <= 0: x['wm'], x['dm'] = 3.05, 3.05
-    full = [x for x in du if x['dm'] >= 0.8 * Wd]
-    part = sorted([x for x in du if x['dm'] < 0.8 * Wd], key=lambda x: (-x['dm'], natkey(x['n'])))  # deep ones take the main wall
-    floor = 1; i = 0
-    full_until = u0; cur = {'sw': u0, 'ne': u0}; strip = {'sw': 0.0, 'ne': 0.0}
-    pending = full + part
-    while pending:
-        rest = []
-        for x in pending:
-            w, d = x['wm'], x['dm']
-            if x in full:
-                start = max(cur['sw'], cur['ne'])
-                if start + w <= u1 + 0.01:
-                    place(x, bd['id'], floor, start, v0, w, Wd, primary)
-                    cur['sw'] = cur['ne'] = start + w
-                    if floor == 1: full_until = start + w
-                else: rest.append(x)
-            else:
-                done = False
-                for wall in (primary, secondary):
-                    if cur[wall] + w <= u1 + 0.01:
-                        place(x, bd['id'], floor, cur[wall], v0 if wall == 'sw' else v1 - d, w, d, wall)
-                        cur[wall] += w; strip[wall] = max(strip[wall], d); done = True; break
-                if not done: rest.append(x)
-        if rest:
-            flags.append(f"{bd['id']}: {len(rest)} drive-up units overflow the walls on floor {floor} ({rest[0]['n']}..) - moved to floor {floor + 1}")
-            floor += 1; cur = {'sw': u0, 'ne': u0}; strip = {'sw': 0.0, 'ne': 0.0}
-        pending = rest
-    floors_used = floor
-    if inner:
-        f = 1
-        i = fill_rows(bd, inner, 0, 1, full_until, u1, v0 + strip['sw'] if floors_used == 1 else v0, v1 - strip['ne'] if floors_used == 1 else v1)
-        while i < len(inner):
-            f += 1
-            j = fill_rows(bd, inner, i, f, u0, u1, v0, v1)
-            if j == i:
-                flags.append(f"{bd['id']}: unit {inner[i]['n']} does not fit the building width"); i += 1
-            else: i = j
-        floors_used = max(floors_used, f)
-    if floors_used > bd.get('floors', 1):
-        flags.append(f"{bd['id']}: schematic needs {floors_used} levels for the unit area (configured {bd.get('floors', 1)}) - confirm the real floor count")
-        bd['floors'] = floors_used
-    bd['floorsUsed'] = floors_used
 
 def poly_contains(poly, p):
     x, y = p; c = False; j = len(poly) - 1
@@ -171,75 +64,339 @@ def poly_contains(poly, p):
         j = i
     return c
 
-def layout_lot(zone, items):
-    poly = zone['uv']
-    us = [p[0] for p in poly]; vs = [p[1] for p in poly]
-    u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
-    i = 0; v = v0 + 0.5; row_i = 0
-    while i < len(items) and v < v1:
-        rowd = max(x['dm'] for x in items[i:i + 40]) or 9.0
-        uu = u0 + 0.5; placed_any = False
-        while i < len(items) and uu < u1:
-            x = items[i]; w = x['wm'] or 3.6; d = x['dm'] or 9.0
-            c = (uu + w / 2, v + rowd / 2)
-            if poly_contains(poly, c):
-                place(x, zone['id'], 1, uu, v, w, d, 'sw' if row_i % 2 else 'ne'); i += 1; placed_any = True
-            uu += w
-        v += rowd + (AISLE if row_i % 2 else 0.6); row_i += 1
-        if not placed_any and v > v1: break
-    if i < len(items):
-        flags.append(f"{zone['id']}: {len(items) - i} stalls placed in an overflow row outside the drawn lot ({items[i]['n']}..) - lot outline needs the as-built")
-        uu = u0 + 0.5; rowd = max(x['dm'] for x in items[i:]) or 9.0
+
+class Builder:
+    def __init__(self, cfg, parcel_fc, units):
+        self.cfg = cfg; self.units = units; self.placed = []; self.flags = []
+        fr = cfg['frame']; self.fr = fr
+        b = math.radians(fr['bearingDeg']); self.su, self.cu = math.sin(b), math.cos(b)
+        feats = parcel_fc['features']
+        self.parcels = []
+        for f in feats:
+            g = f['geometry']; ring = g['coordinates'][0] if g['type'] == 'Polygon' else g['coordinates'][0][0]
+            self.parcels.append({'apn': str((f.get('properties') or {}).get('apn', '')), 'uv': [self.ll_to_uv(*p[:2]) for p in ring]})
+        img = cfg['image']; self.img = img
+        self.W, self.S, self.E_, self.N_ = img['bbox']; self.pw, self.ph = img['px']
+
+    # ---- frames ------------------------------------------------------------
+    def ll_to_uv(self, lon, lat):
+        fr = self.fr
+        E = (lon - fr['lon0']) * fr['mPerDegLon']; N = (lat - fr['lat0']) * fr['mPerDegLat']
+        return [round(E * self.su + N * self.cu, 2), round(-E * self.cu + N * self.su, 2)]
+
+    def en_to_uv(self, E, N):
+        return [round(E * self.su + N * self.cu, 2), round(-E * self.cu + N * self.su, 2)]
+
+    def uv_to_ll(self, u, v):
+        fr = self.fr
+        E = u * self.su - v * self.cu; N = u * self.cu + v * self.su
+        return [fr['lon0'] + E / fr['mPerDegLon'], fr['lat0'] + N / fr['mPerDegLat']]
+
+    def px_to_uv(self, x, y):
+        return self.ll_to_uv(self.W + x / self.pw * (self.E_ - self.W), self.N_ - y / self.ph * (self.N_ - self.S))
+
+    def outline(self, spec):
+        """Polygon in (u,v) from px / ll / uv / parcels."""
+        if 'uv' in spec: return [list(p) for p in spec['uv']]
+        if 'px' in spec: return [self.px_to_uv(*p) for p in spec['px']]
+        if 'll' in spec: return [self.ll_to_uv(*p) for p in spec['ll']]
+        if 'en' in spec: return [self.en_to_uv(*p) for p in spec['en']]
+        return None
+
+    def outlines(self, spec):
+        if 'parcels' in spec:
+            want = [str(a) for a in spec['parcels']]
+            polys = [p['uv'] for p in self.parcels if p['apn'] in want]
+            if len(polys) != len(want): self.flags.append(f"{spec.get('id')}: parcel outline not found for {want}")
+            inset = float(spec.get('inset', 0))
+            polys = [self.inset(p, inset) for p in polys] if inset else polys
+        else:
+            one = self.outline(spec)
+            polys = [one] if one else []
+        if 'uRange' in spec:
+            a, b = spec['uRange']
+            polys = [q for q in (self.clip_u(p, a, b) for p in polys) if len(q) >= 3]
+        return polys
+
+    @staticmethod
+    def clip_u(poly, a, b):
+        """Sutherland-Hodgman clip of a polygon to a <= u <= b."""
+        def clip(pts, keep, at):
+            out = []
+            for i in range(len(pts)):
+                p, q = pts[i], pts[(i + 1) % len(pts)]
+                pin, qin = keep(p), keep(q)
+                if pin: out.append(p)
+                if pin != qin:
+                    t = (at - p[0]) / (q[0] - p[0]); out.append([round(at, 2), round(p[1] + t * (q[1] - p[1]), 2)])
+            return out
+        pts = clip(poly, lambda p: p[0] >= a, a)
+        return clip(pts, lambda p: p[0] <= b, b) if pts else []
+
+    @staticmethod
+    def inset(poly, d):
+        """Shrink a polygon toward its centroid by about d meters (good enough for lot setbacks)."""
+        cx = sum(p[0] for p in poly) / len(poly); cy = sum(p[1] for p in poly) / len(poly)
+        out = []
+        for x, y in poly:
+            dx, dy = x - cx, y - cy; L = math.hypot(dx, dy) or 1
+            k = max(0.0, 1 - d / L); out.append([round(cx + dx * k, 2), round(cy + dy * k, 2)])
+        return out
+
+    def rect_to_uv(self, r):
+        """Microsoft footprint rectangle {E,N,L,W,bearing} -> axis-aligned u/v ranges in the frame."""
+        cu, cv = self.en_to_uv(r['E'], r['N'])
+        d = (r['bearing'] - self.fr['bearingDeg']) % 180
+        along_u = d < 45 or d > 135
+        lu, lv = (r['L'], r['W']) if along_u else (r['W'], r['L'])
+        return [round(cu - lu / 2, 2), round(cu + lu / 2, 2)], [round(cv - lv / 2, 2), round(cv + lv / 2, 2)]
+
+    # ---- units ------------------------------------------------------------
+    def classify(self):
+        rules = [(re.compile(r['match']), r) for r in self.cfg.get('classify', [])]
+        for u in self.units:
+            n = u['n']; k = None; veh = None; floor = None
+            for rx, r in rules:
+                if rx.match(n):
+                    if k is None and 'k' in r: k = r['k']
+                    if veh is None and 'veh' in r: veh = r['veh']
+                    if floor is None and 'f' in r: floor = r['f']
+            if k is None and u.get('k'): k = u['k']   # the export's own class, when no rule spoke
+            if k is None:
+                if u.get('t') == 'P': k = 'park'
+                elif u.get('w', 0) <= 0: k = 'in'
+                elif u.get('cc') and u.get('du'): k = 'ccdu'
+                elif u.get('cc'): k = 'cc'
+                elif u.get('du'): k = 'du'
+                else: k = 'in'
+            if veh is None:
+                veh = 1 if (k == 'park' or (k in ('du', 'ccdu') and u.get('w', 0) >= 10 and u.get('d', 0) >= 25)) else 0
+            u['k'] = k; u['veh'] = int(veh); u['fo'] = floor
+            u['pw'] = int(u.get('pw') or 0)
+            u['wm'] = round(u['w'] * FT, 2); u['dm'] = round(u['d'] * FT, 2)
+        self.units.sort(key=lambda u: natkey(u['n']))
+
+    def place(self, u, bid, floor, u0, v0, w, d, door):
+        # Geometry: u,v = corner, wu = size along u, dv = size along v (meters).
+        # Occupancy from Cubby: l leased, r rentable, why/note, dvac = days vacant.
+        self.placed.append({'n': u['n'], 'w': u['w'], 'd': u['d'], 'k': u['k'], 'veh': u['veh'], 'pw': u['pw'],
+                            'l': int(u.get('l') or 0), 'r': int(u.get('r') if u.get('r') is not None else 1),
+                            'why': u.get('why') or '', 'note': u.get('note') or '', 'dvac': int(u.get('dv') or 0),
+                            'b': bid, 'f': floor, 'u': round(u0, 2), 'v': round(v0, 2),
+                            'wu': round(w, 2), 'dv': round(d, 2), 'door': door})
+
+    def select(self, spec):
+        if 'units' in spec:
+            rx = re.compile(spec['units']); return [x for x in self.units if rx.match(x['n'])]
+        letters = spec.get('letters', [])
+        return [x for x in self.units if prefix(x['n']) in letters]
+
+    # ---- buildings --------------------------------------------------------
+    def take_row(self, items, i, ua, ub):
+        row = []; uu = ua; rowd = 0.0
         while i < len(items):
-            x = items[i]; w = x['wm'] or 3.6; d = x['dm'] or 9.0
-            if uu + w > u1: uu = u0 + 0.5; v += rowd + AISLE
-            place(x, zone['id'], 1, uu, v, w, d, 'ne'); i += 1; uu += w
+            x = items[i]; w, d = x['wm'], x['dm']
+            if w <= 0.3: w, d = 0.35, 0.35          # mailbox / unsized cell
+            if uu + w > ub + 0.01: break
+            row.append((x, uu, w, d)); uu += w; rowd = max(rowd, d); i += 1
+        return row, rowd, i
 
-# ---- geometry prep ----
-for bd in cfg['buildings']: bd['ll'] = [uv_to_ll(bd['u'][a], bd['v'][c]) for a, c in ((0,0),(1,0),(1,1),(0,1))]
-for z in cfg['zones']: z['uv'] = [px_to_uv(*p) for p in z['px']]
-cfg['pad']['uv'] = [px_to_uv(*p) for p in cfg['pad']['px']]
-for g in cfg['gates']: g['uv'] = px_to_uv(*g['px'])
-ring = parcel['coordinates'][0] if parcel['type'] == 'Polygon' else parcel['coordinates'][0][0]
-parcel_uv = [ll_to_uv(*p[:2]) for p in ring]
-img_uv = [px_to_uv(0, 0), px_to_uv(pw, 0), px_to_uv(pw, ph), px_to_uv(0, ph)]
-wide = cfg.get('imageWide')
-if wide:
-    w0, s0, e0, n0 = wide['bbox']
-    wide['uv'] = [ll_to_uv(w0, n0), ll_to_uv(e0, n0), ll_to_uv(e0, s0), ll_to_uv(w0, s0)]
+    def fill_rows(self, bd, items, i, floor, ua, ub, iv0, iv1):
+        """Double-loaded corridors: row A (doors toward +v), corridor, row B (doors toward -v), back to back."""
+        v = iv0
+        while i < len(items):
+            rowA, dA, iA = self.take_row(items, i, ua, ub)
+            if not rowA:
+                self.flags.append(f"{bd['id']}: unit {items[i]['n']} is wider than the building"); i += 1; continue
+            rowB, dB, iB = self.take_row(items, iA, ua, ub)
+            need = dA + self.corridor + dB
+            if v + need > iv1 + 0.01:
+                if v > iv0 + 0.01: return i            # next floor retries this row
+                if rowB and v + dA + self.corridor <= iv1 + 0.01:   # only row A fits here
+                    rowB, dB, iB = [], 0.0, iA; need = dA + self.corridor
+                else:
+                    return i
+            for x, uu, w, d in rowA: self.place(x, bd['id'], floor, uu, v, w, d, 'ne')
+            for x, uu, w, d in rowB: self.place(x, bd['id'], floor, uu, v + dA + self.corridor + (dB - d), w, d, 'sw')
+            v += need; i = iB
+        return i
 
-# ---- assign units ----
-by_letter = {}
-for u in units: by_letter.setdefault(u['n'][0], []).append(u)
-for bd in cfg['buildings']:
-    items = [x for L in bd['letters'] for x in by_letter.get(L, [])]
-    layout_building(bd, items)
-G = by_letter.get('G', [])
-layout_lot(cfg['zones'][0], [x for x in G if num(x['n']) <= 78])
-layout_lot(cfg['zones'][1], [x for x in G if num(x['n']) > 78])
-missing = sorted(set(u['n'] for u in units) - set(p['n'] for p in placed), key=natkey)
-if missing: flags.append(f"{len(missing)} units not placed: {', '.join(missing[:12])}")
+    def layout_building(self, bd, items):
+        self.corridor = float(bd.get('corridor', CORRIDOR))
+        if (bd['v'][1] - bd['v'][0]) > (bd['u'][1] - bd['u'][0]) * 1.15:
+            start = len(self.placed)
+            self._layout_building({**bd, 'u': bd['v'], 'v': bd['u'], 'doorSide': {'sw': 'w', 'ne': 'e'}.get(bd.get('doorSide', 'both'), 'both')}, items, bd)
+            for p in self.placed[start:]:
+                p['u'], p['v'], p['wu'], p['dv'] = p['v'], p['u'], p['dv'], p['wu']
+                p['door'] = {'sw': 'w', 'ne': 'e', 'w': 'sw', 'e': 'ne'}.get(p['door'], p['door'])
+            return
+        self._layout_building(bd, items, bd)
 
-north = [round(cu, 4), round(su, 4)]  # true north as a unit vector in (u,v)
+    def _layout_building(self, bd, items, real):
+        u0, u1 = bd['u']; v0, v1 = bd['v']; Wd = v1 - v0
+        du = [x for x in items if x['k'] in ('du', 'ccdu')]
+        inner = [x for x in items if x['k'] not in ('du', 'ccdu')]
+        side = {'w': 'sw', 'e': 'ne'}.get(bd.get('doorSide', 'both'), bd.get('doorSide', 'both'))
+        primary = 'sw' if side in ('sw', 'both') else 'ne'
+        secondary = 'ne' if primary == 'sw' else 'sw'
+        for x in du: x['full'] = x['dm'] >= Wd * 0.8
+        full = [x for x in du if x['full']]; part = [x for x in du if not x['full']]
+        # Full-depth garages span the building; they take the first stretch of its length.
+        uu = u0; floor = 1
+        for x in full:
+            if uu + x['wm'] > u1 + 0.01:
+                self.flags.append(f"{bd['id']}: {len(full) - full.index(x)} full-depth units do not fit the length ({x['n']}..) - continued on the next level"); floor += 1; uu = u0
+            self.place(x, bd['id'], floor, uu, v0, x['wm'], Wd, 'both'); uu += x['wm']
+        full_until = uu if floor == 1 else u1
+        floors_used = floor
+        # Part-depth drive-ups along the long walls, deepest first on the primary side.
+        part.sort(key=lambda x: (-x['dm'], natkey(x['n'])))
+        strip = {'sw': 0.0, 'ne': 0.0}; floor = 1
+        walls = [primary, secondary] if side == 'both' else [primary]
+        wi = 0; uu = full_until
+        for x in part:
+            if uu + x['wm'] > u1 + 0.01:
+                wi += 1
+                if wi >= len(walls):
+                    wi = 0; floor += 1; uu = u0
+                    self.flags.append(f"{bd['id']}: drive-up units overflow to level {floor} ({x['n']}..) - the building is longer or has more drive-up walls than modeled")
+                else:
+                    uu = u0
+            wall = walls[wi]
+            dm = min(x['dm'], Wd / 2) if side == 'both' else min(x['dm'], Wd)
+            if floor == 1: strip[wall] = max(strip[wall], dm)
+            vv = v0 if wall == 'sw' else v1 - dm
+            self.place(x, bd['id'], floor, uu, vv, x['wm'], dm, wall); uu += x['wm']
+        floors_used = max(floors_used, floor)
+        if inner:
+            groups = {}
+            for x in inner: groups.setdefault(x.get('fo') or 1, []).append(x)
+            next_floor = 1
+            for f0 in sorted(groups):
+                grp = groups[f0]
+                # Same-depth units share a row so a row is never as deep as its one deepest unit.
+                grp.sort(key=lambda x: (-x['dm'], natkey(x['n'])))
+                f = max(f0, next_floor)
+                if f == 1:
+                    i = self.fill_rows(bd, grp, 0, 1, full_until, u1, v0 + strip['sw'] if floors_used == 1 else v0, v1 - strip['ne'] if floors_used == 1 else v1)
+                else:
+                    i = self.fill_rows(bd, grp, 0, f, u0, u1, v0, v1)
+                while i < len(grp):
+                    f += 1
+                    j = self.fill_rows(bd, grp, i, f, u0, u1, v0, v1)
+                    if j == i:
+                        self.flags.append(f"{bd['id']}: unit {grp[i]['n']} does not fit the building width"); i += 1
+                    else: i = j
+                next_floor = f + 1
+                floors_used = max(floors_used, f)
+        if floors_used > real.get('floors', 1):
+            self.flags.append(f"{bd['id']}: schematic needs {floors_used} levels for the unit area (configured {real.get('floors', 1)}) - confirm the real floor count")
+            real['floors'] = floors_used
+        real['floorsUsed'] = floors_used
 
-site = {
-    'property': {k: cfg[k] for k in ('id', 'name', 'address', 'apn', 'acreage', 'opened', 'cubbyFacilityId')},
-    'frame': {**fr, 'north': north},
-    'image': {**{k: img[k] for k in ('bbox', 'px', 'attribution')}, 'uv': img_uv},
-    'imageWide': ({'bbox': wide['bbox'], 'uv': wide['uv']} if wide else None),
-    'parcel': parcel_uv, 'pad': cfg['pad']['uv'],
-    'gates': [{k: g[k] for k in ('id', 'name', 'uv')} for g in cfg['gates']],
-    'buildings': [{k: bd[k] for k in ('id', 'letters', 'name', 'kind', 'u', 'v', 'height', 'floors', 'roof', 'inferred', 'note', 'll')} for bd in cfg['buildings']],
-    'zones': [{k: z[k] for k in ('id', 'name', 'kind', 'uv')} for z in cfg['zones']],
-    'units': placed,
-    'layout': {'schematic': True, 'flags': flags, 'generated': 'Oct 11, 2026'},
-    'sources': cfg['sources'],
-}
-json.dump(site, open(out_path, 'w'), separators=(',', ':'))
-print('units placed', len(placed), 'of', len(units))
-for f in flags: print('FLAG', f)
-for bd in cfg['buildings']:
-    n = sum(1 for p in placed if p['b'] == bd['id'])
-    area = sum(p['w'] * p['d'] for p in placed if p['b'] == bd['id'])
-    print(bd['id'], 'units', n, 'rentable sqft', area, 'footprint sqft', round((bd['u'][1]-bd['u'][0])*(bd['v'][1]-bd['v'][0])*10.764), 'floors', bd['floors'])
-print('parcel pts', len(parcel_uv), 'north', north, 'img corners', img_uv)
+    # ---- lots -------------------------------------------------------------
+    def layout_lot(self, zone, items):
+        i = 0
+        for poly in zone['polys']:
+            us = [p[0] for p in poly]; vs = [p[1] for p in poly]
+            u0, u1, v0, v1 = min(us), max(us), min(vs), max(vs)
+            v = v0 + 0.5; row_i = 0
+            while i < len(items) and v < v1:
+                rowd = max(x['dm'] for x in items[i:i + 40]) or 9.0
+                uu = u0 + 0.5; placed_any = False
+                while i < len(items) and uu < u1:
+                    x = items[i]; w = x['wm'] or 3.6; d = x['dm'] or 9.0
+                    c = (uu + w / 2, v + rowd / 2)
+                    if poly_contains(poly, c):
+                        self.place(x, zone['id'], 1, uu, v, w, d, 'sw' if row_i % 2 else 'ne'); i += 1; placed_any = True
+                    uu += w
+                v += rowd + (AISLE if row_i % 2 else 0.6); row_i += 1
+                if not placed_any and v > v1: break
+            if i >= len(items): break
+        if i < len(items):
+            poly = zone['polys'][-1]; us = [p[0] for p in poly]; vs = [p[1] for p in poly]
+            u0, u1, v = min(us), max(us), max(vs) + AISLE
+            self.flags.append(f"{zone['id']}: {len(items) - i} stalls placed in an overflow row outside the drawn lot ({items[i]['n']}..) - lot outline needs the as-built")
+            uu = u0 + 0.5; rowd = max(x['dm'] for x in items[i:]) or 9.0
+            while i < len(items):
+                x = items[i]; w = x['wm'] or 3.6; d = x['dm'] or 9.0
+                if uu + w > u1: uu = u0 + 0.5; v += rowd + AISLE
+                self.place(x, zone['id'], 1, uu, v, w, d, 'ne'); i += 1; uu += w
+
+    # ---- run --------------------------------------------------------------
+    def build(self):
+        cfg = self.cfg
+        self.classify()
+        for bd in cfg['buildings']:
+            if 'rect' in bd: bd['u'], bd['v'] = self.rect_to_uv(bd['rect'])
+            elif 'px' in bd:
+                pts = [self.px_to_uv(*p) for p in bd['px']]
+                bd['u'] = [round(min(p[0] for p in pts), 2), round(max(p[0] for p in pts), 2)]
+                bd['v'] = [round(min(p[1] for p in pts), 2), round(max(p[1] for p in pts), 2)]
+            bd['ll'] = [self.uv_to_ll(bd['u'][a], bd['v'][c]) for a, c in ((0, 0), (1, 0), (1, 1), (0, 1))]
+        for z in cfg.get('zones', []):
+            z['polys'] = self.outlines(z)
+            z['uv'] = z['polys'][0] if z['polys'] else []
+        pad = self.outlines(cfg['pad']) if cfg.get('pad') else [p['uv'] for p in self.parcels]
+        for g in cfg.get('gates', []): g['uv'] = self.px_to_uv(*g['px']) if 'px' in g else self.outline(g)[0]
+        img_uv = [self.px_to_uv(0, 0), self.px_to_uv(self.pw, 0), self.px_to_uv(self.pw, self.ph), self.px_to_uv(0, self.ph)]
+        wide = cfg.get('imageWide')
+        if wide:
+            w0, s0, e0, n0 = wide['bbox']
+            wide['uv'] = [self.ll_to_uv(w0, n0), self.ll_to_uv(e0, n0), self.ll_to_uv(e0, s0), self.ll_to_uv(w0, s0)]
+
+        taken = set()
+        for bd in cfg['buildings']:
+            items = [x for x in self.select(bd) if x['n'] not in taken]
+            taken.update(x['n'] for x in items)
+            self.layout_building(bd, items)
+        for z in cfg.get('zones', []):
+            items = [x for x in self.select(z) if x['n'] not in taken]
+            taken.update(x['n'] for x in items)
+            if z['polys']: self.layout_lot(z, items)
+            else: self.flags.append(f"{z['id']}: no outline, {len(items)} units not placed")
+        missing = sorted(set(u['n'] for u in self.units) - set(p['n'] for p in self.placed), key=natkey)
+        if missing: self.flags.append(f"{len(missing)} units not placed: {', '.join(missing[:12])}")
+
+        north = [round(self.cu, 4), round(self.su, 4)]  # true north as a unit vector in (u,v)
+        prop_keys = ('id', 'name', 'address', 'apn', 'acreage', 'opened', 'cubbyFacilityId', 'county', 'parcelSource')
+        site = {
+            'property': {k: cfg[k] for k in prop_keys if k in cfg},
+            'frame': {**self.fr, 'north': north},
+            'image': {**{k: self.img[k] for k in ('bbox', 'px', 'attribution')}, 'uv': img_uv},
+            'imageWide': ({'bbox': wide['bbox'], 'uv': wide['uv']} if wide else None),
+            'parcel': self.parcels[0]['uv'] if self.parcels else [],
+            'parcels': [{'apn': p['apn'], 'uv': p['uv']} for p in self.parcels],
+            'pad': pad[0] if pad else [], 'pads': pad,
+            'gates': [{k: g[k] for k in ('id', 'name', 'uv')} for g in cfg.get('gates', [])],
+            'buildings': [{k: bd.get(k) for k in ('id', 'letters', 'name', 'kind', 'u', 'v', 'height', 'floors', 'roof', 'inferred', 'note', 'll')} for bd in cfg['buildings']],
+            'zones': [{'id': z['id'], 'name': z['name'], 'kind': z.get('kind', 'lot'), 'uv': z['uv'], 'polys': z['polys']} for z in cfg.get('zones', [])],
+            'units': self.placed,
+            'layout': {'schematic': True, 'flags': self.flags, 'generated': date.today().strftime('%b %d, %Y')},
+            'sources': cfg.get('sources', []),
+        }
+        return site
+
+
+def main():
+    cfg = json.load(open(sys.argv[1]))
+    parcel = json.load(open(sys.argv[2]))
+    units = json.load(open(sys.argv[3]))
+    out_path = sys.argv[4]
+    b = Builder(cfg, parcel, units)
+    site = b.build()
+    json.dump(site, open(out_path, 'w'), separators=(',', ':'))
+    print('units placed', len(site['units']), 'of', len(units))
+    for f in site['layout']['flags']: print('FLAG', f)
+    for bd in site['buildings']:
+        n = sum(1 for p in site['units'] if p['b'] == bd['id'])
+        area = sum(p['w'] * p['d'] for p in site['units'] if p['b'] == bd['id'])
+        print(bd['id'], 'units', n, 'rentable sqft', round(area), 'footprint sqft', round((bd['u'][1] - bd['u'][0]) * (bd['v'][1] - bd['v'][0]) * 10.764), 'floors', bd['floors'])
+    for z in site['zones']:
+        n = sum(1 for p in site['units'] if p['b'] == z['id'])
+        print(z['id'], 'stalls', n)
+    print('parcels', [len(p['uv']) for p in site['parcels']], 'north', site['frame']['north'])
+
+
+if __name__ == '__main__':
+    main()
