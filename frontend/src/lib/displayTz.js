@@ -36,6 +36,37 @@ export function setDisplayTz(key) {
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
+/** 'india' when this browser runs on India time, else 'california'. */
+export function browserTzKey() {
+  try {
+    const z = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    return /Kolkata|Calcutta/.test(z) ? 'india' : 'california';
+  } catch { return 'california'; }
+}
+
+/** An employee's OWN timesheet reads in their own zone (Pranshu, Oct 13):
+ *  India-based staff saw California times, so "5 PM yesterday" typed from
+ *  India just after midnight was still in the future in California and the
+ *  request was refused. While `on`, the card uses the browser's zone without
+ *  touching the saved choice; leaving puts the saved choice back. */
+export function useOwnZone(on) {
+  useEffect(() => {
+    if (!on) return undefined;
+    const own = TZ_OPTIONS.find((o) => o.key === browserTzKey()) || TZ_OPTIONS[0];
+    if (own.key !== _current.key) {
+      _current = own;
+      window.dispatchEvent(new CustomEvent(EVENT));
+    }
+    return () => {
+      const saved = readStored();
+      if (saved.key !== _current.key) {
+        _current = saved;
+        window.dispatchEvent(new CustomEvent(EVENT));
+      }
+    };
+  }, [on]);
+}
+
 /** Subscribe a component to the current display timezone; re-renders on change. */
 export function useDisplayTz() {
   const [opt, setOpt] = useState(_current);

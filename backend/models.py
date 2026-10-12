@@ -2818,6 +2818,10 @@ class PunchRequest(Base):
     decision_note  = Column(String, default="")          # approver's note (esp. on reject)
     applied_punch_id = Column(String, default="")        # the TimePunch created/voided on approval
     created_at     = Column(String, default="")
+    # The Type the employee picked for an added clock-in (Pranshu, Oct 13):
+    # '' = Regular, or "Sick" / "Vacation" / "Personal" - set on the clock-in
+    # when the request is approved, so the block lands as that leave.
+    category       = Column(String, default="")
 
 
 class MonitoringConsent(Base):
