@@ -931,6 +931,8 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN created_from VARCHAR DEFAULT ''",
             # Backup Manager (Neil, Oct 13). models.NexusEmployee.backup_manager_email.
             "ALTER TABLE nexus_employees ADD COLUMN backup_manager_email VARCHAR DEFAULT ''",
+            # The Type on an employee's punch request (Oct 13). models.PunchRequest.category.
+            "ALTER TABLE punch_requests ADD COLUMN category VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2086,6 +2088,7 @@ def _run_migrations():
         "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note_at VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS created_from VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS backup_manager_email VARCHAR DEFAULT ''",
+        "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

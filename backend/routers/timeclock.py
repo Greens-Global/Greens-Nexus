@@ -2730,6 +2730,7 @@ def _pr_dict(r: PunchRequest) -> dict:
         "targetPunchId": r.target_punch_id, "reason": r.reason, "status": r.status,
         "decidedBy": r.decided_by, "decidedAt": r.decided_at, "decisionNote": r.decision_note,
         "appliedPunchId": r.applied_punch_id, "createdAt": r.created_at,
+        "category": r.category or "",
     }
 
 
@@ -2740,6 +2741,7 @@ class PunchRequestIn(BaseModel):
     target_punch_id: Optional[str] = ""  # for remove
     reason:         str = ""
     tz_offset_min:  Optional[int] = 0
+    category:       Optional[str] = ""   # add, clock-in only: the Type - '' Regular, Sick / Vacation / Personal
 
 
 @router.post("/punch-requests")
@@ -2797,10 +2799,13 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
                            extra=pending)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
+    category = ((body.category or "").strip()[:80]
+                if action == "add" and (body.punch_kind or "in") == "in" else "")
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
                        action=action, punch_kind=body.punch_kind or "in", at=at_utc,
                        local_date=local_date, tz_offset_min=body.tz_offset_min or 0,
-                       target_punch_id=target_id, reason=reason, status="pending", created_at=now)
+                       target_punch_id=target_id, reason=reason, status="pending", created_at=now,
+                       category=category)
     db.add(req)
     # Notify the approver - the employee's manager, or ALL managers if none is set,
     # so a no-manager employee's request still reaches someone.
@@ -2809,6 +2814,8 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     # the fix is about, so the approver reads it without opening the request.
     if action == "add":
         what = f"add a {_kind_label(body.punch_kind)} punch at {_us_time(at_utc, body.tz_offset_min or 0)}"
+        if category:
+            what += f" as {category}"
     else:
         what = f"remove their {_kind_label(tp.kind)} punch at {_us_time(tp.at, tp.tz_offset_min or 0)}"
     # Open lands on the request itself - People > Time > Punch requests with
@@ -3090,6 +3097,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
         tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
                        at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
                        geo_status="no_location", source="manual", note=(q.reason or "")[:300],
+                       category=(q.category or "") if q.punch_kind == "in" else "",
                        created_by=user["email"], created_at=now,
                        adjust_note=f"Approved punch-fix request by {user['email']}")
         db.add(tp)

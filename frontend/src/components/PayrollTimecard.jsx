@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
-import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput } from '../lib/displayTz';
+import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -350,6 +350,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [exceptions, setExceptions] = useState([]);      // per-employee missing/exception counts (sidebar)
   const [showRaw, setShowRaw] = useState(false);         // SwipeClock's "Show Unrounded Times"
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
+  // Your own timesheet reads in your own zone, so a time you type is the time
+  // you mean (Oct 13). After useDisplayTz, so its listener hears the switch.
+  useOwnZone(self);
   const [tour, setTour] = useState(false);               // Simulate walkthrough
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
@@ -929,7 +932,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                         <AlertTriangle size={10} /> Not Yet Approved
                       </span>
                       <span style={{ color: '#b45309', fontWeight: 700 }}>
-                        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${t12(r.req.at)}` : ''}
+                        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${t12(r.req.at)}` : ''}{r.req.category ? ` as ${r.req.category}` : ''}
                       </span>
                       {r.req.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.req.employeeName || 'Employee')}: “{r.req.reason}”</span>}
                       {r.req.createdAt && <span style={{ color: 'var(--muted)', fontSize: 11 }}>asked {formatDateTime(r.req.createdAt + (r.req.createdAt.endsWith('Z') ? '' : 'Z'))}</span>}
@@ -1633,7 +1636,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 // the actual kind - "Add clock-out" for a break end read as a
                 // request to end the SHIFT.
                 const kindLabel = r.action === 'remove' ? 'Remove a punch'
-                  : `Add ${PR_KIND_LABEL[r.punchKind] || r.punchKind}`;
+                  : `Add ${PR_KIND_LABEL[r.punchKind] || r.punchKind}${r.category ? ` as ${r.category}` : ''}`;
                 rows.push(
                   <tr key={fd.date + '-req-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
                     <td style={td}></td>
@@ -1938,6 +1941,10 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const [cat, setCat] = useState(seg?.category || '');
   const [reason, setReason] = useState('');   // self mode: justification for the approver
+  // A refused save says why INSIDE the form (Pranshu, Oct 13): the toast sat
+  // behind the dialog, so "Send Request" looked like it did nothing.
+  const [err, setErr] = useState('');
+  const fail = (m) => { setErr(m); toastErr?.(m); };
   // Type (Neil, Oct 13): what this block of time is. Break is offered only when
   // ADDING - its start and end are the two times above, saved as a Start Break /
   // End Break pair. The leave types set the category.
@@ -1946,26 +1953,43 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const isBreak = type === 'Break';
   // What's missing on this day and therefore addable (self can only ADD, not overwrite).
   const needIn = !seg?.inId, needOut = !seg?.outId;
-  const canAddBreak = !self && !seg;
+  // Type is offered when adding a whole block - a manager on any new pair, an
+  // employee on a day they ask to add time to (Pranshu, Oct 13).
+  const canAddBreak = !seg;
+  const showType = self ? !seg : !!(seg?.inId || needIn);
 
   async function save() {
+    setErr('');
     // A clock-out must be after the clock-in it pairs with. With the out now
     // defaulting to the in-time, leaving it unchanged trips this - forcing the real
     // time in - and it also catches a time accidentally typed into the reason field.
     const inRef = (seg?.inId && !needIn) ? utcToInput(seg.in) : inAt;
     if (needOut && inRef && new Date(outAt) <= new Date(inRef)) {
-      toastErr?.('Set the clock-out time - it has to be after the clock-in.'); return;
+      fail('Set the clock-out time - it has to be after the clock-in.'); return;
     }
     // ...and a clock-in added in front of an existing clock-out comes first (Oct 1).
     if (needIn && !needOut && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out))) {
-      toastErr?.('Set the clock-in time - it has to be before the clock-out.'); return;
+      fail('Set the clock-in time - it has to be before the clock-out.'); return;
     }
     // Whichever side changed, the clock-out never ends up before the clock-in
     // (Oct 1) - the server refuses it too (_guard_punch_order).
     if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
-      toastErr?.('The clock-out has to be after the clock-in.'); return;
+      fail('The clock-out has to be after the clock-in.'); return;
     }
     // A break: the two times are its start and end, inside a shift that day.
+    if (isBreak && canAddBreak && self) {
+      if (!reason.trim()) { fail('Add a reason so your approver can confirm it.'); return; }
+      setBusy(true);
+      try {
+        await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), reason: reason.trim() });
+        await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), reason: reason.trim() });
+        toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
+        window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+        onDone();
+      } catch (e) { fail(e?.message || 'Could not send the request.'); }
+      setBusy(false);
+      return;
+    }
     if (isBreak && canAddBreak) {
       setBusy(true);
       try {
@@ -1974,26 +1998,27 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         toastOk?.('Break added - the timecard is updated.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
-      } catch (e) { toastErr?.(e?.message || 'Could not add the break - it has to fall inside a shift that day.'); }
+      } catch (e) { fail(e?.message || 'Could not add the break - it has to fall inside a shift that day.'); }
       setBusy(false);
       return;
     }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
     if (self) {
-      if (!reason.trim()) { toastErr?.('Add a reason so your approver can confirm it.'); return; }
+      if (!reason.trim()) { fail('Add a reason so your approver can confirm it.'); return; }
       setBusy(true);
       try {
         const adds = [];
         if (needIn) adds.push(['in', inAt]);
         if (needOut) adds.push(['out', outAt]);
         for (const [kind, at] of adds) {
-          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim() });
+          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
+            category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' });
         }
         toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();
-      } catch (e) { toastErr?.(e?.message || 'Could not send the request.'); }
+      } catch (e) { fail(e?.message || 'Could not send the request.'); }
       setBusy(false);
       return;
     }
@@ -2024,7 +2049,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
       if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
       toastOk?.('Timecard updated - original times stay on record.'); onDone();
-    } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
+    } catch (e) { fail(e?.message || 'Could not save.'); }
     setBusy(false);
   }
   // Delete one punch or the whole pair (Neil, Oct 12-13 - SwipeClock's
@@ -2039,7 +2064,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     try {
       for (const id of list) await api.timeAdjustPunch(id, { void: true });
       toastOk?.(list.length > 1 ? 'Punches deleted.' : 'Punch deleted.'); onDone();
-    } catch (e) { toastErr?.(e?.message || 'Could not delete.'); }
+    } catch (e) { fail(e?.message || 'Could not delete.'); }
     setBusy(false);
   }
   const removeOut = () => voidPunches([seg?.outId], 'the clock-out');
@@ -2077,7 +2102,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         <div style={{ display: 'grid', gap: 12 }}>
           {/* In self mode only the MISSING punch is editable - an existing time stays
               shown (disabled) for context but can't be silently overwritten here. */}
-          {!self && (seg?.inId || needIn) && (
+          {showType && (
             <label style={{ fontSize: 11, color: 'var(--muted)' }}>Type
               <select className="form-input" value={type} onChange={e => pickType(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
                 <option value="Regular">Regular</option>
@@ -2114,6 +2139,11 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
             <span style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: -6 }}>An unpaid break. It has to fall inside a shift that day - add the shift first if there is none.</span>
           )}
         </div>
+        {err && (
+          <div role="alert" style={{ marginTop: 12, padding: '8px 12px', borderRadius: 9, background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>
+            {err}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           {!self && seg?.inId && <button onClick={removeIn} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete In-Punch</button>}
           {!self && seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete Out-Punch</button>}
