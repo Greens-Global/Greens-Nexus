@@ -1836,6 +1836,9 @@ export const api = {
   // ── Timecard Notes column (Charmi, Sep 29) - manager/HR note per day; read
   //    back as `notes` on timePayroll ──
   timeSetTimecardNote: (email, date, note) => req('/timeclock/timecard-notes', { method: 'PUT', body: JSON.stringify({ email, date, note }) }),
+  // The employee's own note on a day of their timecard (Neil, Oct 12) - read
+  // back as `notes[date].employeeNote` on timeMyPayroll and timePayroll.
+  timeSetMyTimecardNote: (date, note) => req('/timeclock/my-timecard-notes', { method: 'PUT', body: JSON.stringify({ date, note }) }),
 
   // ── Work site from a Google Maps link (Sep 30) - the point in a pasted link
   //    or coordinates (short links opened server-side), and a check of recent

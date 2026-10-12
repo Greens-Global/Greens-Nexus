@@ -29,6 +29,7 @@ class LeaveClassTests(unittest.TestCase):
         for cat, want in (("Sick Day", "sick"), ("sick", "sick"), ("Sick Leave", "sick"),
                           ("Vacation", "vacation"), ("PTO", "vacation"), ("Annual Leave", "vacation"),
                           ("Paid Time Off", "vacation"),
+                          ("Personal", "personal"), ("Personal Day", "personal"),
                           ("Operations-GS", ""), ("", ""), (None, ""), ("Sickle cell clinic", "")):
             self.assertEqual(_leave_class(cat), want, cat)
 

@@ -73,6 +73,10 @@ const STATUS_META = {
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
 
+// The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
+// Inactive people stay in Nexus with their record, out of the working list.
+const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
+
 // The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
 // removal is orthogonal to employment status (a removed person keeps whatever
 // status they had, so it can be restored unchanged), and it selects a different
@@ -1937,8 +1941,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
             </div>
             <div>
               {row(CalendarDays, 'Date of birth', formatDate(e.personal?.dob))}
+              {row(Users, 'Gender', e.personal?.gender)}
               {row(Lock, 'National ID', e.personal?.nationalId ? maskId(e.personal.nationalId) : '')}
-              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · ') : '')}
+              {/* The whole personal record reads on the main screen, addresses
+                  included (Neil, Oct 12) - not only inside the Edit modal. */}
+              {row(MapPinned, 'Current address', e.personal?.currentAddress)}
+              {row(MapPinned, 'Permanent address', e.personal?.permanentAddress)}
+              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
             </div>
           </>
         )}
@@ -5706,6 +5715,10 @@ export default function HR({ activeSub, onSubChange }) {
   const [deptF,     setDeptF]     = useState('All');
   const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
+  // Active / Inactive lens on the list (Neil, Oct 12): someone who has Left
+  // or is Inactive is not removed, a status change moves them to the
+  // Inactive tab. The status dropdown narrows further inside a lens.
+  const [listTab,   setListTab]   = useState('active');
   const [typeF,     setTypeF]     = useState('All');   // All | employee | contractor | external
   // DELETED_F is a view, not a status: a removed person keeps whatever status
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
@@ -5828,6 +5841,7 @@ export default function HR({ activeSub, onSubChange }) {
     const source = showingDeleted ? deletedEmployees
       : [...employees, ...extEmployees].sort((a, b) => fullName(a).localeCompare(fullName(b)));
     return source.filter(e => {
+      if (!showingDeleted && statusF === 'All' && INACTIVE_STATUSES.has(e.status || 'active') !== (listTab === 'inactive')) return false;
       if (typeF === 'employee' && (isExtRow(e) || e.employmentType === 'contractor')) return false;
       if (typeF === 'contractor' && (isExtRow(e) || e.employmentType !== 'contractor')) return false;
       if (typeF === 'external' && !isExtRow(e)) return false;
@@ -5842,7 +5856,14 @@ export default function HR({ activeSub, onSubChange }) {
       }
       return true;
     });
-  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search]);
+  }, [employees, extEmployees, deletedEmployees, showingDeleted, typeF, companyF, deptF, statusF, search, listTab]);
+  // Tab counts over the whole directory (not the other filters), so the
+  // Inactive count reads the same whichever company or department is open.
+  const tabCounts = useMemo(() => {
+    const c = { active: 0, inactive: 0 };
+    for (const e of [...employees, ...extEmployees]) c[INACTIVE_STATUSES.has(e.status || 'active') ? 'inactive' : 'active'] += 1;
+    return c;
+  }, [employees, extEmployees]);
 
   // Pagination over the FILTERED list, so search/filters always reach the whole
   // directory - a match "on page 10" simply becomes page 1 of the results.
@@ -6091,6 +6112,17 @@ export default function HR({ activeSub, onSubChange }) {
                 </select>
               </div>
             </div>
+            {!showingDeleted && statusF === 'All' && (
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 2, padding: '0 14px', borderBottom: '1px solid var(--line)' }}>
+                {[['active', 'Active'], ['inactive', 'Inactive']].map(([id, label]) => (
+                  <button key={id} onClick={() => { setListTab(id); setSelectedId(null); setPage(1); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 12px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${listTab === id ? 'var(--pine)' : 'transparent'}`, color: listTab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
+                    {label}
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: listTab === id ? 'var(--wk-brand-tint)' : 'var(--mist)', color: listTab === id ? 'var(--pine)' : 'var(--muted)' }}>{tabCounts[id]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {(loading || (showingDeleted && deletedLoading)) ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                 <Spinner size="section" />
