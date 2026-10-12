@@ -163,7 +163,14 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
           <div><label style={FL}>Role Applying For *</label>
             <select className="form-input" style={{ width: '100%' }} value={f.role_id} onChange={e => pickRole(e.target.value)} disabled={!f.company}>
               <option value="">{f.company ? (optsBusy ? 'Loading roles...' : '- pick a role -') : 'Pick the company first'}</option>
-              {opts.roles.map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              {/* The company's own roles first, the shared ones under their own
+                  heading (Neil, Oct 12) - one flat list hid which was which. */}
+              <optgroup label={`${companyName || 'Company'} Roles`}>
+                {opts.roles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              </optgroup>
+              <optgroup label="Shared Roles">
+                {opts.roles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              </optgroup>
               <option value={OTHER}>Other (not a role yet)</option>
             </select>
             {f.company && !optsBusy && opts.roles.length === 0 && <div style={hint}>{companyName || 'This company'} has no roles yet - pick Other, or add roles in Settings &gt; Access.</div>}
@@ -171,7 +178,10 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
 
           {isOther ? (
             <>
-              {input('Role Title *', 'role_title', { placeholder: 'e.g. Leasing Coordinator' })}
+              <div>
+                {input('Role Title *', 'role_title', { placeholder: 'e.g. Leasing Coordinator' })}
+                {!editing && <div style={hint}>Saving makes this a role of {companyName || 'the company'} (no access until an administrator sets it) and flags Packets so it gets a hiring packet.</div>}
+              </div>
               <div><label style={FL}>Department *</label>
                 <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
                   <option value="">- pick a department -</option>

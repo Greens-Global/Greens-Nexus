@@ -688,6 +688,10 @@ class NexusGroup(Base):
     bod_target      = Column(String, default="chat")   # chat | channel
     bod_chat_id     = Column(String, default="")
     bod_chat_name   = Column(String, default="")
+    # Job roles: '' = made in Settings > Access; 'hiring' = made from Add
+    # Candidate's "Other" (Neil, Oct 12). A hiring-born role with no hiring
+    # packet of its own is flagged on Hiring > Packets until one is added.
+    created_from    = Column(String, default="")
     bod_team_id     = Column(String, default="")
     bod_team_name   = Column(String, default="")
 
