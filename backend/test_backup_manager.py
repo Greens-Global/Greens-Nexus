@@ -87,10 +87,18 @@ class BackupManagerTest(unittest.TestCase):
         self.assertNotIn(SUB, scope)              # one level down, like a manager's directs
         self.assertNotIn(EMP, _visible_emails(self.db, {"email": "nobody@greensglobal.com", "level": 3}))
 
-    def test_backup_gets_the_team_below_in_people(self):
+    def test_backup_covers_the_person_not_their_team(self):
+        # COVER backs up EMP. SUB reports to EMP, and SUB's own backup is EMP's
+        # manager (MGR) - so COVER sees EMP and not SUB, in People and in Time
+        # (Pranshu, Oct 13: Arnav backing up Aarav saw Aarav's report Pragya).
         self._set_backup(EMP, COVER)
-        team = auth.team_emails(self.db, COVER)
-        self.assertEqual(team, {EMP, SUB})
+        self.assertEqual(backup_manager.backup_of(self.db, SUB), (MGR, "manager"))
+        self.assertEqual(auth.team_emails(self.db, COVER), {EMP})
+        scope = _visible_emails(self.db, {"email": COVER, "level": 3})
+        self.assertIn(EMP, scope)
+        self.assertNotIn(SUB, scope)
+        # The real manager keeps the whole line below them.
+        self.assertEqual(auth.team_emails(self.db, MGR), {EMP, SUB})
 
     def test_backup_sees_the_timesheet_waiting_on_the_manager(self):
         self._set_backup(EMP, COVER)
