@@ -924,6 +924,9 @@ def _run_migrations():
             "ALTER TABLE hr_interviews ADD COLUMN transcript_path VARCHAR DEFAULT ''",
             # A packet per job role (Pranshu, Oct 8). models.HrPacketSetting.role_ids.
             "ALTER TABLE hr_packet_settings ADD COLUMN role_ids JSON DEFAULT '[]'",
+            # The employee's own timecard note (Neil, Oct 12). models.TimecardNote.
+            "ALTER TABLE timecard_notes ADD COLUMN employee_note VARCHAR DEFAULT ''",
+            "ALTER TABLE timecard_notes ADD COLUMN employee_note_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2075,6 +2078,8 @@ def _run_migrations():
         "ALTER TABLE hr_interviews ADD COLUMN IF NOT EXISTS transcript_path VARCHAR DEFAULT ''",
         # A packet per job role (Pranshu, Oct 8). models.HrPacketSetting.role_ids.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS role_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note VARCHAR DEFAULT ''",
+        "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

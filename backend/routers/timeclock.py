@@ -1951,6 +1951,7 @@ class ManagerPunchIn(BaseModel):
     at: str
     tz_offset_min: Optional[int] = 0
     note: Optional[str] = ""
+    category: Optional[str] = ""   # job category / leave type on an in-punch ("Sick Day", "Vacation", "Personal")
 
 
 @router.post("/punches")
@@ -1975,6 +1976,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
                     local_date=_local_date(body.at, body.tz_offset_min or 0),
                     tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
                     note=(body.note or "").strip()[:300], source="manual",
+                    category=(body.category or "").strip()[:80] if body.kind == "in" else "",
                     created_by=user["email"], created_at=now)
     db.add(row)
     # Same transparency pair as adjust_punch (Visesh, Aug 11): the employee
@@ -2039,9 +2041,9 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                           TimeApproval.period_end <= (end or "9")).all()}
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
                     "Worked Hours", "Regular Hours", "OT Hours (1.5x)", "DT Hours (2x)",
-                    "Sick Hours", "Vacation Hours",
+                    "Sick Hours", "Vacation Hours", "Personal Hours",
                     "Break Minutes", "Flags", "OT Rule", "Rate $/hr",
-                    "Regular Pay", "OT Pay", "DT Pay", "Sick Pay", "Vacation Pay",
+                    "Regular Pay", "OT Pay", "DT Pay", "Sick Pay", "Vacation Pay", "Personal Pay",
                     "Total Pay", "Approved"])
         for r in rows:
             # Use the overtime engine (respects each person's ca/federal/none rule)
@@ -2061,18 +2063,21 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             f"{cd.get('regMin', 0) / 60:.2f}", f"{cd.get('otMin', 0) / 60:.2f}",
                             f"{cd.get('dtMin', 0) / 60:.2f}",
                             f"{cd.get('sickMin', 0) / 60:.2f}", f"{cd.get('vacationMin', 0) / 60:.2f}",
+                            f"{cd.get('personalMin', 0) / 60:.2f}",
                             d["breakMin"],
-                            " ".join(d["flags"]), "", "", "", "", "", "", "",
+                            " ".join(d["flags"]), "", "", "", "", "", "", "", "",
                             "yes" if (r["email"], date) in day_ok else ""])
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
                         f"{T['otMin'] / 60:.2f}", f"{T['dtMin'] / 60:.2f}",
                         f"{T.get('sickMin', 0) / 60:.2f}", f"{T.get('vacationMin', 0) / 60:.2f}",
+                        f"{T.get('personalMin', 0) / 60:.2f}",
                         T["breakMin"], "",
                         card["overtimeRule"], f"{rate:.2f}",
                         f"{T['regPay']:.2f}", f"{T['otPay']:.2f}", f"{T['dtPay']:.2f}",
-                        f"{T.get('sickPay', 0):.2f}", f"{T.get('vacationPay', 0):.2f}", f"{T['totalPay']:.2f}",
+                        f"{T.get('sickPay', 0):.2f}", f"{T.get('vacationPay', 0):.2f}",
+                        f"{T.get('personalPay', 0):.2f}", f"{T['totalPay']:.2f}",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"])
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
@@ -2124,7 +2129,8 @@ def export_iif(start: str = "", end: str = "",
                                 (d.get("otMin", 0), "Overtime Pay"),
                                 (d.get("dtMin", 0), "Double-time Pay"),
                                 (d.get("sickMin", 0), "Sick Pay"),
-                                (d.get("vacationMin", 0), "Vacation Pay")):
+                                (d.get("vacationMin", 0), "Vacation Pay"),
+                                (d.get("personalMin", 0), "Personal Pay")):
                 if mins <= 0:
                     continue
                 lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
@@ -2138,7 +2144,8 @@ def export_iif(start: str = "", end: str = "",
 # payroll-card total each one reads (hourly cards). A salaried card is one
 # "Salary" line off totals.totalPay.
 _INTACCT_PAY_CLASSES = (("regPay", "Regular Pay", "regMin"), ("otPay", "Overtime Pay", "otMin"), ("dtPay", "Double-time Pay", "dtMin"),
-                        ("holidayPay", "Holiday Pay", ""), ("sickPay", "Sick Pay", "sickMin"), ("vacationPay", "Vacation Pay", "vacationMin"))
+                        ("holidayPay", "Holiday Pay", ""), ("sickPay", "Sick Pay", "sickMin"), ("vacationPay", "Vacation Pay", "vacationMin"),
+                        ("personalPay", "Personal Pay", "personalMin"))
 
 
 def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
@@ -7847,11 +7854,14 @@ def team_exceptions(start: str = "", end: str = "",
 _LEAVE_CLASSES = (
     ("sick", re.compile(r"\bsick\b", re.I)),
     ("vacation", re.compile(r"\b(vacation|pto|paid time off|annual leave)\b", re.I)),
+    # Personal time (Neil, Oct 12): the third leave class a manager can enter
+    # on someone's behalf - same base-rate, no-overtime treatment.
+    ("personal", re.compile(r"\bpersonal\b", re.I)),
 )
 
 
 def _leave_class(category: str) -> str:
-    """'' for worked time, else 'sick' / 'vacation'."""
+    """'' for worked time, else 'sick' / 'vacation' / 'personal'."""
     c = (category or "").strip()
     if not c:
         return ""
@@ -7942,7 +7952,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     _long_min = _bp_eff["longBreakMin"]
 
     days_out = []
-    total_reg = total_ot = total_dt = total_sick = total_vac = total_break = total_paid_break = missing_punches = 0
+    total_reg = total_ot = total_dt = total_sick = total_vac = total_personal = total_break = total_paid_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by or p.edit_status == "approved")
     pending_edits = sum(1 for p in punches if p.edit_status == "pending")
 
@@ -8148,7 +8158,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             continue
         # Sick / vacation blocks are paid at the base rate and never feed the
         # overtime split - only WORKED minutes go through the OT law below.
-        lv = {"sick": 0, "vacation": 0}
+        lv = {"sick": 0, "vacation": 0, "personal": 0}
         for s in segs:
             if s.get("payClass"):
                 lv[s["payClass"]] += s["workedMin"]
@@ -8169,7 +8179,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             if sd in day_total:
                 day_split[sd] = split
 
-    reg_pay = ot_pay = dt_pay = sick_pay = vac_pay = 0.0
+    reg_pay = ot_pay = dt_pay = sick_pay = vac_pay = personal_pay = 0.0
     for d in sorted(day_total):
         reg, ot, dt = day_split.get(d, (day_total[d], 0, 0))
         segs = day_segs[d]
@@ -8190,9 +8200,9 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             seg["regMin"], seg["otMin"], seg["dtMin"] = s_reg, s_ot, s_dt
             seg["amount"] = round(s_reg / 60 * rate_d + s_ot / 60 * rate_d * _OT_MULT
                                   + s_dt / 60 * rate_d * _DT_MULT, 2)
-        sick_m, vac_m = day_leave[d]["sick"], day_leave[d]["vacation"]
+        sick_m, vac_m, personal_m = day_leave[d]["sick"], day_leave[d]["vacation"], day_leave[d]["personal"]
         total_reg += reg; total_ot += ot; total_dt += dt
-        total_sick += sick_m; total_vac += vac_m
+        total_sick += sick_m; total_vac += vac_m; total_personal += personal_m
         total_break += day_break_m[d]
         total_paid_break += day_paid_break.get(d, 0)
         reg_pay += reg / 60 * rate_d
@@ -8200,19 +8210,20 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         dt_pay += dt / 60 * rate_d * _DT_MULT
         sick_pay += sick_m / 60 * rate_d
         vac_pay += vac_m / 60 * rate_d
+        personal_pay += personal_m / 60 * rate_d
         # workedMin stays the day's FULL paid minutes (work + leave) - it is the
         # number the employee attests and the sign-off compares, and SwipeClock's
         # day total / TOTALS line count leave hours the same way.
         days_out.append({"date": d, "weekStart": _week_start_str(d), "segments": segs,
-                         "workedMin": reg + ot + dt + sick_m + vac_m,
+                         "workedMin": reg + ot + dt + sick_m + vac_m + personal_m,
                          "regMin": reg, "otMin": ot, "dtMin": dt,
-                         "sickMin": sick_m, "vacationMin": vac_m,
+                         "sickMin": sick_m, "vacationMin": vac_m, "personalMin": personal_m,
                          "rate": rate_d,
                          "breakMin": day_break_m[d], "paidBreakMin": day_paid_break.get(d, 0)})
 
     reg_pay, ot_pay, dt_pay = round(reg_pay, 2), round(ot_pay, 2), round(dt_pay, 2)
-    sick_pay, vac_pay = round(sick_pay, 2), round(vac_pay, 2)
-    worked_min = total_reg + total_ot + total_dt + total_sick + total_vac
+    sick_pay, vac_pay, personal_pay = round(sick_pay, 2), round(vac_pay, 2), round(personal_pay, 2)
+    worked_min = total_reg + total_ot + total_dt + total_sick + total_vac + total_personal
     # "Through 10/14 at X · From 10/15 at Y" - the rate runs across the period's
     # calendar days (every day, not only worked ones, so the split date is the
     # raise's real effective date).
@@ -8333,11 +8344,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             "byCategory": by_category, "byLocation": by_location,
             "pendingRequests": pending_requests,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
-                       "sickMin": total_sick, "vacationMin": total_vac,
+                       "sickMin": total_sick, "vacationMin": total_vac, "personalMin": total_personal,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "holidayPay": holiday_pay, "holidayDays": holiday_days,
-                       "sickPay": sick_pay, "vacationPay": vac_pay,
-                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay + sick_pay + vac_pay, 2),
+                       "sickPay": sick_pay, "vacationPay": vac_pay, "personalPay": personal_pay,
+                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay + sick_pay + vac_pay + personal_pay, 2),
                        "breakMin": total_break, "paidBreakMin": total_paid_break,
                        "workedMin": worked_min, "deductedMin": total_deducted,
                        "activeMin": active_min, "idleMin": idle_min,
@@ -8370,13 +8381,23 @@ def payroll_timecard(email: str, start: str, end: str,
     return _no_pay(db, user, card)
 
 
-def _timecard_notes(db: Session, email: str, start: str, end: str) -> dict:
-    """{date: {note, by, at}} - the manager/HR notes on this person's days."""
+def _timecard_notes(db: Session, email: str, start: str, end: str, *, own: bool = False) -> dict:
+    """{date: {note, by, at, employeeNote, employeeNoteAt}} - the notes on this
+    person's days. `own=True` is the employee's OWN card (/my-payroll): only
+    their note travels, the manager/HR note never does (Neil, Oct 12 -
+    "Supervisor Notes should not be visible to the employees")."""
     rows = (db.query(TimecardNote)
             .filter(TimecardNote.employee_email == email,
                     TimecardNote.date >= (start or "0"), TimecardNote.date <= (end or "9")).all())
-    return {r.date: {"note": r.note or "", "by": r.updated_by or "", "at": r.updated_at or ""}
-            for r in rows if (r.note or "").strip()}
+    out = {}
+    for r in rows:
+        mgr = "" if own else (r.note or "").strip()
+        emp = (r.employee_note or "").strip()
+        if not mgr and not emp:
+            continue
+        out[r.date] = {"note": mgr, "by": "" if own else (r.updated_by or ""), "at": "" if own else (r.updated_at or ""),
+                       "employeeNote": emp, "employeeNoteAt": r.employee_note_at or ""}
+    return out
 
 
 class TimecardNoteIn(BaseModel):
@@ -8407,7 +8428,11 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
     row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
     if not text:
         if row:
-            db.delete(row)
+            # The employee's own note on the same day stays (Oct 12).
+            if (row.employee_note or "").strip():
+                row.note, row.updated_by, row.updated_at = "", "", ""
+            else:
+                db.delete(row)
             db.commit()
         return {"date": day, "note": "", "by": "", "at": ""}
     now = _now_iso()
@@ -8426,6 +8451,50 @@ def set_timecard_note(body: TimecardNoteIn, user: dict = Depends(require_team_wr
         row.note, row.updated_by, row.updated_at = text, user["email"], now
         db.commit()
     return {"date": day, "note": text, "by": user["email"], "at": now}
+
+
+class MyTimecardNoteIn(BaseModel):
+    date: str               # YYYY-MM-DD
+    note: str = ""          # "" clears it
+
+
+@router.put("/my-timecard-notes")
+def set_my_timecard_note(body: MyTimecardNoteIn, user: dict = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """The employee's OWN note on one day of their timecard (Neil, Oct 12 -
+    "Employee should have the ability to add a note"). It rides on the same
+    row as the manager/HR note but is its own field: the manager sees both on
+    the team card, the employee only ever sees theirs. Never changes hours."""
+    em = user["email"].strip().lower()
+    day = (body.date or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    text = (body.note or "").strip()[:2000]
+    rid = f"{em}|{day}"
+    row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
+    if not text:
+        if row:
+            if (row.note or "").strip():
+                row.employee_note, row.employee_note_at = "", ""
+            else:
+                db.delete(row)
+            db.commit()
+        return {"date": day, "employeeNote": "", "employeeNoteAt": ""}
+    now = _now_iso()
+    if row is None:
+        row = TimecardNote(id=rid, employee_email=em, date=day)
+        db.add(row)
+    row.employee_note, row.employee_note_at = text, now
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        row = db.query(TimecardNote).filter(TimecardNote.id == rid).first()
+        row.employee_note, row.employee_note_at = text, now
+        db.commit()
+    return {"date": day, "employeeNote": text, "employeeNoteAt": now}
 
 
 def _review_state(db: Session, email: str, start: str, user: dict, team: bool) -> dict:
@@ -8450,6 +8519,8 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         card = _fixed_card(db, user["email"], anchor)
         card.update(_signoff_state(db, user["email"], card["periodStart"], card["periodEnd"]))
         card["review"] = _review_state(db, user["email"], card["periodStart"], user, team=False)
+        # Only the employee's OWN notes - never the manager/HR note (Oct 12).
+        card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
@@ -8457,6 +8528,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     card["review"] = _review_state(db, user["email"], p_start, user, team=False)
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
+    card["notes"] = _timecard_notes(db, user["email"], p_start, p_end, own=True)
     return card
 
 

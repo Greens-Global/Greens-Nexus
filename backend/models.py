@@ -4909,6 +4909,10 @@ class TimecardNote(Base):
     note           = Column(String, default="")
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
+    # The employee's OWN note on the day (Neil, Oct 12) - the one field of this
+    # row that /my-payroll carries; the manager/HR `note` above never does.
+    employee_note    = Column(String, default="")
+    employee_note_at = Column(String, default="")
 
 
 class PayrollRateHistory(Base):

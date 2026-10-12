@@ -22,7 +22,8 @@ from fastapi import HTTPException                                               
 import database                                                                  # noqa: E402
 import models                                                                    # noqa: E402
 from models import NexusEmployee, TimecardNote                                   # noqa: E402
-from routers.timeclock import TimecardNoteIn, _timecard_notes, set_timecard_note  # noqa: E402
+from routers.timeclock import (TimecardNoteIn, MyTimecardNoteIn, _timecard_notes,  # noqa: E402
+                               set_timecard_note, set_my_timecard_note)
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -150,6 +151,57 @@ class TimecardNotesTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as e:
             self.put(ADMIN, self.emp, "09/23/2026", "x")
         self.assertEqual(e.exception.status_code, 400)
+
+    # ── The employee's own note (Neil, Oct 12) ──────────────────────────────
+    def put_mine(self, email, date, note):
+        db = database.SessionLocal()
+        try:
+            return set_my_timecard_note(MyTimecardNoteIn(date=date, note=note), user={"email": email, "level": 1}, db=db)
+        finally:
+            db.close()
+
+    def test_employee_note_is_its_own_field_and_the_manager_sees_both(self):
+        self.put_mine(self.emp, "2026-09-25", "  Left early for the dentist  ")
+        self.put(ADMIN, self.emp, "2026-09-25", "Confirmed with Ashley")
+        team = self.read(self.emp)["2026-09-25"]
+        self.assertEqual(team["note"], "Confirmed with Ashley")
+        self.assertEqual(team["by"], ADMIN["email"])
+        self.assertEqual(team["employeeNote"], "Left early for the dentist")
+        self.assertTrue(team["employeeNoteAt"])
+
+    def test_the_employee_never_sees_the_manager_note(self):
+        self.put(ADMIN, self.emp, "2026-09-25", "Watch the long lunches")
+        self.put_mine(self.emp, "2026-09-25", "Mine")
+        db = database.SessionLocal()
+        try:
+            own = _timecard_notes(db, self.emp, "2026-09-20", "2026-10-03", own=True)
+        finally:
+            db.close()
+        self.assertEqual(own["2026-09-25"]["employeeNote"], "Mine")
+        self.assertEqual(own["2026-09-25"]["note"], "")
+        self.assertEqual(own["2026-09-25"]["by"], "")
+        # A day with only a manager note is not on the employee's card at all.
+        self.put(ADMIN, self.emp, "2026-09-26", "manager only")
+        db = database.SessionLocal()
+        try:
+            own = _timecard_notes(db, self.emp, "2026-09-20", "2026-10-03", own=True)
+        finally:
+            db.close()
+        self.assertNotIn("2026-09-26", own)
+
+    def test_clearing_one_side_keeps_the_other(self):
+        self.put_mine(self.emp, "2026-09-25", "Mine")
+        self.put(ADMIN, self.emp, "2026-09-25", "Theirs")
+        self.put(ADMIN, self.emp, "2026-09-25", "")           # manager clears
+        self.assertEqual(self.read(self.emp)["2026-09-25"]["employeeNote"], "Mine")
+        self.assertEqual(self.read(self.emp)["2026-09-25"]["note"], "")
+        self.put_mine(self.emp, "2026-09-25", "")              # employee clears - row goes
+        self.assertNotIn("2026-09-25", self.read(self.emp))
+        db = database.SessionLocal()
+        try:
+            self.assertIsNone(db.query(TimecardNote).filter(TimecardNote.id == f"{self.emp}|2026-09-25").first())
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
