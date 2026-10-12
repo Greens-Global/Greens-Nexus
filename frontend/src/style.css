@@ -1295,6 +1295,13 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 .dir-mini.teams:hover { color: #4b53bc; }
 .dir-action:hover, .dir-tool:hover, .dir-pill:hover { filter: brightness(0.95); }
 .dir-action:focus-visible, .dir-tool:focus-visible, .dir-pill:focus-visible, .dir-mini:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+/* Org Chart lens cards (Contact Directory, Oct 2026) */
+.dir-card { transition: border-color .1s, box-shadow .1s, opacity .12s; }
+.dir-card:hover { box-shadow: var(--shadow-md); }
+.dir-card:focus-visible { outline: 2px solid var(--fern); outline-offset: 2px; }
+.dir-card-actions { opacity: 0; transition: opacity .12s; }
+.dir-card:hover .dir-card-actions, .dir-card.is-active .dir-card-actions, .dir-card:focus-within .dir-card-actions { opacity: 1; }
+@media (hover: none) { .dir-card-actions { opacity: 1; } }
 @media (max-width: 820px) {
   .dir-row-actions { opacity: 1; }
   /* Finger-sized targets: 36px buttons, a little more air between them. */
