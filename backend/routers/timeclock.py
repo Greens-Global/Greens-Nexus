@@ -7468,6 +7468,20 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
+    # Leave entered for the day (Sick Day / Vacation / Personal - the same
+    # classes the hourly card uses). Leave applies to every pay type (Pranshu,
+    # Oct 12): on salary a leave day DEDUCTS the day like an absence, whatever
+    # the hours on the leave entry - only hours actually worked that day earn
+    # it back (a full day's work: no deduction; half a day: half). Leave
+    # minutes never earn weekend pay. The day's class is the first leave
+    # segment's.
+    leave_by_day = {}
+    leave_min_by_day = {}
+    for d in card.get("days", []):
+        for s in d.get("segments", []):
+            if s.get("payClass") in ("sick", "vacation", "personal"):
+                leave_by_day.setdefault(d["date"], s["payClass"])
+                leave_min_by_day[d["date"]] = leave_min_by_day.get(d["date"], 0) + int(s.get("leaveMin") or s.get("workedMin") or 0)
     # An open in-punch (no clock-out yet) means the person is mid-shift.
     open_by_day = {d["date"]: any(not s.get("out") for s in d.get("segments", []))
                    for d in card.get("days", [])}
@@ -7487,12 +7501,15 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
 
     holidays = _company_holidays_for_employee(db, em, m_start, m_end)
     missed_full = missed_half = weekend_worked = 0
+    leave_days = {"sick": 0, "vacation": 0, "personal": 0}
     deduction = base_pay = weekend_bonus = 0.0
     fixed_days = []
     for i in range(days_in_month):
         dd = first + timedelta(days=i)
         ds = dd.isoformat()
         wm = worked_by_day.get(ds, 0)
+        leave_cls = leave_by_day.get(ds, "")
+        work_min = max(0, wm - leave_min_by_day.get(ds, 0))   # hours actually worked, leave aside
         has_open = open_by_day.get(ds, False)
         is_weekend = dd.weekday() >= 5      # Sat=5, Sun=6
         deduct = bonus = 0.0
@@ -7521,13 +7538,22 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 status = "late" if late_today else "upcoming"
         elif hol and not is_weekend and not (wm > 0 or has_open):
             status = "holiday"
+        elif leave_cls and not is_weekend:
+            status = leave_cls              # leave: the day is deducted unless they also worked it (Oct 12)
+            leave_days[leave_cls] += 1
+            if work_min >= FULL_MIN:
+                deduct = 0.0
+            elif work_min >= HALF_MIN:
+                deduct = daily_d / 2.0; missed_half += 1
+            else:
+                deduct = daily_d; missed_full += 1
         elif is_weekend:
-            if wm > 0 or has_open:
+            if work_min > 0 or has_open:
                 # A5: calculated from the day's rate and the hours actually
                 # worked, never a typed amount (an open punch earns the floor
                 # until the clock-out lands).
                 status = "weekend_worked"; weekend_worked += 1
-                bonus = _weekend_pay(daily_d, wm, full_hours, currency)
+                bonus = _weekend_pay(daily_d, work_min, full_hours, currency)
             else:
                 status = "weekend"
         elif has_open and ds >= today:
@@ -7551,6 +7577,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2),
+                           "leaveClass": leave_cls, "leaveMin": leave_min_by_day.get(ds, 0),
                            "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
@@ -7589,6 +7616,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                       "workingDaysInYear": working_days,
                       "missedFullDays": missed_full, "missedHalfDays": missed_half,
                       "weekendDaysWorked": weekend_worked,
+                      "sickDays": leave_days["sick"], "vacationDays": leave_days["vacation"],
+                      "personalDays": leave_days["personal"],
                       "deduction": deduction, "weekendBonus": weekend_bonus,
                       "totalPay": total_pay}
     card["periodStart"], card["periodEnd"] = m_start, m_end
