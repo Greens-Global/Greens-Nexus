@@ -77,6 +77,17 @@ export function utcToInputTz(iso) {
   return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
+/** JS-style UTC offset (minutes, positive west - like getTimezoneOffset) of
+ *  the current display zone at a typed wall time. A punch added from the card
+ *  must be dated in the zone its time was typed in: sending the BROWSER's
+ *  offset with a California time put a 5 PM clock-out on the next day for
+ *  anyone browsing from India (Neil's call, Oct 13). */
+export function tzOffsetForInput(v) {
+  const utc = inputToUtcTz(v);
+  if (!utc) return new Date().getTimezoneOffset();
+  return -offsetMin(new Date(utc + 'Z'), _current.tz);
+}
+
 /** Wall time in the current display zone -> stored UTC "YYYY-MM-DDTHH:MM:SS". */
 export function inputToUtcTz(v) {
   if (!v) return '';

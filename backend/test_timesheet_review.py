@@ -548,7 +548,10 @@ class WaitingOnReviewerTests(ReviewCase):
         self.assertEqual((row["employeeEmail"], row["name"], row["periodStart"], row["workedMin"], row["note"]),
                          (EMP, "Erin Test", self.start, 420, "All in"))
         self.assertEqual(row["agreeBlocker"], "")          # the period is over and clean
-        self.assertEqual(tsr.waiting_on(self.db, HR), [])  # only the person it waits on
+        # The company HR contact is also on the list: with no backup set and no
+        # manager above MGR, HR is the employee's Backup Manager (Neil, Oct 13).
+        self.assertEqual([r.employee_email for r in tsr.waiting_on(self.db, HR)], [EMP])
+        self.assertEqual(tsr.waiting_on(self.db, "someone.else@greensglobal.com"), [])
         tsr.send_back(self.db, self._r(), MGR, "Check Monday")
         self.assertEqual(tsr.waiting_on(self.db, MGR), [])  # decided: off the list
 
@@ -560,7 +563,7 @@ class WaitingOnReviewerTests(ReviewCase):
             r = self.client.get("/timesheet-review/waiting")
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual([x["employeeEmail"] for x in r.json()["reviews"]], [EMP])
-            os.environ["NEXUS_DEV_EMAIL"] = HR
+            os.environ["NEXUS_DEV_EMAIL"] = "someone.else@greensglobal.com"
             self.assertEqual(self.client.get("/timesheet-review/waiting").json()["reviews"], [])
         finally:
             if prev is None:

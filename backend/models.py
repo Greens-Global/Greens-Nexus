@@ -919,6 +919,10 @@ class NexusEmployee(Base):
     # common ancestor of the three-way merge, so a change on either side is told
     # apart from the other side simply being different.
     m365_sync                = Column(JSON, default=dict)
+    # Backup Manager (Neil, Oct 13): covers this person when their manager is
+    # out, with the manager's rights over them. '' = the default - the
+    # manager's manager, else the company's HR contact (backup_manager.py).
+    backup_manager_email     = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):

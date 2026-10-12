@@ -169,8 +169,10 @@ def _visible_emails(db: Session, user: dict):
         return None if base is None else base | set(extra)
     if user.get("level", 0) >= 4:
         return None
-    directs = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
-               .filter(NexusEmployee.manager_email == user["email"]).all() if e.work_email}
+    # Direct reports, plus anyone the caller is Backup Manager for - the
+    # backup has the manager's rights over them (Neil, Oct 13).
+    import backup_manager
+    directs = backup_manager.managed_directly(db, user["email"])
     directs.add(user["email"])
     if _module_level(user["email"], "hr", db) >= 1:
         scope = hr_scope(user, db)
