@@ -52,11 +52,11 @@ def _wipe():
         db.close()
 
 
-def _punch(db, em, day, hours, start_h=4, i=0):
+def _punch(db, em, day, hours, start_h=4, i=0, category=""):
     """One in/out pair on `day` (UTC times; tz_offset 0 so local date = day)."""
     db.add(models.TimePunch(id=f"{em}-{day}-{i}-in", employee_email=em, kind="in",
                             at=f"{day}T{start_h:02d}:00:00", local_date=day, tz_offset_min=0,
-                            voided=0, created_at=f"{day}T{start_h:02d}:00:00"))
+                            voided=0, category=category, created_at=f"{day}T{start_h:02d}:00:00"))
     end_min = int(round((start_h + hours) * 60))
     db.add(models.TimePunch(id=f"{em}-{day}-{i}-out", employee_email=em, kind="out",
                             at=f"{day}T{end_min // 60:02d}:{end_min % 60:02d}:00", local_date=day,
@@ -105,12 +105,42 @@ class FixedCardTests(unittest.TestCase):
             _punch(db, FIXED, "2026-09-03", 3.5)    # Thu: 3h30 -> absent
             _punch(db, FIXED, "2026-09-05", 4)      # Sat: 4h weekend
             _punch(db, FIXED, "2026-09-06", 1)      # Sun: 1h weekend -> floor
+            # Leave entered on their behalf (Pranshu, Oct 12): every pay type.
+            _punch(db, FIXED, "2026-09-08", 8, category="Vacation")    # Tue: a vacation day - deducted
+            _punch(db, FIXED, "2026-09-09", 0.05, category="Sick Day")  # Wed: 3 minutes of leave - still a day deducted
+            _punch(db, FIXED, "2026-09-10", 2, category="Personal")     # Thu: 2h personal...
+            _punch(db, FIXED, "2026-09-10", 5, start_h=8, i=1)          # ...and 5h worked -> half a day back
+            _punch(db, FIXED, "2026-09-13", 8, category="Vacation")     # Sun: leave on a weekend earns nothing
             db.commit()
         finally:
             db.close()
 
     def tearDown(self):
         _wipe()
+
+    def test_leave_days_deduct_on_salary(self):
+        db = database.SessionLocal()
+        try:
+            card = _fixed_card(db, FIXED, "2026-09-15")
+        finally:
+            db.close()
+        daily = round(self.SALARY * 12 / 261, 2)
+        st = {d["date"]: d for d in card["fixedDays"]}
+        # A leave day is deducted like an absence, however long the leave entry.
+        for day, cls in (("2026-09-08", "vacation"), ("2026-09-09", "sick")):
+            self.assertEqual((st[day]["status"], st[day]["leaveClass"]), (cls, cls), day)
+            self.assertAlmostEqual(st[day]["deduct"], daily, places=1)
+        self.assertEqual(st["2026-09-09"]["leaveMin"], 3)
+        # Hours actually worked on a leave day earn it back by the usual bands.
+        self.assertEqual((st["2026-09-10"]["status"], st["2026-09-10"]["leaveMin"]), ("personal", 120))
+        self.assertAlmostEqual(st["2026-09-10"]["deduct"], round(daily / 2, 2), places=1)
+        # Leave on a weekend is neither pay nor deduction.
+        self.assertEqual((st["2026-09-13"]["status"], st["2026-09-13"]["bonus"], st["2026-09-13"]["deduct"]), ("weekend", 0.0, 0.0))
+        T = card["totals"]
+        self.assertEqual((T["sickDays"], T["vacationDays"], T["personalDays"]), (1, 1, 1))
+        self.assertEqual(T["weekendDaysWorked"], 2)
+        absent = sum(1 for d in card["fixedDays"] if d["status"] == "absent")
+        self.assertAlmostEqual(T["deduction"], round((absent + 2) * daily + 2 * daily / 2, 2), places=0)
 
     def test_daily_rate_bands_and_weekend_pay(self):
         db = database.SessionLocal()
@@ -140,7 +170,9 @@ class FixedCardTests(unittest.TestCase):
         absent = sum(1 for d in card["fixedDays"] if d["status"] == "absent")
         half = sum(1 for d in card["fixedDays"] if d["status"] == "half")
         self.assertEqual(half, 1)
-        self.assertAlmostEqual(T["deduction"], round(absent * daily + half * daily / 2, 2), places=1)
+        # Leave days (seeded above) deduct too, so the total is every day's deduction.
+        self.assertAlmostEqual(T["deduction"], round(absent * daily + half * daily / 2, 2)
+                               + sum(d["deduct"] for d in card["fixedDays"] if d["leaveClass"]), places=0)
         self.assertAlmostEqual(T["salaryForPeriod"], self.SALARY, places=2)
         self.assertAlmostEqual(T["totalPay"], round(T["salaryForPeriod"] - T["deduction"] + T["weekendBonus"], 2), places=2)
         self.assertEqual(card["rateSplits"], [])
