@@ -3133,6 +3133,23 @@ def _pending_partners(db: Session, r) -> list:
     return out
 
 
+_REQUEST_MATE = {"in": "out", "break_start": "break_end", "out": "in", "break_end": "break_start"}
+
+
+def _request_mate(chain: list, r):
+    """The other half of `r` in a time-ordered run of pending requests: the
+    request right after an opener (clock-in / break start) when it is its
+    closer, or right before a closer when it is its opener. None otherwise."""
+    i = next((k for k, p in enumerate(chain) if p.id == r.id), None)
+    if i is None:
+        return None
+    want = _REQUEST_MATE.get(r.punch_kind)
+    j = i + 1 if r.punch_kind in ("in", "break_start") else i - 1
+    if 0 <= j < len(chain) and chain[j].punch_kind == want:
+        return chain[j]
+    return None
+
+
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
                          user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
@@ -3192,7 +3209,20 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                 except HTTPException as chain_err:
                     if chain_err.status_code != 409:
                         raise
+                    # One stray request in the run (a clock-in asked for with
+                    # no clock-out) sank every pair around it, and the request
+                    # alone fails too - nothing could be approved (Pranshu,
+                    # Oct 13). Try the request with just its own other half.
+                    mate = _request_mate(chain, r)
                     partners = []
+                    if mate is not None:
+                        try:
+                            voided_strays = _apply_add_chain(db, sorted([mate, r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9))),
+                                                             user, now)
+                            partners = [mate]
+                        except HTTPException as pair_err:
+                            if pair_err.status_code != 409:
+                                raise
             if voided_strays is None:
                 voided_strays = _apply_add_chain(db, [r], user, now)
             if partners:
