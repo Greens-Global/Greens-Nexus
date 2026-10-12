@@ -5673,12 +5673,13 @@ function MonthlyBars({ employees }) {
 
 const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
 
-function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpToDirectory }) {
+function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatusFilter, onJumpToDirectory }) {
   // Total People counts the company's own people; external and guest users
-  // read underneath as "+N external" (Neil, Oct 13 - 62 vs 59 active read wrong).
+  // (their own list on this screen) read underneath as "+N external" - the
+  // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
   const isExt = e => ['external', 'guest'].includes(e.identityType || 'internal');
-  const nExternal = employees.filter(isExt).length;
-  const total = employees.length - nExternal;
+  const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
+  const total = employees.filter(e => !isExt(e)).length;
   const nActive = employees.filter(e => e.status === 'active').length;
   const nOnboarding = employees.filter(e => e.status === 'onboarding').length;
   const joined = employees.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
@@ -6108,7 +6109,7 @@ export default function HR({ activeSub, onSubChange }) {
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
-        <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
+        <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}
           onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
           onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }} />
 
