@@ -1,0 +1,178 @@
+{
+  "id": "greens-storage-georgetown",
+  "name": "Greens Storage Georgetown",
+  "address": "108 Boselli Way, Georgetown, TX 78626",
+  "apn": "R606431",
+  "acreage": 5.304,
+  "opened": "Operated by CubeSmart (store 6093); the signage reads CubeSmart",
+  "county": "Williamson",
+  "parcelSource": "Williamson County (WCAD) parcels",
+  "cubbyFacilityId": "",
+  "frame": {
+    "lat0": 30.5776,
+    "lon0": -97.6862,
+    "bearingDeg": 70.6,
+    "mPerDegLon": 95840,
+    "mPerDegLat": 110900
+  },
+  "image": {
+    "file": "frontend/public/site-models/greens-storage-georgetown/ground.jpg",
+    "bbox": [
+      -97.6882,
+      30.576,
+      -97.6846,
+      30.5794
+    ],
+    "px": [
+      1200,
+      1300
+    ],
+    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+  },
+  "imageWide": {
+    "file": "frontend/public/site-models/greens-storage-georgetown/ground-wide.jpg",
+    "bbox": [
+      -97.6972,
+      30.5677,
+      -97.6752,
+      30.5877
+    ]
+  },
+  "gates": [
+    {
+      "id": "main",
+      "name": "Main Entrance",
+      "en": [
+        [
+          76,
+          16
+        ]
+      ]
+    }
+  ],
+  "classify": [
+    {
+      "match": "^15",
+      "f": 1,
+      "k": "ccdu",
+      "veh": 0
+    },
+    {
+      "match": "^[456]",
+      "f": 1,
+      "k": "du",
+      "veh": 0
+    },
+    {
+      "match": "^1",
+      "f": 1,
+      "k": "cc",
+      "veh": 0
+    },
+    {
+      "match": "^2",
+      "f": 2,
+      "k": "cc",
+      "veh": 0
+    },
+    {
+      "match": "^3",
+      "f": 3,
+      "k": "cc",
+      "veh": 0
+    }
+  ],
+  "buildings": [
+    {
+      "id": "MAIN",
+      "letters": [],
+      "name": "Main Building",
+      "kind": "storage",
+      "rect": {
+        "E": 16.9,
+        "N": -4.8,
+        "L": 115.4,
+        "W": 35.7,
+        "bearing": 70.6
+      },
+      "height": 11.0,
+      "floors": 3,
+      "roof": "white",
+      "doorSide": "both",
+      "corridor": 1.6,
+      "inferred": false,
+      "note": "Three-story climate-controlled building, 115.4 x 35.7 m (42,400 sq ft WCAD footprint). Office at the east end toward Boselli Way (from imagery). 1xxx on level 1, 2xxx on level 2, 3xxx on level 3; 1500-1538 are climate-controlled drive-up units on its outside walls (which wall is schematic).",
+      "units": "^(1|2|3)",
+      "autoFit": true
+    },
+    {
+      "id": "N",
+      "letters": [],
+      "name": "North Drive-Up Row",
+      "kind": "storage",
+      "rect": {
+        "E": -11.7,
+        "N": 23.8,
+        "L": 111.2,
+        "W": 7.1,
+        "bearing": 70.9
+      },
+      "height": 3.2,
+      "floors": 1,
+      "roof": "metal",
+      "doorSide": "sw",
+      "inferred": true,
+      "note": "Single-loaded row of 36 10x20 drive-up units, doors facing the main building. 4000-4035 placed here from count and size; confirm against the site (it may be the south row).",
+      "units": "^4"
+    },
+    {
+      "id": "S",
+      "letters": [],
+      "name": "South Drive-Up Row",
+      "kind": "storage",
+      "rect": {
+        "E": 14.7,
+        "N": -35.4,
+        "L": 110.8,
+        "W": 6.8,
+        "bearing": 70.7
+      },
+      "height": 3.2,
+      "floors": 1,
+      "roof": "metal",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Single-loaded row of 36 10x20 drive-up units, doors facing the main building. 6000-6035 placed here from count and size; confirm against the site.",
+      "units": "^6"
+    },
+    {
+      "id": "W",
+      "letters": [],
+      "name": "West Drive-Up Row",
+      "kind": "storage",
+      "rect": {
+        "E": -55.1,
+        "N": -31.2,
+        "L": 47.1,
+        "W": 7.0,
+        "bearing": 161.1
+      },
+      "height": 3.2,
+      "floors": 1,
+      "roof": "metal",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Row of 15 10x20 drive-up units on the west end (5000-5014), doors facing east.",
+      "units": "^5"
+    }
+  ],
+  "zones": [],
+  "sources": [
+    "Parcel: Williamson County Appraisal District (WCAD R606431, Summit at Westinghouse Zone F, Blk A Lot 2, 5.304 ac, Greens Georgetown LLC, DBA CubeSmart)",
+    "Buildings: WCAD building footprints (42,400 / 8,464 / 8,095 / 3,530 sq ft), checked against Esri imagery",
+    "Units: CubeSmart rent roll for store 6093, 08/31/2026 (815 rented units); vacant sizes estimated from CubeSmart's unit mix",
+    "Not in Cubby: the store runs on CubeSmart's system, so there is no live link"
+  ],
+  "operator": "CubeSmart",
+  "unitSource": "CubeSmart rent roll, 08/31/2026"
+}

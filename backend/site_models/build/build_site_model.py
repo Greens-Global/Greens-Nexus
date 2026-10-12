@@ -21,7 +21,9 @@ Config reference (see the *.config.json files beside this script):
                Units with no matching rule fall back to the Cubby fields
                (t = P parking / S enclosed, cc / du feature flags).
   buildings    id, letters (unit-name prefixes) or units (regex), kind, height,
-               floors, roof, doorSide (sw|ne|both), note, inferred, and the
+               floors, roof, doorSide (sw|ne|both), note, inferred, deepRows
+               (interior units laid long side in, for tightly packed buildings), autoFit
+               (try both row directions and both unit turns, keep the fewest levels), and the
                footprint as either u/v ranges, a `rect` {E,N,L,W,bearing} from
                Microsoft Open Buildings (meters from the frame origin, bearing of
                the long side), or `px` corners on the detail image.
@@ -221,7 +223,38 @@ class Builder:
             v += need; i = iB
         return i
 
+    def fill(self, bd, items, i, floor, ua, ub, iv0, iv1):
+        """fill_rows, or with rowsAcross the same hallways turned 90 degrees (rows run
+        across the building); drive-up strips on the long walls are not affected."""
+        if not bd.get('rowsAcross'):
+            return self.fill_rows(bd, items, i, floor, ua, ub, iv0, iv1)
+        start = len(self.placed)
+        j = self.fill_rows(bd, items, i, floor, iv0, iv1, ua, ub)
+        for p in self.placed[start:]:
+            p['u'], p['v'], p['wu'], p['dv'] = p['v'], p['u'], p['dv'], p['wu']
+            p['door'] = {'sw': 'w', 'ne': 'e'}.get(p['door'], p['door'])
+        return j
+
     def layout_building(self, bd, items):
+        if not bd.get('autoFit'):
+            return self._layout_oriented(bd, items)
+        # autoFit: try rows along / across the building, units as listed / turned long
+        # side in, and keep the layout that needs the fewest levels (then the fewest flags)
+        trials = []
+        for across in (False, True):
+            for deep in (False, True):
+                start, nflags = len(self.placed), len(self.flags)
+                dims0 = [(x['wm'], x['dm']) for x in items]
+                trial = {**bd, 'deepRows': deep, 'rowsAcross': across}
+                self._layout_oriented(trial, items)
+                trials.append((trial.get('floorsUsed', 99), len(self.flags) - nflags, across, deep))
+                del self.placed[start:]; del self.flags[nflags:]
+                for x, (w, d) in zip(items, dims0): x['wm'], x['dm'] = w, d; x.pop('full', None)
+        _, _, across, deep = min(trials)
+        bd['deepRows'] = deep; bd['rowsAcross'] = across
+        self._layout_oriented(bd, items)
+
+    def _layout_oriented(self, bd, items):
         self.corridor = float(bd.get('corridor', CORRIDOR))
         if (bd['v'][1] - bd['v'][0]) > (bd['u'][1] - bd['u'][0]) * 1.15:
             start = len(self.placed)
@@ -236,6 +269,11 @@ class Builder:
         u0, u1 = bd['u']; v0, v1 = bd['v']; Wd = v1 - v0
         du = [x for x in items if x['k'] in ('du', 'ccdu')]
         inner = [x for x in items if x['k'] not in ('du', 'ccdu')]
+        if real.get('deepRows'):
+            # Interior units turned long side in: deeper rows mean fewer hallways, which is
+            # what a tightly packed multi-story building needs (the CubeSmart sites, ~78% net)
+            for x in inner:
+                if x['wm'] > x['dm']: x['wm'], x['dm'] = x['dm'], x['wm']
         side = {'w': 'sw', 'e': 'ne'}.get(bd.get('doorSide', 'both'), bd.get('doorSide', 'both'))
         primary = 'sw' if side in ('sw', 'both') else 'ne'
         secondary = 'ne' if primary == 'sw' else 'sw'
@@ -278,12 +316,12 @@ class Builder:
                 grp.sort(key=lambda x: (-x['dm'], natkey(x['n'])))
                 f = max(f0, next_floor)
                 if f == 1:
-                    i = self.fill_rows(bd, grp, 0, 1, full_until, u1, v0 + strip['sw'] if floors_used == 1 else v0, v1 - strip['ne'] if floors_used == 1 else v1)
+                    i = self.fill(bd, grp, 0, 1, full_until, u1, v0 + strip['sw'] if floors_used == 1 else v0, v1 - strip['ne'] if floors_used == 1 else v1)
                 else:
-                    i = self.fill_rows(bd, grp, 0, f, u0, u1, v0, v1)
+                    i = self.fill(bd, grp, 0, f, u0, u1, v0, v1)
                 while i < len(grp):
                     f += 1
-                    j = self.fill_rows(bd, grp, i, f, u0, u1, v0, v1)
+                    j = self.fill(bd, grp, i, f, u0, u1, v0, v1)
                     if j == i:
                         self.flags.append(f"{bd['id']}: unit {grp[i]['n']} does not fit the building width"); i += 1
                     else: i = j

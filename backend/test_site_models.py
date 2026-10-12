@@ -9,7 +9,8 @@ import cubby_client
 from routers import site_models
 
 PROPERTIES = ("greens-storage-escondido", "greens-storage-valley-center", "greens-storage-temecula",
-              "greens-storage-murrieta", "greens-storage-fairfield")
+              "greens-storage-murrieta", "greens-storage-fairfield", "greens-storage-austin",
+              "greens-storage-sachse", "greens-storage-georgetown")
 
 
 class SiteModelTests(unittest.TestCase):
@@ -44,7 +45,8 @@ class SiteModelTests(unittest.TestCase):
             self.assertIn(pid, ids)
             model = site_models.load_model(pid)
             self.assertTrue(model["units"], pid)
-            self.assertTrue(model["property"]["cubbyFacilityId"].startswith("fac_"), pid)
+            # Cubby sites carry their facility id; CubeSmart-run sites name their operator instead
+            self.assertTrue(model["property"]["cubbyFacilityId"].startswith("fac_") or model["property"].get("operator") == "CubeSmart", pid)
             self.assertTrue(model["parcels"] and model["gates"], pid)
             for u in model["units"]:
                 self.assertTrue(u["wu"] > 0 and u["dv"] > 0, (pid, u["n"]))
@@ -62,6 +64,40 @@ class SiteModelTests(unittest.TestCase):
         self.assertEqual(m["live"]["source"], "file")
         self.assertIn("CubeSmart rent roll", m["live"]["system"])
         self.assertNotIn("l", site_models.public_view(m)["units"][0])
+
+    def test_sachse_and_georgetown_are_cubesmart_stores_on_their_own_parcels(self):
+        # Sachse (7970 Woodbridge Pkwy) and Georgetown (108 Boselli Way) run on CubeSmart's
+        # system like Austin; every unit sits on its real floor and inside its one parcel
+        for pid, apn, floors, count in (("greens-storage-sachse", "R-10561-00A-0040-1", {1, 2, 3}, 886),
+                                         ("greens-storage-georgetown", "R606431", {1, 2, 3}, 964)):
+            model = site_models.load_model(pid)
+            self.assertEqual(model["property"]["operator"], "CubeSmart")
+            self.assertEqual(model["property"]["cubbyFacilityId"], "")
+            self.assertEqual([p["apn"] for p in model["parcels"]], [apn])
+            self.assertEqual(len(model["units"]), count)
+            self.assertEqual({u["f"] for u in model["units"]}, floors)
+            self.assertEqual(model["layout"]["flags"], [])
+            self.assertEqual(site_models.with_live(model)["live"]["source"], "file")
+        gt = site_models.load_model("greens-storage-georgetown")
+        rows = {u["b"] for u in gt["units"] if u["n"][0] in "456"}
+        self.assertEqual(rows, {"N", "S", "W"})          # the 10x20 drive-up rows, not the main building
+
+    def test_cubesmart_converter_reads_no_customer_fields_and_sizes_the_gaps(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("cs", os.path.join(os.path.dirname(__file__), "site_models", "build", "cubesmart_units.py"))
+        cs = importlib.util.module_from_spec(spec); spec.loader.exec_module(cs)
+        occ = [{"n": "1001", "size": "10X10", "attr": "CDE"}, {"n": "1003-1004", "size": "10X20", "attr": "CDN"},
+               {"n": "1006", "size": "10X10", "attr": "CDE"}, {"n": "1008", "size": "05X05", "attr": "CDE"}]
+        mix = [{"size": "10X10", "attr": "CDE", "total": 3, "occ": 2}, {"size": "05X05", "attr": "CDE", "total": 2, "occ": 1},
+               {"size": "10X20", "attr": "CDN", "total": 1, "occ": 1}]
+        units, stats = cs.build(occ, mix, "08/31/2026", {"1007": "05X05"}, "02/02/2021")
+        by = {u["n"]: u for u in units}
+        self.assertEqual(sorted(by), ["1001", "1002", "1003-1004", "1005", "1006", "1007", "1008"])
+        self.assertEqual((by["1007"]["w"], by["1007"]["d"], by["1007"]["l"]), (5.0, 5.0, 0))
+        self.assertIn("unit audit", by["1007"]["note"])
+        self.assertIn("estimated", by["1002"]["note"])
+        self.assertEqual(stats["gaps"], 3)
+        self.assertEqual(set().union(*(u.keys() for u in units)), {"n", "w", "d", "t", "l", "r", "why", "note", "dv", "pw", "cc", "du", "cov"})
 
     def test_without_a_cubby_key_the_model_is_a_snapshot(self):
         with mock.patch.dict(os.environ, {"CUBBY_API_KEY": ""}):

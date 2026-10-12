@@ -1,6 +1,6 @@
 # Site Models - to-scale 3D property models
 
-Neil, Oct 11 2026. One model per Greens Storage property, all six built:
+Neil, Oct 11-12 2026. One model per Greens Storage property, all eight built:
 
 | Property | Model id | Cubby facility | Parcel source |
 |---|---|---|---|
@@ -10,6 +10,8 @@ Neil, Oct 11 2026. One model per Greens Storage property, all six built:
 | Greens Storage Murrieta | `greens-storage-murrieta` | `fac_TqcwmjuRLgy` | Riverside County Assessor OpenData |
 | Greens Storage Fairfield | `greens-storage-fairfield` | `fac_NZEnukUARtt` | Solano County parcel layer |
 | Greens Storage Austin (CubeSmart) | `greens-storage-austin` | none - CubeSmart store 6992 | Williamson County (WCAD) parcels |
+| Greens Storage Sachse (CubeSmart) | `greens-storage-sachse` | none - CubeSmart store 4568 | Collin CAD parcels (via the City of Allen layer) |
+| Greens Storage Georgetown (CubeSmart) | `greens-storage-georgetown` | none - CubeSmart store 6093 | Williamson County (WCAD) parcels |
 
 A site model is one JSON file per property in `backend/site_models/`.
 Everything in it is in a local meter frame: `u` runs along the site's long
@@ -116,6 +118,29 @@ Inputs for every property are beside it (`<id>.config.json`,
    `frontend/public/site-models/<id>/`, Esri World Imagery exports with their
    bounding boxes in the config.
 
+### CubeSmart stores (Austin, Sachse, Georgetown)
+
+These three are operated by CubeSmart and are not in Cubby; their units come
+from CubeSmart's monthly **Financials** workbook (Egnyte: `<entity>/#Reports/
+Reports - Daily & Monthly/<year>/<month>/<store>/<store> Financials <Month>
+<year>.xlsx`). To refresh one:
+
+    python cubesmart_units.py "<store> Financials August 2026.xlsx" <store> 08/31/2026 greens-storage-<site>.units.json [greens-storage-sachse.sizes.json 02/02/2021]
+    python build_site_model.py greens-storage-<site>.config.json greens-storage-<site>.parcel.geojson greens-storage-<site>.units.json ../greens-storage-<site>.json
+
+`cubesmart_units.py` reads only Store / Cube / Cube Dimensions / Cube Attribute
+from the Rent Roll sheet and the Cube Mix totals - never the customer, date or
+rate columns. The rent roll lists rented units only: every gap in a floor's
+numbering is written as vacant, sized from an older all-units audit when one
+exists (Sachse: `greens-storage-sachse.sizes.json`, the 02/02/2021 audit, which
+matched the current rent roll on all 653 shared units) or else estimated from
+the Cube Mix vacant counts (note "size estimated"). Update `unitSource` in the
+config to the new date. Delete the downloaded workbook afterwards.
+
+Buildings packed this tightly (about 78% of each floor is rentable) use
+`autoFit: true`: the builder tries hallways along and across the building and
+units turned long side in, and keeps the layout that fits the real floor count.
+
 Open lots (RV and vehicle storage) are **zones**: an outline from the parcel
 rings (`parcels`, with an `inset` and an optional `uRange` to split one lot
 into lettered sections), from image pixels, or from meters. Stalls fill the
@@ -136,11 +161,10 @@ Asset Management scope) and clear `layout.schematic`.
 
 * **Austin** - 8023 W Parmer Ln, WCAD R569024 (2.818 ac, Greens Austin LLC).
   Operated by CubeSmart, signage reads CubeSmart, and the store is not in
-  Cubby: units come from CubeSmart's rent roll (store 6992, 12/31/2025), which
-  lists rented units only. Numbering gaps are shown as vacant with no size.
-  To refresh: export a new rent roll (or CubeSmart's all-units report, which
-  also has vacant sizes), keep only unit / size / type / status - never the
-  customer columns - into `greens-storage-austin.units.json`, and rebuild.
+  Cubby: units come from CubeSmart's rent roll (store 6992), which
+  lists rented units only. Refreshed to the 08/31/2026 Financials workbook
+  (966 rented); numbering gaps are vacant with sizes estimated from the Cube
+  Mix (see CubeSmart stores above).
   The building (five stories, 200 ft 11 in x 155 ft 11 in) is from the WCAD
   footprint and the Merriman Anderson plans A1.01-A1.05 (Egnyte: Greens
   Austin, LLC > 8023 W Parmer Lane > Development > Plans & Maps > Building
@@ -148,6 +172,25 @@ Asset Management scope) and clear `layout.schematic`.
   level 1 to 5xxx on level 5); positions within a floor are schematic until
   the plans are traced. The paved area is drawn as the whole parcel.
 
+* **Sachse** - 7970 Woodbridge Pkwy, CCAD R-10561-00A-0040-1 (2.082 ac,
+  Greens Sachse LLC, DBA CubeSmart), store 4568. One three-story building,
+  74.9 x 50.0 m from the Microsoft footprint (CCAD living area 121,926 sq ft =
+  three floors of it). Units from the 08/31/2026 rent roll (741 rented) plus
+  145 numbering gaps as vacant. The office position (west corner, toward the
+  north parking court) is read from imagery - confirm. The as-built set is in
+  Egnyte (Greens Sachse, LLC > Properties > Development > Plans & Maps >
+  Building Plans & Unit Mix > As-Built Drawings - CSW Sachse - Combined set.pdf,
+  85 MB) for tracing unit positions. The Extra Space at 7900 Woodbridge and the
+  retail strip are neighbors and are not modeled.
+* **Georgetown** - 108 Boselli Way, WCAD R606431 (5.304 ac, Greens Georgetown
+  LLC, DBA CubeSmart), store 6093. Main three-story building (115.4 x 35.7 m)
+  and three 10x20 drive-up rows, all from WCAD building footprints. 4000-4035
+  on the north row and 6000-6035 on the south row is inferred (both rows hold
+  36 units) - confirm and swap the `units` regex if reversed. 5000-5014 are the
+  west row. 1500-1538 are climate-controlled drive-ups on the main building's
+  walls (which wall is schematic). Greens Georgetown LLC also owns Lot 1 next
+  door (R606430, 310 Westinghouse Rd, 1.603 ac); it is not part of the storage
+  site and is not modeled.
 * **Escondido** - Building C modeled as two levels (62,690 sq ft of C units
   cannot fit one floor of its footprint); Building E/F needs a second level
   for three 15x44 garages; the RV lot outline is approximate.
