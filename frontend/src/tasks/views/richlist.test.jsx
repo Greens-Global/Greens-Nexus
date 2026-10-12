@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls } from './richlist';
+import { __setTablePrefsCache } from '../tableCols';
 
 // Render-smoke test for the task list. This is the exact guard that was missing
 // on 2026-08-02: a merge left an orphaned `g.renderTasks.length` reference, the
@@ -437,3 +438,57 @@ describe('Hide-columns menu', () => {
     expect(screen.getByText('Team')).toBeInTheDocument();
   });
 });
+
+// Completed is collapsed every time the list opens (Neil, Oct 12 2026). Its
+// state used to be part of the stored collapsed list, so one click in one
+// project left it open everywhere, for good. The stored list below is the
+// shape such a profile has: an empty list, meaning "nothing collapsed".
+describe('RichListView Completed group', () => {
+  const done = {
+    id: 't3', title: 'Finished task', status: 'completed', priority: 'low',
+    assigneeId: '', teamId: '', projectId: '', dueOn: '', startOn: '',
+    estimateHours: null, followerIds: [], subtaskIds: [], commentIds: [],
+    attachmentIds: [], tags: [], completed: true, code: 'T-3', customFieldValues: {},
+  };
+  const doneStore = {
+    ...store,
+    tasks: [...mockTasks, done],
+    taskById: { ...store.taskById, [done.id]: done },
+    statusOrder: ['not_started', 'in_progress', 'completed'],
+    statusMeta: { ...store.statusMeta, completed: { label: 'Completed', color: '#44aa44', tint: '#e8f5e8' } },
+  };
+  const open = (props = {}) => renderList({ visible: [...mockTasks, done], store: doneStore, ...props });
+
+  it('starts collapsed even when the profile says it was left open', () => {
+    __setTablePrefsCache({ richlist: { collapsed: [] } });
+    open();
+    expect(screen.getByText('First task')).toBeInTheDocument();
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+  });
+
+  it('opens on a header click, without touching the stored list', () => {
+    __setTablePrefsCache({ richlist: { collapsed: ['in_progress'] } });
+    open();
+    expect(screen.queryByText('Second task')).not.toBeInTheDocument();   // stored collapse still honored
+    fireEvent.click(screen.getByText('Completed'));
+    expect(screen.getByText('Finished task')).toBeInTheDocument();
+    // Open, the row's own status cell also reads "Completed" - the header is first.
+    fireEvent.click(screen.getAllByText('Completed')[0]);
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+
+  it('collapses again when the list moves to another project', () => {
+    __setTablePrefsCache({ richlist: {} });
+    const { rerender } = open({ lockedProjectId: 'p1' });
+    fireEvent.click(screen.getByText('Completed'));
+    expect(screen.getByText('Finished task')).toBeInTheDocument();
+    rerender(
+      <RichListView visible={[...mockTasks, done]} group="status" ctx={ctx} store={doneStore} people={[]}
+        selected={new Set()} toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}}
+        lockedProjectId="p2" hidden={new Set()} setHidden={() => {}} />,
+    );
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+});
+

@@ -53,7 +53,9 @@ const COL_SORT_KEY = {
 const HIDDEN_KEY = 'nexus.richlist.hiddenCols';   // pre-profile, migrated on read
 // Stable identities: a fresh [] each render would re-run every consumer's memo.
 const EMPTY_LIST = [];
-const DEFAULT_COLLAPSED = ['completed'];
+// The status-group key of finished work. Its collapse state is NOT part of the
+// stored collapsed list - see RichListView.
+const COMPLETED_KEY = 'completed';
 
 // Type picker for "+ Column" - matches the export's AddColumnMenu grid exactly
 // (grouped: Recommended / Basic / Planning-Status / Date). Nexus's backend only
@@ -924,13 +926,35 @@ export function ListColumnControls({ hidden, setHidden, customFields, createCust
 }
 
 export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
-  // Completed ships collapsed: it is the one section that only grows, and on a
-  // real project it buried the work still to do under a few hundred finished
-  // rows. Opening it is remembered (an empty list is a stored value, not
-  // "unset"), so it stays open for anyone who wants it open.
-  const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', DEFAULT_COLLAPSED);
-  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
+  // Which groups the person folded away - remembered in their profile, as the
+  // other table settings are.
+  const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', EMPTY_LIST);
   const effGroup = group === 'none' ? 'status' : group;
+  // Completed is collapsed EVERY time a list opens (Neil, Oct 12 2026). It is
+  // the one section that only grows, and on a real project it buries the work
+  // still to do under a few hundred finished rows. Its state used to live in
+  // the stored list above, which meant opening it once, in any project, left
+  // it open in every project from then on - the default never applied again.
+  // So it is kept apart: a plain piece of state that starts collapsed, flips
+  // when the header is clicked, and resets when the list changes to another
+  // project (the component stays mounted across that switch) or is reopened.
+  // Any stale 'completed' entry in the stored list is ignored rather than
+  // migrated, so nobody's profile needs touching. Only the STATUS grouping has
+  // a Completed group; a custom-field option that happens to be keyed
+  // 'completed' is an ordinary group.
+  const completedGroup = effGroup === 'status';
+  const [completedOpen, setCompletedOpen] = useState(false);
+  // Reset-on-prop-change during render (the React-documented idiom), not an
+  // effect: an effect would paint one frame of the previous project's open
+  // section before closing it.
+  const [openedFor, setOpenedFor] = useState(lockedProjectId);
+  if (openedFor !== lockedProjectId) { setOpenedFor(lockedProjectId); setCompletedOpen(false); }
+  const collapsed = useMemo(() => {
+    if (!completedGroup) return new Set(collapsedList);
+    const n = new Set(collapsedList.filter((k) => k !== COMPLETED_KEY));
+    if (!completedOpen) n.add(COMPLETED_KEY);
+    return n;
+  }, [collapsedList, completedOpen, completedGroup]);
   // Inside a project every row has the same project, so the column is noise - and
   // the same is true of Team once the project has fewer than two of them. Both go
   // through the hidden SET: TaskRow gates cells on `hidden` while the header and
@@ -1142,7 +1166,8 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
   const toggleGroup = (k) => {
-    const n = new Set(collapsed);
+    if (completedGroup && k === COMPLETED_KEY) { setCompletedOpen((o) => !o); return; }
+    const n = new Set(collapsedList);
     n.has(k) ? n.delete(k) : n.add(k);
     setCollapsedList([...n]);
   };
