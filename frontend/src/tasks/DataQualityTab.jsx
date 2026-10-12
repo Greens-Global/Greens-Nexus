@@ -51,13 +51,12 @@ function GapRow({ t, gaps, store, onOpen, selected, toggleSel }) {
   const isSel = selected.has(t.id);
 
   return (
-    <div onClick={() => onOpen(t.id)} style={{
+    // Hover: .nx-row-hover (style.css) - the whole-row highlight every list shares (Neil, 10/10).
+    <div onClick={() => onOpen(t.id)} className="nx-row-hover" data-selected={isSel ? 'true' : undefined} style={{
       display: 'grid', gridTemplateColumns: '24px minmax(220px,1.6fr) minmax(180px,1fr) 130px 200px 130px 160px',
       alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`,
       fontSize: 13, cursor: 'pointer', background: isSel ? 'rgba(37,99,235,0.08)' : 'transparent',
-    }}
-      onMouseEnter={(e) => { if (!isSel) e.currentTarget.style.background = NX.hover; }}
-      onMouseLeave={(e) => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}>
+    }}>
       <input type="checkbox" checked={isSel} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         {assignees.length ? (

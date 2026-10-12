@@ -891,8 +891,7 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
             {projectTasks.map((t) => {
               const meta = STATUS_META[t.status] || { label: t.status, color: NX.dim, tint: NX.border2 };
               return (
-                <div key={t.id} onClick={() => onNavigate && onNavigate({ projectId: project.id })} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                <div key={t.id} onClick={() => onNavigate && onNavigate({ projectId: project.id })} className="nx-row-hover" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}>
                   <ListChecks size={14} style={{ color: NX.faint, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: meta.color, background: meta.tint }}>{meta.label}</span>
