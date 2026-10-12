@@ -269,15 +269,15 @@ function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addL
         if (e.key === 'Escape') { setText(saved); setEditing(false); }
         else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
       }}
-      style={{ fontSize: 12, width: 200, minWidth: 150, resize: 'vertical', fontFamily: 'inherit', padding: '5px 7px' }} />
+      style={{ fontSize: 12, width: '100%', minWidth: 150, resize: 'vertical', fontFamily: 'inherit', padding: '5px 7px' }} />
   );
   const who = note?.by ? `\n- ${note.by}${note.at ? `, ${formatDate(note.at)}` : ''}` : '';
   return (
     <button type="button" onClick={() => !locked && setEditing(true)} disabled={locked}
       title={saved ? `${saved}${who}` : (locked ? '' : placeholder)}
       style={{ background: 'none', border: 'none', padding: 0, cursor: locked ? 'default' : 'pointer', textAlign: 'left',
-        fontFamily: 'inherit', fontSize: 12, color: saved ? 'var(--ink)' : 'var(--muted)', opacity: saved ? 1 : 0.6,
-        maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+        fontFamily: 'inherit', fontSize: 12, lineHeight: 1.35, color: saved ? 'var(--ink)' : 'var(--muted)', opacity: saved ? 1 : 0.6,
+        width: '100%', maxWidth: 220, overflow: 'hidden', whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>
       {saved || (locked ? '-' : addLabel)}
     </button>
   );
@@ -290,7 +290,7 @@ function EmployeeNoteLine({ note }) {
   if (!text) return null;
   return (
     <div title={`${text}${note.employeeNoteAt ? `\n- employee, ${formatDate(note.employeeNoteAt)}` : ''}`}
-      style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+      style={{ fontSize: 11, lineHeight: 1.35, color: 'var(--muted)', fontStyle: 'italic', maxWidth: 220, overflow: 'hidden', whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', marginTop: 2 }}>
       Employee: {text}
     </div>
   );
@@ -510,7 +510,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     : label;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
-  const span = (self ? 16 : 17) - (showPay ? 0 : 2);   // full-width rows across the table
+  // Full-width rows across the hourly table: Date, In, Out, Deducted, Category,
+  // Hours, OT, Loc, Notes, [Wage], Work Log, edit (Oct 12 - Department, Pay
+  // rate, Hrs/day and the three-way OT split left the rows; see the thead).
+  const span = 12 - (showPay ? 0 : 1);
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -565,7 +568,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     finally { setExporting(false); }
   }
 
-  // Numeric columns (Hours, Hrs/day, Non-OT, OT, OT 2x, Wage) are right-aligned
+  // Numeric columns (Hours, OT, Wage) are right-aligned
   // with tabular numerals so figures line up column by column (Charmi, Sep 30).
   const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
@@ -790,11 +793,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       ) : (
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,
-              Hrs/day, Non-OT, OT, OT 2×, Loc, Department, Pay rate, Wage - so HR
-              reads this card exactly like the one they use today. Work Log is
-              ours, not SwipeClock's, so it rides at the far right, after Wage
-              (Neil, Sep 29: mid-row it crowded Hrs/day and overlapped). */}
-          <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse' }}>
+              OT, Loc, Wage - so HR reads this card like the one they use today.
+              Oct 12 (Pranshu): the card was too crowded to read, so what the
+              strip above the table already says (Department, Pay rate) left the
+              rows, Hrs/day shows inside Hours only on a day with two sessions,
+              and Non-OT / OT / OT 2x fold into one OT column ("-" on a normal
+              day); the full split is still in the summary below and the CSV.
+              Work Log is ours, not SwipeClock's, so it rides at the far right. */}
+          <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--wk-hover)' }}>
                 <th style={{ ...th, textAlign: 'left' }}>Date</th>
@@ -802,15 +808,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={{ ...th, textAlign: 'left' }}>Out</th>
                 <th style={th}>Deducted time</th>
                 <th style={{ ...th, textAlign: 'left' }}>Category</th>
-                <th style={th}>Hours</th>
-                <th style={th}>Hrs/day</th>
-                <th style={th}>Non-OT</th>
-                <th style={th}>OT</th>
-                <th style={th}>OT 2×</th>
+                <th title="Hours in this session; a day with two sessions shows the day total under its last one" style={th}>Hours</th>
+                <th title="Overtime in this session - 1.5× and, in California past 12 hours, 2×" style={th}>OT</th>
                 <th style={{ ...th, textAlign: 'left' }}>Loc</th>
-                <th title={self ? 'Your notes on the day - your manager sees them on your timecard' : 'Notes on the day - seen by managers and HR, not the employee. The employee\'s own note shows under yours.'} style={{ ...th, textAlign: 'left' }}>Notes</th>
-                <th style={{ ...th, textAlign: 'left' }}>Department</th>
-                {showPay && <th style={th}>Pay rate</th>}
+                <th title={self ? 'Your notes on the day - your manager sees them on your timecard' : 'Notes on the day - seen by managers and HR, not the employee. The employee\'s own note shows under yours.'} style={{ ...th, textAlign: 'left', width: 220, minWidth: 220 }}>Notes</th>
                 {showPay && <th style={th}>Wage</th>}
                 <th title="What was planned, done, and left pending that day" style={{ ...th, textAlign: 'center' }}>Work Log</th>
                 <th data-tour="pr-edit" style={{ ...th, width: 40 }}></th>
@@ -926,21 +927,25 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       </span>
                     )}
                   </td>
-                  <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '-'}</td>
-                  <td style={{ ...td, fontWeight: 700 }}>{r.seg && byDate[r.ds]
-                    ? (r.last ? hhmm(byDate[r.ds].workedMin) : '↓')
-                    : ''}</td>
-                  <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '-'}</td>
-                  <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '-'}</td>
-                  <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : 'var(--muted)', fontWeight: r.seg?.dtMin ? 700 : 400 }}>{r.seg?.dtMin ? hhmm(r.seg.dtMin) : '-'}</td>
+                  <td style={td}>
+                    {r.seg ? hhmm(r.seg.workedMin) : '-'}
+                    {/* Hrs/day only where it differs from Hours: a day with two
+                        sessions carries its total under the last one (Oct 12). */}
+                    {r.seg && r.last && byDate[r.ds] && byDate[r.ds].workedMin !== r.seg.workedMin && (
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-dim)' }}>day {hhmm(byDate[r.ds].workedMin)}</div>
+                    )}
+                  </td>
+                  <td style={{ ...td, color: r.seg?.dtMin ? '#b91c1c' : r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: (r.seg?.otMin || r.seg?.dtMin) ? 700 : 400 }}>
+                    {r.seg && (r.seg.otMin || r.seg.dtMin)
+                      ? [r.seg.otMin ? hhmm(r.seg.otMin) : '', r.seg.dtMin ? `${hhmm(r.seg.dtMin)} 2×` : ''].filter(Boolean).join(' · ')
+                      : '-'}
+                  </td>
                   <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} /></td>
-                  <td style={{ ...td, textAlign: 'left' }}>
+                  <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', width: 220, minWidth: 220, maxWidth: 220, verticalAlign: 'top' }}>
                     {r.first !== false && (self
                       ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
                       : <><NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} /><EmployeeNoteLine note={notes[r.ds]} /></>)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left', color: 'var(--muted)' }}>{r.seg ? (data?.dept || '-') : '-'}</td>
-                  {showPay && <td style={{ ...td, color: 'var(--muted)' }}>{r.seg ? `${fmtM(rate)}/hr` : '-'}</td>}
                   {showPay && <td style={{ ...td, fontWeight: 700 }}>{r.seg ? fmtM(r.seg.amount) : '-'}</td>}
                   <td style={{ ...td, textAlign: 'center' }}>
                     {r.first !== false && (
@@ -979,13 +984,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
                   <td style={td}></td>
                   <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
-                  <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
-                  <td style={td}>{hhmm(T.regMin)}</td>
-                  <td style={td}>{hhmm(T.otMin)}</td>
-                  <td style={td}>{T.dtMin ? hhmm(T.dtMin) : '-'}</td>
+                  <td style={td}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
                   <td style={td}></td>
                   <td style={td}></td>
-                  {showPay && <td style={td}></td>}
                   {showPay && <td style={td}>{fmtM(T.totalPay)}</td>}
                   <td style={td}></td>
                   <td style={td}></td>
@@ -1148,7 +1149,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
         { target: 'pr-table', title: 'The time card - same columns as SwipeClock',
-          body: 'Date, In, Out, Deducted time, Category, Hours, Hrs/day, then the California split: Non-OT, OT (1.5×), OT 2×, and Wage. Times are rounded to the nearest 5 minutes exactly like SwipeClock; weekly total rows appear after each week.' },
+          body: 'Date, In, Out, Deducted time, Category, Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Notes and Wage. Department and pay rate sit above the table; the full Non-OT / OT / OT 2× split is in the summary below. Times are rounded to the nearest 5 minutes exactly like SwipeClock; weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
