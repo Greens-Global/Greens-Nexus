@@ -5204,7 +5204,12 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
    row (brand tint + brand text) and is not a .pr-day-row, so it stays distinct. */
 .pr-day-row.pr-band > td { background: color-mix(in srgb, var(--wk-hover) 60%, transparent); }
 .pr-day-row.pr-weekend > td { background: var(--mist); }
+/* A leave day - Sick / Vacation / Personal block - is tinted red across the
+   row, banding or not, and stays red under the hover (Pranshu, Oct 12). */
+.pr-day-row.pr-leave > td { background: rgba(185, 28, 28, 0.09); }
+.pr-day-row.pr-leave > td:first-child { box-shadow: inset 3px 0 0 #b91c1c; }
 @media (hover: hover) { .pr-day-row:hover > td { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); } }
+@media (hover: hover) { .pr-day-row.pr-leave:hover > td { background: rgba(185, 28, 28, 0.15); } }
 
 /* ── Accounting -> Reports, 10/02 (Charmi, Neil) ──────────────────────────
    Flux Analysis: a line over the thresholds is tinted amber across the row

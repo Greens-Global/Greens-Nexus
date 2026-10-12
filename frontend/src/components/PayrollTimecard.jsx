@@ -568,6 +568,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     finally { setExporting(false); }
   }
 
+  // A leave day (Sick / Vacation / Personal block) reads red across its row
+  // (Pranshu, Oct 12) - the pr-leave class, styled in style.css.
   // Numeric columns (Hours, OT, Wage) are right-aligned
   // with tabular numerals so figures line up column by column (Charmi, Sep 30).
   const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
@@ -886,8 +888,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   </td>
                 </tr>
               ) : (
-                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}`}>
-                  <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg ? 'var(--ink)' : 'var(--muted)' }}>
+                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
+                  title={r.seg?.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
+                  <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
                   <td style={{ ...td, textAlign: 'left' }}>{r.seg && !r.seg.in
