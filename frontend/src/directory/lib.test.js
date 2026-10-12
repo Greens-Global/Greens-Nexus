@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { searchPeople, groupByDepartment, buildTree, chainUp, myTeam, vCardOf, csvOf, presenceOf, NO_DEPARTMENT } from './lib';
+import { searchPeople, groupByDepartment, buildTree, chainUp, myTeam, vCardOf, csvOf, presenceOf, splitTree, inheritedDivision, divisionNames, NO_DEPARTMENT } from './lib';
 
 const P = (email, name, dept, mgr = '', role = '') => ({
   email, name, firstName: name.split(' ')[0], lastName: name.split(' ')[1] || '', department: dept, managerEmail: mgr,
@@ -37,6 +37,27 @@ describe('directory helpers', () => {
     const walk = (n) => [n.person.email, ...n.children.flatMap(walk)];
     expect(cyc.flatMap(walk).sort()).toEqual(['a@x', 'b@x']);   // both placed, nobody twice, no hang
     expect(chainUp(kim, new Map(ALL.map((p) => [p.email, p]))).map((p) => p.email)).toEqual(['sam@x', 'bo@x']);
+  });
+
+  it('splits the chart into trees and the people not connected to one', () => {
+    const solo = P('solo@x', 'Sol Solo', 'Ops');                       // no manager at all
+    const outside = P('out@x', 'Ozzy Out', 'Ops', 'nobody@elsewhere');   // manager the viewer cannot see
+    const { trees, loose } = splitTree(buildTree([...ALL, solo, outside]));
+    expect(trees.map((t) => t.person.email)).toEqual(['bo@x']);
+    expect(loose.map((p) => p.email).sort()).toEqual(['out@x', 'solo@x']);
+  });
+
+  it('inherits a division from the nearest tagged manager, as the People chart does', () => {
+    const head = { ...bo, division: 'Finance' };
+    const people = [head, sam, lee, kim];
+    const byEmail = new Map(people.map((p) => [p.email, p]));
+    expect(divisionNames(people)).toEqual(['Finance']);
+    expect(inheritedDivision(kim, byEmail)).toBe('Finance');           // kim -> sam -> bo (Finance)
+    expect(inheritedDivision(head, byEmail)).toBe('Finance');
+    const stranger = P('zed@x', 'Zed Zee', 'IT');
+    expect(inheritedDivision(stranger, new Map([...byEmail, [stranger.email, stranger]]))).toBe('');
+    const a = P('a@x', 'A A', 'X', 'b@x'), b = P('b@x', 'B B', 'X', 'a@x');   // a cycle must not hang
+    expect(inheritedDivision(a, new Map([[a.email, a], [b.email, b]]))).toBe('');
   });
 
   it('my team is my manager, my peers and my reports', () => {
