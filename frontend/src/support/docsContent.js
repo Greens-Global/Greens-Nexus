@@ -1086,7 +1086,7 @@ export const DOCS = [
         title: 'Move a Candidate Through Hiring',
         steps: [
           'Click the Hiring tab, then Add Candidate.',
-          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet.',
+          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Packets button then shows a count until that role has a hiring packet - open it and click Add Packet beside the role.',
           'Move them through Screening, Interview and Offer as things progress.',
           'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
           'Only for an offer signed on paper: Mark Hired By Hand. Nothing is sent or filed that way.',

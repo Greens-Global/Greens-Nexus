@@ -200,6 +200,15 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
   const inherited = ev && companyId ? (data?.settings || []).filter(s => !s.entityId && s.event === ev.key) : [];
   const hasGeneral = rows.some(r => !(r.roleIds || []).length && (all ? !r.entityId : true));
   const company = companyId ? (entities.find(e => e.id === companyId)?.name || 'This company') : 'Every company';
+  // Roles born from Add Candidate's "Other" with no hiring packet yet (Neil,
+  // Oct 12) - listed on the Hire tab with a one-click Add that opens the editor
+  // for that role and its company.
+  const needing = (data?.rolesNeedingPacket || []).filter(r => all || (r.companyId || '') === companyId);
+  const addFor = (role) => {
+    const hire = events.find(e => e.key === 'hire') || ev;
+    if (!companyId && role.companyId) setCompanyId(role.companyId);
+    setEditing({ event: hire, row: null, seed: { roleIds: [role.id] }, companyId: role.companyId || '' });
+  };
   const countFor = (key) => (data?.settings || []).filter(s => mine(s) && s.event === key).length;
 
   return (
@@ -236,6 +245,25 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                 </button>
               )}
             </div>
+            {ev?.key === 'hire' && needing.length > 0 && (
+              <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#b45309' }}>
+                  <AlertTriangle size={14} /> {needing.length === 1 ? 'A role added while hiring has no packet yet' : `${needing.length} roles added while hiring have no packet yet`}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>Each was typed in as Other on Add Candidate. Until it has a packet of its own, the company's "Every role" packet goes out for it (if there is one).</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                  {needing.map(r => (
+                    <div key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 10, padding: '6px 8px 6px 12px', fontSize: 12.5 }}>
+                      <span style={{ fontWeight: 600 }}>{r.name}{r.department ? ` - ${r.department}` : ''}</span>
+                      {all && r.companyName && <span style={{ color: 'var(--muted)' }}>{r.companyName}</span>}
+                      <button type="button" className="primary-btn" onClick={() => addFor(r)} style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Plus size={12} /> Add Packet
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {ev && rows.length === 0 && (
               <div style={{ textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 12, padding: '36px 20px' }}>
                 <FileSignature size={26} style={{ color: 'var(--muted)' }} />
@@ -277,9 +305,9 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
         )}
       </div>
       {editing && (
-        <PacketEditor packet={editing.row} event={editing.event.key} eventLabel={editing.event.label}
-          companyId={editing.row ? (editing.row.entityId || '') : companyId}
-          companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : company}
+        <PacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
+          companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
+          companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
           defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />

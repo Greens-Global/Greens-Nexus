@@ -2,7 +2,8 @@
 scheduling and the interview follow-up.
 
 Intake: the role comes from the company's job roles and decides the title and
-department; "Other" keeps a typed title + department; a role of another
+department; "Other" makes the typed role for the hiring company (and flags
+it on Packets until it has one); a role of another
 company is refused; email is checked; a candidate can be edited.
 
 Stages: each stage has its own moves; Interview is reached only by
@@ -130,9 +131,41 @@ class IntakeTests(PipelineCase):
         c = self._add(role_id="role-analyst", role_title="typed by hand", department="Wrong")
         self.assertEqual((c["roleId"], c["roleTitle"], c["department"]), ("role-analyst", "Senior Analyst", "Accounting"))
 
-    def test_other_keeps_the_typed_title_and_department(self):
+    def test_other_makes_the_typed_role_for_the_hiring_company(self):
+        # Neil, Oct 12: "Other" creates the role for that company - the typed
+        # title and department are kept, and the candidate points at it.
         c = self._add(role_title="Leasing Coordinator", department="Operations")
-        self.assertEqual((c["roleId"], c["roleTitle"], c["department"]), ("", "Leasing Coordinator", "Operations"))
+        self.assertEqual((c["roleTitle"], c["department"], c["roleCreated"]),
+                         ("Leasing Coordinator", "Operations", "Leasing Coordinator"))
+        role = self.db.query(models.NexusGroup).filter_by(id=c["roleId"]).first()
+        self.assertEqual((role.name, role.department, role.company_id, role.is_job_role, role.created_from),
+                         ("Leasing Coordinator", "Operations", ENT, 1, "hiring"))
+        self.assertEqual(role.allowed_modules, "")      # access is an administrator's call
+        # The company now offers it like any other role.
+        opts = hr.hiring_options(company_id=ENT, user=HR_USER, db=self.db)
+        self.assertIn(("Leasing Coordinator", ENT), [(r["name"], r["companyId"]) for r in opts["roles"]])
+
+    def test_other_reuses_a_role_of_that_name_instead_of_duplicating(self):
+        c = self._add(role_title="senior analyst", department="Anything")
+        self.assertEqual((c["roleId"], c["roleTitle"], c["department"], c["roleCreated"]),
+                         ("role-analyst", "Senior Analyst", "Accounting", ""))
+        c2 = self._add(role_title="IT Support Associate")       # shared roles count too
+        self.assertEqual((c2["roleId"], c2["roleCreated"]), ("role-shared", ""))
+        self.assertEqual(self.db.query(models.NexusGroup).filter_by(is_job_role=1).count(), 3)   # the three seeded, nothing new
+
+    def test_a_hiring_born_role_is_flagged_on_packets_until_one_names_it(self):
+        from routers import hr_life_events as hle_router
+        c = self._add(role_title="Leasing Coordinator", department="Operations")
+        flagged = hle_router.list_packets(user=HR_USER, db=self.db)["rolesNeedingPacket"]
+        self.assertEqual([(r["id"], r["name"], r["companyId"]) for r in flagged],
+                         [(c["roleId"], "Leasing Coordinator", ENT)])
+        # A role made in Settings > Access is never flagged.
+        self.assertNotIn("role-analyst", [r["id"] for r in flagged])
+        # A hiring packet for the role clears it.
+        self.db.add(models.HrPacketSetting(id="pk-lease", entity_id=ENT, event="hire", template_id="t1",
+                                           role_ids=[c["roleId"]]))
+        self.db.commit()
+        self.assertEqual(hle_router.list_packets(user=HR_USER, db=self.db)["rolesNeedingPacket"], [])
 
     def test_role_of_another_company_is_refused(self):
         with self.assertRaises(HTTPException) as e:

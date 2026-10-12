@@ -178,7 +178,10 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
 
           {isOther ? (
             <>
-              {input('Role Title *', 'role_title', { placeholder: 'e.g. Leasing Coordinator' })}
+              <div>
+                {input('Role Title *', 'role_title', { placeholder: 'e.g. Leasing Coordinator' })}
+                {!editing && <div style={hint}>Saving makes this a role of {companyName || 'the company'} (no access until an administrator sets it) and flags Packets so it gets a hiring packet.</div>}
+              </div>
               <div><label style={FL}>Department *</label>
                 <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
                   <option value="">- pick a department -</option>

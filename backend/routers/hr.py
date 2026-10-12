@@ -690,9 +690,23 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
+    role_created = ""
     if role_id:
         role = _job_role_for(db, role_id, (body.company or "").strip())
         role_title, department = role.name, (role.department or department)
+    elif role_title and (body.company or "").strip():
+        # "Other" (Neil, Oct 12): the typed role becomes a real job role of the
+        # hiring company - no duplicate if one of that name exists - so the
+        # candidate, the packets and Settings > Access all point at one thing.
+        import hr_life_events
+        from models import NexusGroup
+        cand_name = f"{body.first_name.strip()} {(body.last_name or '').strip()}".strip()
+        before = {g.id for g in db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).all()}
+        role = hr_life_events.create_company_role(db, (body.company or "").strip(), role_title, department,
+                                                  user["email"], cand_name)
+        role_id, role_title, department = role.id, role.name, (role.department or department)
+        if role.id not in before:
+            role_created = role.name
     row = HrCandidate(
         id=str(uuid.uuid4()), role_id=role_id,
         first_name=body.first_name.strip(), last_name=(body.last_name or "").strip(),
@@ -707,7 +721,9 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
                         to_stage="applied", note="Candidate added", by_email=user["email"], created_at=now))
     db.commit()
     db.refresh(row)
-    return _ser_candidate(row)
+    out = _ser_candidate(row)
+    out["roleCreated"] = role_created     # the new role's name, '' when an existing one was used
+    return out
 
 
 def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,

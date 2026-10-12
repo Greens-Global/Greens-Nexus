@@ -2080,6 +2080,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [packetRefresh, setPacketRefresh] = useState(0);
   const { canAccessModule } = useRole();
   const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
+  // Roles typed in as Other on Add Candidate that have no hiring packet yet
+  // (Neil, Oct 12) - the Packets button carries the count until each has one.
+  const [needPackets, setNeedPackets] = useState([]);
+  const loadNeedPackets = useCallback(() => {
+    api.getPackets().then(p => setNeedPackets(p?.rolesNeedingPacket || [])).catch(() => {});
+  }, []);
+  useEffect(() => { loadNeedPackets(); }, [loadNeedPackets]);
 
   const loadCandidates = useCallback(() => {
     setLoadErr(false); setCandidates(null);
@@ -2167,7 +2174,16 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
-          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setPacketsOpen(true)}>Packets</button>
+          <button className="secondary-btn" onClick={() => setPacketsOpen(true)}
+            title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no packet yet` : undefined}
+            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6,
+              ...(needPackets.length ? { borderColor: '#b45309', color: '#b45309', background: 'rgba(180,83,9,0.08)', fontWeight: 700 } : {}) }}>
+            {needPackets.length > 0 && <AlertTriangle size={13} />}
+            Packets
+            {needPackets.length > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#b45309', color: '#fff' }}>{needPackets.length}</span>
+            )}
+          </button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
             {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
@@ -2242,7 +2258,14 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       )}
 
       {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastOk={toastOk} toastErr={toastErr}
-        onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); refreshBoard(); }} />}
+        onSaved={c => {
+          setCandidates(prev => [c, ...prev]);
+          toastOk(c.roleCreated
+            ? `${candName(c)} added. "${c.roleCreated}" is now a role of the company - add its hiring packet under Packets.`
+            : `${candName(c)} added to the pipeline.`);
+          refreshBoard();
+          if (c.roleCreated) loadNeedPackets();
+        }} />}
       {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
         refreshKey={packetRefresh}
         onUpdated={u => { if (u) { setCandidates(prev => prev.map(x => x.id === u.id ? { ...x, ...u } : x)); setDetail(d => d && d.id === u.id ? { ...d, ...u } : d); } else refreshBoard(); }}
@@ -2256,7 +2279,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
       {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
         onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
-      {packetsOpen && <PacketsModal onClose={() => setPacketsOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {packetsOpen && <PacketsModal onClose={() => { setPacketsOpen(false); loadNeedPackets(); }} toastOk={toastOk} toastErr={toastErr} />}
       {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
         onClose={() => setPacketFor(null)}
         onSent={ev => {

@@ -445,8 +445,8 @@ def create_company_role(db: Session, company: str, name: str, department: str, b
     entity = db.query(HrEntity).filter(HrEntity.id == company).first() if company else None
     role = NexusGroup(id=str(uuid.uuid4()), name=name, department=department or "", is_job_role=1,
                       tier="employee", allowed_modules="", company_id=company or "",
-                      description=f"Added from the hiring packet for {for_name} - set its access.",
-                      created_by=by, created_at=_now())
+                      description=f"Added while hiring {for_name} - set its access.",
+                      created_from="hiring", created_by=by, created_at=_now())
     db.add(role)
     admins = {r.email.lower() for r in db.query(NexusRole).filter(NexusRole.role.in_(("owner", "administrator"))).all()}
     from routers.hr import _hr_notify

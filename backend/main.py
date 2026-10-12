@@ -927,6 +927,8 @@ def _run_migrations():
             # The employee's own timecard note (Neil, Oct 12). models.TimecardNote.
             "ALTER TABLE timecard_notes ADD COLUMN employee_note VARCHAR DEFAULT ''",
             "ALTER TABLE timecard_notes ADD COLUMN employee_note_at VARCHAR DEFAULT ''",
+            # Where a job role came from (Neil, Oct 12). models.NexusGroup.created_from.
+            "ALTER TABLE nexus_groups ADD COLUMN created_from VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2080,6 +2082,7 @@ def _run_migrations():
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS role_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note VARCHAR DEFAULT ''",
         "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS created_from VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
