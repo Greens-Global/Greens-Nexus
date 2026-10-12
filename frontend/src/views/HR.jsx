@@ -154,6 +154,7 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
     employment_type: e?.employmentType || initialType,
     start_date:      e?.startDate || '',
     manager_email:   e?.managerEmail || '',
+    backup_manager_email: e?.backupManagerEmail || '',
     status:          e?.status || 'active',
     location:        e?.location || '',
     country:         e?.country || '',
@@ -384,6 +385,25 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                 </>
               ) : managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
+          </div>
+          {/* Backup Manager (Neil, Oct 13): covers this person when their manager
+              is out, with the same rights over them. Blank = the default. */}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={FL}>BACKUP MANAGER</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.backup_manager_email} onChange={e => set('backup_manager_email', e.target.value)}>
+              <option value="">Default - their manager's manager, or the company's HR contact</option>
+              {externalManagers.length ? (
+                <>
+                  <optgroup label="Nexus People">
+                    {managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+                  </optgroup>
+                  <optgroup label="External Users">
+                    {externalManagers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
+                  </optgroup>
+                </>
+              ) : managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - timesheets, punches, time off and approvals.</div>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
               (Neil, 10/07: HR updates these here instead of IT in the M365
@@ -1936,6 +1956,16 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', formatDate(e.contractor.contract_end))}
               {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
               {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : mgrEmail && mgrEmail === (viewerEmail || '').toLowerCase() ? 'You' : e.managerEmail)}
+              {(() => {
+                // Backup Manager (Neil, Oct 13): the one set on the profile, else
+                // the default the server worked out for the People list.
+                const bk = (e.backupManagerEmail || e.backupManager || '').toLowerCase();
+                if (!bk) return null;
+                const person = employees.find(m => (m.workEmail || '').toLowerCase() === bk);
+                const who = bk === (viewerEmail || '').toLowerCase() ? 'You' : person ? fullName(person) : bk;
+                const why = e.backupManagerEmail ? '' : e.backupManagerSource === 'hr' ? ' (default - company HR contact)' : " (default - manager's manager)";
+                return row(Users, 'Backup manager', `${who}${why}`);
+              })()}
               {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
               {e.notes && row(FileText, 'Notes', e.notes)}
             </div>
@@ -5643,8 +5673,13 @@ function MonthlyBars({ employees }) {
 
 const DEPT_COLORS = ['#2b45e1', '#dc7a18', '#248f4b', '#8a31c9', '#b8860b'];
 
-function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpToDirectory }) {
-  const total = employees.length;
+function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatusFilter, onJumpToDirectory }) {
+  // Total People counts the company's own people; external and guest users
+  // (their own list on this screen) read underneath as "+N external" - the
+  // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
+  const isExt = e => ['external', 'guest'].includes(e.identityType || 'internal');
+  const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
+  const total = employees.filter(e => !isExt(e)).length;
   const nActive = employees.filter(e => e.status === 'active').length;
   const nOnboarding = employees.filter(e => e.status === 'onboarding').length;
   const joined = employees.filter(e => (e.startDate || '').slice(0, 4) === String(new Date().getFullYear())).length;
@@ -5660,8 +5695,9 @@ function PeopleStatCards({ employees, loading, isMobile, onStatusFilter, onJumpT
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
       {/* 2×2 KPI tiles - solid brand hero + white siblings */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <KpiTile solid label="Total people" value={total} loading={loading}
-          delta={joined > 0 ? `↑ ${joined}` : undefined} sub="this year"
+        <KpiTile solid label="Total People" value={total} loading={loading}
+          delta={joined > 0 ? `↑ ${joined} this year` : undefined}
+          sub={nExternal ? `+${nExternal} external` : 'no external users'}
           onGo={onJumpToDirectory} goTitle="See the directory" />
         <KpiTile label="Active" value={nActive} loading={loading} sub={total ? `${Math.round((nActive / total) * 100)}% of people` : 'no people yet'}
           onGo={() => onStatusFilter?.('active')} goTitle="Filter directory to active" />
@@ -6073,7 +6109,7 @@ export default function HR({ activeSub, onSubChange }) {
         {!hrTeam && <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />}
         {/* Stat cards - headcount composition, status breakdown, department
             spread (real data, designed zero/loading states) */}
-        <PeopleStatCards employees={employees} loading={loading} isMobile={isMobile}
+        <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}
           onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
           onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }} />
 

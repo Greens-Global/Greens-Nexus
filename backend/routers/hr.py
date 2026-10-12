@@ -41,12 +41,20 @@ def require_comp_read_or_manager(user: dict = Depends(get_current_user), db: Ses
     raise HTTPException(status_code=403, detail="You don't have access to this screen")
 
 
-def _direct_report_or_404(user: dict, emp: Optional[NexusEmployee]) -> None:
-    """A manager sees pay only for people whose Reports To is them - not the
-    rest of the chain they see in People. 404, so existence doesn't leak."""
+def _direct_report_or_404(user: dict, emp: Optional[NexusEmployee], db: Optional[Session] = None) -> None:
+    """A manager sees pay only for people whose Reports To is them (or whom
+    they back up) - not the rest of the chain they see in People. 404, so
+    existence doesn't leak."""
     me = (user.get("email") or "").strip().lower()
-    if emp is None or (emp.manager_email or "").strip().lower() != me:
+    if emp is None:
         raise HTTPException(404, "Employee not found")
+    if (emp.manager_email or "").strip().lower() == me:
+        return
+    # Their backup manager has the same rights (Neil, Oct 13).
+    import backup_manager
+    if db is not None and (emp.work_email or "").strip().lower() in backup_manager.backed_up_by(db, me):
+        return
+    raise HTTPException(404, "Employee not found")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -70,6 +78,7 @@ class EmployeeIn(BaseModel):
     employment_type: Optional[str] = "full_time"
     start_date:      Optional[str] = ""
     manager_email:   Optional[str] = ""
+    backup_manager_email: Optional[str] = ""
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
     country:         Optional[str] = ""   # ISO 3166 alpha-2 - THIS person's own country, e.g. for signature phone formatting
@@ -98,6 +107,7 @@ class EmployeeUpdate(BaseModel):
     employment_type: Optional[str] = None
     start_date:      Optional[str] = None
     manager_email:   Optional[str] = None
+    backup_manager_email: Optional[str] = None
     status:          Optional[str] = None
     location:        Optional[str] = None
     country:         Optional[str] = None
@@ -187,6 +197,8 @@ def _serialize(e: NexusEmployee) -> dict:
         "employmentType": e.employment_type,
         "startDate":      e.start_date,
         "managerEmail":   e.manager_email,
+        # '' = the default backup (manager's manager, else the company HR contact)
+        "backupManagerEmail": e.backup_manager_email or "",
         "photoUrl":       e.photo_url,
         "status":         e.status,
         "location":       e.location,
@@ -226,9 +238,24 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
         q = (q.execution_options(include_deleted=True)
               .filter(NexusEmployee.deleted_at != "", NexusEmployee.deleted_at.isnot(None)))
     rows = q.order_by(NexusEmployee.first_name, NexusEmployee.last_name).all()
-    if is_team_scope(scope):
-        return [_team_view(_serialize(e)) for e in rows]
-    return [_serialize(e) for e in rows]
+    out = [_team_view(_serialize(e)) for e in rows] if is_team_scope(scope) else [_serialize(e) for e in rows]
+    # Who covers each person when their manager is out (Neil, Oct 13): the
+    # effective Backup Manager and where it comes from - 'set' on the profile,
+    # 'manager' (the manager's manager) or 'hr' (the company HR contact).
+    import backup_manager
+    people, hr_contacts = backup_manager.roster(db)
+    for o in out:
+        o["backupManager"], o["backupManagerSource"] = backup_manager.resolve(
+            (o.get("workEmail") or "").strip().lower(), people, hr_contacts)
+    return out
+
+
+def _with_backup(db: Session, out: dict) -> dict:
+    """The effective Backup Manager on one serialized employee (Oct 13) - the
+    People list carries it for everyone; a save returns it too."""
+    import backup_manager
+    out["backupManager"], out["backupManagerSource"] = backup_manager.backup_of(db, out.get("workEmail") or "")
+    return out
 
 
 _CONTRACTOR_PAY = ("rate", "rate_type", "currency", "billing_rate", "bill_rate")
@@ -265,6 +292,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         employment_type=body.employment_type or "full_time",
         start_date=(body.start_date or "").strip(),
         manager_email=(body.manager_email or "").strip().lower(),
+        backup_manager_email=(body.backup_manager_email or "").strip().lower(),
         status=body.status or "active",
         location=(body.location or "").strip(),
         country=(body.country or "").strip().upper(),
@@ -291,7 +319,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         db.query(HrRemovedIdentity).filter(HrRemovedIdentity.work_email == _wemail).delete()
     db.commit()
     db.refresh(row)
-    return _serialize(row)
+    return _with_backup(db, _serialize(row))
 
 
 @router.patch("/employees/{eid}")
@@ -313,7 +341,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     for key, value in fields.items():
         if value is None:
             continue
-        if key in ("work_email", "personal_email", "manager_email"):
+        if key in ("work_email", "personal_email", "manager_email", "backup_manager_email"):
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":
             value = value.strip()
@@ -347,7 +375,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         except Exception as e:   # the audit row must never fail the save
             db.rollback()
             print(f"[hr] field audit skipped: {e}")
-    out = _serialize(row)
+    out = _with_backup(db, _serialize(row))
     # Nexus is the source of truth for profile edits - mirror them onto the
     # linked Entra account automatically (best-effort: a Graph hiccup must never
     # fail the save; the response says whether Entra took the change).
@@ -368,7 +396,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
             if contact:
                 m365_profile_sync.push(token, row, contact)
                 db.commit()
-            out = _serialize(row)
+            out = _with_backup(db, _serialize(row))
             out["entra"] = {"synced": True, "written": written, "manager": manager}
         except Exception as e:
             out["entra"] = {"synced": False, "error": str(e)[:200]}
@@ -1172,7 +1200,7 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
         # other documents are not part of the team view.
         if row.kind != "paystub":
             raise HTTPException(404, "Document not found")
-        _direct_report_or_404(user, emp)
+        _direct_report_or_404(user, emp, db)
     elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
     resp = httpx.post(
@@ -1208,7 +1236,7 @@ def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     _assert_scope(emp, hr_scope(user, db))
     if hr_team_limited(user):
-        _direct_report_or_404(user, emp)   # a manager: direct reports only (Oct 7)
+        _direct_report_or_404(user, emp, db)   # a manager: direct reports only (Oct 7)
     rows = (db.query(HrDocument)
             .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
             .order_by(HrDocument.created_at.desc()).all())
@@ -3666,7 +3694,7 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
     if hr_team_limited(user):
         # A manager's read-only view of a direct report (Oct 7): pay, history
         # and benefits - never the bank accounts.
-        _direct_report_or_404(user, row)
+        _direct_report_or_404(user, row, db)
         return {"compensation": row.compensation or {}, "bank": [], "readOnly": True,
                 "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
     return {"compensation": row.compensation or {}, "bank": row.bank or [],

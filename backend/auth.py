@@ -685,7 +685,11 @@ def team_emails(db: Session, manager_email: str) -> set:
     for em, mgr in rows:
         if em and mgr:
             under.setdefault(mgr.strip().lower(), []).append(em.strip().lower())
-    seen, todo = set(), [me]
+    # The people `me` is Backup Manager for come with their own teams, as if
+    # they reported to `me` (Neil, Oct 13 - the backup has the manager's rights).
+    import backup_manager
+    backed = backup_manager.backed_up_by(db, me)
+    seen, todo = set(backed) - {me}, [me, *backed]
     while todo:
         for em in under.get(todo.pop(), []):
             if em not in seen and em != me:

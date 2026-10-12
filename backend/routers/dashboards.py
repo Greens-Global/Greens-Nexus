@@ -274,9 +274,8 @@ def _time_off_pending(db: Session, user: dict, email: str) -> int:
     import models as M
     q = db.query(M.TimeOffRequest).filter(M.TimeOffRequest.status == "pending")
     if int(user.get("level", 0)) < 5:
-        reports = [(e.work_email or "").lower() for e in db.query(M.NexusEmployee.work_email)
-                   .filter(func.lower(M.NexusEmployee.manager_email) == email.lower()).all()
-                   if e.work_email]
+        import backup_manager          # direct reports + the people they back up (Oct 13)
+        reports = sorted(backup_manager.managed_directly(db, email))
         if not reports:
             return 0
         q = q.filter(func.lower(M.TimeOffRequest.employee_email).in_(reports))

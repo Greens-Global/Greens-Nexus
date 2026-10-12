@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, Coffee, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
-import { formatDate } from '../lib/datetime';
-import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz } from '../lib/displayTz';
+import { formatDate, formatDateTime } from '../lib/datetime';
+import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
@@ -39,6 +39,15 @@ const PR_KIND_LABEL = { in: 'clock-in', out: 'clock-out', break_start: 'break st
 const t12 = (iso) => iso ? formatTimeTz(iso) : '-';
 const utcToInput = (iso) => utcToInputTz(iso);
 const inputToUtc = (v) => inputToUtcTz(v);
+const tzFor = (v) => tzOffsetForInput(v);
+// What a block of time IS, picked as its Type (Neil, Oct 13): Regular, Break,
+// then the leave types. "Sick", not "Sick Day" - someone can be sick for an
+// hour. The server reads the category the same way (_leave_class), so an old
+// "Sick Day" category still counts as sick.
+const LEAVE_TYPES = ['Sick', 'Vacation', 'Personal'];
+const typeOfCategory = (c) => /\bsick\b/i.test(c || '') ? 'Sick'
+  : /\b(vacation|pto|paid time off|annual leave)\b/i.test(c || '') ? 'Vacation'
+  : /\bpersonal\b/i.test(c || '') ? 'Personal' : 'Regular';
 
 // California / India toggle for punch-time display. Default California to line up
 // 1:1 with SwipeClock (its site clock is Pacific); flip to India for local time.
@@ -605,6 +614,25 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   };
   // The self card's NoteCell reads {note, at} - map the employee note onto it.
   const myNote = (ds) => notes[ds]?.employeeNote ? { note: notes[ds].employeeNote, at: notes[ds].employeeNoteAt } : null;
+  // Punches the employee ASKED for, not yet decided (Neil, Oct 13): they show on
+  // the day they are for, marked Not Yet Approved with the reason - on the
+  // employee's own card so they need not remember what they asked for, and on
+  // the manager's with Approve / Reject.
+  const reqsByDate = {};
+  (data?.pendingRequests || []).forEach(q => { (reqsByDate[q.localDate] = reqsByDate[q.localDate] || []).push(q); });
+  const decideReq = async (id, status) => {
+    let note = '';
+    if (status === 'rejected') {
+      note = await dialog.prompt('', { title: 'Reject request', message: 'The employee is notified.', placeholder: 'Reason (optional)', confirmText: 'Reject', danger: true });
+      if (note === null) return;
+    }
+    try {
+      const res = await api.timeDecidePunchRequest(id, { status, note: note || '' });
+      const extra = /Replaced|Also added/.test(res?.decisionNote || '') ? ` ${res.decisionNote}` : '';
+      toastOk?.(status === 'approved' ? `Punch added to the timecard.${extra}` : 'Request rejected.');
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
+  };
   const photos = usePhotoMap();
   // build rows: for each date, its segments (or one empty row); punch-note lines
   // under their day (SwipeClock); weekly subtotal after each SUNDAY-anchored week
@@ -651,6 +679,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       if (d?.holidayPay) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType, worked: true });
       if (notes.length) rows.push({ type: 'note', text: notes.join('  ·  ') });
     }
+    (reqsByDate[ds] || []).forEach(q => rows.push({ type: 'req', ds, req: q }));
   });
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
 
@@ -848,11 +877,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                         </span>
                       );
                     })}
-                    {!fin && (
+                    {/* One way to ADD a break (Neil, Oct 13): the Add punch form with
+                        Type = Break. "Fix a Break Punch" only mends a break whose start
+                        or end never recorded. */}
+                    {!fin && !self && (
+                      <button onClick={() => setEditDay({ date: r.ds, seg: null, type: 'Break' })}
+                        title="Add a break to this day - its start and end"
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, marginRight: 10, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
+                        Add a Break
+                      </button>
+                    )}
+                    {!fin && (self || r.breaks.length > 0) && (
                       <button onClick={() => setBreakFix({ date: r.ds, breaks: r.breaks })}
-                        title={self ? "Ask your approver to add a break punch that didn't record" : (r.breaks.length ? 'Add the missing break punch, or a whole break' : 'Add a break to this day')}
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing start or end of a break'}
                         style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
-                        {self || r.breaks.length ? 'Fix a Break Punch' : 'Add a Break'}
+                        Fix a Break Punch
                       </button>
                     )}
                   </td>
@@ -881,6 +920,33 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     </div>
                   </td>
                 </tr>
+              ) : r.type === 'req' ? (
+                <tr key={i} style={{ background: 'rgba(180,83,9,0.07)' }}>
+                  <td colSpan={span} style={{ ...td, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}>{dow(r.ds)}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <AlertTriangle size={10} /> Not Yet Approved
+                      </span>
+                      <span style={{ color: '#b45309', fontWeight: 700 }}>
+                        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${t12(r.req.at)}` : ''}
+                      </span>
+                      {r.req.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.req.employeeName || 'Employee')}: “{r.req.reason}”</span>}
+                      {r.req.createdAt && <span style={{ color: 'var(--muted)', fontSize: 11 }}>asked {formatDateTime(r.req.createdAt + (r.req.createdAt.endsWith('Z') ? '' : 'Z'))}</span>}
+                      <span style={{ flex: 1 }} />
+                      {self
+                        ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
+                        : !fin && (
+                          <span style={{ display: 'inline-flex', gap: 6 }}>
+                            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the timecard"
+                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
+                            <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
+                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
+                          </span>
+                        )}
+                    </div>
+                  </td>
+                </tr>
               ) : r.type === 'note' ? (
                 <tr key={i}>
                   <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: 'var(--muted)', fontStyle: 'italic', fontSize: 11.5 }}>
@@ -896,7 +962,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left' }}>{r.seg && !r.seg.in
                     // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
                     ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'}
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out'}
                             style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
                     : r.seg
                     ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
@@ -1127,7 +1193,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
-          categories={[...new Set(['Sick Day', 'Vacation', 'Personal', ...(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')])]}
+          categories={[...new Set(['Sick', 'Vacation', 'Personal', ...(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')])]}
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} self={self} />
       )}
@@ -1156,7 +1222,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
-          body: 'The pencil on any row edits that punch (or adds one on an empty day) - set the real in/out, location, and job category, void a punch, or enter Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
+          body: 'The pencil on any row edits that punch (or adds one on an empty day) - set the real in/out, location, and job category, delete a punch, or add a Break, Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',
           body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages - shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
         { target: 'pr-approve', title: 'Two-step sign-off',
@@ -1217,7 +1283,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     // Leave entered for the day (Pranshu, Oct 12) - on salary the day is
     // deducted like an absence unless hours were also worked; the row reads
     // red like the hourly card's.
-    sick: { label: 'Sick Day', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
+    sick: { label: 'Sick', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
     vacation: { label: 'Vacation', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
     personal: { label: 'Personal', bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c' },
     holiday: { label: 'Holiday', bg: 'rgba(37,99,235,0.12)', fg: '#2563eb' },   // company holiday on the employee's own calendar - never deducted
@@ -1362,14 +1428,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // where it gets fixed (add the in, or void the out).
               const inCell = (seg) => !seg.in
                 ? ((self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                    : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                    : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
                 : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
                     {/* The full punch editor, same as the hourly card's pencil (Pranshu,
-                        Oct 12): times, Type (Regular / Sick Day / Vacation / Personal),
-                        location, category, and Void In / Out / Both. */}
+                        Oct 12): times, Type (Regular / Sick / Vacation / Personal),
+                        location, category, and Delete In / Out / Both. */}
                     {!self && !fin && (
-                      <button onClick={() => setEditDay({ date: fd.date, seg })} title="Edit this punch - change the times or type, or void it"
+                      <button onClick={() => setEditDay({ date: fd.date, seg })} title="Edit this punch - change the times or type, or delete it"
                         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
                         <Pencil size={12} />
                       </button>
@@ -1400,7 +1466,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                       </button>
                     : (!self && !fin && segs.some(s => s.in && s.out))
                       /* No break recorded: a manager adds one from X to Y (Pranshu, Oct 12). */
-                      ? <button onClick={() => setBreakFix({ date: fd.date, breaks: [] })} title="Add a break to this day - a Start Break / End Break pair"
+                      ? <button onClick={() => setEditDay({ date: fd.date, seg: null, type: 'Break' })} title="Add a break to this day - its start and end"
                           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)', opacity: 0.85 }}>+ break</button>
                       : <span style={{ color: 'var(--muted)' }}>-</span>}
                 </td>
@@ -1535,9 +1601,15 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     {offClockGaps > 0 && <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 4 }}>· {offClockGaps} longer gap{offClockGaps === 1 ? '' : 's'} off the clock (not counted as break)</span>}
                     {!fin && (
                       <button onClick={() => setBreakFix({ date: fd.date, breaks: formal })}
-                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing break punch, or a whole break'}
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing start or end of a break'}
                         style={{ background: 'none', border: 'none', padding: 0, marginLeft: 6, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: unendedBreak ? '#b91c1c' : 'var(--wk-brand)' }}>
-                        {unendedBreak ? 'Fix the Break End' : self ? 'Fix a Break Punch' : 'Fix or Add a Break'}
+                        {unendedBreak ? 'Fix the Break End' : 'Fix a Break Punch'}
+                      </button>
+                    )}
+                    {!fin && !self && (
+                      <button onClick={() => setEditDay({ date: fd.date, seg: null, type: 'Break' })} title="Add another break to this day"
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 10, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
+                        Add a Break
                       </button>
                     )}
                   </td>
@@ -1759,15 +1831,14 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   // A break the day's clock-out closed (implicit) is one whose END never landed -
   // by far the common case, so open on it with its start time already known.
   const unended = (day.breaks || []).find(b => b.implicit);
-  // A manager on a day with no break at all adds the whole thing (Neil, Oct 12).
-  const [kind, setKind] = useState(unended ? 'break_end' : (!self && !(day.breaks || []).length ? 'both' : 'break_start'));
+  // Adding a WHOLE break is the Add punch form with Type = Break (Neil, Oct 13).
+  const [kind, setKind] = useState(unended ? 'break_end' : 'break_start');
   const [endAt, setEndAt] = useState(`${day.date}T12:30`);
   const [at, setAt] = useState(() => {
     const anchor = unended?.start || (day.breaks || [])[0]?.end || '';
     return anchor ? utcToInput(anchor) : `${day.date}T12:00`;
   });
   const [reason, setReason] = useState('');
-  const tz = new Date().getTimezoneOffset();
   const label = kind === 'break_end' ? 'End Break' : 'Start Break';
 
   async function save() {
@@ -1776,8 +1847,8 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
       if (new Date(endAt) <= new Date(at)) { toastErr?.('The break end has to be after the break started.'); return; }
       setBusy(true);
       try {
-        await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(at), tz_offset_min: tz, note: reason.trim() });
-        await api.timeAddPunch({ employee_email: email, kind: 'break_end', at: inputToUtc(endAt), tz_offset_min: tz, note: reason.trim() });
+        await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(at), tz_offset_min: tzFor(at), note: reason.trim() });
+        await api.timeAddPunch({ employee_email: email, kind: 'break_end', at: inputToUtc(endAt), tz_offset_min: tzFor(endAt), note: reason.trim() });
         toastOk?.('Break added - the timecard is updated.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
@@ -1793,10 +1864,10 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     setBusy(true);
     try {
       if (self) {
-        await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
-        toastOk?.('Request sent to your approver - nothing changes on your timecard until they approve it.');
+        await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim() });
+        toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
       } else {
-        await api.timeAddPunch({ employee_email: email, kind, at: inputToUtc(at), tz_offset_min: tz, note: reason.trim() });
+        await api.timeAddPunch({ employee_email: email, kind, at: inputToUtc(at), tz_offset_min: tzFor(at), note: reason.trim() });
         toastOk?.(kind === 'break_end' ? 'Break end added - the timecard is updated.' : 'Break start added - the timecard is updated.');
       }
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
@@ -1829,7 +1900,6 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
             <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
               <option value="break_end">{self ? 'End Break - I came back and it didn\'t record' : 'End Break - the break end is missing'}</option>
               <option value="break_start">{self ? 'Start Break - my break start didn\'t record' : 'Start Break - the break start is missing'}</option>
-              {!self && <option value="both">Whole break - add a start and an end</option>}
             </select>
           </label>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{kind === 'both' ? 'Break start' : label} time
@@ -1868,14 +1938,15 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const [cat, setCat] = useState(seg?.category || '');
   const [reason, setReason] = useState('');   // self mode: justification for the approver
-  // Optional break inside a NEW pair a manager adds (Pranshu, Oct 12): "from X
-  // to Y" lands as a Start Break / End Break pair between the clock-in and out.
-  const [brkFrom, setBrkFrom] = useState('');
-  const [brkTo, setBrkTo] = useState('');
-  const tz = new Date().getTimezoneOffset();
+  // Type (Neil, Oct 13): what this block of time is. Break is offered only when
+  // ADDING - its start and end are the two times above, saved as a Start Break /
+  // End Break pair. The leave types set the category.
+  const initialType = day.type || typeOfCategory(seg?.category);
+  const [type, setType] = useState(initialType);
+  const isBreak = type === 'Break';
   // What's missing on this day and therefore addable (self can only ADD, not overwrite).
   const needIn = !seg?.inId, needOut = !seg?.outId;
-  const canAddBreak = !self && !seg;           // only on a brand-new pair; existing days use the Breaks line
+  const canAddBreak = !self && !seg;
 
   async function save() {
     // A clock-out must be after the clock-in it pairs with. With the out now
@@ -1894,14 +1965,18 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
       toastErr?.('The clock-out has to be after the clock-in.'); return;
     }
-    // The optional break: both ends or neither, in order, inside the shift.
-    const withBreak = canAddBreak && (brkFrom || brkTo);
-    if (withBreak) {
-      if (!brkFrom || !brkTo) { toastErr?.('Set both the break start and the break end, or clear both.'); return; }
-      if (new Date(brkTo) <= new Date(brkFrom)) { toastErr?.('The break end has to be after the break start.'); return; }
-      if (new Date(brkFrom) <= new Date(inAt) || new Date(brkTo) >= new Date(outAt)) {
-        toastErr?.('The break has to fall between the clock-in and the clock-out.'); return;
-      }
+    // A break: the two times are its start and end, inside a shift that day.
+    if (isBreak && canAddBreak) {
+      setBusy(true);
+      try {
+        await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), note: 'payroll edit' });
+        await api.timeAddPunch({ employee_email: email, kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), note: 'payroll edit' });
+        toastOk?.('Break added - the timecard is updated.');
+        window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+        onDone();
+      } catch (e) { toastErr?.(e?.message || 'Could not add the break - it has to fall inside a shift that day.'); }
+      setBusy(false);
+      return;
     }
     // Employees don't write the timecard directly - a missing punch becomes an
     // approver-confirmed REQUEST. Nothing moves on pay until it's approved.
@@ -1913,9 +1988,9 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         if (needIn) adds.push(['in', inAt]);
         if (needOut) adds.push(['out', outAt]);
         for (const [kind, at] of adds) {
-          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tz, reason: reason.trim() });
+          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim() });
         }
-        toastOk?.("Request sent to your approver - nothing changes on your timecard until they approve it.");
+        toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();
       } catch (e) { toastErr?.(e?.message || 'Could not send the request.'); }
@@ -1933,74 +2008,86 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
           // Job-costing category on the in-punch.
           if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
         } else {
-          // A new in-punch carries the category - so "Sick Day" / "Vacation" /
+          // A new in-punch carries the category - so "Sick" / "Vacation" /
           // "Personal" entered for someone lands as paid leave in one save.
-          await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit', category: cat });
+          await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), note: 'payroll edit', category: cat });
         }
       };
       // Edit existing out-punch, or add one
       const saveOut = async () => {
         if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
-        else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
+        else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), note: 'payroll edit' });
       };
       // Moving a whole shift later (9-5 -> 6-10 PM): saving the new in first
       // would sit it after the old out for a moment, which the server refuses
       // as a clock-out before a clock-in. Then the out goes first.
       const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
       if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
-      if (withBreak) {
-        await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(brkFrom), tz_offset_min: tz, note: 'payroll edit' });
-        await api.timeAddPunch({ employee_email: email, kind: 'break_end', at: inputToUtc(brkTo), tz_offset_min: tz, note: 'payroll edit' });
-      }
-      toastOk?.(withBreak ? 'Timecard updated - punches and break added.' : 'Timecard updated - original times stay on record.'); onDone();
+      toastOk?.('Timecard updated - original times stay on record.'); onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);
   }
-  // Void (SwipeClock "delete") one punch or the whole pair (Neil, Oct 12).
-  // A voided punch stays on record for audit; nothing is physically deleted.
+  // Delete one punch or the whole pair (Neil, Oct 12-13 - SwipeClock's
+  // "delete"). The punch is voided server-side: it leaves the hours but stays
+  // on record with who deleted it, so nothing is physically lost.
   async function voidPunches(ids, what) {
     const list = ids.filter(Boolean);
     if (!list.length) return;
-    if (!await dialog.confirm(`Void ${what}? It drops out of the hours but stays on record with who voided it.`,
-      { title: 'Void punch', confirmText: 'Void', danger: true })) return;
+    if (!await dialog.confirm(`Delete ${what}? It comes off the timecard and out of the hours. The audit record keeps it, with who deleted it.`,
+      { title: 'Delete punch', confirmText: 'Delete', danger: true })) return;
     setBusy(true);
     try {
       for (const id of list) await api.timeAdjustPunch(id, { void: true });
-      toastOk?.(list.length > 1 ? 'Punches voided.' : 'Punch voided.'); onDone();
-    } catch (e) { toastErr?.(e?.message || 'Could not void.'); }
+      toastOk?.(list.length > 1 ? 'Punches deleted.' : 'Punch deleted.'); onDone();
+    } catch (e) { toastErr?.(e?.message || 'Could not delete.'); }
     setBusy(false);
   }
   const removeOut = () => voidPunches([seg?.outId], 'the clock-out');
   const removeIn = () => voidPunches([seg?.inId], 'the clock-in');
   const removePair = () => voidPunches([seg?.inId, seg?.outId], 'this whole punch pair');
-  // Quick leave-type picker when ADDING time for someone (Neil, Oct 12):
-  // Regular keeps the category free-form; the three leave types set it.
-  const LEAVE_TYPES = ['Sick Day', 'Vacation', 'Personal'];
-  const leaveType = LEAVE_TYPES.includes(cat) ? cat : 'Regular';
+  // Picking a Type: a leave type sets the category; Regular clears a leave
+  // category (a job code stays); Break swaps the two times to a break window.
+  const pickType = (t) => {
+    setType(t);
+    if (LEAVE_TYPES.includes(t)) setCat(t);
+    else if (typeOfCategory(cat) !== 'Regular') setCat('');
+    if (t === 'Break' && inAt === initialInAt && outAt === initialOutAt) {
+      setInAt(`${day.date}T12:00`); setOutAt(`${day.date}T12:30`);
+    }
+  };
 
   // seg/day are fixed for this modal instance's lifetime, so recomputing the
   // same expressions the useState initializers used gives the baseline.
   const initialInAt = seg?.in ? utcToInput(seg.in) : (seg?.out ? utcToInput(seg.out) : `${day.date}T09:00`);
   const initialOutAt = seg?.out ? utcToInput(seg.out) : (seg?.in ? utcToInput(seg.in) : `${day.date}T17:00`);
   const dirty = inAt !== initialInAt || outAt !== initialOutAt || siteId !== (seg?.workSiteId || '')
-    || cat !== (seg?.category || '') || reason.trim() !== '' || brkFrom !== '' || brkTo !== '';
+    || cat !== (seg?.category || '') || reason.trim() !== '' || type !== initialType;
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing punch' : seg ? 'Edit punch' : 'Add punch'}
+      <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing punch' : seg ? 'Edit punch' : isBreak ? 'Add break' : 'Add punch'}
         style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 60vw, 680px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a missing punch' : seg ? 'Edit punch' : 'Add punch'}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Punch' : seg ? 'Edit Punch' : isBreak ? 'Add Break' : 'Add Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         <div style={{ display: 'grid', gap: 12 }}>
           {/* In self mode only the MISSING punch is editable - an existing time stays
               shown (disabled) for context but can't be silently overwritten here. */}
-          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in time<input autoFocus={self && needIn} type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
-          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out time<input autoFocus={self && needOut && !needIn} type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
+          {!self && (seg?.inId || needIn) && (
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Type
+              <select className="form-input" value={type} onChange={e => pickType(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
+                <option value="Regular">Regular</option>
+                {canAddBreak && <option value="Break">Break</option>}
+                {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+          )}
+          {(!self || needIn) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>{isBreak ? 'Break start time' : 'Clock in time'}<input autoFocus={self && needIn} type="datetime-local" className="form-input" value={inAt} disabled={self && !needIn} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needIn ? 0.6 : 1 }} /></label>}
+          {(!self || needOut) && <label style={{ fontSize: 11, color: 'var(--muted)' }}>{isBreak ? 'Break end time' : 'Clock out time'}<input autoFocus={self && needOut && !needIn} type="datetime-local" className="form-input" value={outAt} disabled={self && !needOut} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13, opacity: self && !needOut ? 0.6 : 1 }} /></label>}
           {self && (
             <label style={{ fontSize: 11, color: 'var(--muted)' }}>Reason (sent to your approver - not the time)
               <input className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="Why you're adding it - e.g. forgot to clock out" style={{ width: '100%', fontSize: 13 }} />
@@ -2015,41 +2102,25 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
               <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Reassigning marks the punch as on-site at the chosen location.</span>
             </label>
           )}
-          {!self && (seg?.inId || needIn) && (
-            <>
-              <label style={{ fontSize: 11, color: 'var(--muted)' }}>Type
-                <select className="form-input" value={leaveType} onChange={e => setCat(e.target.value === 'Regular' ? '' : e.target.value)} style={{ width: '100%', fontSize: 13 }}>
-                  <option value="Regular">Regular</option>
-                  {LEAVE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </label>
-              <label style={{ fontSize: 11, color: 'var(--muted)' }}>Category (job / cost code)
-                <input list="pr-cats" className="form-input" value={cat} onChange={e => setCat(e.target.value)}
-                  placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
-                <datalist id="pr-cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
-                <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Sick Day, Vacation or Personal makes this block paid leave - base rate, not counted toward overtime.</span>
-              </label>
-            </>
+          {!self && !isBreak && (seg?.inId || needIn) && (
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Category (job / cost code)
+              <input list="pr-cats" className="form-input" value={cat} onChange={e => { setCat(e.target.value); setType(typeOfCategory(e.target.value)); }}
+                placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
+              <datalist id="pr-cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
+              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Sick, Vacation or Personal makes this block paid leave - base rate, not counted toward overtime.</span>
+            </label>
           )}
-          {canAddBreak && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <label style={{ fontSize: 11, color: 'var(--muted)' }}>Break from (optional)
-                <input type="datetime-local" className="form-input" value={brkFrom} onChange={e => setBrkFrom(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
-              </label>
-              <label style={{ fontSize: 11, color: 'var(--muted)' }}>Break to
-                <input type="datetime-local" className="form-input" value={brkTo} onChange={e => setBrkTo(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
-              </label>
-              <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--muted)', marginTop: -6 }}>An unpaid break inside this shift. More breaks, or one on a day that already has punches, go in through the Breaks line on the day.</span>
-            </div>
+          {isBreak && (
+            <span style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: -6 }}>An unpaid break. It has to fall inside a shift that day - add the shift first if there is none.</span>
           )}
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-          {!self && seg?.inId && <button onClick={removeIn} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Void In-Punch</button>}
-          {!self && seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Void Out-Punch</button>}
-          {!self && seg?.inId && seg?.outId && <button onClick={removePair} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Void Both</button>}
+          {!self && seg?.inId && <button onClick={removeIn} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete In-Punch</button>}
+          {!self && seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete Out-Punch</button>}
+          {!self && seg?.inId && seg?.outId && <button onClick={removePair} disabled={busy} style={{ background: 'none', border: 'none', padding: 0, color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>Delete Both</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : self ? 'Send request' : 'Save'}</button>
+          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : self ? 'Send Request' : isBreak ? 'Add Break' : 'Save'}</button>
         </div>
       </div>
       {guard.confirming && (
