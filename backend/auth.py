@@ -685,16 +685,18 @@ def team_emails(db: Session, manager_email: str) -> set:
     for em, mgr in rows:
         if em and mgr:
             under.setdefault(mgr.strip().lower(), []).append(em.strip().lower())
-    # The people `me` is Backup Manager for come with their own teams, as if
-    # they reported to `me` (Neil, Oct 13 - the backup has the manager's rights).
-    import backup_manager
-    backed = backup_manager.backed_up_by(db, me)
-    seen, todo = set(backed) - {me}, [me, *backed]
+    seen, todo = set(), [me]
     while todo:
         for em in under.get(todo.pop(), []):
             if em not in seen and em != me:
                 seen.add(em)
                 todo.append(em)
+    # Plus the people `me` is Backup Manager for - THEM only, never the people
+    # who report to them: each of those has a backup of their own (by default
+    # their manager's manager), so covering Aarav must not open Aarav's team
+    # (Pranshu, Oct 13).
+    import backup_manager
+    seen |= backup_manager.backed_up_by(db, me) - {me}
     return seen
 
 
