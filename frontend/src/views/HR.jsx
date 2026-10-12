@@ -136,7 +136,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, canSeeComp = false, initialType = 'full_time', onClose, onSaved, toastOk, toastErr }) {
+function EmployeeFormModal({ employee, employees, externals = [], entities = [], isAdmin = false, canSeeComp = false, initialType = 'full_time', onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
@@ -247,6 +247,9 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
 
   // Manager picker: anyone with a work email (yourself excluded when editing)
   const managers = employees.filter(e => e.workEmail && e.id !== employee?.id);
+  // External users can be a reporting line too (Neil, Oct 12) - a contractor
+  // or client-side lead someone answers to. Their own group under Nexus People.
+  const externalManagers = externals.filter(e => e.workEmail && e.id !== employee?.id);
 
   async function save() {
     if (!f.first_name.trim() || busy) return;
@@ -370,7 +373,16 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
             <label style={FL}>REPORTS TO</label>
             <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
               <option value="">- no reporting line -</option>
-              {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+              {externalManagers.length ? (
+                <>
+                  <optgroup label="Nexus People">
+                    {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+                  </optgroup>
+                  <optgroup label="External Users">
+                    {externalManagers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)}{m.externalCompany ? ` - ${m.externalCompany}` : ''} ({m.workEmail})</option>)}
+                  </optgroup>
+                </>
+              ) : managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
@@ -6056,7 +6068,7 @@ export default function HR({ activeSub, onSubChange }) {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             <ChevronLeft size={14} /> Back to directory
           </button>
-          <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
+          <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
@@ -6236,7 +6248,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </div>
                 <div style={{ padding: '16px 18px', minWidth: 0 }}>
                   {selected ? (
-                    <EmployeeDetail key={selected.id} e={selected} employees={employees} isMobile={isMobile} teamView={hrTeam}
+                    <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
@@ -6258,7 +6270,7 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
+        <EmployeeFormModal employee={editing} employees={employees} externals={extEmployees} entities={entities} isAdmin={isAdmin} canSeeComp={canSeeComp}
           initialType={addPreset}
           onClose={() => { setFormOpen(false); setEditing(null); setAddPreset('full_time'); }}
           onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />

@@ -1177,7 +1177,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'People', desc: 'The directory of every employee and contractor, with filters by company, department and status. Two tabs: Active, and Inactive for anyone marked Left or Inactive - a status change moves them there with their full record; Remove from Nexus is only for records that should not exist. The Overview shows the whole personal record, current and permanent address included.' },
-      { name: 'Employee Record', desc: 'Job, reporting line, contact, emergency contact, documents with expiry dates, and history.' },
+      { name: 'Employee Record', desc: 'Job, reporting line, contact, emergency contact, documents with expiry dates, and history. Reports To can be a Nexus person or an External User (listed in their own group) - a contractor or client-side lead someone answers to.' },
       { name: 'Office & Contact', desc: 'Office, mobile phone, office phone, street address, city, state, ZIP and country or region - the contact info Microsoft 365 shows in Outlook and Teams. It is kept in step both ways: edit it here (Edit on the profile) and Microsoft 365 updates when you save; a change made in the Microsoft 365 admin center comes into Nexus within 15 minutes, or straight away with Sync Now. If both sides changed the same field, the Nexus value wins. Job title and department sync the same way. Only production writes to Microsoft 365.' },
       { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
       { name: 'Org Chart', desc: 'Reporting lines by department. Drag to move someone.' },
