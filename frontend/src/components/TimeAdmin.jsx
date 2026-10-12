@@ -1194,7 +1194,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 </select></div>
               <div><label style={FL}>Type</label>
                 <select className="form-input" value={obo.type} onChange={e => setObo(p => ({ ...p, type: e.target.value }))} style={{ width: '100%' }}>
-                  {['vacation', 'sick', 'personal', 'unpaid', 'other'].map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
+                  {/* No Unpaid (Neil, Oct 12 2026): the server no longer accepts it - Personal is unpaid anyway. */}
+                  {['vacation', 'sick', 'personal', 'other'].map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
                   {oboReasons.map(t => <option key={t} value={t}>{t}</option>)}
                 </select></div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

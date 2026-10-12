@@ -352,11 +352,20 @@ class ShiftRequestTests(unittest.TestCase):
         self.assertEqual([s["id"] for s in mine["swapShifts"][B]], [y])     # only what a swap can target
         self.assertNotIn(C, mine["swapShifts"])                              # never outside the team
 
-    def test_reminder_lead_time_is_checked(self):
+    def test_the_removed_reminder_settings_are_ignored(self):
+        """The shift-start reminder is gone (Neil, Oct 12 2026). A client or a
+        saved config still sending its two keys is not an error, and they are
+        neither stored nor echoed back."""
         self._as(ADMIN)
-        self.assertEqual(self.client.put("/timeclock/shift-requests/settings", json={"reminderLeadMinutes": 5}).status_code, 400)
-        r = self.client.put("/timeclock/shift-requests/settings", json={"reminders": False, "reminderLeadMinutes": 90}).json()
-        self.assertEqual((r["reminders"], r["reminderLeadMinutes"]), (False, 90))
+        res = self.client.put("/timeclock/shift-requests/settings",
+                              json={"reminders": False, "reminderLeadMinutes": 5, "swaps": False})
+        self.assertEqual(res.status_code, 200)
+        r = res.json()
+        self.assertNotIn("reminders", r)
+        self.assertNotIn("reminderLeadMinutes", r)
+        self.assertFalse(r["swaps"])                       # the rest of the save still lands
+        got = self.client.get("/timeclock/shift-requests/settings").json()
+        self.assertNotIn("reminderLeadMinutes", got)
 
     def test_staff_cannot_open_the_inbox_or_decide(self):
         r = self._ask(A, kind="open", shift_id=self._shift("", slots=1)).json()
