@@ -79,4 +79,19 @@ describe('SiteModelPanel', () => {
     expect(styles.at(-1)).toBe('illustrated');
     localStorage.removeItem('nexus.siteModel.look');
   });
+  it('draws the dashboard cards in the illustrated look: route for customers, KPIs and attention for owners', () => {
+    localStorage.setItem('nexus.siteModel.look', 'illustrated');
+    const { unmount } = render(<SiteModelPanel model={model} mode="customer" images={{}} />);
+    fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'C214' } });
+    fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
+    expect(screen.getByLabelText('Route to C214')).toBeTruthy();
+    expect(screen.getByText('Level 2')).toBeTruthy();
+    expect(screen.queryByText('Out of Service')).toBeNull();   // customers never see occupancy
+    unmount();
+    render(<SiteModelPanel model={model} mode="owner" images={{}} />);
+    expect(screen.getByText('Attention 1')).toBeTruthy();
+    expect(screen.getAllByText('Damage').length).toBeGreaterThan(0);   // DAMAGE reads as Title Case
+    localStorage.removeItem('nexus.siteModel.look');
+  });
 });
+

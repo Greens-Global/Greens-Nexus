@@ -6,8 +6,9 @@
 // All server traffic belongs to the parent (SiteModelSection / PublicUnitFinder);
 // this component only renders what it is given and reports what the user did.
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName } from './siteModelViewer.js';
+import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel } from './siteModelViewer.js';
 import { formatDateTime } from '../lib/datetime.js';
+import { SiteModelHud } from './SiteModelHud.jsx';
 
 const FONT = "'Inter', system-ui, sans-serif";
 const PIN_CATEGORIES = [['maintenance', 'Maintenance'], ['inspection', 'Inspection'], ['note', 'Note']];
@@ -107,7 +108,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           <button type="submit" style={btnOn}>Find</button>
           {notFound && <span role="alert" style={{ fontSize: 12, color: '#c43d2f', alignSelf: 'center' }}>{notFound}</span>}
         </form>
-        <div ref={stageRef} style={{ position: 'relative', height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
+        <div ref={stageRef} style={{ position: 'relative', height: look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
           {hover && <div style={{ position: 'absolute', left: hover.x + 12, top: hover.y - 26, pointerEvents: 'none', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '2px 7px', borderRadius: 6, font: `500 12px ui-monospace, Menlo, monospace`, zIndex: 2 }}>{hover.n}{hover.f > 1 ? ` · L${hover.f}` : ''}</div>}
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
           <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
@@ -121,6 +122,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             </span>}
           </div>
           <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : model.image?.attribution || ''} · 1 unit = 1 m</div>
+          {look === 'illustrated' && <SiteModelHud model={model} owner={owner} live={live} unit={u}
+            stats={{ active: active.length, leased, vacant, bad: bad.length, leasedPct: active.length ? Math.round(100 * leased / active.length) : 0 }}
+            attention={bad} pins={pins} ticketsByUnit={ticketsByUnit}
+            onPickUnit={(n) => viewerRef.current?.selectUnit(n)} onPickPin={(p) => viewerRef.current?.flyToPin(p)} />}
         </div>
       </div>
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
@@ -168,7 +173,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Size</dt><dd style={{ margin: 0, fontVariantNumeric: 'tabular-nums' }}>{u.w && u.d ? `${u.w} × ${u.d} ft (${(u.w * u.d).toLocaleString()} sq ft)` : u.d ? `${u.d} in. mailbox` : 'not listed'}</dd>
               <dt style={{ color: 'var(--text-muted, #5f6358)' }}>Location</dt><dd style={{ margin: 0 }}>{bldg(u.b)?.name || zone(u.b)?.name || ''}{bldg(u.b)?.floors > 1 ? `, Level ${u.f}` : ''}</dd>
               {u.door && u.k !== 'park' && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Door</dt><dd style={{ margin: 0 }}>{u.k === 'du' || u.k === 'ccdu' ? `Outside wall${doorSideName(model, u.door) ? `, ${doorSideName(model, u.door)}` : ''}` : 'Hallway'}</dd></>}
-              {owner && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days vacant</dt><dd style={{ margin: 0 }}>{u.l ? '-' : typeof u.dvac === 'number' ? u.dvac : 'since the last build'}</dd>{u.r === 0 && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{u.why || 'not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}</>}
+              {owner && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Days vacant</dt><dd style={{ margin: 0 }}>{u.l ? '-' : typeof u.dvac === 'number' ? u.dvac : 'since the last build'}</dd>{u.r === 0 && <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Reason</dt><dd style={{ margin: 0 }}>{reasonLabel(u.why) || 'not given'}{u.note ? ` - ${u.note}` : ''}</dd></>}</>}
               {u.gone ? <><dt style={{ color: 'var(--text-muted, #5f6358)' }}>Cubby</dt><dd style={{ margin: 0, color: '#c43d2f' }}>No longer in Cubby's inventory</dd></> : null}
             </dl>
             <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
@@ -200,7 +205,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           <>
             <section>
               <h2 style={h2}>Needs Attention ({bad.length})</h2>
-              {bad.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflow: 'auto' }}>{bad.map((x) => <li key={x.n} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}><button type="button" onClick={() => viewerRef.current?.selectUnit(x.n)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px' }}>{x.n}</button><span style={{ color: 'var(--text-muted, #5f6358)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.why || 'out of service'}{x.note ? ` - ${x.note}` : ''}</span></li>)}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>Every unit is rentable.</div>}
+              {bad.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflow: 'auto' }}>{bad.map((x) => <li key={x.n} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}><button type="button" onClick={() => viewerRef.current?.selectUnit(x.n)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px' }}>{x.n}</button><span style={{ color: 'var(--text-muted, #5f6358)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reasonLabel(x.why) || 'out of service'}{x.note ? ` - ${x.note}` : ''}</span></li>)}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>Every unit is rentable.</div>}
             </section>
             <section>
               <h2 style={h2}>Pins ({pins.length})</h2>

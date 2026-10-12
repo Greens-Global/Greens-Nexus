@@ -37,14 +37,17 @@ Satellite / Illustrated buttons under the model (remembered per browser).
 
 - **Satellite** - the Esri photo under the model, parcel line and pads in
   outline. Best for checking the model against the ground.
-- **Illustrated** (`frontend/src/sitemodel/siteModelDiorama.js`, Oct 11 2026) -
-  the property as a miniature on a floating tile: lawn inside the parcel, a
-  paler field beyond it with a hedge on the property line, asphalt pads, gravel
-  lots, low-poly trees, colored roofs, green roll-up doors, a gate arm that
-  lifts, and cars, trucks and RVs driving loops around the buildings and lots.
-  It turns slowly until the first touch. Reduced-motion users get a still frame.
-  In the owner view every leased RV or vehicle stall shows a parked vehicle; the
-  customer view never does, because the public model carries no occupancy.
+- **Illustrated** (`siteModelDiorama.js` + `SiteModelHud.jsx`, Oct 11 2026) -
+  styled after the "3D warehouse dashboard" recording Neil shared: pale cool
+  ground on a floating tile, ribbed brand-green buildings with white roll-up
+  doors, a white office with a green roof, yellow stall lines and dashed lane
+  paint, round trees, a gate arm, white box trucks, cars and RVs driving loops,
+  and a map pin over the found unit. Floating cards sit over the model: a site
+  chip, and a route tracker (Gate, Building, Level, Unit - the storage version
+  of a shipment tracker). Owners also get a Live / Snapshot pill, KPI tiles
+  (units, leased, vacant, out of service), an Attention / Pins / Tickets card,
+  and a parked vehicle on every leased stall. Customers never see occupancy.
+  It turns slowly until the first touch; reduced motion gets a still frame.
 
 Everything in the illustrated look is derived from the model (pads, zones,
 buildings, gates, parcels), so a model correction shows up in both looks.

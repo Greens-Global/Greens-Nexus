@@ -39,6 +39,13 @@ function solarTexture(light) {
   const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(40, 8); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+/** Ribbed-metal texture for the illustrated look's walls and roofs (repeat it along the face). */
+function ribTexture(color, dark, light) {
+  const cv = document.createElement('canvas'); cv.width = 32; cv.height = 8; const x = cv.getContext('2d');
+  x.fillStyle = color; x.fillRect(0, 0, 32, 8); x.fillStyle = dark; x.fillRect(0, 0, 3, 8); x.fillStyle = light; x.fillRect(3, 0, 2, 8);
+  const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
 /** Frees the GPU side of a scene object (geometry, material, texture) and its children. */
 function disposeObject(o) {
   o.traverse((c) => {
@@ -78,10 +85,10 @@ export function createSiteModelViewer(container, model, options = {}) {
   const el = renderer.domElement; el.style.display = 'block'; el.style.width = '100%'; el.style.height = '100%'; el.style.touchAction = 'none';
   container.appendChild(el);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : opts.background || '#dfe6e9');
-  // The illustrated look uses a long lens (flatter, toy-like) and warm light.
+  // The illustrated look uses a long lens (flatter, toy-like) and cool, even light.
   const camera = new THREE.PerspectiveCamera(illus ? 30 : 45, 1, 1, 6000);
-  scene.add(new THREE.HemisphereLight(0xffffff, illus ? 0xb8a98a : 0x777766, illus ? 1.25 : 1.1));
-  const sun = new THREE.DirectionalLight(illus ? 0xfff1dc : 0xffffff, illus ? 1.9 : 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
+  scene.add(new THREE.HemisphereLight(0xffffff, illus ? 0xcfd6e0 : 0x777766, illus ? 1.35 : 1.1));
+  const sun = new THREE.DirectionalLight(0xffffff, illus ? 1.75 : 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -260, right: 260, top: 260, bottom: -260, near: 50, far: 700 }); sun.shadow.bias = -0.0008;
   scene.add(sun); scene.add(sun.target);
 
@@ -148,9 +155,18 @@ export function createSiteModelViewer(container, model, options = {}) {
   (model.buildings || []).forEach((b, bi) => {
     const L = b.u[1] - b.u[0], Wd = b.v[1] - b.v[0];
     let roof = b.roof === 'solar' ? mat.roofSolar : b.roof === 'red' ? mat.roofRed : mat.roofWhite;
-    if (illus && b.roof !== 'solar') roof = new THREE.MeshLambertMaterial({ color: b.roof === 'red' ? DIORAMA.roofs[1] : DIORAMA.roofs[(bi * 2) % DIORAMA.roofs.length] });
-    const mats = [mat.wall, mat.wall, roof, mat.wall, mat.wall, mat.wall].map((m) => m.clone());
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(L, b.height, Wd), mats);
+    let mats = [mat.wall, mat.wall, roof, mat.wall, mat.wall, mat.wall].map((m) => m.clone());
+    if (illus) {
+      // Ribbed metal in the brand green, the office white with a green roof.
+      // Box faces: +x / -x are the ends (Wd wide), +z / -z the long sides (L wide).
+      const office = b.kind === 'office' || b.roof === 'red';
+      const wc = office ? '#f6f8fa' : '#2f855a', wd = office ? '#dfe4ea' : '#25704a', wl = office ? '#ffffff' : '#3d9c6b';
+      const wall = (w) => { const t = ribTexture(wc, wd, wl); t.repeat.set(Math.max(1, w / 1.2), 1); return new THREE.MeshLambertMaterial({ map: t }); };
+      if (b.roof === 'solar') roof = mat.roofSolar.clone();
+      else { const t = ribTexture(office ? '#2f855a' : '#3d9c6b', office ? '#25704a' : '#2f855a', office ? '#3d9c6b' : '#52b07f'); t.repeat.set(Math.max(1, L / 1.4), 1); roof = new THREE.MeshLambertMaterial({ map: t }); }
+      mats = [wall(Wd), wall(Wd), roof, mat.wall.clone(), wall(L), wall(L)];
+    }
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(L, b.height, Wd), mats); mesh.userData.index = bi;
     mesh.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height / 2));
     mesh.userData.building = b; mesh.castShadow = true; scene.add(mesh); shells.push(mesh);
     if (illus) {   // a roof cap with a small overhang reads as a toy building from far away
@@ -210,6 +226,16 @@ export function createSiteModelViewer(container, model, options = {}) {
   function updateBeacon() {
     clearGroup(beacon);
     if (!state.selected) return; const u = byName[state.selected]; const p = meshOf[u.n].mesh.position;
+    if (illus) {   // a map pin over the unit, like a pin on a delivery map; sized to the zoom in the loop
+      const pin = new THREE.Group(); pin.position.set(p.x, p.y + 0.12, p.z); pin.userData.pin = true; beacon.add(pin);
+      const pinMat = new THREE.MeshLambertMaterial({ color: 0xff7a00 }); const top = 9;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(2.2, 20, 14), pinMat); head.position.set(0, top + 2.2, 0); pin.add(head);
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.95, 14, 10), new THREE.MeshBasicMaterial({ color: 0xffffff })); dot.position.set(0, top + 2.4, 0); pin.add(dot);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(1.75, 4.6, 20), pinMat); tip.position.set(0, top - 0.7, 0); tip.rotation.x = Math.PI; pin.add(tip);
+      const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,255,255,0.97)', color: '#1d1f1a', worldHeight: 3.6, depthTest: false }); lab.position.set(0, top + 7.6, 0); pin.add(lab);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(1.6, 2.4, 32), new THREE.MeshBasicMaterial({ color: 0xff7a00, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false })); ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + 0.12, p.z); ring.userData.pulse = true; beacon.add(ring);
+      return;
+    }
     const top = p.y + 28; const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, top - p.y, 6), new THREE.MeshBasicMaterial({ color: 0xff7a00 })); pole.position.set(p.x, (top + p.y) / 2, p.z); beacon.add(pole);
     const lab = textSprite(u.n, { size: 64, mono: true, bg: 'rgba(255,122,0,0.95)', color: '#fff', worldHeight: 5, depthTest: false }); lab.position.set(p.x, top + 3, p.z); beacon.add(lab);
   }
@@ -334,7 +360,15 @@ export function createSiteModelViewer(container, model, options = {}) {
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null; if (ro) ro.observe(container); else window.addEventListener('resize', resize);
   function loop(now) {
     if (!alive) return; raf = requestAnimationFrame(loop); const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now;
-    if (diorama && !reduceMotion) diorama.update(dt);
+    if (diorama) {
+      if (!reduceMotion) diorama.update(dt);
+      // the pin bobs and keeps a readable size from any distance; the ring under it pulses
+      const sz = Math.max(1, Math.min(6, ctrl.radius / 110));
+      beacon.children.forEach((c) => {
+        if (c.userData.pin) { c.scale.setScalar(sz); c.position.y = (c.userData.y0 ??= c.position.y) + (reduceMotion ? 0 : Math.sin(now / 380) * 0.6 * sz); }
+        if (c.userData.pulse) { const k = reduceMotion ? 0.3 : (now / 1400) % 1; c.scale.setScalar(sz * (1 + k * 2.2)); c.material.opacity = 0.5 * (1 - k); }
+      });
+    }
     // The illustrated look turns slowly until the first touch, like a model on a turntable.
     if (idle && !anim) { ctrl.theta += dt * 0.05; applyCamera(); }
     if (anim) anim(now); if (state.selected) mat.sel.emissive.setHex(0x663300).multiplyScalar(0.5 + 0.5 * Math.sin(now / 400)); renderer.render(scene, camera); }
@@ -395,4 +429,21 @@ export function unitDirections(model, u) {
   else if (u.n[0] === 'M') steps.push('Mailboxes are inside the lobby.');
   else steps.push('Go inside' + (u.f > 1 ? ', take the elevator or stairs to Level ' + u.f : '') + ' and follow the hallway; ' + u.n + ' is on the hallway' + (side ? ' nearer the ' + side + '.' : '.'));
   return steps;
+}
+
+/** The steps from the gate to a unit, for the route tracker. */
+export function routeSteps(model, u) {
+  const gate = (model.gates && model.gates[0] && model.gates[0].name) || 'Gate';
+  const b = (model.buildings || []).find((x) => x.id === u.b); const z = (model.zones || []).find((x) => x.id === u.b);
+  const steps = [{ label: gate, sub: 'Start here' }];
+  if (z) steps.push({ label: z.name, sub: 'Lot' });
+  else if (b) steps.push({ label: b.name, sub: u.k === 'du' || u.k === 'ccdu' ? 'Drive up' : 'Go inside' });
+  if (b && b.floors > 1) steps.push({ label: `Level ${u.f}`, sub: u.f > 1 ? 'Elevator or stairs' : 'Ground floor' });
+  steps.push({ label: u.n, sub: u.w && u.d ? `${u.w} × ${u.d} ft` : 'Your unit', end: true });
+  return steps;
+}
+
+/** Cubby's unrentable reason codes (REPAIRS_REQUIRED, OTHER) as Title Case words. */
+export function reasonLabel(why) {
+  return String(why || '').toLowerCase().split(/[_\s]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 }

@@ -9,13 +9,17 @@
 // placement). The viewer owns units, buildings, labels, picking and camera.
 import * as THREE from 'three';
 
+// Palette after the "3D operations dashboard" look Neil shared (Oct 11): pale
+// cool ground, one strong brand color on the buildings, white roll-up doors,
+// yellow paint on the paving.
 export const DIORAMA = {
-  sky: 0xf3ecdc, fog: 0xf3ecdc, floor: 0xeadfc8, grass: 0x9cc47f, field: 0xd3d9ad, hedge: 0x5f9455, earth: 0xc79a6c, earthDark: 0xa97c52,
-  asphalt: 0x8e97a4, gravel: 0xd8ccb0, stripe: 0xffffff,
-  wall: 0xf7f0e2, door: 0x3f8f5f, edge: 0x6b6355,
-  roofs: [0x6fae86, 0xe58f6b, 0x7fa3c9, 0xe9c46a, 0xb59ad6],
-  neutral: 0xf0e4c8, neutralPark: 0xc9d1db,
-  cars: [0xe76f51, 0x2a9d8f, 0xf4a261, 0x457b9d, 0xffffff, 0xe9c46a, 0x6d597a],
+  sky: 0xeef1f5, fog: 0xeef1f5, floor: 0xe4e8ee, field: 0xf2f4f7, grass: 0xd5ebc9, hedge: 0x8fca7d,
+  earth: 0xd3d9e2, earthDark: 0xc2c9d4,
+  asphalt: 0xdfe4eb, gravel: 0xe8e3d6, stripe: 0xf2c14e, lane: 0xf2c14e,
+  wall: 0x2f855a, wallOffice: 0xf6f8fa, roof: 0x3d9c6b, roofOffice: 0x2f855a, door: 0xf3f5f8, edge: 0x22603f,
+  neutral: 0xe9edf2, neutralPark: 0xeef1f5,
+  trees: [0x6cc070, 0x5db363, 0x7fcb7a, 0x8fd18a, 0x54a85a],
+  cars: [0xffffff, 0x2f855a, 0xf2c14e, 0x3a6ea5, 0xffffff, 0xe76f51, 0xd9dee5],
 };
 
 const BOARD_DEPTH = 6;
@@ -88,8 +92,11 @@ function makeCar(color, kind) {
     const stripe = new THREE.Mesh(new THREE.BoxGeometry(dims[0] + 0.02, 0.35, dims[2] + 0.02), body); stripe.position.y = 1.7; g.add(stripe);
     const win = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, dims[2] * 0.8), glass); win.position.set(dims[0] / 2, 2.5, 0); g.add(win);
   } else if (kind === 'truck') {
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.3, dims[2]), body); cab.position.set(dims[0] / 2 - 0.9, dims[1] + 1.1, 0); cab.castShadow = true; g.add(cab);
-    b.material = new THREE.MeshLambertMaterial({ color: 0xf4efe4 });
+    // a white box truck: the cab sits ahead of the box, with a brand stripe along the box
+    b.material = new THREE.MeshLambertMaterial({ color: 0xfafbfc }); b.scale.x = 0.72; b.position.x = -dims[0] * 0.14;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.7, dims[2] * 0.96), new THREE.MeshLambertMaterial({ color: 0xfafbfc })); cab.position.set(dims[0] / 2 - 0.8, 1.3, 0); cab.castShadow = true; g.add(cab);
+    const wind = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, dims[2] * 0.8), glass); wind.position.set(dims[0] / 2, 1.75, 0); g.add(wind);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(dims[0] * 0.72 + 0.02, 0.45, dims[2] + 0.02), body); band.position.set(-dims[0] * 0.14, 1.2, 0); g.add(band);
   } else {
     const cab = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.85, 1.7), glass); cab.position.set(-0.2, dims[1] + 0.85, 0); cab.castShadow = true; g.add(cab);
   }
@@ -186,20 +193,20 @@ export function buildDiorama(scene, model, W) {
     const pt = [u + (rand() - 0.5) * step * 0.9, v + (rand() - 0.5) * step * 0.9];
     if (pt[0] < u0 + 2 || pt[0] > u1 - 2 || pt[1] < v0 + 2 || pt[1] > v1 - 2) continue;
     const ownLand = lawns.some((p) => inPoly(pt, p));
-    if (rand() > (ownLand ? 0.22 : 0.42)) continue;
+    if (rand() > (ownLand ? 0.12 : 0.2)) continue;
     if (paved.some((q) => inPoly(pt, q) || nearPoly(pt, q, 3)) || rectHits(rects, pt[0], pt[1], 3) || gatesUv.some((g) => Math.hypot(g[0] - pt[0], g[1] - pt[1]) < 12)) continue;
     treeSpots.push(pt);
   }
   if (treeSpots.length) {
     const n = Math.min(treeSpots.length, 900);
     const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.25, 0.35, 2.2, 6), new THREE.MeshLambertMaterial({ color: 0x8a6142 }), n);
-    const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), n);
-    const greens = [0x5f9e5a, 0x74b06a, 0x4f8a52, 0x8cbf6d, 0x6aa86b, 0xa3c46a].map((c) => new THREE.Color(c));
+    const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: 0xffffff }), n);
+    const greens = DIORAMA.trees.map((c) => new THREE.Color(c));
     const m4 = new THREE.Matrix4(); const q = new THREE.Quaternion(); const sc = new THREE.Vector3();
     for (let i = 0; i < n; i++) {
       const [u, v] = treeSpots[i]; const s = 1.6 + rand() * 1.8;
       m4.compose(W(u, v, 1.1), q.identity(), sc.set(1, 1, 1)); trunk.setMatrixAt(i, m4);
-      q.setFromEuler(new THREE.Euler(rand(), rand() * 6, rand())); m4.compose(W(u, v, 2.2 + s * 0.8), q, sc.set(s, s * 1.15, s)); crown.setMatrixAt(i, m4);
+      q.identity(); m4.compose(W(u, v, 2.2 + s * 0.85), q, sc.set(s, s, s)); crown.setMatrixAt(i, m4);
       crown.setColorAt(i, greens[Math.floor(rand() * greens.length)]);
     }
     trunk.castShadow = crown.castShadow = true; root.add(trunk); root.add(crown);
@@ -236,6 +243,20 @@ export function buildDiorama(scene, model, W) {
       if (pts.length > 2 && routeLength(pts) > 60 && pts.every((q) => inPoly(q, p)) && clear(pts, -1)) routes.push({ pts, y: 0.07, lot: true });
     });
   });
+  // dashed lane paint down the middle of each building aisle
+  const dash = []; const DL = 2.4, GAP = 3.6;
+  routes.filter((r) => !r.lot).forEach((r) => {
+    const L = routeLength(r.pts);
+    for (let s = 0; s + DL < L; s += DL + GAP) { const a = pointAt(r.pts, s), b = pointAt(r.pts, s + DL); if (Math.abs(a.h - b.h) > 0.01) continue; dash.push(W(a.u, a.v, 0.03), W(b.u, b.v, 0.03)); }
+  });
+  if (dash.length) root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(dash), new THREE.LineBasicMaterial({ color: DIORAMA.lane })));
+  // painted stall outlines on the lots
+  const stall = [];
+  (model.units || []).filter((u) => u.k === 'park').forEach((u) => {
+    const a = W(u.u, u.v, 0.05), b = W(u.u + u.wu, u.v, 0.05), c = W(u.u + u.wu, u.v + u.dv, 0.05), d = W(u.u, u.v + u.dv, 0.05);
+    stall.push(a, b, b, c, c, d, d, a);
+  });
+  if (stall.length) root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stall), new THREE.LineBasicMaterial({ color: DIORAMA.stripe })));
   const cars = [];
   const maxCars = 9; let ci = 0;
   routes.sort((a, b) => routeLength(b.pts) - routeLength(a.pts));
