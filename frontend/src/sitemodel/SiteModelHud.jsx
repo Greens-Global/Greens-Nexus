@@ -52,7 +52,7 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
         </div>
         {owner && <span style={{ ...card, ...chipStyle(isLive ? '#e7f6ec' : '#f1f2f4', isLive ? '#1f6f4a' : '#5f6358'), padding: '6px 11px', fontSize: 12, borderRadius: 999 }}>
           <i style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 999, background: isLive ? '#22a35a' : '#9aa0a6', marginRight: 6, verticalAlign: 1 }} />
-          {isLive ? `Live${live.asOf ? ` ${formatTime(live.asOf)}` : ''}` : 'Snapshot'}
+          {isLive ? `Live${live.asOf ? ` ${formatTime(live.asOf)}` : ''}` : live.source === 'file' ? 'Rent Roll' : 'Snapshot'}
         </span>}
       </div>
 

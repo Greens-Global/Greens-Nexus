@@ -50,6 +50,19 @@ class SiteModelTests(unittest.TestCase):
                 self.assertTrue(u["wu"] > 0 and u["dv"] > 0, (pid, u["n"]))
                 self.assertIn(u["door"], ("sw", "ne", "both", "w", "e"))
 
+    def test_austin_is_a_cubesmart_store_with_no_cubby_link(self):
+        # Austin (8023 W Parmer Ln) runs on CubeSmart's system: units come from its rent roll
+        model = site_models.load_model("greens-storage-austin")
+        self.assertEqual(model["property"]["cubbyFacilityId"], "")
+        self.assertEqual(model["property"]["operator"], "CubeSmart")
+        self.assertEqual({b["floors"] for b in model["buildings"]}, {5})
+        self.assertEqual({u["f"] for u in model["units"]}, {1, 2, 3, 4, 5})
+        self.assertTrue(all(u["n"][0] == str(u["f"]) for u in model["units"]))   # 3xxx is on level 3
+        m = site_models.with_live(model)
+        self.assertEqual(m["live"]["source"], "file")
+        self.assertIn("CubeSmart rent roll", m["live"]["system"])
+        self.assertNotIn("l", site_models.public_view(m)["units"][0])
+
     def test_without_a_cubby_key_the_model_is_a_snapshot(self):
         with mock.patch.dict(os.environ, {"CUBBY_API_KEY": ""}):
             m = site_models.with_live(site_models.load_model("greens-storage-murrieta"))

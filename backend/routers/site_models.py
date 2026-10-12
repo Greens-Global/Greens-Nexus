@@ -86,7 +86,12 @@ def load_model(pid: str) -> Dict[str, Any]:
 
 
 def _snapshot_live(model: Dict[str, Any], **extra) -> Dict[str, Any]:
-    return {"source": "snapshot", "asOf": (model.get("layout") or {}).get("generated", ""), "unplaced": [], "missing": [], **extra}
+    prop = model.get("property") or {}
+    out = {"source": "snapshot", "asOf": (model.get("layout") or {}).get("generated", ""), "unplaced": [], "missing": [], **extra}
+    if not prop.get("cubbyFacilityId") and prop.get("unitSource"):
+        # A store run on another operator's system (Austin: CubeSmart) - say where the units came from
+        out.update({"source": "file", "system": prop["unitSource"]})
+    return out
 
 
 def _kind(x: Dict[str, Any]) -> str:

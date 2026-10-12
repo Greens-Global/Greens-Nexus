@@ -88,7 +88,8 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     if (unplaced.some((x) => x.n === name)) setNotFound(`Unit ${name} is at this property but not on the map yet - the office can point you to it.`);
     else setNotFound(`No unit ${name || '?'} at this property.`);
   };
-  const liveLine = live.source === 'cubby'
+  const liveLine = live.source === 'file' ? `${live.system} · not in Cubby, updated when a new rent roll is loaded`
+    : live.source === 'cubby'
     ? `Live from Cubby${live.asOf ? ` · ${formatDateTime(live.asOf)}` : ''}${live.error ? ' · last good answer, Cubby is not responding' : ''}`
     : `Cubby snapshot from ${live.asOf || 'the build date'}${live.enabled === false ? ' · live link off' : live.error ? ` · ${live.error}` : ''}`;
   const setLvl = (n) => { setLevel(n); viewerRef.current?.setLevel(n); };

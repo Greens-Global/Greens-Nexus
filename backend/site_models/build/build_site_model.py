@@ -359,7 +359,7 @@ class Builder:
         if missing: self.flags.append(f"{len(missing)} units not placed: {', '.join(missing[:12])}")
 
         north = [round(self.cu, 4), round(self.su, 4)]  # true north as a unit vector in (u,v)
-        prop_keys = ('id', 'name', 'address', 'apn', 'acreage', 'opened', 'cubbyFacilityId', 'county', 'parcelSource')
+        prop_keys = ('id', 'name', 'address', 'apn', 'acreage', 'opened', 'cubbyFacilityId', 'county', 'parcelSource', 'operator', 'unitSource')
         site = {
             'property': {k: cfg[k] for k in prop_keys if k in cfg},
             'frame': {**self.fr, 'north': north},

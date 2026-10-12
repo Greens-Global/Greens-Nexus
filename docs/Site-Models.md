@@ -1,6 +1,6 @@
 # Site Models - to-scale 3D property models
 
-Neil, Oct 11 2026. One model per Greens Storage property, all five built:
+Neil, Oct 11 2026. One model per Greens Storage property, all six built:
 
 | Property | Model id | Cubby facility | Parcel source |
 |---|---|---|---|
@@ -9,6 +9,7 @@ Neil, Oct 11 2026. One model per Greens Storage property, all five built:
 | Greens Storage Temecula | `greens-storage-temecula` | `fac_MvDV6MGhb9q` | Riverside County Assessor OpenData |
 | Greens Storage Murrieta | `greens-storage-murrieta` | `fac_TqcwmjuRLgy` | Riverside County Assessor OpenData |
 | Greens Storage Fairfield | `greens-storage-fairfield` | `fac_NZEnukUARtt` | Solano County parcel layer |
+| Greens Storage Austin (CubeSmart) | `greens-storage-austin` | none - CubeSmart store 6992 | Williamson County (WCAD) parcels |
 
 A site model is one JSON file per property in `backend/site_models/`.
 Everything in it is in a local meter frame: `u` runs along the site's long
@@ -132,6 +133,20 @@ from the as-built plan when it is scanned (As-Built Plans is item 3 of the
 Asset Management scope) and clear `layout.schematic`.
 
 ### Open questions per property (for the as-built plans)
+
+* **Austin** - 8023 W Parmer Ln, WCAD R569024 (2.818 ac, Greens Austin LLC).
+  Operated by CubeSmart, signage reads CubeSmart, and the store is not in
+  Cubby: units come from CubeSmart's rent roll (store 6992, 12/31/2025), which
+  lists rented units only. Numbering gaps are shown as vacant with no size.
+  To refresh: export a new rent roll (or CubeSmart's all-units report, which
+  also has vacant sizes), keep only unit / size / type / status - never the
+  customer columns - into `greens-storage-austin.units.json`, and rebuild.
+  The building (five stories, 200 ft 11 in x 155 ft 11 in) is from the WCAD
+  footprint and the Merriman Anderson plans A1.01-A1.05 (Egnyte: Greens
+  Austin, LLC > 8023 W Parmer Lane > Development > Plans & Maps > Building
+  Plans > Final Set). Units sit in number order on their floor (1xxx on
+  level 1 to 5xxx on level 5); positions within a floor are schematic until
+  the plans are traced. The paved area is drawn as the whole parcel.
 
 * **Escondido** - Building C modeled as two levels (62,690 sq ft of C units
   cannot fit one floor of its footprint); Building E/F needs a second level
