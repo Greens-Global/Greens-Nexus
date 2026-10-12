@@ -64,8 +64,6 @@ PENDING = ("pending_peer", "pending_manager")
 WEEK_STARTS = ("monday", "sunday")
 _SETTINGS_KEY = "shift_requests_config"
 _DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules": True,
-             # Shift reminders (shift_notify.py): on/off and minutes before start.
-             "reminders": True, "reminderLeadMinutes": 60,
              # Staff can request time off themselves (routers/timeclock.py).
              "timeOffRequests": True,
              # What staff see of their TEAMMATES in My Shifts (Teams "Visibility").
@@ -78,7 +76,6 @@ _DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules":
              # The first day of the week on every shifts grid (Oct 2).
              "weekStart": "monday"}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
-REMINDER_LEAD_MIN, REMINDER_LEAD_MAX = 15, 240
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -145,12 +142,7 @@ def get_settings(db: Session) -> dict:
                 for k in _DEFAULTS:
                     if k not in saved:
                         continue
-                    if k == "reminderLeadMinutes":
-                        try:
-                            cfg[k] = max(REMINDER_LEAD_MIN, min(REMINDER_LEAD_MAX, int(saved[k])))
-                        except (TypeError, ValueError):
-                            pass
-                    elif k == "weekStart":
+                    if k == "weekStart":
                         if str(saved[k] or "").lower() in WEEK_STARTS:
                             cfg[k] = str(saved[k]).lower()
                     elif k in _TEXT_SETTINGS:
@@ -168,8 +160,6 @@ class SettingsIn(BaseModel):
     swaps: Optional[bool] = None
     offers: Optional[bool] = None
     teamSchedules: Optional[bool] = None   # staff see teammates' shifts in My Shifts
-    reminders: Optional[bool] = None
-    reminderLeadMinutes: Optional[int] = None
     timeOffRequests: Optional[bool] = None
     teamTimeOffReasons: Optional[bool] = None   # staff see why a teammate is off
     teamShiftDetails: Optional[bool] = None     # staff see teammates' notes, activities and breaks
@@ -189,9 +179,6 @@ def save_settings(body: SettingsIn, user: dict = Depends(require_shift_manage), 
         raise HTTPException(400, "Pick a time zone from the list.")
     if body.weekStart is not None and str(body.weekStart).lower() not in WEEK_STARTS:
         raise HTTPException(400, "The week starts on Monday or Sunday.")
-    lead = body.reminderLeadMinutes
-    if lead is not None and not REMINDER_LEAD_MIN <= lead <= REMINDER_LEAD_MAX:
-        raise HTTPException(400, f"Remind between {REMINDER_LEAD_MIN} and {REMINDER_LEAD_MAX} minutes before a shift.")
     cfg = get_settings(db)
     cfg.update({k: v for k, v in body.model_dump().items() if v is not None})
     if body.weekStart is not None:

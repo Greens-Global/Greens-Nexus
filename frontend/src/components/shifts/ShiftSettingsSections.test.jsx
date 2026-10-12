@@ -54,7 +54,7 @@ beforeEach(() => {
   timeShiftDelete.mockReset().mockResolvedValue({ ok: true });
   timeShiftGroupDelete.mockReset().mockResolvedValue({ ok: true });
   timeShiftGroupOrder.mockReset().mockResolvedValue({ ok: true });
-  shiftRequestSettingsGet.mockReset().mockResolvedValue({ openShifts: true, swaps: false, offers: true, timeOffRequests: true, teamSchedules: true, reminders: true, reminderLeadMinutes: 60, timeZone: 'America/Los_Angeles', weekStart: 'monday' });
+  shiftRequestSettingsGet.mockReset().mockResolvedValue({ openShifts: true, swaps: false, offers: true, timeOffRequests: true, teamSchedules: true, timeZone: 'America/Los_Angeles', weekStart: 'monday' });
   shiftRequestSettingsSave.mockReset().mockImplementation(async (c) => c);
   confirmAsk.mockReset().mockResolvedValue(true);
   toastOk.mockReset(); toastErr.mockReset();
@@ -72,8 +72,6 @@ describe('Shift Settings', () => {
     await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ timeZone: ASIA })));
     fireEvent.change(screen.getByLabelText('Week starts on'), { target: { value: 'sunday' } });
     await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ weekStart: 'sunday' })));
-    fireEvent.change(screen.getByLabelText('Reminder lead time'), { target: { value: '120' } });
-    await waitFor(() => expect(shiftRequestSettingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ reminderLeadMinutes: 120 })));
     expect(await screen.findByText('Jury Duty')).toBeTruthy();   // the time-off reasons live here too
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved.');
   });
