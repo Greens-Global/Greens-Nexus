@@ -70,3 +70,53 @@ describe('Support - your tickets', () => {
     expect(updateTaskTicket).toHaveBeenCalledWith('t1', { status: 'resolved' });
   });
 });
+
+// The table's width tiers (Neil, Oct 12 2026). jsdom has no layout, so the
+// card's width is stubbed: 700px is an iPad-width card, the narrow tier.
+describe('Support - the ticket table fits the card', () => {
+  // clientWidth lives on Element.prototype; shadow it on HTMLElement and
+  // delete the shadow afterwards, which puts jsdom's own getter back.
+  const stubCardWidth = (px) => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get() { return this.dataset?.tour === 'support-open-tickets' ? px : 0; },
+    });
+    return () => { delete HTMLElement.prototype.clientWidth; };
+  };
+
+  it('is narrow from the first render on an iPad-width card, and keeps the row actions', async () => {
+    const restore = stubCardWidth(700);
+    try {
+      const { container } = render(<Support activeSub={null} onSubChange={() => {}} />);
+      expect(await screen.findByText('Printer jam')).toBeTruthy();
+      expect(container.querySelector('[data-tier]').dataset.tier).toBe('narrow');
+      expect(screen.queryByText('Latest Comment')).toBeNull();          // the column is gone...
+      expect(screen.getByText(/On my way/)).toBeTruthy();              // ...its content is under the title
+      expect(screen.getByRole('button', { name: 'Mark Resolved' })).toBeTruthy();
+    } finally { restore(); }
+  });
+
+  it('measures the card that comes back after Documentation, not the first one', async () => {
+    const restore = stubCardWidth(700);
+    try {
+      const { container, rerender } = render(<Support activeSub="documentation" onSubChange={() => {}} />);
+      expect(container.querySelector('[data-tier]')).toBeNull();       // no card while the docs show
+      rerender(<Support activeSub={null} onSubChange={() => {}} />);
+      expect(await screen.findByText('Printer jam')).toBeTruthy();
+      expect(container.querySelector('[data-tier]').dataset.tier).toBe('narrow');
+    } finally { restore(); }
+  });
+
+  it('leaves Enter on a button inside a row to that button', async () => {
+    const restore = stubCardWidth(700);
+    try {
+      render(<Support activeSub={null} onSubChange={() => {}} />);
+      const btn = await screen.findByRole('button', { name: 'Mark Resolved' });
+      // fireEvent returns false when a handler called preventDefault - which
+      // is what cancelled the button's own click before the fix.
+      expect(fireEvent.keyDown(btn, { key: 'Enter' })).toBe(true);
+      const row = btn.closest('[role="button"][tabindex="0"]');
+      expect(fireEvent.keyDown(row, { key: 'Enter' })).toBe(false);   // the row still opens on its own Enter
+    } finally { restore(); }
+  });
+});

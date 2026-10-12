@@ -176,22 +176,38 @@ const TIER_COLUMNS = {
   }),
 };
 
-// The card's inner width, live - the tier above follows it as the window,
-// the sidebar or the device changes. Width only: a height change (rows
-// paging in) must not re-pick columns.
-function useCardWidth(ref) {
+// The card's inner (content-box) width, live - the tier above follows it as
+// the window, the sidebar or the device changes. Width only: a height change
+// (rows paging in) must not re-pick columns.
+//
+// A CALLBACK ref, not a ref object read in an effect: the card is unmounted
+// while Documentation or the Implementation Guide is showing, and a mount-time
+// effect keyed on a ref object never sees the card that comes back (it stayed
+// at width 0 - the full table, scrollbar included - after a deep link to
+// Documentation, and watched a detached node after Documentation -> Back).
+// React calls this with every new card and runs the cleanup for the old one.
+// It also measures once on the spot: ref callbacks run in the commit, before
+// the browser paints, so the first frame is already the right tier instead of
+// the full table flashing in until the observer's first report.
+const contentWidth = (el) => {
+  const cs = window.getComputedStyle(el);
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  return Math.max(0, Math.round(el.clientWidth - pad));
+};
+function useCardWidth() {
   const [w, setW] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+  const ref = useCallback((el) => {
+    if (!el) return undefined;
+    setW(contentWidth(el));
+    if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver((entries) => {
       const next = Math.round(entries[0]?.contentRect?.width || 0);
       setW((prev) => (prev === next ? prev : next));
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [ref]);
-  return w;
+  }, []);
+  return [w, ref];
 }
 
 // Date over time, the two-line cell Created and Last Updated use (Neil, 10/08).
@@ -264,8 +280,7 @@ export default function Support({ activeSub, onSubChange }) {
   // Same drag-to-resize kit the Ticket module's own list and the Task List
   // use (tasks/tableCols.jsx) - a person's column widths here follow them the
   // same way, saved to their profile under their own table key.
-  const cardRef = useRef(null);
-  const cardW = useCardWidth(cardRef);
+  const [cardW, cardRef] = useCardWidth();
   const tier = tierFor(cardW);
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef } =
     useTableColumns({ table: 'support-open-tickets', cols: TIER_COLUMNS[tier] });
@@ -598,7 +613,13 @@ export default function Support({ activeSub, onSubChange }) {
                           (Ticket module). role="button" + cursor:pointer since
                           a grid row isn't natively interactive. */}
                       <div role="button" tabIndex={0} className="nx-row-hover" onClick={() => setViewing({ id: t.id })}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewing({ id: t.id }); } }}
+                        onKeyDown={(e) => {
+                          // Only the row's OWN keys: Enter on a button inside
+                          // it (Mark Resolved, Confirm, Reopen, the latest
+                          // comment) belongs to that button.
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewing({ id: t.id }); }
+                        }}
                         style={{
                           display: 'grid', gridTemplateColumns: 'var(--nx-grid)', '--nx-grid': gridTemplate,
                           background: idx % 2 ? NX.zebra : NX.surface, cursor: 'pointer',
