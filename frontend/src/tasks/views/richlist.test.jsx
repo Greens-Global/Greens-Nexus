@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls } from './richlist';
+import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls, addableFields } from './richlist';
 import { __setTablePrefsCache } from '../tableCols';
 
 // Render-smoke test for the task list. This is the exact guard that was missing
@@ -489,6 +489,49 @@ describe('RichListView Completed group', () => {
         lockedProjectId="p2" hidden={new Set()} setHidden={() => {}} />,
     );
     expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+});
+
+// + Column > Existing Fields: a field another project uses can be put on this
+// list from the menu (Neil, Oct 12 2026). Its own step, so the type grid
+// never grows with the workspace's field count.
+describe('+ Column > Existing Fields', () => {
+  const fields = [
+    { id: 'f1', name: 'Vendor', type: 'text', projectIds: ['p2'] },
+    { id: 'f2', name: 'Budget', type: 'number', projectIds: ['p2', 'p3'] },
+    { id: 'f3', name: 'Global', type: 'text', projectIds: [] },            // on every list already
+    { id: 'f4', name: 'Here', type: 'text', projectIds: ['p1'] },          // on this list already
+    { id: 'f5', name: 'Site', type: 'text', projectIds: ['p2'], appliesTo: ['project'] },   // not a task field
+  ];
+
+  it('offers only task fields scoped elsewhere, A-Z', () => {
+    expect(addableFields(fields, 'p1').map((f) => f.name)).toEqual(['Budget', 'Vendor']);
+    expect(addableFields(fields, '')).toEqual([]);   // outside a project there is nothing to add to
+  });
+
+  it('shows the row only when there is something to add', () => {
+    const { unmount } = render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={[fields[3]]} />);
+    fireEvent.click(screen.getByText('Column'));
+    expect(screen.queryByText('Existing Fields')).not.toBeInTheDocument();
+    unmount();
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} />);
+    fireEvent.click(screen.getByText('Column'));
+    expect(screen.getByText('Existing Fields')).toBeInTheDocument();
+    expect(screen.getByText('Recommended')).toBeInTheDocument();   // the type grid is still there
+  });
+
+  it('adds the picked field to this project and nothing else', () => {
+    const update = vi.fn(() => Promise.resolve({}));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} updateCustomField={update} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getByText('Existing Fields'));
+    expect(screen.queryByText('Recommended')).not.toBeInTheDocument();
+    expect(screen.queryByText('Global')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Budget'));
+    expect(update).toHaveBeenCalledWith('f2', { projectIds: ['p2', 'p3', 'p1'] });
   });
 });
 
