@@ -1363,7 +1363,18 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const inCell = (seg) => !seg.in
                 ? ((self && fin) ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or void the clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
-                : <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />;
+                : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <InlineTime seg={seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
+                    {/* The full punch editor, same as the hourly card's pencil (Pranshu,
+                        Oct 12): times, Type (Regular / Sick Day / Vacation / Personal),
+                        location, category, and Void In / Out / Both. */}
+                    {!self && !fin && (
+                      <button onClick={() => setEditDay({ date: fd.date, seg })} title="Edit this punch - change the times or type, or void it"
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                  </span>;
               const outCell = (seg) => seg.out
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <InlineTime seg={seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
