@@ -19,6 +19,12 @@ const UnitList = memo(function UnitList({ units }) { return <datalist id="site-m
 const h2 = { fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted, #5f6358)', margin: '0 0 6px', fontWeight: 700 };
 const card = { border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 10, padding: 12, background: 'var(--bg-primary, #fff)' };
 
+// Satellite = the property photo under the model; Illustrated = the same model
+// drawn as a miniature with trees and traffic. Remembered per browser.
+const LOOK_KEY = 'nexus.siteModel.look';
+function readLook() { try { return localStorage.getItem(LOOK_KEY) === 'illustrated' ? 'illustrated' : 'satellite'; } catch { return 'satellite'; } }
+function saveLook(v) { try { localStorage.setItem(LOOK_KEY, v); } catch { /* private window: the choice just is not remembered */ } }
+
 export function normalizeQuery(q) {
   const s = (q || '').trim().toUpperCase().replace(/\s+/g, '');
   const m = s.match(/^([A-Z])(\d{1,3})([A-Z]?)$/);
@@ -33,6 +39,9 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const [placing, setPlacing] = useState(false); const [pending, setPending] = useState(null);
   const [pinTitle, setPinTitle] = useState(''); const [pinCat, setPinCat] = useState('maintenance');
   const [hover, setHover] = useState(null);
+  const [look, setLook] = useState(readLook);
+  const selectedRef = useRef(null); const xrayRef = useRef(false);
+  useEffect(() => { selectedRef.current = selected; xrayRef.current = xray; }, [selected, xray]);
   const byName = useMemo(() => Object.fromEntries((model.units || []).map((u) => [u.n, u])), [model]);
   const ticketsByUnit = useMemo(() => { const m = {}; tickets.forEach((t) => { const k = normalizeQuery(t.location || ''); if (k && byName[k]) (m[k] = m[k] || []).push(t); }); return m; }, [tickets, byName]);
   const maxLevel = useMemo(() => Math.max(1, ...(model.buildings || []).map((b) => b.floors || 1)), [model]);
@@ -42,7 +51,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     let v;
     try {
       v = createSiteModelViewer(stageRef.current, model, {
-        mode, images, background: getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary') || '#dfe6e9',
+        mode, style: look, images, background: getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary') || '#dfe6e9',
         onSelectUnit: (u) => { setSelected(u ? u.n : null); if (u) { setBuilding(null); setQuery(u.n); } setLevel(v ? v.getState().level : 0); },
         onSelectBuilding: (b) => setBuilding(b),
         onPlacePin: (at) => { setPending(at); setPlacing(false); },
@@ -54,12 +63,15 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
       return undefined;
     }
     viewerRef.current = v;
-    if (initialUnit && byName[initialUnit]) setTimeout(() => { if (viewerRef.current === v) v.selectUnit(initialUnit); }, 300);
+    v.setPins(pins); if (xrayRef.current) v.setXray(true);
+    // A look switch rebuilds the scene: keep the unit the person was looking at.
+    const keep = selectedRef.current || initialUnit;
+    if (keep && byName[keep]) setTimeout(() => { if (viewerRef.current === v) v.selectUnit(keep); }, 300);
     return () => { v.destroy(); viewerRef.current = null; };
-  }, [model]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [model, look]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { viewerRef.current?.setMode(mode); }, [mode]);
   useEffect(() => { viewerRef.current?.setPins(pins); }, [pins]);
-  useEffect(() => { viewerRef.current?.setMarkers(Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))); }, [ticketsByUnit]);
+  useEffect(() => { viewerRef.current?.setMarkers(Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))); }, [ticketsByUnit, look]);
   useEffect(() => { viewerRef.current?.setPlacing(placing); }, [placing]);
 
   const u = selected ? byName[selected] : null;
@@ -100,12 +112,15 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
           <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
+            <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Look">
+              {[['satellite', 'Satellite'], ['illustrated', 'Illustrated']].map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{l}</button>)}
+            </span>
             <button type="button" style={xray ? btnOn : btn} aria-pressed={xray} onClick={() => { setXray(!xray); viewerRef.current?.setXray(!xray); }}>See Inside</button>
             {maxLevel > 1 && <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Level">
               {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
             </span>}
           </div>
-          <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{model.image?.attribution || ''} · 1 unit = 1 m</div>
+          <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : model.image?.attribution || ''} · 1 unit = 1 m</div>
         </div>
       </div>
       <aside style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>

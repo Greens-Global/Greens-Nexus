@@ -4,11 +4,12 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+const styles = [];
 vi.mock('./siteModelViewer.js', async () => {
   const real = await vi.importActual('./siteModelViewer.js');
   return {
     ...real,
-    createSiteModelViewer: (container, model, opts) => ({
+    createSiteModelViewer: (container, model, opts) => (styles.push(opts.style), {
       selectUnit: (n) => { const u = model.units.find((x) => x.n === n); if (!u) return false; opts.onSelectUnit(u); return true; },
       clearSelection() {}, setMode() {}, setXray() {}, setLevel() {}, setPins() {}, setMarkers() {}, setPlacing() {}, setBackground() {}, view() {}, flyToPin() {}, getState: () => ({}), destroy() {},
     }),
@@ -65,5 +66,17 @@ describe('SiteModelPanel', () => {
     fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'Z999' } });
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
     expect(screen.getByRole('alert').textContent).toMatch(/No unit Z999/);
+  });
+  it('switches between the satellite and illustrated looks and remembers the choice', () => {
+    localStorage.removeItem('nexus.siteModel.look'); styles.length = 0;
+    const { unmount } = render(<SiteModelPanel model={model} mode="customer" images={{}} />);
+    expect(styles.at(-1)).toBe('satellite');
+    fireEvent.click(screen.getByRole('button', { name: 'Illustrated' }));
+    expect(styles.at(-1)).toBe('illustrated');
+    expect(screen.getByText(/Illustrated, drawn to scale/)).toBeTruthy();
+    unmount();
+    render(<SiteModelPanel model={model} mode="customer" images={{}} />);
+    expect(styles.at(-1)).toBe('illustrated');
+    localStorage.removeItem('nexus.siteModel.look');
   });
 });

@@ -6,6 +6,7 @@
 // world unit is one meter. The React wrappers (SiteModelPanel.jsx) own every
 // piece of DOM except the canvas; this module only draws, picks and animates.
 import * as THREE from 'three';
+import { buildDiorama, DIORAMA } from './siteModelDiorama.js';
 
 const KIND_COLORS = {
   neutral: 0xd9d0bb, neutralPark: 0xc7c1b2, ok: 0x5fae7d, warn: 0xe0b45a, bad: 0xd65a4c, sel: 0xff7a00,
@@ -29,11 +30,11 @@ function textSprite(text, opts = {}) {
   const h = opts.worldHeight || 6; sp.scale.set(h * cv.width / cv.height, h, 1); return sp;
 }
 
-function solarTexture() {
+function solarTexture(light) {
   const cv = document.createElement('canvas'); cv.width = 64; cv.height = 32; const x = cv.getContext('2d');
-  x.fillStyle = '#243247'; x.fillRect(0, 0, 64, 32); x.fillStyle = '#1b2638';
+  x.fillStyle = light ? '#e4ebf2' : '#243247'; x.fillRect(0, 0, 64, 32); x.fillStyle = light ? '#5b7fae' : '#1b2638';
   for (let i = 0; i < 64; i += 8) for (let j = 0; j < 32; j += 16) x.fillRect(i + 1, j + 1, 6, 14);
-  x.strokeStyle = '#4e6a9a'; x.lineWidth = 1;
+  x.strokeStyle = light ? '#e4ebf2' : '#4e6a9a'; x.lineWidth = 1;
   for (let i = 0; i < 64; i += 8) { x.beginPath(); x.moveTo(i + 0.5, 0); x.lineTo(i + 0.5, 32); x.stroke(); }
   const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(40, 8); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
@@ -57,14 +58,18 @@ function centroid(pts) {
 /**
  * Mounts the viewer into `container` (a positioned block element) and returns a
  * small control surface. `images` = { detail, wide } URLs of the satellite
- * imagery the model's `image` / `imageWide` corners describe.
+ * imagery the model's `image` / `imageWide` corners describe. `style` is
+ * 'satellite' (the photo under the model) or 'illustrated' (a miniature board
+ * with trees and traffic, siteModelDiorama.js); both draw the same geometry.
  */
 export function createSiteModelViewer(container, model, options = {}) {
-  const opts = { mode: 'customer', images: {}, onSelectUnit: null, onSelectBuilding: null, onPlacePin: null, onHover: null, ...options };
+  const opts = { mode: 'customer', style: 'satellite', images: {}, onSelectUnit: null, onSelectBuilding: null, onPlacePin: null, onHover: null, ...options };
   const state = { mode: opts.mode, selected: null, xray: false, level: 0, placing: false, pins: [], markers: {} };
   const units = model.units || []; const byName = {}; units.forEach((u) => { byName[u.n] = u; });
   const buildings = {}; (model.buildings || []).forEach((b) => { buildings[b.id] = b; });
   const W = (u, v, y) => new THREE.Vector3(u, y || 0, -v);
+  const illus = opts.style === 'illustrated';
+  const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -72,34 +77,39 @@ export function createSiteModelViewer(container, model, options = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const el = renderer.domElement; el.style.display = 'block'; el.style.width = '100%'; el.style.height = '100%'; el.style.touchAction = 'none';
   container.appendChild(el);
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(opts.background || '#dfe6e9');
-  const camera = new THREE.PerspectiveCamera(45, 1, 1, 4000);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x777766, 1.1));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(illus ? DIORAMA.sky : opts.background || '#dfe6e9');
+  // The illustrated look uses a long lens (flatter, toy-like) and warm light.
+  const camera = new THREE.PerspectiveCamera(illus ? 30 : 45, 1, 1, 6000);
+  scene.add(new THREE.HemisphereLight(0xffffff, illus ? 0xb8a98a : 0x777766, illus ? 1.25 : 1.1));
+  const sun = new THREE.DirectionalLight(illus ? 0xfff1dc : 0xffffff, illus ? 1.9 : 1.6); sun.position.set(-160, 260, 120); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -260, right: 260, top: 260, bottom: -260, near: 50, far: 700 }); sun.shadow.bias = -0.0008;
   scene.add(sun); scene.add(sun.target);
 
   const mat = {
-    wall: new THREE.MeshLambertMaterial({ color: 0xe9e6dd }),
+    wall: new THREE.MeshLambertMaterial({ color: illus ? DIORAMA.wall : 0xe9e6dd }),
     roofWhite: new THREE.MeshLambertMaterial({ color: 0xf4f2ec }),
-    roofSolar: new THREE.MeshLambertMaterial({ map: solarTexture() }),
+    roofSolar: new THREE.MeshLambertMaterial({ map: solarTexture(illus) }),
     roofRed: new THREE.MeshLambertMaterial({ color: 0xb8553b }),
-    edge: new THREE.LineBasicMaterial({ color: 0x55584f }),
+    edge: new THREE.LineBasicMaterial({ color: illus ? DIORAMA.edge : 0x55584f }),
     parcel: new THREE.LineBasicMaterial({ color: 0x1f6f4a }),
     pad: new THREE.MeshBasicMaterial({ color: 0x8a8f94, transparent: true, opacity: 0.28, depthWrite: false }),
     zone: new THREE.MeshBasicMaterial({ color: 0xd9b36a, transparent: true, opacity: 0.22, depthWrite: false }),
     zoneLine: new THREE.LineBasicMaterial({ color: 0xa87a1d }),
     canopy: new THREE.MeshLambertMaterial({ color: 0xf4f2ec, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
-    door: new THREE.MeshBasicMaterial({ color: 0x5a5d55 }),
+    door: illus ? new THREE.MeshLambertMaterial({ color: DIORAMA.door }) : new THREE.MeshBasicMaterial({ color: 0x5a5d55 }),
     pin: { maintenance: new THREE.MeshLambertMaterial({ color: 0xe03a2f }), inspection: new THREE.MeshLambertMaterial({ color: 0x2f6fe0 }), note: new THREE.MeshLambertMaterial({ color: 0x8a5fd0 }) },
     marker: new THREE.MeshLambertMaterial({ color: 0xe03a2f, emissive: 0x330000 }),
   };
   Object.keys(KIND_COLORS).forEach((k) => { mat[k] = new THREE.MeshLambertMaterial({ color: KIND_COLORS[k] }); });
+  if (illus) { mat.neutral.color.set(DIORAMA.neutral); mat.neutralPark.color.set(DIORAMA.neutralPark); }
   mat.sel.emissive = new THREE.Color(0x663300);
 
   // ---- ground ----
   const base = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1800), new THREE.MeshLambertMaterial({ color: 0x9aa18f }));
-  base.rotation.x = -Math.PI / 2; base.position.y = -0.3; base.receiveShadow = true; scene.add(base);
+  base.rotation.x = -Math.PI / 2; base.position.y = -0.3; base.receiveShadow = true;
+  const diorama = illus ? buildDiorama(scene, model, W) : null;
+  if (!illus) scene.add(base);
+  const groundHits = diorama ? diorama.ground : [base];
   const loader = new THREE.TextureLoader();
   function quad(corners, src, y, fallback) {
     const g = new THREE.BufferGeometry(); const pos = []; corners.forEach((p) => pos.push(p[0], y, -p[1]));
@@ -110,15 +120,16 @@ export function createSiteModelViewer(container, model, options = {}) {
     else m.color.set(fallback);
     const mesh = new THREE.Mesh(g, m); mesh.receiveShadow = true; scene.add(mesh);
   }
-  if (model.imageWide && model.imageWide.uv) quad(model.imageWide.uv, opts.images.wide, -0.12, 0xa3a898);
-  if (model.image && model.image.uv) quad(model.image.uv, opts.images.detail, -0.05, 0xb8b4a8);
+  if (!illus && model.imageWide && model.imageWide.uv) quad(model.imageWide.uv, opts.images.wide, -0.12, 0xa3a898);
+  if (!illus && model.image && model.image.uv) quad(model.image.uv, opts.images.detail, -0.05, 0xb8b4a8);
 
   function flatPoly(pts, material, y) { const s = new THREE.Shape(); pts.forEach((p, i) => (i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1]))); const m = new THREE.Mesh(new THREE.ShapeGeometry(s), material); m.rotation.x = -Math.PI / 2; m.position.y = y; return m; }
   function lineLoop(pts, material, y) { const g = new THREE.BufferGeometry().setFromPoints(pts.concat([pts[0]]).map((p) => W(p[0], p[1], y))); return new THREE.Line(g, material); }
   const pads = model.pads || (model.pad ? [model.pad] : []);
   const parcels = model.parcels ? model.parcels.map((p) => p.uv) : model.parcel ? [model.parcel] : [];
-  pads.forEach((p) => { if (p && p.length > 2) scene.add(flatPoly(p, mat.pad, 0.02)); });
-  parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
+  // The illustrated board paints its own paving and parcel edge.
+  if (!illus) pads.forEach((p) => { if (p && p.length > 2) scene.add(flatPoly(p, mat.pad, 0.02)); });
+  if (!illus) parcels.forEach((p) => { if (p && p.length > 2) scene.add(lineLoop(p, mat.parcel, 0.4)); });
   (model.zones || []).forEach((z) => {
     const polys = (z.polys && z.polys.length ? z.polys : [z.uv]).filter((p) => p && p.length > 2);
     if (!polys.length) return;
@@ -126,21 +137,25 @@ export function createSiteModelViewer(container, model, options = {}) {
       // A roof over open stalls: a translucent slab on posts, so the stalls under it stay visible.
       polys.forEach((p) => { const slab = flatPoly(p, mat.canopy, 4.2); scene.add(slab); scene.add(lineLoop(p, mat.edge, 4.2)); p.forEach((c) => { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 4.2, 6), mat.door); post.position.copy(W(c[0], c[1], 2.1)); scene.add(post); }); });
     } else {
-      polys.forEach((p) => { scene.add(flatPoly(p, mat.zone, 0.04)); scene.add(lineLoop(p, mat.zoneLine, 0.1)); });
+      if (!illus) polys.forEach((p) => { scene.add(flatPoly(p, mat.zone, 0.04)); scene.add(lineLoop(p, mat.zoneLine, 0.1)); });
     }
     const c = centroid(polys[0]); const l = textSprite(z.name, { size: 48, bg: 'rgba(255,255,255,0.8)', worldHeight: 4 }); l.position.copy(W(c[0], c[1], z.kind === 'canopy' ? 7 : 4)); scene.add(l);
   });
-  (model.gates || []).forEach((g) => { const l = textSprite(g.name, { size: 48, bg: 'rgba(31,111,74,0.9)', color: '#fff', worldHeight: 4 }); l.position.copy(W(g.uv[0], g.uv[1], 3)); scene.add(l); const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.5, 8), new THREE.MeshLambertMaterial({ color: 0x1f6f4a })); post.position.copy(W(g.uv[0], g.uv[1], 1.25)); scene.add(post); });
+  (model.gates || []).forEach((g) => { const l = textSprite(g.name, { size: 48, bg: 'rgba(31,111,74,0.9)', color: '#fff', worldHeight: 4 }); l.position.copy(W(g.uv[0], g.uv[1], illus ? 4.5 : 3)); scene.add(l); if (illus) return; const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 2.5, 8), new THREE.MeshLambertMaterial({ color: 0x1f6f4a })); post.position.copy(W(g.uv[0], g.uv[1], 1.25)); scene.add(post); });
 
   // ---- buildings ----
   const shells = [];
-  (model.buildings || []).forEach((b) => {
+  (model.buildings || []).forEach((b, bi) => {
     const L = b.u[1] - b.u[0], Wd = b.v[1] - b.v[0];
-    const roof = b.roof === 'solar' ? mat.roofSolar : b.roof === 'red' ? mat.roofRed : mat.roofWhite;
+    let roof = b.roof === 'solar' ? mat.roofSolar : b.roof === 'red' ? mat.roofRed : mat.roofWhite;
+    if (illus && b.roof !== 'solar') roof = new THREE.MeshLambertMaterial({ color: b.roof === 'red' ? DIORAMA.roofs[1] : DIORAMA.roofs[(bi * 2) % DIORAMA.roofs.length] });
     const mats = [mat.wall, mat.wall, roof, mat.wall, mat.wall, mat.wall].map((m) => m.clone());
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(L, b.height, Wd), mats);
     mesh.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height / 2));
     mesh.userData.building = b; mesh.castShadow = true; scene.add(mesh); shells.push(mesh);
+    if (illus) {   // a roof cap with a small overhang reads as a toy building from far away
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(L + 0.8, 0.45, Wd + 0.8), roof); cap.position.copy(W((b.u[0] + b.u[1]) / 2, (b.v[0] + b.v[1]) / 2, b.height + 0.22)); cap.castShadow = true; scene.add(cap); mesh.userData.cap = cap;
+    }
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), mat.edge); edges.position.copy(mesh.position); scene.add(edges);
     for (let f = 2; f <= b.floors; f++) { const y = b.height * (f - 1) / b.floors; scene.add(lineLoop([[b.u[0], b.v[0]], [b.u[1], b.v[0]], [b.u[1], b.v[1]], [b.u[0], b.v[1]]], mat.edge, y)); }
     const short = b.letters && b.letters.length && b.letters.length <= 2 && b.letters.every((l) => l.length <= 2);
@@ -221,7 +236,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   function restyle() {
     const xray = state.xray || state.mode === 'owner';
     const selB = state.selected ? byName[state.selected].b : null;
-    shells.forEach((m) => { const open = xray || selB === m.userData.building.id; m.material.forEach((mm) => { mm.transparent = open; mm.opacity = open ? 0.16 : 1; mm.depthWrite = !open; }); });
+    shells.forEach((m) => { const open = xray || selB === m.userData.building.id; m.material.forEach((mm) => { mm.transparent = open; mm.opacity = open ? 0.16 : 1; mm.depthWrite = !open; }); if (m.userData.cap) m.userData.cap.visible = !open; });
     units.forEach((u) => { const b = buildings[u.b]; const e = meshOf[u.n]; const lvlOk = !state.level || !b || b.floors === 1 || u.f === state.level; const show = lvlOk && (!b || u.f === 1 || xray || selB === u.b); e.mesh.visible = show; if (e.door) e.door.visible = show; e.mesh.material = unitMaterial(u); });
     unitLabels.children.forEach((sp) => { sp.visible = meshOf[sp.userData.unit.n].mesh.visible; });
     showUnitLabels(selB); updateBeacon();
@@ -230,7 +245,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   // ---- camera ----
   // Framed on the developed area (pads, else parcels, else buildings), so a
   // 390 m RV lot and a 160 m yard both open filling the stage.
-  const bounds = (() => {
+  const bounds = diorama ? (() => { const t = diorama.tile; return { cu: (t.u0 + t.u1) / 2, cv: (t.v0 + t.v1) / 2, r: Math.max(140, Math.hypot(t.u1 - t.u0, t.v1 - t.v0) * 1.25) }; })() : (() => {
     const pts = []; (pads.length ? pads : parcels).forEach((p) => p.forEach((q) => pts.push(q)));
     (model.buildings || []).forEach((b) => { pts.push([b.u[0], b.v[0]]); pts.push([b.u[1], b.v[1]]); });
     if (!pts.length) return { cu: 50, cv: 0, r: 320 };
@@ -238,14 +253,17 @@ export function createSiteModelViewer(container, model, options = {}) {
     pts.forEach(([u, v]) => { u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); });
     return { cu: (u0 + u1) / 2, cv: (v0 + v1) / 2, r: Math.max(120, Math.hypot(u1 - u0, v1 - v0) * 0.95) };
   })();
-  const ctrl = { target: W(bounds.cu, bounds.cv, 0), theta: 0, phi: 0.9, radius: bounds.r, min: 10, max: Math.max(1200, bounds.r * 3) };
-  sun.target.position.copy(ctrl.target); sun.position.copy(ctrl.target.clone().add(new THREE.Vector3(-160, 260, 120)));
-  Object.assign(sun.shadow.camera, { left: -bounds.r, right: bounds.r, top: bounds.r, bottom: -bounds.r }); sun.shadow.camera.updateProjectionMatrix();
+  const ctrl = { target: W(bounds.cu, bounds.cv, 0), theta: illus ? -0.6 : 0, phi: illus ? 0.72 : 0.9, radius: bounds.r, min: 10, max: Math.max(1200, bounds.r * 3) };
+  if (illus) scene.fog = new THREE.Fog(DIORAMA.fog, bounds.r * 1.8, bounds.r * 6);   // the far floor fades into the sky
+  // A big board needs the sun pulled back, or the far corners fall outside the shadow box.
+  const sunK = illus ? Math.max(1, bounds.r / 220) : 1;
+  sun.target.position.copy(ctrl.target); sun.position.copy(ctrl.target.clone().add(new THREE.Vector3(-160, 260, 120).multiplyScalar(sunK)));
+  Object.assign(sun.shadow.camera, { left: -bounds.r, right: bounds.r, top: bounds.r, bottom: -bounds.r, far: illus ? 330 * sunK + bounds.r * 1.6 : 700 }); sun.shadow.camera.updateProjectionMatrix();
   function applyCamera() {
     ctrl.phi = Math.max(0.08, Math.min(1.45, ctrl.phi)); ctrl.radius = Math.max(ctrl.min, Math.min(ctrl.max, ctrl.radius));
     camera.position.set(Math.sin(ctrl.theta) * Math.cos(ctrl.phi), Math.sin(ctrl.phi), Math.cos(ctrl.theta) * Math.cos(ctrl.phi)).multiplyScalar(ctrl.radius).add(ctrl.target); camera.lookAt(ctrl.target);
   }
-  let anim = null;
+  let anim = null; let idle = illus && !reduceMotion;
   function flyTo(target, theta, phi, radius, ms = 800) {
     const from = { t: ctrl.target.clone(), theta: ctrl.theta, phi: ctrl.phi, r: ctrl.radius }; const t0 = performance.now();
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ms = 0;
@@ -253,14 +271,14 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
   const gate0 = model.gates && model.gates.length ? model.gates[0].uv : null;
   const VIEWS = {
-    overview: () => flyTo(W(bounds.cu, bounds.cv, 0), 0, 0.9, bounds.r),
+    overview: () => flyTo(W(bounds.cu, bounds.cv, 0), illus ? -0.6 : 0, illus ? 0.72 : 0.9, bounds.r),
     plan: () => flyTo(W(bounds.cu, bounds.cv, 0), 0, 1.45, bounds.r * 0.95),
     // Stand just outside the gate and look across the site.
     gate: () => { const g = gate0 || [bounds.cu, bounds.cv]; const theta = Math.atan2(g[0] - bounds.cu, -(g[1] - bounds.cv)); flyTo(W(g[0], g[1], 0), theta, 0.22, Math.max(90, bounds.r * 0.4)); },
   };
   let drag = null; const touches = new Map();
   function pan(dx, dy) { const s = ctrl.radius * 0.0016; const right = new THREE.Vector3(Math.cos(ctrl.theta), 0, -Math.sin(ctrl.theta)); const fwd = new THREE.Vector3(-Math.sin(ctrl.theta), 0, -Math.cos(ctrl.theta)); ctrl.target.addScaledVector(right, -dx * s).addScaledVector(fwd, -dy * s); }
-  const onDown = (e) => { el.setPointerCapture(e.pointerId); touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: false, dist: null }; };
+  const onDown = (e) => { idle = false; el.setPointerCapture(e.pointerId); touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, button: e.button, moved: false, dist: null }; };
   const onMove = (e) => {
     if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!drag) { hover(e); return; }
@@ -271,7 +289,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     applyCamera();
   };
   const onUp = (e) => { touches.delete(e.pointerId); if (drag && !drag.moved && drag.button === 0) click(e); if (touches.size === 0) drag = null; else drag.dist = null; };
-  const onWheel = (e) => { e.preventDefault(); ctrl.radius *= Math.exp(e.deltaY * 0.0012); applyCamera(); };
+  const onWheel = (e) => { idle = false; e.preventDefault(); ctrl.radius *= Math.exp(e.deltaY * 0.0012); applyCamera(); };
   const onCtx = (e) => e.preventDefault();
   el.addEventListener('pointerdown', onDown); el.addEventListener('pointermove', onMove); el.addEventListener('pointerup', onUp); el.addEventListener('pointercancel', onUp);
   el.addEventListener('wheel', onWheel, { passive: false }); el.addEventListener('contextmenu', onCtx);
@@ -293,7 +311,7 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
   function click(e) {
     if (state.placing) {
-      const hit = cast(e, visibleUnits().concat(shells, [base]))[0];
+      const hit = cast(e, visibleUnits().concat(shells, groundHits))[0];
       if (hit && opts.onPlacePin) { const u = hit.object.userData.unit; const b = hit.object.userData.building; opts.onPlacePin({ u: +hit.point.x.toFixed(2), v: +(-hit.point.z).toFixed(2), y: +hit.point.y.toFixed(2), unit: u ? u.n : '', building: u ? u.b : b ? b.id : '' }); }
       return;
     }
@@ -304,23 +322,29 @@ export function createSiteModelViewer(container, model, options = {}) {
   }
   function selectUnit(name, fly = true) {
     const u = byName[name]; if (!u) return false;
-    state.selected = name; const b = buildings[u.b]; if (b && b.floors > 1) state.level = u.f; restyle();
+    idle = false; state.selected = name; const b = buildings[u.b]; if (b && b.floors > 1) state.level = u.f; restyle();
     if (fly) flyTo(W(u.u + u.wu / 2, u.v + u.dv / 2, 0), 0.15, 0.95, b ? Math.max(48, Math.min(80, (b.u[1] - b.u[0]) * 0.4)) : 70);
     if (opts.onSelectUnit) opts.onSelectUnit(u);
     return true;
   }
 
   // ---- loop ----
-  let raf = 0; let alive = true;
+  let raf = 0; let alive = true; let last = 0;
   function resize() { const r = container.getBoundingClientRect(); if (!r.width || !r.height) return; renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null; if (ro) ro.observe(container); else window.addEventListener('resize', resize);
-  function loop(now) { if (!alive) return; raf = requestAnimationFrame(loop); if (anim) anim(now); if (state.selected) mat.sel.emissive.setHex(0x663300).multiplyScalar(0.5 + 0.5 * Math.sin(now / 400)); renderer.render(scene, camera); }
+  function loop(now) {
+    if (!alive) return; raf = requestAnimationFrame(loop); const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now;
+    if (diorama && !reduceMotion) diorama.update(dt);
+    // The illustrated look turns slowly until the first touch, like a model on a turntable.
+    if (idle && !anim) { ctrl.theta += dt * 0.05; applyCamera(); }
+    if (anim) anim(now); if (state.selected) mat.sel.emissive.setHex(0x663300).multiplyScalar(0.5 + 0.5 * Math.sin(now / 400)); renderer.render(scene, camera); }
+  if (diorama) diorama.setParked(units, state.mode === 'owner');
   resize(); applyCamera(); restyle(); raf = requestAnimationFrame(loop);
 
   return {
     selectUnit,
     clearSelection() { state.selected = null; restyle(); if (opts.onSelectUnit) opts.onSelectUnit(null); },
-    setMode(m) { state.mode = m; state.placing = false; restyle(); renderPins(); renderMarkers(); },
+    setMode(m) { state.mode = m; state.placing = false; restyle(); renderPins(); renderMarkers(); if (diorama) diorama.setParked(units, m === 'owner'); },
     setXray(v) { state.xray = !!v; restyle(); },
     setLevel(n) { state.level = n | 0; restyle(); },
     setPins(arr) { state.pins = arr || []; renderPins(); },
@@ -333,7 +357,7 @@ export function createSiteModelViewer(container, model, options = {}) {
     destroy() {
       alive = false; cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp); el.removeEventListener('wheel', onWheel); el.removeEventListener('contextmenu', onCtx);
-      scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
+      if (diorama) diorama.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
       renderer.dispose(); if (el.parentNode) el.parentNode.removeChild(el);
     },
   };
