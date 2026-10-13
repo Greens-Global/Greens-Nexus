@@ -996,7 +996,7 @@ def create_request(body: AskHrIn, user: dict = Depends(get_current_user), db: Se
             id=str(uuid.uuid4()), type="hr_request", recipient=email,
             title=f"{_REQ_LABEL[body.type]} - {name}",
             body=msg[:300], ref_id=row.id, requested_by=name,
-            action="", actioned=False, read_by="", created_at=_now()))
+            action="", actioned=False, read_by="", company=e.company or "", created_at=_now()))
     db.commit()
     return _ser_req(row)
 

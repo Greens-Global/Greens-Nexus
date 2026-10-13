@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 
 import graph_mail
 import models
+from notify_company import notification_company
 
 _APP_URL = os.getenv("NEXUS_APP_URL", "").rstrip("/")
 
@@ -72,7 +73,8 @@ def bell(db, *, kind: str, recipient: str, title: str, body: str,
         id=str(uuid.uuid4()), type=f"construction_{kind}", recipient=recipient,
         title=title, body=body[:500], ref_id=ref_id, item_name="",
         requested_by=requested_by, action=_open_action(label),
-        actioned=False, read_by="", created_at=_now(),
+        actioned=False, read_by="", company=notification_company(db, requested_by, recipient),
+        created_at=_now(),
     ))
 
 

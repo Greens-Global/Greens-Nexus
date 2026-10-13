@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
@@ -543,6 +544,7 @@ def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str =
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
         title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
         action=json.dumps(action) if action else "", actioned=False, read_by="",
+        company=notification_company(db, recipient),
         created_at=datetime.now(timezone.utc).isoformat(), priority=1 if priority else 0,
     ))
 
@@ -1107,7 +1109,7 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
             body=f"Your {row.leave_type} leave ({row.start_date}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
                  + (f"\n\nNote: {row.decision_note}" if row.decision_note else ""),
             ref_id=row.id, item_name="", requested_by=user["email"],
-            action="", actioned=False, read_by="", created_at=now,
+            action="", actioned=False, read_by="", company=emp.company or "", created_at=now,
         ))
     db.commit()
     return _ser_leave(row)
@@ -1386,6 +1388,7 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
         title="HR resolved your request",
         body=(r.response or "Your request to HR has been handled.")[:300],
         ref_id=r.id, action="", actioned=False, read_by="",
+        company=notification_company(db, r.employee_email),
         created_at=datetime.now(timezone.utc).isoformat()))
     db.commit()
     return {"ok": True}

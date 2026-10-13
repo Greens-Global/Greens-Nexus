@@ -40,6 +40,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from database import get_db
+from notify_company import notification_company
 from auth import (get_current_user, require_level_or_module, require_administrator,
                   require_module_grant, require_level_or_modules, _module_level, _LEVELS,
                   _MODULE_LEVEL_RANK)
@@ -1829,13 +1830,14 @@ def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, ti
     """One targeted bell row per recipient of _team_alert_recipients - never a
     broadcast. priority=1 = the bar across the top until acted on."""
     now = _now_iso()
+    company = notification_company(db, employee_email, actor_email)
     for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=owners_as_fallback):
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
             title=title, body=body, ref_id=ref_id, item_name="",
             requested_by=requested_by or actor_email,
             action=json.dumps(action) if action else "",
-            actioned=False, read_by="", created_at=now, priority=1 if priority else 0))
+            actioned=False, read_by="", company=company, created_at=now, priority=1 if priority else 0))
 
 
 def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
