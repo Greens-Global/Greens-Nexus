@@ -97,7 +97,9 @@ class _RecycleCase(unittest.TestCase):
         return p
 
     def _team(self, name="Frontend", project_ids=None):
+        # OWNER's own unapproved team: the only kind an employee may bin.
         t = models.TaskTeam(id=gen_id(), name=name, project_ids=project_ids or [],
+                            created_by=OWNER["email"], approval_status="personal",
                             created_at=now_iso())
         self.db.add(t); self.db.commit()
         return t
