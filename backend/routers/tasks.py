@@ -1718,7 +1718,18 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 
     # After activity_ids is rebuilt above - task_due appends its own entries.
     due_entry = None
+    ask = []
     if "due_on" in data and (t.due_on or "")[:10] != prev_due:
+        # The 3rd+ extension, or one more than a month out, waits for approval
+        # (task_due.needs_approval) - the task keeps its date meanwhile.
+        ask = task_due.needs_approval(db, t, prev_due, t.due_on or "", user["email"],
+                                      privileged=is_manager(user))
+    if ask:
+        wanted_due = (t.due_on or "")[:10]
+        t.due_on = prev_due
+        task_due.request_extension(db, t, user["email"], wanted_due, ask)
+        modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
+    elif "due_on" in data and (t.due_on or "")[:10] != prev_due:
         due_entry = task_due.record_due_change(db, t, prev_due, t.due_on or "", actor=user["email"])
         # The generic "Due date changed" becomes the actual story.
         modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
@@ -1837,6 +1848,16 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
                 db: Session = Depends(get_db)):
     t = _wall_task(db, user, task_id)
     me = (user.get("email") or "").strip().lower()
+    if (t.due_agreement or "") == task_due.REQUESTED and isinstance(t.due_proposal, dict):
+        # An extension waiting for approval (Oct 13 2026): the requester, an
+        # assignee's manager, or a manager can say yes or no - no third date.
+        allowed = set((t.due_proposal or {}).get("approvers") or []) | set(task_due.approvers_of(db, t))
+        if me not in allowed and not is_manager(user):
+            raise HTTPException(403, "Only whoever requested this task, or a manager, can approve this extension.")
+        if me in task_assignees(t) and not is_manager(user):
+            raise HTTPException(403, "You cannot approve an extension on your own task.")
+        task_due.respond(db, t, me, body.accept, (body.note or "").strip())
+        return _due_done(db, t)
     if (t.due_agreement or "") != "proposed" or not isinstance(t.due_proposal, dict):
         raise HTTPException(409, "There is no proposed date to answer.")
     if me != task_due.requester_of(t) and not is_manager(user):
@@ -1847,6 +1868,19 @@ def respond_due(body: DueAnswer, task_id: str, user: dict = Depends(get_current_
         if counter in ((t.due_on or "")[:10], ((t.due_proposal or {}).get("dueOn") or "")[:10]):
             raise HTTPException(422, "Suggest a date different from both the current and the proposed one.")
     task_due.respond(db, t, me, body.accept, (body.note or "").strip(), counter_on=counter)
+    return _due_done(db, t)
+
+
+@router.post("/{task_id}/due/withdraw")
+def withdraw_due(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Take back an extension request - whoever asked, or an assignee."""
+    t = _wall_task(db, user, task_id)
+    me = (user.get("email") or "").strip().lower()
+    if (t.due_agreement or "") != task_due.REQUESTED:
+        raise HTTPException(409, "There is no extension request to withdraw.")
+    if me != ((t.due_proposal or {}).get("by") or "").lower() and me not in task_assignees(t):
+        raise HTTPException(403, "Only whoever asked for this extension can withdraw it.")
+    task_due.withdraw_extension(db, t, me)
     return _due_done(db, t)
 
 
@@ -2147,6 +2181,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # item"). Email goes through the batch queue only - see the end of this function.
     actor = (user["email"] or "").lower()
     newly_assigned: dict[str, list] = {}
+    ext_asks: dict[str, list] = {}
     for t in rows:
         prev_status, prev_completed, prev_assignees = before[t.id]
         acts = list(t.activity_ids or [])
@@ -2175,7 +2210,17 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
-        if "due_on" in patch:
+        ask = (task_due.needs_approval(db, t, before_due[t.id], t.due_on or "", actor, privileged=is_manager(user))
+               if "due_on" in patch else [])
+        if ask:
+            # Held for approval like a single edit; the approvers get one bell
+            # for the whole batch, below.
+            wanted_due = (t.due_on or "")[:10]
+            t.due_on = before_due[t.id]
+            task_due.request_extension(db, t, actor, wanted_due, ask, notify=False)
+            for who in ask:
+                ext_asks.setdefault(who, []).append(t)
+        elif "due_on" in patch:
             task_due.record_due_change(db, t, before_due[t.id], t.due_on or "", actor=actor, source="bulk")
         elif now_assignees != set(prev_assignees) and t.due_on:
             task_due.settle_agreement(t, actor)
@@ -2195,6 +2240,18 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                         body=", ".join(t.title or "Untitled task" for t in assigned[:5])
                              + (f" and {len(assigned) - 5} more" if len(assigned) > 5 else ""),
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
+    for email, asked in ext_asks.items():
+        if email == actor:
+            continue
+        one = asked[0] if len(asked) == 1 else None
+        task_notify(db, kind="task_due_extension_requested", for_email=email,
+                    title="Extension needs your approval" if one else f"{len(asked)} extensions need your approval",
+                    body=(f"{one.title} - {task_due.us_date(one.due_on)} → "
+                          f"{task_due.us_date((one.due_proposal or {}).get('dueOn') or '')}") if one
+                         else ", ".join(t.title or "Untitled task" for t in asked[:5])
+                              + (f" and {len(asked) - 5} more" if len(asked) > 5 else ""),
+                    task_id=one.id if one else "",
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "Review"})
 
     db.commit()
     # With batching on (task_notify.flush_batches), each newly assigned person

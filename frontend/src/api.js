@@ -467,6 +467,7 @@ export const api = {
   confirmTaskDue: (id) => req(`/tasks/${id}/due/confirm`, { method: "POST" }),
   proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
   respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
+  withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),

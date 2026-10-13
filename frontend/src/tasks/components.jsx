@@ -1055,7 +1055,10 @@ export function MenuCaption({ children, inset = 12 }) {
 // PersonSelect's "Unassigned" row, as an item the keyboard can land on.
 const UNASSIGNED_ROW = { email: '', name: 'Unassigned' };
 
-export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
+/** `addButton`: for adding someone rather than filling a field - a green
+ *  plus button joins the dropdown on its right (either opens the list), and
+ *  the list has no Unassigned row. */
+export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false, addButton = false }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const touch = useTouchUi();
@@ -1071,7 +1074,8 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // "Unassigned" is a row the keyboard can reach only while nothing is typed -
   // a search that matches nobody must not make Enter clear the field.
   const typed = q.trim() !== '';
-  const items = typed ? filtered : [UNASSIGNED_ROW, ...filtered];
+  const noneRow = !typed && !addButton;
+  const items = noneRow ? [UNASSIGNED_ROW, ...filtered] : filtered;
   const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
   const choose = (p) => { onChange(p === UNASSIGNED_ROW ? null : p.email); close(); };
   const nav = useListNav(items, {
@@ -1084,16 +1088,26 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
     },
   });
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', ...(addButton ? { display: 'flex' } : null) }}>
       <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, (k) => { setQ(k); setOpen(true); }); }}
-        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
+          ...(addButton ? { flex: 1, minWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 } : null) }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
           {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} card={false} /> : null}
           <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{chosen ? chosen.name : placeholder}</span>
         </span>
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>
+      {addButton && (
+        <button type="button" disabled={disabled} tabIndex={-1} aria-label={placeholder.replace(/…$/, '')} title={placeholder.replace(/…$/, '')}
+          onClick={() => setOpen((o) => !o)}
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, flexShrink: 0, padding: 0,
+            background: NX.green, color: '#fff', border: `1px solid ${NX.green}`, borderRadius: '0 8px 8px 0',
+            cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
+          <Plus size={16} strokeWidth={2.5} />
+        </button>
+      )}
       {open && !disabled && (
         <SelectMenu anchorRef={ref} onClose={() => close(false)}>
           {/* Desktop focuses the search box on open; a phone waits for a tap
@@ -1102,10 +1116,12 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
             {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
             style={menuSearchStyle(touch)} />
           <div role="listbox">
-            <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
-              style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
+            {!addButton && (
+              <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
+                style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
+            )}
             {filtered.map((p, i) => (
-              <div key={p.email} className="nx-menu-row" {...nav.optionProps(typed ? i : i + 1)} onClick={() => choose(p)}
+              <div key={p.email} className="nx-menu-row" {...nav.optionProps(noneRow ? i + 1 : i)} onClick={() => choose(p)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>

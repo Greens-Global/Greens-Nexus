@@ -5,7 +5,8 @@
 // was never possible on Friday. That negotiation must be done." A date set for
 // somebody else is a target until they confirm it. The assignee confirms or
 // proposes another date; the requester accepts or declines. Once agreed,
-// pushing it later is an extension and is counted (DueBadge). The server
+// pushing it later is an extension and is counted (DueBadge); the 3rd+ one, or
+// one more than a month past the first agreed date, waits for approval. The server
 // (backend task_due.py) owns the rules - this only offers the next step.
 import { useState } from 'react';
 import { CalendarCheck, CalendarClock, ChevronRight, History } from 'lucide-react';
@@ -60,7 +61,48 @@ export default function DueNegotiation({ task }) {
   };
 
   let panel = null;
-  if (task.dueOn && !task.completed && agreement === 'pending') {
+  if (task.dueOn && !task.completed && agreement === 'extension_requested' && proposal) {
+    // Oct 13 2026: the 3rd+ extension, or one more than a month past the
+    // first agreed date, waits for the requester or a manager. The current
+    // date stands until one of them approves.
+    const approvers = (proposal.approvers || []).map((e) => e.toLowerCase());
+    const asker = (proposal.by || '').toLowerCase();
+    const why = proposal.number >= 3 ? `extension #${proposal.number}`
+      : `more than a month past ${fmtDate(proposal.baseline)}`;
+    if (approvers.includes(me) && !isAssignee) {
+      panel = (
+        <Panel color={NX.red} icon={CalendarClock}>
+          <div>
+            <b>{who(asker)}</b> asked to extend this from <b>{fmtDate(task.dueOn)}</b> to <b>{fmtDate(proposal.dueOn)}</b> ({why}).
+            {proposal.note && <div style={{ color: NX.dim, marginTop: 3 }}>"{proposal.note}"</div>}
+          </div>
+          <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
+            placeholder="Add a note (optional)" style={{ ...inputStyle, fontSize: 12.5, padding: '6px 9px' }} />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button disabled={busy} onClick={() => run(() => api.respondTaskDue(task.id, true, note.trim()))}
+              style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5 }}>Approve {fmtDate(proposal.dueOn)}</button>
+            <button disabled={busy} onClick={() => run(() => api.respondTaskDue(task.id, false, note.trim()))}
+              style={{ ...btn('outline'), padding: '6px 11px', fontSize: 12.5 }}>Keep {fmtDate(task.dueOn)}</button>
+          </div>
+        </Panel>
+      );
+    } else {
+      panel = (
+        <Panel color={NX.amber} icon={CalendarClock}>
+          <div>
+            {asker === me ? 'You' : who(asker)} asked to extend this to <b>{fmtDate(proposal.dueOn)}</b> ({why}).
+            {' '}Waiting for {approvers.length ? approvers.map(who).join(' or ') : 'approval'}; until then it stays due {fmtDate(task.dueOn)}.
+          </div>
+          {(asker === me || isAssignee) && (
+            <div>
+              <button disabled={busy} onClick={() => run(() => api.withdrawTaskDue(task.id))}
+                style={{ ...btn('ghost'), padding: '4px 9px', fontSize: 12 }}>Withdraw Request</button>
+            </div>
+          )}
+        </Panel>
+      );
+    }
+  } else if (task.dueOn && !task.completed && agreement === 'pending') {
     if (isAssignee) {
       panel = (
         <Panel color={NX.amber} icon={CalendarClock}>
