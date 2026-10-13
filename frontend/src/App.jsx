@@ -31,7 +31,6 @@ import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 import { hasDirtyDialog, confirmDiscard } from "./lib/dialogGuard";
-import { WHATS_NEW_GRANTS } from "./lib/whatsNewAccess";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -158,9 +157,7 @@ const VIEW_MIN_ROLES = {
 const VIEW_GRANT = {};
 // Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
 // grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
-// What's New: every internal user; an external only with a grant that opens
-// /task-changelog on the API (lib/whatsNewAccess.js, shared with the header).
-const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'], 'whats-new': WHATS_NEW_GRANTS };
+const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'] };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -300,6 +297,9 @@ function TaskPrefetch() {
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
 const LEGAL_VIEWS = new Set(['legal', 'privacy-policy', 'terms-conditions']);
+// Open to every signed-in user, externals included: reading What's New is
+// everyone's default (Neil, Oct 12 2026); changing it is gated inside.
+const OPEN_VIEWS = new Set(['whats-new']);
 
 function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   const { can, myGrantedModules, isExternal } = useRole();
@@ -319,7 +319,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // Legal is open to everyone who signs in, externals included - they
   // accepted these terms too (Oct 7).
   const hasAccess = isExternal
-    ? (granted || LEGAL_VIEWS.has(activeView))
+    ? (granted || LEGAL_VIEWS.has(activeView) || OPEN_VIEWS.has(activeView))
     : (!minRole || can('administrator') || (minRole !== 'administrator' && granted));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'

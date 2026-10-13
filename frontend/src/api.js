@@ -662,8 +662,8 @@ export const api = {
   // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
   getFeatureBanner: () => req('/task-changelog/feature-banner'),
   dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),
-  // New Features released since `since` - the new-version popup's See What's New.
-  getNewFeatures: (since) => req(`/task-changelog/new-features?since=${encodeURIComponent(since || '')}`),
+  // What a waiting version brings, by category - the new-version popup's summary.
+  getReleasedSince: (since) => req(`/task-changelog/released-since?since=${encodeURIComponent(since || '')}`),
 
   // Purchase Requests
   getPurchaseRequests: () => req("/purchase-requests"),
@@ -690,6 +690,7 @@ export const api = {
   unarchiveKbDoc:(id)       => req(`/knowledge-base/documents/${id}/unarchive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  getPageHelp:        (key, label = '') => req(`/help/page?key=${encodeURIComponent(key)}&label=${encodeURIComponent(label)}`, { timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),

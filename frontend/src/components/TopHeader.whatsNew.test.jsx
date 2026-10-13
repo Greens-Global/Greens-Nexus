@@ -62,16 +62,8 @@ describe("TopHeader - What's New and page help", () => {
     expect(markSeen).toHaveBeenCalledTimes(1);
   });
 
-  it("is not offered to an external who cannot read it", () => {
-    roleState.isExternal = true;
-    header();
-    openMenu();
-    expect(screen.queryByText("What's New")).toBeNull();
-  });
-
-  it('is offered to an external with only the Support grant (it opens the task API)', () => {
-    roleState.isExternal = true;
-    roleState.grants = new Map([['support', 'viewer']]);
+  it('is offered to every signed-in user - reading it needs no grant, externals included', () => {
+    roleState.isExternal = true;               // no grants at all
     header();
     openMenu();
     expect(screen.getByText("What's New")).toBeTruthy();

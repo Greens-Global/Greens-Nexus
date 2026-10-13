@@ -1,20 +1,21 @@
 // Shared between the "new version" popup and the signed-in app (Oct 12 2026).
 //
-// UpdateBanner sits OUTSIDE the sign-in gate and the role context (a tab on
-// superseded code is told so whether or not anyone is signed in), so it can
-// neither call the API safely nor know who may open What's New. It only says
-// "this build is stale" here; FeatureBanner, inside the signed-in app, answers
-// "and the new version has a New Feature" when the person can see What's New.
-// The popup then offers See What's New.
+// UpdateBanner sits OUTSIDE the sign-in gate (a tab on superseded code is told
+// so whether or not anyone is signed in), so it cannot call the API safely.
+// It only says "this build is stale" here; FeatureBanner, inside the signed-in
+// app, answers with what the waiting version brings, by category, and the
+// popup turns that into "Includes 2 new features and 3 bug fixes" and a See
+// What's New button.
 import { useSyncExternalStore } from 'react';
 
-let state = { stale: false, newFeature: false };
+let state = { stale: false, release: null };   // release: { counts, total }
 const subs = new Set();
 const emit = () => subs.forEach((fn) => fn());
 
-// When this tab loaded, less a margin: a feature can be published a little
-// before the deploy that carries it reaches this tab.
-export const LOADED_AT = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+// The running build's time (vite.config.js), so "what the waiting version
+// brings" is exactly what came after it. A tab on a build with no stamp falls
+// back to when it loaded.
+export const RUNNING_SINCE = import.meta.env.VITE_BUILD_TIME || new Date().toISOString();
 
 export function setBuildStale(stale) {
   if (state.stale === !!stale) return;
@@ -22,9 +23,10 @@ export function setBuildStale(stale) {
   emit();
 }
 
-export function setNewFeature(found) {
-  if (state.newFeature === !!found) return;
-  state = { ...state, newFeature: !!found };
+export function setReleaseSummary(release) {
+  const next = release && release.total > 0 ? { counts: release.counts || {}, total: release.total } : null;
+  if (JSON.stringify(next) === JSON.stringify(state.release)) return;
+  state = { ...state, release: next };
   emit();
 }
 
@@ -38,6 +40,6 @@ export function useUpdateSignal() {
 
 // Test seam.
 export function __resetUpdateSignal() {
-  state = { stale: false, newFeature: false };
+  state = { stale: false, release: null };
   emit();
 }

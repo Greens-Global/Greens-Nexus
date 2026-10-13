@@ -30,7 +30,6 @@ import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleCon
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { openContact } from "../lib/contactNav";
 import { api } from "../api";
-import { canOpenWhatsNew } from "../lib/whatsNewAccess";
 import { Spinner } from './AsyncState';
 
 // Header search reaches into the Task module's content, not just the module
@@ -114,9 +113,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     return () => { alive = false; };
   }, []);
   // What's New is a page in the app now (Neil, Oct 12 2026), not an overlay:
-  // every way in navigates to it. Its entry points are hidden from an
-  // external who could not open it (lib/whatsNewAccess.js).
-  const canWhatsNew = canOpenWhatsNew({ isExternal, myGrantedModules });
+  // every way in navigates to it, and every signed-in user may read it.
   function openChangelog() {
     onNavigate?.('whats-new');
   }
@@ -510,12 +507,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         )}
         {/* "?" Help menu: search the guide, help for this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
-        <HelpMenu activeView={activeView} onWhatsNew={canWhatsNew ? openChangelog : undefined} />
+        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <NotificationBell onNavigate={onNavigate} />
 
         {/* Unseen-changelog eye icon: only rendered while there's a published
             update this user hasn't opened What's New for yet. */}
-        {changelogUnseen && canWhatsNew && activeView !== 'whats-new' && (
+        {changelogUnseen && activeView !== 'whats-new' && (
           <button onClick={openChangelog} title="New update published - view What's New" aria-label="New update published"
             style={{
               position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -589,11 +586,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setEmailSettingsOpen(true); }}>
                 <Mail size={14} /> Email Settings
               </button>
-              {canWhatsNew && (
-                <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
-                  <Sparkles size={14} /> What's New
-                </button>
-              )}
+              <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
+                <Sparkles size={14} /> What's New
+              </button>
               {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
                   settings with the rest of "your" settings instead of loose in
                   the top-level menu). Page help is the header's Help panel

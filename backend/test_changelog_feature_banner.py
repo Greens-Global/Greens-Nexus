@@ -1,11 +1,14 @@
-"""New Feature announcements (Neil, Oct 12 2026) - routers/task_config.py.
+"""Update announcements (Neil, Oct 12 2026) - routers/task_config.py.
 
-  - The weekly bar shows for a New Feature released in the last 7 days that
-    this person has not seen; bug fixes and unreleased updates never raise it.
+  - The weekly bar is raised by a New Feature released in the last 7 days that
+    this person has not seen; bug fixes alone never raise it, but once it shows
+    it counts every category since they last looked - bug fixes included.
   - Opening What's New after the release, or dismissing the bar, hides it; a
-    dismissal keeps it away for 7 days even when another feature ships, and
-    a feature released after the week is up brings it back.
-  - The new-version popup's question: New Features released since a time.
+    dismissal keeps it away for 7 days even when another feature ships.
+  - The new-version popup's question: what came after the running build, by
+    category - a merge placed by its merge time, not its publish time.
+  - Legacy hand-written times (no zone) read as Pacific; the parsed list is
+    cached until the table changes; a lost insert race does not 500.
 
 Run with: python -m unittest test_changelog_feature_banner -v
 """
@@ -37,7 +40,7 @@ def ago(**kw) -> str:
     return (NOW - timedelta(**kw)).isoformat()
 
 
-class FeatureBannerTests(unittest.TestCase):
+class AnnouncementTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         models.Base.metadata.create_all(bind=database.engine)
@@ -52,6 +55,7 @@ class FeatureBannerTests(unittest.TestCase):
         self.db.query(models.TaskChangelogEntry).delete()
         self.db.query(models.ChangelogSeen).delete()
         self.db.commit()
+        T._released_cache.update(key=None, rows=[])
         for p in (mock.patch.object(T, "datetime", _FrozenDT),
                   mock.patch.object(T, "now_iso", lambda: NOW.isoformat())):
             p.start()
@@ -60,10 +64,12 @@ class FeatureBannerTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
 
-    def _entry(self, title, released_at, type_="New Feature", status="Released"):
+    def _entry(self, title, released_at, type_="New Feature", status="Released", merged_at=""):
         n = self.db.query(models.TaskChangelogEntry).count()
-        self.db.add(models.TaskChangelogEntry(id=f"e{n}", created_at=released_at, updated_at=released_at, payload={
-            "title": title, "type": type_, "status": status, "module": "Tasks", "releasedAt": released_at}))
+        payload = {"title": title, "type": type_, "status": status, "module": "Tasks", "releasedAt": released_at}
+        if merged_at:
+            payload["mergedAt"] = merged_at
+        self.db.add(models.TaskChangelogEntry(id=f"e{n}", created_at=released_at, updated_at=released_at, payload=payload))
         self.db.commit()
 
     def _seen(self, last_seen_at="", banner_seen_at=""):
@@ -74,14 +80,17 @@ class FeatureBannerTests(unittest.TestCase):
         self.db.expire_all()
         return T.get_feature_banner(user=ME, db=self.db)
 
-    def test_a_new_feature_this_week_shows_with_the_count_of_others(self):
-        self._entry("Older feature", ago(days=3))
+    # ── the weekly bar ─────────────────────────────────────────────────────
+    def test_a_new_feature_raises_it_and_it_counts_every_category(self):
         self._entry("Scorecard emails", ago(hours=2))
+        self._entry("Older feature", ago(days=3))
+        self._entry("A fix", ago(hours=1), type_="Bug Fix")
+        self._entry("Another fix", ago(days=1), type_="Bug Fix")
         r = self._banner()
         self.assertTrue(r["show"])
-        self.assertEqual((r["feature"]["title"], r["more"]), ("Scorecard emails", 1))
+        self.assertEqual((r["counts"], r["total"]), ({"New Feature": 2, "Bug Fix": 2}, 4))
 
-    def test_bug_fixes_unreleased_and_old_features_never_raise_it(self):
+    def test_bug_fixes_alone_unreleased_and_old_features_never_raise_it(self):
         self._entry("A fix", ago(hours=1), type_="Bug Fix")
         self._entry("Waiting", ago(hours=1), status="Pending Review")
         self._entry("Last month", ago(days=8))
@@ -92,10 +101,13 @@ class FeatureBannerTests(unittest.TestCase):
         self._seen(last_seen_at=ago(hours=1))
         self.assertFalse(self._banner()["show"])
 
-    def test_a_visit_before_the_release_does_not(self):
-        self._entry("Scorecard emails", ago(hours=2))
-        self._seen(last_seen_at=ago(days=2))
-        self.assertTrue(self._banner()["show"])
+    def test_it_counts_only_what_came_after_the_last_visit(self):
+        self._entry("Seen already", ago(days=2))
+        self._entry("A fix since", ago(hours=3), type_="Bug Fix")
+        self._entry("New since", ago(hours=2))
+        self._seen(last_seen_at=ago(days=1))
+        r = self._banner()
+        self.assertEqual((r["counts"], r["total"]), ({"Bug Fix": 1, "New Feature": 1}, 2))
 
     def test_a_dismissal_keeps_it_away_for_a_week_even_when_another_ships(self):
         self._entry("First", ago(days=2))
@@ -106,24 +118,88 @@ class FeatureBannerTests(unittest.TestCase):
 
     def test_after_the_week_a_newer_feature_brings_it_back(self):
         self._seen(banner_seen_at=ago(days=8))
-        self._entry("Before the dismissal", ago(days=9))       # outside the week anyway
+        self._entry("Before the dismissal", ago(days=9))
         self.assertFalse(self._banner()["show"])
         self._entry("New this week", ago(days=1))
         r = self._banner()
-        self.assertTrue(r["show"])
-        self.assertEqual((r["feature"]["title"], r["more"]), ("New this week", 0))
+        self.assertEqual((r["show"], r["total"]), (True, 1))
 
-    def test_a_hand_written_local_time_still_counts(self):
-        self._entry("Typed by hand", "2026-10-12T15:00")       # no zone: browser wall time
+    def test_a_legacy_hand_written_time_is_read_as_pacific(self):
+        at = T._changelog_instant("2026-10-12T15:00")          # 3 PM in California
+        self.assertEqual(at, datetime(2026, 10, 12, 22, 0, tzinfo=timezone.utc))
+        self._entry("Typed by hand", "2026-10-12T15:00")
         self.assertTrue(self._banner()["show"])
 
-    def test_new_features_since_a_time_for_the_version_popup(self):
-        self._entry("Before the tab loaded", ago(hours=5))
-        self._entry("A fix", ago(minutes=10), type_="Bug Fix")
-        self._entry("Shipped since", ago(minutes=10))
-        r = T.get_new_features(since=ago(hours=1), user=ME, db=self.db)
-        self.assertEqual((r["count"], r["latest"]["title"]), (1, "Shipped since"))
-        self.assertEqual(T.get_new_features(since=ago(minutes=1), user=ME, db=self.db)["count"], 0)
+    # ── the new-version popup ──────────────────────────────────────────────
+    def test_released_since_counts_by_category_after_the_build(self):
+        build = ago(hours=1)
+        self._entry("In the running build", ago(hours=3))
+        self._entry("A fix since", ago(minutes=20), type_="Bug Fix")
+        self._entry("A feature since", ago(minutes=10))
+        r = T.get_released_since(since=build, user=ME, db=self.db)
+        self.assertEqual(r, {"counts": {"Bug Fix": 1, "New Feature": 1}, "total": 2})
+
+    def test_a_merge_is_placed_by_its_merge_time_not_its_publish_time(self):
+        build = ago(minutes=30)
+        # Merged before the build was cut, published after it: already running.
+        self._entry("Merged before", ago(minutes=5), merged_at=ago(minutes=40))
+        # Merged after the build: new in the waiting version.
+        self._entry("Merged after", ago(minutes=5), merged_at=ago(minutes=10))
+        r = T.get_released_since(since=build, user=ME, db=self.db)
+        self.assertEqual((r["total"], r["counts"]), (1, {"New Feature": 1}))
+
+    # ── plumbing ───────────────────────────────────────────────────────────
+    def test_the_parsed_list_is_reused_until_the_table_changes(self):
+        self._entry("One", ago(hours=1))
+        first = T._released_updates(self.db)
+        self.assertIs(T._released_updates(self.db), first)                # unchanged: cached
+        self._entry("Two", ago(minutes=30))
+        self.assertEqual(len(T._released_updates(self.db)), 2)            # a new row: re-read
+
+    def test_a_lost_insert_race_reads_the_winner_instead_of_failing(self):
+        other = database.SessionLocal()
+        other.add(models.ChangelogSeen(email=ME["email"], last_seen_at="x", banner_seen_at=""))
+        other.commit()
+        other.close()
+        real_query = self.db.query
+        calls = {"n": 0}
+
+        def stale_first_lookup(*args, **kwargs):
+            q = real_query(*args, **kwargs)
+            if args and args[0] is models.ChangelogSeen and calls["n"] == 0:
+                calls["n"] += 1
+                return mock.Mock(filter=lambda *a, **k: mock.Mock(first=lambda: None))
+            return q
+        with mock.patch.object(self.db, "query", side_effect=stale_first_lookup):
+            row = T._seen_row(self.db, ME["email"])
+        self.assertEqual(row.last_seen_at, "x")
+
+
+class ReadAccessTests(unittest.TestCase):
+    """Reading What's New is every Nexus user's default; changing it is the
+    task family's grant (Neil, Oct 12 2026)."""
+
+    def _routes(self, router):
+        return {(next(iter(r.methods)), r.path) for r in router.routes}
+
+    def test_the_read_routes_need_only_a_signed_in_user(self):
+        reads = {("GET", "/task-changelog"), ("GET", "/task-changelog/unseen"), ("POST", "/task-changelog/seen"),
+                 ("GET", "/task-changelog/feature-banner"), ("POST", "/task-changelog/feature-banner/dismiss"),
+                 ("GET", "/task-changelog/released-since"), ("GET", "/task-changelog/{entry_id}/comments")}
+        self.assertTrue(reads <= self._routes(T.view_router))
+        self.assertFalse(reads & self._routes(T.router))
+        deps = [d.dependency.__qualname__ for d in T.view_router.dependencies]
+        self.assertFalse(any("_check" in d for d in deps))              # no module-grant check
+
+    def test_every_write_stays_behind_the_grant(self):
+        writes = {("POST", "/task-changelog"), ("PATCH", "/task-changelog/{entry_id}"),
+                  ("DELETE", "/task-changelog/{entry_id}"), ("POST", "/task-changelog/{entry_id}/comments")}
+        self.assertTrue(writes <= self._routes(T.router))
+        self.assertFalse(writes & self._routes(T.view_router))
+
+    def test_externals_reach_the_read_side(self):
+        import auth
+        self.assertIn("/task-changelog", auth._EXTERNAL_BASE_PREFIXES)
 
 
 if __name__ == "__main__":

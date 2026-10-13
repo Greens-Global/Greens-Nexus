@@ -2,6 +2,7 @@ import { RefreshCw, Sparkles, ArrowRight, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useBuildVersion } from '../lib/useBuildVersion';
 import { setBuildStale, useUpdateSignal } from '../lib/updateSignal';
+import { hasNewFeature, summarizeCategories } from '../lib/changelogCategories';
 import { prefersReducedMotion } from './shifts/motion';
 
 // Non-blocking "a newer Nexus is live" prompt.
@@ -15,20 +16,21 @@ import { prefersReducedMotion } from './shifts/motion';
 // Dismissible, because someone deep in a form should be able to make it go away;
 // it reappears next session, and the nets are still behind it.
 //
-// When the waiting version brings a New Feature (not just bug fixes), it also
-// offers See What's New (Neil, Oct 12 2026), which loads the new version
-// straight onto What's New. Whether it does is answered by FeatureBanner from
-// inside the signed-in app (lib/updateSignal.js) - this popup sits outside the
-// sign-in gate and cannot ask the API itself.
+// What the new version brings is said in categories only (Neil, Oct 12 2026):
+// "Includes 2 new features and 3 bug fixes", with See What's New for the
+// details - which loads the new version straight onto What's New. The
+// categories are answered by FeatureBanner from inside the signed-in app
+// (lib/updateSignal.js); this popup sits outside the sign-in gate and cannot
+// ask the API itself, so before (or without) an answer it just offers Reload.
 //
-// Motion (style.css "Update popup"): it rises in, its icon pops again if the
-// news turns into new features while it is up, Reload spins while the page
-// reloads, and it drops away when dismissed. Reduced motion: none of it.
+// Motion (style.css "Update popup"): it rises in, its icon pops again when the
+// answer arrives, Reload spins while the page reloads, and it drops away when
+// dismissed. Reduced motion: none of it.
 const LEAVE_MS = 220;   // matches .update-banner.is-leaving
 
 export default function UpdateBanner() {
   const stale = useBuildVersion();
-  const { newFeature } = useUpdateSignal();
+  const { release } = useUpdateSignal();
   useEffect(() => { setBuildStale(stale); }, [stale]);
   const [hidden, setHidden] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -37,6 +39,8 @@ export default function UpdateBanner() {
   useEffect(() => () => clearTimeout(timer.current), []);
   if (!stale || hidden) return null;
 
+  const summary = release ? summarizeCategories(release.counts) : '';
+  const features = hasNewFeature(release?.counts);
   const dismiss = () => {
     if (prefersReducedMotion()) { setHidden(true); return; }
     setLeaving(true);
@@ -50,23 +54,21 @@ export default function UpdateBanner() {
   // on a phone it spans the screen (12px gutters), the message on top and the
   // buttons sharing the row under it.
   return (
-    <div role="status" className={`update-banner${newFeature ? ' has-features' : ''}${leaving ? ' is-leaving' : ''}`}>
-      {/* Keyed so the icon pops again when the news becomes "new features". */}
-      <span key={newFeature ? 'features' : 'version'} className="update-banner-icon" aria-hidden="true">
-        {newFeature ? <Sparkles size={18} /> : <RefreshCw size={17} />}
+    <div role="status" className={`update-banner${features ? ' has-features' : ''}${leaving ? ' is-leaving' : ''}`}>
+      {/* Keyed so the icon pops again when the answer arrives. */}
+      <span key={summary ? 'known' : 'unknown'} className="update-banner-icon" aria-hidden="true">
+        {features ? <Sparkles size={18} /> : <RefreshCw size={17} />}
       </span>
       <span className="update-banner-copy">
         <span className="update-banner-text">A New Version of Nexus Is Available</span>
-        <span className="update-banner-sub">
-          {newFeature ? 'It comes with new features.' : 'Reload when it suits you.'}
-        </span>
+        <span className="update-banner-sub">{summary ? `Includes ${summary}.` : 'Reload when it suits you.'}</span>
       </span>
-      {newFeature && (
+      {summary && (
         <button onClick={seeWhatsNew} disabled={reloading} className="update-banner-whatsnew">
           See What&apos;s New <ArrowRight size={14} className="update-banner-arrow" aria-hidden="true" />
         </button>
       )}
-      <button onClick={reload} disabled={reloading} className={newFeature ? 'update-banner-reload update-banner-reload-quiet' : 'update-banner-reload'}>
+      <button onClick={reload} disabled={reloading} className={summary ? 'update-banner-reload update-banner-reload-quiet' : 'update-banner-reload'}>
         <RefreshCw size={13} className={reloading ? 'update-banner-spin' : undefined} aria-hidden="true" /> {reloading ? 'Reloading…' : 'Reload'}
       </button>
       <button onClick={dismiss} aria-label="Dismiss" className="update-banner-close">

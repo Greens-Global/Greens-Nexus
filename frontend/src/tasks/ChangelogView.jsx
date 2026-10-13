@@ -25,6 +25,7 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { filesFromPaste } from './lib';
 import { localDayKey, formatFullDate, formatTime, formatDateTime, relativeDayLabel, isWithinDays } from './changelogDates';
 import { useBackToClose } from '../lib/useBackToClose';
+import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
 import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile } from './components';
 
@@ -56,11 +57,6 @@ const typeMeta = (t) => CHANGE_TYPE_META[t] || { label: t || 'Update', color: NX
 const envColor = (e) => (ENVIRONMENT_META[e] || {}).color || NX.green;
 
 // Date helpers live in changelogDates.js (they read UTC release times right).
-function nowLocalISO() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 // The server owns id/createdAt/updatedAt; everything else lives in the payload we author.
 function payloadOf(entry) {
@@ -116,12 +112,17 @@ const TABS = [
 // lib/dialogGuard treats that class as a popup backdrop, and on a page every
 // filter change or comment keystroke would then read as unsaved work.
 export default function Changelog() {
-  const { myEmail, can } = useRole();
+  const role = useRole();
+  const { myEmail, can } = role;
+  // Reading is everyone's; adding, editing, reviewing and commenting follow
+  // the server's grant (lib/whatsNewAccess.js), so nobody is offered a
+  // control that would only answer 403.
+  const canEdit = canEditWhatsNew(role);
   // Phones (Neil, Oct 12 2026): a compact header, tabs that fit without
   // icons, one column everywhere, details as a full-screen sheet.
   const isMobile = useIsMobile();
   const nameOf = useNameResolver();
-  const isAdmin = !!can?.('manager');
+  const isAdmin = canEdit && !!can?.('manager');
 
   const [entries, setEntries] = useState([]);
   const [tab, setTab] = useState('whats-new');
@@ -197,8 +198,10 @@ export default function Changelog() {
           <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700 }}>What&apos;s New</div>
           {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>}
         </div>
-        <button style={{ ...btn('primary'), marginLeft: 'auto', flexShrink: 0, ...(isMobile ? { minHeight: 36 } : null) }} onClick={() => setAdding(true)}
-          aria-label="Add New Update"><Plus size={15} />{isMobile ? 'Add' : 'Add New Update'}</button>
+        {canEdit && (
+          <button style={{ ...btn('primary'), marginLeft: 'auto', flexShrink: 0, ...(isMobile ? { minHeight: 36 } : null) }} onClick={() => setAdding(true)}
+            aria-label="Add New Update"><Plus size={15} />{isMobile ? 'Add' : 'Add New Update'}</button>
+        )}
       </div>
 
       {/* Tab strip */}
@@ -955,6 +958,8 @@ const DETAIL_TABS = ['Overview', 'Technical Details', 'Media', 'Related Links', 
 
 function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onToggleExpand, onEdit, onSetStatus }) {
   const [tab, setTab] = useState('Overview');
+  // Everyone reads the comments; posting one is behind the same grant as editing.
+  const canComment = canEditWhatsNew(useRole());
   const [status, setStatusLocal] = useState(() => statusOf(entry));
   const [statusOpen, setStatusOpen] = useState(false);
   const statusRef = useRef(null);
@@ -1186,10 +1191,12 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
                 ))
               )}
             </div>
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12 }}>
-              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') postComment(); }} placeholder="Add a comment…" style={inputStyle} />
-              <button onClick={postComment} disabled={!draft.trim()} aria-label="Post comment" style={{ ...btn('primary'), padding: 9, opacity: draft.trim() ? 1 : 0.4 }}><Send size={15} /></button>
-            </div>
+            {canComment && (
+              <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12 }}>
+                <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') postComment(); }} placeholder="Add a comment…" style={inputStyle} />
+                <button onClick={postComment} disabled={!draft.trim()} aria-label="Post comment" style={{ ...btn('primary'), padding: 9, opacity: draft.trim() ? 1 : 0.4 }}><Send size={15} /></button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1329,7 +1336,9 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
       module: module.trim(),
       version: version.trim(),
       environment,
-      releasedAt: p.releasedAt || nowLocalISO(),
+      // An instant, not browser wall time: the server compares release times
+      // across zones (the weekly bar, the update popup).
+      releasedAt: p.releasedAt || new Date().toISOString(),
       // A PR's developers come from GitHub; editing its wording must not make
       // the editor its developer (that put Neil on every update).
       authorId: p.authorId || (p.origin === 'pr' ? '' : myEmail),
