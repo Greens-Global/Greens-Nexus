@@ -441,6 +441,10 @@ def confirm_return(req_id: str, body: RequisitionConfirmReturn, user: dict = Dep
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    # Evidence must come from our own storage (imported here: items.py is heavy
+    # and nothing else in this router needs it).
+    from routers.items import _validate_photo_url
+    _validate_photo_url(body.return_photo_url, "return_photo_url")
     _check_transition(req, "returned")
     if req.asset_id:
         asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == req.asset_id).first()

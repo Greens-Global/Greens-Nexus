@@ -1436,6 +1436,31 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     now = datetime.now(timezone.utc).isoformat()
     item = db.query(Item).filter(Item.id == row.item_id).first()
 
+    # Photos are evidence: the handover, the receipt and the return each need one,
+    # unless the item is flagged photo-optional (picture_required False, e.g. keys).
+    # Checked here, before anything is mutated. A handover photo already on the row
+    # counts. Not asked for:
+    #   - pending_receipt: the allocator chose "employee takes the photo", so the
+    #     evidence is the receipt photo the employee uploads on the next step;
+    #   - a lost item (nothing to photograph);
+    #   - a check-in on the holder's behalf with a reason (force return - the
+    #     holder is not there to photograph it; the reason is the record).
+    if not item or item.picture_required is None or item.picture_required:
+        def _has(*urls):
+            return any((u or "").strip() for u in urls)
+        if body.status == "allocated" and row.status != "pending_receipt" \
+                and not _has(body.checkout_photo_url, row.checkout_photo_url):
+            raise HTTPException(400, "A handover photo is required")
+        if body.status == "allocated" and row.status == "pending_receipt" \
+                and not _has(body.receipt_photo_url):
+            raise HTTPException(400, "A receipt photo is required")
+        if body.status == "returned" and not _has(body.return_photo_url):
+            lost = (body.condition or "ok").lower().strip() == "lost"
+            on_behalf = (row.requested_by_email or "").lower() != user["email"].lower() \
+                and _has(body.condition_note)
+            if not lost and not on_behalf:
+                raise HTTPException(400, "A return photo is required (unless the item is lost)")
+
     if body.status in ("approved", "rejected"):
         row.resolved_at = now
         row.resolved_by = body.resolved_by or ""
