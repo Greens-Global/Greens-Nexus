@@ -144,6 +144,9 @@ export default defineConfig({
           // shipped on first paint for every user of every module.
           if (id.includes('heic2any') || id.includes('libheif')) return 'vendor-heic';
           if (id.includes('exifr'))                   return 'vendor-exif';
+          // three.js (~700 KB) only loads for the 3D site model (Asset Management
+          // property page / the public unit finder) - keep it off first paint.
+          if (id.includes('node_modules/three/'))     return 'vendor-three';
           if (id.includes('node_modules'))            return 'vendor-react';
         },
       },

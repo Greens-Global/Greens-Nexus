@@ -24,8 +24,8 @@ import re
 import io
 from urllib.parse import unquote_to_bytes
 from xml.sax.saxutils import escape as _esc
-import httpx
 
+import safe_fetch
 from app_url import app_url
 
 
@@ -233,12 +233,12 @@ def _fetch_image_bytes(url: str):
     # public URL (same helper email links already use) before fetching.
     if url.startswith("/"):
         url = app_url() + url
-    try:
-        resp = httpx.get(url, timeout=10)
-        resp.raise_for_status()
-        return resp.content
-    except Exception:
-        return None
+    # The src comes out of the document's stored JSON, which anyone who can
+    # save a document writes - so it is only ever fetched from the app's own
+    # storage or the frontend's own static assets. Anything else (an internal
+    # address, some other site) is not requested at all and the picture is
+    # left out, the same as one that fails to download. See safe_fetch.
+    return safe_fetch.own_image(url, also_prefixes=(app_url() + "/",))
 
 
 _FONT_SIZE_RE = re.compile(r"-?\d*\.?\d+")

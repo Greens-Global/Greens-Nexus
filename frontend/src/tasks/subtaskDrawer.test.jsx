@@ -6,7 +6,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 // main task instead of shutting the drawer and losing your place.
 
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
-vi.mock('../api', () => ({ api: new Proxy({}, { get: () => () => Promise.resolve([]) }) }));
+vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => () => Promise.resolve(k === 'getPeopleDirectory'
+  ? [{ email: 'sai@x.com', name: 'Sai Malladi' }, { email: 'ankush@x.com', name: 'Ankush Narkhede' }] : []) }) }));
 
 const parent = { id: 'p', title: 'Remove IT items duplicates', status: 'not_started', priority: 'medium', projectId: '', parentTaskId: '',
   subtaskIds: ['s'], commentIds: [], attachmentIds: [], followerIds: [], tags: [], customFieldValues: {}, completed: false };
@@ -28,7 +29,7 @@ function makeStore() {
   };
 }
 
-const { default: TaskDetailDrawer } = await import('./TaskDetailDrawer');
+const { default: TaskDetailDrawer, CommitNumberInput } = await import('./TaskDetailDrawer');
 
 beforeEach(() => {
   state = makeStore();
@@ -203,5 +204,171 @@ describe('the Section row', () => {
     state = { ...makeStore(), tasks: [t], taskById: { p: t }, sections: [] };
     render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
     expect(screen.queryByLabelText('Section')).toBeNull();
+  });
+});
+
+// Oct 13 2026: Subtasks, Approval and Comments open when they have something
+// in them, folded when empty.
+describe('folding sections on the Overview', () => {
+  const expanded = (title) => screen.getAllByRole('button', { expanded: true }).some((b) => b.textContent.startsWith(title));
+  const openTask = (patchTask) => {
+    const t = { ...parent, subtaskIds: [], ...patchTask };
+    state = { ...makeStore(), tasks: [t], taskById: { p: t } };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+  };
+
+  it('are folded when empty', () => {
+    openTask({ approvalStatus: 'none', commentIds: [] });
+    expect(expanded('Subtasks')).toBe(false);
+    expect(expanded('Approval')).toBe(false);
+    expect(expanded('Comments')).toBe(false);
+  });
+
+  it('open when they have content', () => {
+    openTask({ approvalStatus: 'pending', commentIds: ['c1', 'c2'] });
+    expect(expanded('Approval')).toBe(true);
+    expect(expanded('Comments')).toBe(true);
+  });
+});
+
+// The Recurrence menu on the Overview (Oct 13 2026): the "Every" box could not
+// be cleared (it snapped back to 1, so typing 2 made 12) and saved on every key.
+describe('editing recurrence from the task Overview', () => {
+
+  it('lets 1 be replaced by 2, and saves once', () => {
+    const onCommit = vi.fn();
+    render(<CommitNumberInput value={1} onCommit={onCommit} aria-label="n" />);
+    const box = screen.getByLabelText('n');
+    fireEvent.change(box, { target: { value: '' } });
+    expect(box.value).toBe('');
+    fireEvent.change(box, { target: { value: '2' } });
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(2);
+  });
+
+  it('puts the saved value back for nothing, zero or a fraction - and Escape', () => {
+    const onCommit = vi.fn();
+    render(<CommitNumberInput value={3} onCommit={onCommit} aria-label="n" />);
+    const box = screen.getByLabelText('n');
+    for (const bad of ['', '0', '1.5']) {
+      fireEvent.change(box, { target: { value: bad } });
+      fireEvent.blur(box);
+      expect(box.value).toBe('3');
+    }
+    fireEvent.change(box, { target: { value: '9' } });
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(box.value).toBe('3');
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it('a count can be cleared', () => {
+    const onCommit = vi.fn();
+    render(<CommitNumberInput value={10} allowEmpty onCommit={onCommit} aria-label="n" />);
+    const box = screen.getByLabelText('n');
+    fireEvent.change(box, { target: { value: '' } });
+    fireEvent.blur(box);
+    expect(onCommit).toHaveBeenCalledWith(null);
+  });
+
+  it('Custom: every 2 weeks, and the last day cannot be unticked', () => {
+    const t = { ...parent, status: 'recurring', recurrence: { freq: 'custom', unit: 'week', interval: 1, daysOfWeek: [1] } };
+    state = { ...makeStore(), tasks: [t], taskById: { p: t } };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Every week on Mon'));
+    fireEvent.click(screen.getByText('Custom'));
+    const every = screen.getByLabelText('Repeat every');
+    fireEvent.change(every, { target: { value: '' } });
+    fireEvent.change(every, { target: { value: '2' } });
+    fireEvent.blur(every);
+    expect(state.updateTask).toHaveBeenCalledTimes(1);
+    expect(state.updateTask).toHaveBeenCalledWith('p', expect.objectContaining({
+      recurrence: { freq: 'custom', unit: 'week', interval: 2, daysOfWeek: [1] },
+    }));
+    // Monday is the only day: unticking it does nothing.
+    state.updateTask.mockClear();
+    fireEvent.click(screen.getByTitle('Monday'));
+    expect(state.updateTask).not.toHaveBeenCalled();
+  });
+});
+
+// Duplicate in the task's ... menu (Oct 13 2026).
+describe('Duplicate Task', () => {
+  it('copies the task and its subtasks, then opens the copy', async () => {
+    const main = { ...parent, status: 'recurring', recurrence: { freq: 'weekly', daysOfWeek: [1] },
+      followerIds: ['neil@x.com'], customFieldValues: { prop: 'esc' }, priority: 'high' };
+    const kid = { ...sub, id: 's', parentTaskId: 'p', title: 'Check the portal', priority: 'low' };
+    const copy = { ...main, id: 'copy', title: `${main.title} (copy)`, status: 'not_started', recurrence: null };
+    state = { ...makeStore(), tasks: [main, kid], taskById: { p: main, s: kid } };
+    state.createTask = vi.fn((body) => {
+      if (body.parentTaskId) return Promise.resolve({ id: 'copy-sub' });
+      state.tasks = [...state.tasks, copy];
+      state.taskById = { ...state.taskById, copy };
+      return Promise.resolve({ id: 'copy' });
+    });
+    const { rerender } = render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    fireEvent.click(screen.getByTitle('More Actions'));
+    await act(async () => { fireEvent.click(screen.getByText('Duplicate Task')); });
+    const [first, second] = state.createTask.mock.calls.map((c) => c[0]);
+    expect(first).toEqual(expect.objectContaining({
+      title: `${main.title} (copy)`, status: 'not_started', priority: 'high',
+      followerIds: ['neil@x.com'], customFieldValues: { prop: 'esc' },
+    }));
+    expect(first.recurrence).toBeUndefined();             // a one-off, not a second series
+    expect(second).toEqual(expect.objectContaining({ title: 'Check the portal', parentTaskId: 'copy', priority: 'low' }));
+    expect(state.offerUndo).toHaveBeenCalled();
+    rerender(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    expect(screen.getAllByRole('textbox').some((el) => el.value === `${main.title} (copy)`)).toBe(true);
+  });
+});
+
+
+// Editing a subtask's dates and people from the main task's list (Oct 13 2026).
+describe('a subtask row', () => {
+  const openMain = () => {
+    const kid = { ...sub, id: 's', parentTaskId: 'p', title: 'Undeposited fund _GSVC', dueOn: '2026-10-31', assigneeIds: ['sai@x.com'] };
+    state = { ...makeStore(), tasks: [parent, kid], taskById: { p: parent, s: kid } };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+  };
+  const stillOnMain = () => expect(screen.getAllByRole('textbox').some((el) => el.value === parent.title)).toBe(true);
+
+  it('adds a second assignee without opening the subtask', async () => {
+    openMain();
+    fireEvent.click(screen.getByLabelText('Assignees of Undeposited fund _GSVC'));
+    const ankush = await screen.findByText('Ankush Narkhede');
+    fireEvent.click(ankush.closest('label').querySelector('input'));
+    expect(state.updateTask).toHaveBeenCalledWith('s', { assigneeIds: ['sai@x.com', 'ankush@x.com'] });
+    stillOnMain();
+  });
+
+  it('changes the due date without opening the subtask', () => {
+    openMain();
+    fireEvent.click(screen.getByTitle('Change due date'));
+    fireEvent.click(screen.getByText('Clear'));
+    expect(state.updateTask).toHaveBeenCalledWith('s', { dueOn: '' });
+    stillOnMain();
+  });
+});
+
+// The Add subtask row's date (Oct 13 2026): the Nexus calendar, not the
+// browser's date picker, which opened half off-screen.
+describe('the Add subtask row date', () => {
+  it('opens the Nexus calendar and the date goes onto the new subtask', () => {
+    state = { ...makeStore(), tasks: [{ ...parent, subtaskIds: [] }], taskById: { p: { ...parent, subtaskIds: [] } } };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    // No subtasks yet, so the section starts folded - open it.
+    fireEvent.click(screen.getAllByRole('button', { expanded: false }).find((b) => b.textContent.startsWith('Subtasks')));
+    expect(document.querySelector('input[type="date"]')).toBeNull();
+    fireEvent.click(screen.getAllByTitle('Due Date').find((b) => b.tagName === 'BUTTON'));
+    fireEvent.click(screen.getByText('Today'));
+    const box = screen.getAllByPlaceholderText('Add subtask')[0];
+    fireEvent.change(box, { target: { value: 'File the W9s' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    const p = (n) => String(n).padStart(2, '0');
+    const d = new Date();
+    expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'File the W9s', dueOn: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
+    }));
   });
 });

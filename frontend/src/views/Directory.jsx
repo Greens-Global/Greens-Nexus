@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Users, Network, ListTree, Building2, MapPin, ChevronDown, ChevronRight, MessageSquare, Phone, Mail,
-  Download, FileText, AlertTriangle, Star, X,
+  Download, FileText, AlertTriangle, Star, X, Settings2,
 } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT } from '../tasks/theme';
@@ -28,8 +28,9 @@ import { LoadingState, ErrorBanner } from '../components/AsyncState';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { CONTACT_OPEN_KIND, CONTACT_EVENT } from '../lib/contactNav';
 import { openPersonProfile } from '../lib/personNav';
-import ProfilePanel, { Avatar, RoleBadge, AvailabilityChip } from '../directory/ProfilePanel';
+import ProfilePanel, { Avatar, RoleBadge, StatusPills } from '../directory/ProfilePanel';
 import OrgChartLens from '../directory/OrgChartLens';
+import { useFlip } from '../lib/motion';
 import {
   searchPeople, groupByDepartment, buildTree, myTeam, isOffToday, teamsChat, teamsCall, mailto,
   csvOf, downloadText, readPins, writePins, byLastName,
@@ -52,7 +53,8 @@ export default function Directory() {
   const { can, myGrantedModules, myEmail } = useRole();
   const mobile = useIsMobile('(max-width: 820px)');
   const [data, setData] = useState(null);
-  const [presence, setPresence] = useState({});           // email -> {availability, activity}; {} until Graph is allowed
+  const [presence, setPresence] = useState({});           // email -> {availability, activity, outOfOffice?}; {} until Graph is allowed
+  const [presenceOff, setPresenceOff] = useState('');     // why Teams status is off - the server tells admins only
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [lens, setLens] = useState(readLens);
@@ -65,10 +67,15 @@ export default function Directory() {
   const [showing, setShowing] = useState(() => !!selected);   // phone: profile open over the list
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [pins, setPins] = useState(readPins);
+  // Completeness is an HR chore, not something everyone needs on screen
+  // (Neil, 10/13): it hides behind Manage, which shows the "to complete" count
+  // and the completeness panel.
+  const [managing, setManaging] = useState(false);
   const [gapsOpen, setGapsOpen] = useState(false);
   const [cursor, setCursor] = useState(-1);               // keyboard row in the list
   const searchRef = useRef(null);
   const listRef = useRef(null);
+  useFlip(listRef);  // rows glide as a search narrows or a group opens
 
   // ── load + keep availability fresh ─────────────────────────────────────
   const load = useCallback((quiet = false, reset = false) => {
@@ -86,7 +93,7 @@ export default function Directory() {
   useEffect(() => {
     let live = true;
     const poll = () => api.getTeamsPresence()
-      .then((r) => { if (live) setPresence(r?.enabled ? (r.presence || {}) : {}); })
+      .then((r) => { if (live) { setPresence(r?.enabled ? (r.presence || {}) : {}); setPresenceOff(r?.enabled ? '' : (r?.reason || '')); } })
       .catch(() => {});
     poll();
     const id = setInterval(() => { if (document.visibilityState === 'visible') poll(); }, PRESENCE_MS);
@@ -272,11 +279,10 @@ export default function Directory() {
     </div>
   );
 
-  // One contact card whichever lens found the person. Capped at a readable
-  // width: on a wide monitor the action bar and the detail rows would
-  // otherwise stretch across the screen.
+  // One contact card whichever lens found the person. Its column is capped at
+  // a readable width (below); a wide monitor's extra space goes to the list.
   const profile = (
-    <div style={{ maxWidth: 680 }}>
+    <div>
       {missing ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>
           <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>Not in your directory</div>
@@ -297,11 +303,20 @@ export default function Directory() {
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="view-title-group">
           <h2>Contact Directory</h2>
-          <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}${companies.length > 1 ? ` across ${companies.length} companies` : ''}` : 'Find and reach anyone in the company'}</p>
+          <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {gaps && gapCount > 0 && (
-            <button type="button" onClick={() => setGapsOpen((v) => !v)} className="dir-tool" style={{
+          {gaps && (
+            <button type="button" onClick={() => { setManaging((v) => !v); setGapsOpen(!managing); }} aria-pressed={managing} className="dir-tool" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
+              border: `1px solid ${managing ? 'transparent' : NX.border}`, background: managing ? 'rgba(37,99,235,0.12)' : NX.surface,
+              color: managing ? NX.blue : NX.ink, fontSize: 12.5, fontWeight: 600,
+            }} title={managing ? 'Hide the directory completeness tools' : 'Directory completeness: who is missing a manager, title, photo or phone'}>
+              <Settings2 size={14} /> {managing ? 'Done' : 'Manage'}
+            </button>
+          )}
+          {managing && gaps && gapCount > 0 && (
+            <button type="button" onClick={() => setGapsOpen((v) => !v)} aria-expanded={gapsOpen} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
               border: '1px solid rgba(217,119,6,0.35)', background: 'rgba(217,119,6,0.10)', color: '#b45309', fontSize: 12.5, fontWeight: 700,
             }}>
@@ -327,7 +342,7 @@ export default function Directory() {
         </div>
       </div>
 
-      {gapsOpen && gaps && <GapsPanel gaps={gaps} byEmail={byEmail} onClose={() => setGapsOpen(false)} onOpen={canOpenPeople ? (em) => openPersonProfile(em) : select} />}
+      {managing && gapsOpen && gaps && <GapsPanel gaps={gaps} byEmail={byEmail} presenceOff={presenceOff} onClose={() => setGapsOpen(false)} onOpen={canOpenPeople ? (em) => openPersonProfile(em) : select} />}
 
       {error && !data && <ErrorBanner message={error} onRetry={() => load(false, true)} />}
       {error && data && <ErrorBanner message={error} onRetry={() => setError('')} />}
@@ -359,7 +374,9 @@ export default function Directory() {
               </div>
             </>
           ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(300px, 380px) minmax(0, 1fr)', minHeight: 560 }}>
+          // The card column grows to its cap first, then every extra pixel
+          // widens the list (Neil, 10/13), where the status pills need room.
+          <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : 'minmax(320px, 1fr) minmax(360px, 620px)', minHeight: 560 }}>
             {showList && (
               <div style={{ borderRight: mobile ? 'none' : `1px solid ${NX.border}`, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 {toolbar(false)}
@@ -376,7 +393,7 @@ export default function Directory() {
                       {pinnedRows.length > 0 && (
                         <GroupHead icon={Star} name="Pinned" count={pinnedRows.length} open onToggle={null} />
                       )}
-                      {pinnedRows.map((p) => <PersonRow key={`pin-${p.email}`} p={p} me={myEmail} active={p.email === selected} focused={flat[cursor] === p.email} onSelect={select} mobile={mobile} />)}
+                      {pinnedRows.map((p) => <PersonRow key={`pin-${p.email}`} flip={`pin:${p.email}`} p={p} me={myEmail} active={p.email === selected} focused={flat[cursor] === p.email} onSelect={select} mobile={mobile} />)}
                       {(lens === 'dept' || searching) ? groups.map((g) => {
                         const open = searching || !collapsed.has(g.name);
                         return (
@@ -420,32 +437,36 @@ function GroupHead({ icon: Icon, name, count, open, onToggle }) {
   );
 }
 
-function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false }) {
+function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false, flip }) {
   // A phone row keeps Chat and Call (Teams first); Email and the rest are one
   // tap away on the card. Three buttons plus tree indentation left no room
   // for the name at 390px.
   const step = mobile ? 14 : 22;
   return (
-    <div data-email={p.email} className={`dir-row${active ? ' is-active' : ''}${focused ? ' is-focused' : ''}`}
+    <div data-email={p.email} data-flip={flip || p.email} className={`dir-row${active ? ' is-active' : ''}${focused ? ' is-focused' : ''}`}
       role="button" tabIndex={0} onClick={() => onSelect(p.email)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(p.email); } }}
       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', paddingLeft: 12 + depth * step, borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', minWidth: 0, minHeight: 52 }}>
       <Avatar p={p} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<RoleBadge role={p.departmentRole} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<RoleBadge role={p.departmentRole} />
+          </span>
+          {!mobile && <StatusPills p={p} />}
         </div>
         <div style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* On a phone the line is too short for both: being off today is
-              the thing that matters when you are about to call someone. */}
-          {!(mobile && isOffToday(p)) && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.jobTitle || p.email}</span>}
-          {p.availability && isOffToday(p) && <AvailabilityChip availability={p.availability} />}
+          {/* On a phone the status takes the title's line: whether they are
+              on shift is what matters when you are about to call someone. */}
+          {mobile && (p.availability || p.presence)
+            ? <StatusPills p={p} />
+            : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.jobTitle || p.email}</span>}
         </div>
       </div>
       <div className="dir-row-actions" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
         <a href={teamsChat(p.email)} target="_blank" rel="noreferrer" title="Chat on Teams" aria-label={`Chat with ${p.name} on Teams`} onClick={(e) => e.stopPropagation()} className="dir-mini teams"><MessageSquare size={14} /></a>
         <a href={teamsCall(p.email)} target="_blank" rel="noreferrer" title="Call on Teams" aria-label={`Call ${p.name} on Teams`} onClick={(e) => e.stopPropagation()} className="dir-mini teams"><Phone size={14} /></a>
-        {!mobile && <a href={mailto(p.email)} title="Email" aria-label={`Email ${p.name}`} onClick={(e) => e.stopPropagation()} className="dir-mini"><Mail size={14} /></a>}
+        {!mobile && <a href={mailto(p.email)} target="_blank" rel="noreferrer" title="Email" aria-label={`Email ${p.name}`} onClick={(e) => e.stopPropagation()} className="dir-mini"><Mail size={14} /></a>}
       </div>
     </div>
   );
@@ -478,7 +499,7 @@ const GAP_LABELS = {
   manager: 'No manager on record', department: 'No department', jobTitle: 'No job title', photo: 'No photo',
   officePhone: 'No phone number at all', departmentLead: 'Department without a lead',
 };
-function GapsPanel({ gaps, byEmail, onClose, onOpen }) {
+function GapsPanel({ gaps, byEmail, presenceOff, onClose, onOpen }) {
   return (
     <div className="dash-card" style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -511,6 +532,12 @@ function GapsPanel({ gaps, byEmail, onClose, onOpen }) {
       </div>
       {!Object.keys(GAP_LABELS).some((k) => (gaps[k] || []).length) && <div style={{ fontSize: 13, color: NX.dim }}>Everything is filled in.</div>}
       <div style={{ fontSize: 12, color: NX.faint, marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={12} /> Department leads are set under Tickets, Manage, Service Desk.</div>
+      {/* Only administrators are sent the reason; everyone else just sees no Teams status. */}
+      {presenceOff && (
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 8, padding: '8px 10px', borderRadius: 8, background: NX.surface2, border: `1px solid ${NX.border}` }}>
+          <strong style={{ color: NX.ink }}>Teams status is off.</strong> {presenceOff}
+        </div>
+      )}
     </div>
   );
 }

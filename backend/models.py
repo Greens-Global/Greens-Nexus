@@ -114,6 +114,15 @@ class Task(Base):
     due_history       = Column(JSON, default=list)
     due_agreement     = Column(String, default="")
     due_proposal      = Column(JSON, nullable=True)
+    # Checklist counters (Oct 2026) - denormalized from task_checklist_items
+    # by routers/tasks._recount_checklist so every list row and board card can
+    # print "3/5" without a query per task. Never written anywhere else.
+    checklist_total   = Column(Integer, default=0)
+    checklist_done    = Column(Integer, default=0)
+    # Time entries (Oct 2026, task_time_entries). While a task has entries,
+    # actual_hours is their rolled-up total (routers/tasks._recount_time) and
+    # cannot be typed over; with none, actual_hours stays the old free number.
+    time_entry_count  = Column(Integer, default=0)
 
 
 class PurchaseRequest(Base):
@@ -773,11 +782,11 @@ class ApprovalHistory(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id            = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp     = Column(String, nullable=False)
+    timestamp     = Column(String, nullable=False, index=True)
     user_email    = Column(String, nullable=False)
     user_role     = Column(String, default="")
     action        = Column(String, nullable=False)
-    resource_type = Column(String, default="")
+    resource_type = Column(String, default="", index=True)
     resource_id   = Column(String, default="")
     details       = Column(String, default="")   # JSON string
     ip_address    = Column(String, default="")
@@ -794,7 +803,7 @@ class NexusEmployee(Base):
     employee_code   = Column(String, default="")               # GG-001 style, auto-assigned
     first_name      = Column(String, nullable=False)
     last_name       = Column(String, default="")
-    work_email      = Column(String, default="")               # empty until provisioned (Phase 4)
+    work_email      = Column(String, default="", index=True)   # empty until provisioned (Phase 4)
     personal_email  = Column(String, default="")
     phone           = Column(String, default="")
     job_title       = Column(String, default="")
@@ -1743,7 +1752,7 @@ class HrSignParty(Base):
     kind                 = Column(String, default="internal") # internal|external
     ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
     status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|approved|acknowledged|declined
-    token                = Column(String, default="")         # secrets.token_urlsafe(32) - the public-link credential
+    token                = Column(String, default="", index=True)  # secrets.token_urlsafe(32) - the public-link credential
     token_expires_at     = Column(String, default="")
     signature_kind       = Column(String, default="")         # drawn|typed
     signature_data       = Column(String, default="")         # PNG data-URL (drawn) or the typed name
@@ -2105,7 +2114,7 @@ class TimePunch(Base):
     kind           = Column(String, nullable=False)     # in|out|break_start|break_end
     at             = Column(String, nullable=False)     # UTC ISO - effective time (adjustments edit this)
     original_at    = Column(String, default="")         # frozen first value once adjusted
-    local_date     = Column(String, default="")         # YYYY-MM-DD in the puncher's timezone (grouping key)
+    local_date     = Column(String, default="", index=True)  # YYYY-MM-DD in the puncher's timezone (grouping key)
     tz_offset_min  = Column(Integer, default=0)         # JS getTimezoneOffset() at punch
     lat            = Column(String, default="")
     lng            = Column(String, default="")
@@ -2415,6 +2424,19 @@ class ScheduledShift(Base):
     # preset / team setting when placed (Oct 2); '' on older rows, which
     # resolve preset -> team at read time (_sched_dict).
     timezone        = Column(String, default="")
+    # Weather Call (Oct 2026): what a weather call did to THIS placement -
+    # '' | cancelled (off, unpaid) | delayed | shortened | moved | kept - with
+    # the decision it came from and the times it had before, so Reinstate
+    # and a pay question can both see the original. The row is never
+    # deleted by a weather call.
+    weather_status      = Column(String, default="")
+    weather_decision_id = Column(String, default="")
+    original_start_hhmm = Column(String, default="")
+    original_end_hhmm   = Column(String, default="")
+    original_label      = Column(String, default="")
+    # A delay that moves an overnight shift's start past midnight puts the
+    # row on the next calendar day; this is the day it was on (Oct 12).
+    original_work_date  = Column(String, default="")
     # The grid and the reminder scan read one person's days (Oct 2).
     __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 
@@ -2443,6 +2465,16 @@ class ShiftGroup(Base):
     # sort_order is the manager's own order (Reorder Teams), then name.
     archived        = Column(Integer, default=0)
     sort_order      = Column(Integer, default=0)
+    # Weather Call (Neil, Oct 10 2026): where this group works - an HrWorkSite
+    # whose coordinates the weather watch reads. '' = no site, which means no
+    # weather advisory for the group (the schedule says so to its managers).
+    work_site_id    = Column(String, default="")
+    # Who makes this group's weather call (JSON list of emails). Each must
+    # hold Manage access to Shifts (manager and above). Empty = the group's
+    # schedulers, then the company's managers.
+    weather_decider_emails = Column(String, default="")
+    # 1 = the weather watch includes this group (when its company is switched on).
+    weather_alerts  = Column(Integer, default=1)
 
 
 class ShiftGroupMember(Base):
@@ -2916,6 +2948,13 @@ class TaskProject(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # How the project opens for everyone who has not chosen otherwise in it
+    # (Oct 2026): {view: list|board|..., group: status|...}. Set by the owner.
+    default_view  = Column(JSON, nullable=True)
+    # Dashboard charts the project shares with everyone who can see it
+    # ([chart configs], same shape as a person's own charts in their
+    # task_table_prefs "charts" document). Editors curate.
+    shared_charts = Column(JSON, default=list)
 
 
 class TaskPortfolio(Base):
@@ -3065,6 +3104,15 @@ class TaskComment(Base):
     edited_at    = Column(String, default="")
     pinned       = Column(Boolean, default=False)
     internal     = Column(Boolean, default=False)   # ticket notes only: agent-visible, not shared with the requester
+    # Threads, reactions and action items (Oct 2026). A reply carries the ROOT
+    # comment's id in parent_id (one level: a reply to a reply joins the same
+    # thread). reactions is {emoji: [emails]}. An assigned comment names the
+    # person who has to act on it; resolving it closes the item.
+    parent_id      = Column(String, default="", index=True)
+    reactions      = Column(JSON, default=dict)
+    assignee_email = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    resolved_by    = Column(String, default="")
 
 
 class TaskAttachment(Base):
@@ -3133,10 +3181,17 @@ class TaskAutomationRule(Base):
     __tablename__ = "task_automation_rules"
     id         = Column(String, primary_key=True)
     name       = Column(String, nullable=False)
-    trigger    = Column(JSON, default=dict)              # {type, value?}
-    actions    = Column(JSON, default=list)              # [{type, value}]
+    trigger    = Column(JSON, default=dict)              # {type, value?} - see task_automation.TRIGGER_TYPES
+    actions    = Column(JSON, default=list)              # [{type, value}] - task_automation.ACTION_TYPES
     enabled    = Column(Boolean, default=True)
     created_at = Column(String, default="")
+    # Engine (Oct 2026, task_automation.py). Until then rules were stored and
+    # never run. `conditions` narrows a trigger ([{field, op, value}] - project,
+    # status, priority, tag, assignee, team; is / is_not); the counters feed
+    # the Runs panel.
+    conditions  = Column(JSON, default=list)
+    run_count   = Column(Integer, default=0)
+    last_run_at = Column(String, default="")
 
 
 class TaskTemplate(Base):
@@ -5755,3 +5810,265 @@ class NexusWorkforceScorecardLog(Base):
     absent_count  = Column(Integer, default=0)          # absent all week
     below_count   = Column(Integer, default=0)          # below expected + well below
     created_at    = Column(String, default="")
+
+
+class CubbyDailySnapshot(Base):
+    """One row per storage facility per day, written by cubby.py each time the
+    Operations figures are pulled (Oct 2026). Cubby reports today only; this is
+    the history behind the trend charts. Counts and cents - no tenant details.
+    New table - create_all builds it; main._enable_rls_everywhere turns RLS on
+    at startup."""
+    __tablename__ = "cubby_daily_snapshots"
+    id                     = Column(String, primary_key=True)   # "<facility_id>:<YYYY-MM-DD>"
+    facility_id            = Column(String, index=True, nullable=False)
+    snapshot_date          = Column(String, index=True, nullable=False)  # facility-local day, YYYY-MM-DD
+    units_total            = Column(Integer, default=0)
+    units_rented           = Column(Integer, default=0)
+    units_vacant           = Column(Integer, default=0)
+    units_unavailable      = Column(Integer, default=0)
+    area_total             = Column(Integer, default=0)          # square feet
+    area_rented            = Column(Integer, default=0)
+    rent_roll_cents        = Column(BigInteger, default=0)
+    vacant_potential_cents = Column(BigInteger, default=0)
+    past_due_cents         = Column(BigInteger, default=0)
+    past_due_tenants       = Column(Integer, default=0)
+    autopay_count          = Column(Integer, default=0)
+    captured_at            = Column(String, default="")          # UTC iso of the last pull that day
+
+
+class OpsCompetitor(Base):
+    """A nearby storage facility whose rates one of ours is compared against
+    (Operations -> Market Rates, Oct 2026). `facility_id` is OUR Cubby facility
+    it competes with. Removing one sets `active` false - its recorded rates are
+    history and stay. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "ops_competitors"
+    id             = Column(String, primary_key=True)   # uuid
+    facility_id    = Column(String, index=True, nullable=False)
+    name           = Column(String, default="")
+    address        = Column(String, default="")
+    distance_miles = Column(Float, default=0)
+    website        = Column(String, default="")
+    notes          = Column(Text, default="")
+    active         = Column(Boolean, default=True)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    # Market engine (ops_market_engine.py, Oct 2026). Where it is, which
+    # OpenStreetMap entry it was added from ("node/123"), the public page its
+    # prices are read from, and how the last read went.
+    lat             = Column(Float)
+    lng             = Column(Float)
+    osm_id          = Column(String, default="")
+    rates_url       = Column(String, default="")    # defaults to the website; editable
+    last_checked_at = Column(String, default="")    # UTC ISO
+    last_status     = Column(String, default="")    # ok | no_rates_found | blocked_by_robots | blocked | unreachable | not_connected | error
+    last_detail     = Column(String, default="")
+    watch           = Column(Boolean, default=True) # read by the daily run
+
+
+class OpsCompetitorRate(Base):
+    """One observation of a competitor's rate for one unit size, with the day
+    it was seen. Rows are only ever added - the newest per competitor and size
+    is "the market", the rest is how it moved."""
+    __tablename__ = "ops_competitor_rates"
+    id            = Column(String, primary_key=True)   # uuid
+    competitor_id = Column(String, index=True, nullable=False)
+    facility_id   = Column(String, index=True, nullable=False)   # ours, copied from the competitor for one-table reads
+    width         = Column(Float, default=0)                      # feet
+    depth         = Column(Float, default=0)
+    parking       = Column(Boolean, default=False)                # parking and storage are separate markets
+    rate_cents    = Column(Integer, default=0)                    # per month
+    promo         = Column(String, default="")                    # "First month free", as advertised
+    observed_on   = Column(String, default="", index=True)        # YYYY-MM-DD
+    source        = Column(String, default="manual")              # manual | import | web (read from the competitor's page)
+    entered_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+
+
+# ---------------------------------------------------------------------------
+# Site Models (Neil, Oct 11 2026): a pin an owner dropped on a property's 3D
+# site model - "this spot needs attention". Position is in the model's local
+# meter frame (u along the site axis, v toward the northeast, y up); `unit` is
+# the Cubby unit number when the pin sits on one. The model itself is a JSON
+# file (backend/site_models/), not a table. Enable RLS on dev and prod.
+# ---------------------------------------------------------------------------
+class SiteModelMarkup(Base):
+    __tablename__ = "site_model_markups"
+    id          = Column(String, primary_key=True)   # uuid
+    property_id = Column(String, index=True, default="")
+    unit        = Column(String, default="")
+    building    = Column(String, default="")
+    u           = Column(Float, default=0.0)
+    v           = Column(Float, default=0.0)
+    y           = Column(Float, default=0.0)
+    title       = Column(String, default="")
+    category    = Column(String, default="maintenance")   # maintenance | inspection | note
+    status      = Column(String, default="open")          # open | done
+    ticket_id   = Column(String, default="")
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class WeatherOutlook(Base):
+    """The latest forecast band for one shift group on one day (Weather Call,
+    Oct 2026) - written by weather_watch.scan_once every half hour, read by
+    the schedule grid, which never calls a weather service itself. id is
+    "<group_id>:<YYYY-MM-DD>" so the scan upserts. New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_outlook"
+    id           = Column(String, primary_key=True)
+    group_id     = Column(String, default="", index=True)
+    work_date    = Column(String, default="", index=True)   # YYYY-MM-DD, site-local
+    band         = Column(String, default="quiet")          # quiet | heads_up | major | warning
+    chance       = Column(Integer, default=0)               # highest rain chance in the scheduled hours, %
+    inches       = Column(Float, default=0)                 # rain expected over the scheduled hours
+    storm        = Column(Integer, default=0)               # 1 = a thunderstorm hour reached the storm chance
+    alerts_json  = Column(String, default="")               # NWS warnings in force that day (JSON list of events)
+    window_start = Column(String, default="")               # "7:00 AM" - the scheduled hours the band covers
+    window_end   = Column(String, default="")
+    hourly_json  = Column(String, default="")               # [{time, chance, inches, code}] for those hours
+    shifts       = Column(Integer, default=0)
+    people       = Column(Integer, default=0)
+    timezone     = Column(String, default="")               # the site's zone, from the forecast
+    updated_at   = Column(String, default="")
+
+
+class WeatherAdvisory(Base):
+    """Every weather notice the watch sent for a group-day (Weather Call,
+    Oct 2026): the record for later ("we told them on Thursday at 4 PM, here
+    is the forecast as it stood") and the dedupe - one notice per group, day
+    and band. band is major | warning (the advisory), heads_up (the quiet
+    Teams line) or eased (the all-clear bell). channels_json says what went
+    where and why anything did not. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_advisories"
+    id              = Column(String, primary_key=True)
+    group_id        = Column(String, default="", index=True)
+    work_date       = Column(String, default="", index=True)
+    band            = Column(String, default="")
+    chance          = Column(Integer, default=0)
+    inches          = Column(Float, default=0)
+    storm           = Column(Integer, default=0)
+    alerts_json     = Column(String, default="")
+    window_start    = Column(String, default="")
+    window_end      = Column(String, default="")
+    recipients_json = Column(String, default="")   # who was told (emails)
+    channels_json   = Column(String, default="")   # {"bell": n, "teams": "ok" | reason, "email": n, "dayNote": bool}
+    snapshot_json   = Column(String, default="")   # the hours the band was computed from
+    created_at      = Column(String, default="", index=True)
+
+
+class WeatherDecision(Base):
+    """A weather call (Weather Call, Phase 2 - Oct 2026): what a decider did
+    about one shift group's day because of the weather, and who was told.
+    kind: cancel (the day is off and UNPAID for the people picked), delay
+    (start later), end_early, move (another site or indoor work), proceed
+    (the plan stands despite the forecast). people_json is the roster as it
+    stood - every person on the day with selected / outcome / their shift
+    ids / original times / each channel's result / acknowledgment time -
+    so the record answers "who was told what, when, and did they see it"
+    without the shifts. status: active | superseded (a later call on the
+    same day) | reinstated (undone by Reinstate). New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_decisions"
+    id             = Column(String, primary_key=True)
+    group_id       = Column(String, default="", index=True)
+    work_date      = Column(String, default="", index=True)
+    company        = Column(String, default="")
+    kind           = Column(String, default="")
+    new_start      = Column(String, default="")   # delay: the new start (HH:MM)
+    new_end        = Column(String, default="")   # end_early: the new end
+    move_to        = Column(String, default="")   # move: where
+    reason         = Column(String, default="")
+    sms            = Column(Integer, default=1)   # the crew was texted (unless opted out / no phone)
+    people_json    = Column(Text, default="")
+    outlook_json   = Column(String, default="")   # the forecast band as it stood when the call was made
+    status         = Column(String, default="active", index=True)
+    decided_by     = Column(String, default="")
+    decided_at     = Column(String, default="", index=True)
+    escalated_at   = Column(String, default="")   # the decider was told who had not acknowledged
+    reinstated_by  = Column(String, default="")
+    reinstated_at  = Column(String, default="")
+
+
+class NexusPersonPref(Base):
+    """A person's own notification switches that are not about tasks
+    (task_notify_prefs covers those). First use: weather_sms - whether a
+    weather call texts them (on by default; Neil, Oct 10). New table -
+    create_all builds it; RLS from the startup sweep."""
+    __tablename__ = "nexus_person_prefs"
+    email       = Column(String, primary_key=True)
+    weather_sms = Column(Integer, default=1)
+    updated_at  = Column(String, default="")
+
+
+class TaskAutomationRun(Base):
+    """One firing of a task automation rule (task_automation.py, Oct 2026):
+    what rule, on which task, what it did - the Runs panel under Manage >
+    Automation Rules, and the once-per-rule-per-task-per-date dedupe for the
+    scheduled "due date arrives" trigger (`dedupe_key` = rule:task:date, blank
+    for edit-driven runs). New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "task_automation_runs"
+    id           = Column(String, primary_key=True)
+    rule_id      = Column(String, default="", index=True)
+    rule_name    = Column(String, default="")           # captured so the log reads after the rule is deleted
+    task_id      = Column(String, default="", index=True)
+    task_code    = Column(String, default="")
+    task_title   = Column(String, default="")
+    trigger_type = Column(String, default="")
+    event        = Column(String, default="")           # created|updated|bulk|scheduled
+    actions      = Column(JSON, default=list)           # human lines, one per action applied
+    status       = Column(String, default="applied")    # applied|error
+    detail       = Column(String, default="")           # the error, when status is error
+    dedupe_key   = Column(String, default="", index=True)
+    at           = Column(String, default="", index=True)
+
+
+class TaskChecklistItem(Base):
+    """One line of a task's checklist (Oct 2026): the small steps inside a
+    task that do not deserve to be subtasks - "call the vendor", "attach the
+    photo". Flat, ordered, each line can be ticked and can name a person.
+    Task.checklist_total / checklist_done are kept in step by
+    routers/tasks._recount_checklist. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "task_checklist_items"
+    id             = Column(String, primary_key=True)
+    task_id        = Column(String, default="", index=True)
+    title          = Column(String, nullable=False)
+    done           = Column(Boolean, default=False)
+    done_at        = Column(String, default="")
+    done_by        = Column(String, default="")
+    assignee_email = Column(String, default="")
+    position       = Column(Float, default=0)
+    created_at     = Column(String, default="")
+    created_by     = Column(String, default="")
+
+
+class TaskTimeEntry(Base):
+    """One stretch of time a person spent on a task (Oct 2026): a timer they
+    started and stopped, or minutes they typed in afterwards. Deliberately
+    NOT a Time Clock punch: punches are attendance and payroll
+    (timeclock.py); this is effort against a task, and nothing here touches a
+    timesheet. One running entry (ended_at blank) per person at a time.
+    New table - create_all builds it; main._enable_rls_everywhere turns RLS on
+    at startup."""
+    __tablename__ = "task_time_entries"
+    id           = Column(String, primary_key=True)
+    task_id      = Column(String, default="", index=True)
+    person_email = Column(String, default="", index=True)
+    started_at   = Column(String, default="")          # UTC iso; for a manual entry, the day it was for (noon UTC)
+    ended_at     = Column(String, default="", index=True)   # blank while the timer runs
+    minutes      = Column(Integer, default=0)          # whole minutes, set when stopped or typed
+    note         = Column(String, default="")
+    billable     = Column(Boolean, default=False)
+    source       = Column(String, default="timer")     # timer|manual
+    created_at   = Column(String, default="")
+    # One running entry per person, enforced by the database: two Starts at
+    # the same moment (double-click, second tab) cannot both land. Partial
+    # unique index - SQLite and Postgres both support the WHERE. Existing
+    # databases get it from main.py's migration lists.
+    __table_args__ = (
+        Index("ux_task_time_running", "person_email", unique=True,
+              sqlite_where=(ended_at == ""), postgresql_where=(ended_at == "")),
+    )

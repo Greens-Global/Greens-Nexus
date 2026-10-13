@@ -60,18 +60,7 @@ const collides = (a, b) =>
 // "slide up/left", an item can jump across columns into a hole.
 function placeAll(order) {
   const placed = [];
-  for (const it of order) {
-    const w = Math.max(1, Math.min(it.w || 2, COLS));
-    const h = Math.max(1, it.h || 2);
-    let done = false;
-    for (let y = 0; y < 500 && !done; y++) {
-      for (let x = 0; x <= COLS - w && !done; x++) {
-        const cand = { ...it, x, y, w, h };
-        if (!placed.some(p => collides(cand, p))) { placed.push(cand); done = true; }
-      }
-    }
-    if (!done) placed.push({ ...it, x: 0, w, h });   // unreachable backstop
-  }
+  for (const it of order) placed.push(firstFreeSpot(placed, it, 0));
   return placed;
 }
 
@@ -95,6 +84,21 @@ export function compactLayout(items) {
   const best = [reading, byArea, byH].map(placeAll)
     .reduce((a, b) => (score(b) < score(a) ? b : a));
   return items.map(it => best.find(p => p.i === it.i) || it);
+}
+
+// The first free spot for `it` scanning from row `fromY` down, every column -
+// what placeAll fills a board with, and where a duplicate lands: beside its
+// original when there is room, else the next row with room.
+export function firstFreeSpot(items, it, fromY = 0) {
+  const w = Math.max(1, Math.min(it.w || 2, COLS));
+  const h = Math.max(1, it.h || 2);
+  for (let y = Math.max(0, fromY); y < fromY + 500; y++) {
+    for (let x = 0; x <= COLS - w; x++) {
+      const cand = { ...it, x, y, w, h };
+      if (!items.some(p => collides(cand, p))) return cand;
+    }
+  }
+  return { ...it, x: 0, y: items.reduce((m, p) => Math.max(m, p.y + p.h), 0), w, h };   // unreachable backstop
 }
 
 // Reading order: the order a phone stacks widgets in (DashboardGrid's
@@ -217,6 +221,14 @@ export function useDashboards(widgetTier) {
     setEditing(true);
   };
   const removeWidget = (i) => setLayout(layout.filter(w => w.i !== i));
+  // Duplicate (Oct 11): a second copy with the same setup, in the nearest
+  // free spot from the original's row - a row of Action Tiles in three clicks.
+  const duplicateWidget = (i) => {
+    const cur = layoutRef.current;
+    const src = cur.find(w => w.i === i); if (!src) return;
+    const copy = { ...src, i: rid(), ...(src.config ? { config: { ...src.config } } : {}) };
+    setLayout([...cur, firstFreeSpot(cur, copy, src.y)]);
+  };
   const autoFit = () => setLayout(compactLayout(layoutRef.current));
   const moveWidget = (i, dir) => setLayout(moveInOrder(layoutRef.current, i, dir));
   const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w));
@@ -300,7 +312,7 @@ export function useDashboards(widgetTier) {
 
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
-    setEditing, setLayout, addWidget, removeWidget, autoFit, moveWidget, updateWidgetConfig,
+    setEditing, setLayout, addWidget, removeWidget, duplicateWidget, autoFit, moveWidget, updateWidgetConfig,
     switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, clearDefaultView, removeView, renameView, reload: load,
   };
 }

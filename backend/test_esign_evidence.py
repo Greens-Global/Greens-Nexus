@@ -28,6 +28,11 @@ import models
 from routers import esign
 
 models.Base.metadata.create_all(bind=database.engine)
+# The append-only triggers are installed by the startup migrations, not by
+# create_all. On a database that has never been through an app start they do
+# not exist yet, and criterion 1 below would be testing nothing.
+import main  # noqa: E402
+main._run_migrations()
 
 
 def _envelope(db, **kw):

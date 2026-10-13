@@ -130,7 +130,7 @@ class DirectoryTests(unittest.TestCase):
         body = self._get(STAFF).json()
         by = {p["email"]: p for p in body["people"]}
         self.assertEqual(by[STAFF]["availability"]["state"], "in")
-        self.assertEqual(by[STAFF]["availability"]["label"], "Clocked In")
+        self.assertEqual(by[STAFF]["availability"]["label"], "On Shift")
         self.assertTrue(by[STAFF]["availability"]["detail"].startswith("since "))
         off = by[LEAVE]["availability"]
         self.assertEqual(off["state"], "off")
@@ -152,7 +152,7 @@ class DirectoryTests(unittest.TestCase):
         body = self._get(STAFF).json()
         by = {p["email"]: p for p in body["people"]}
         self.assertEqual(by[BOSS]["availability"], {"state": "off", "label": "On Leave", "detail": ""})
-        self.assertEqual(by[ADMIN]["availability"], {"state": "scheduled", "label": "Scheduled", "detail": "9:00 AM - 5:30 PM"})
+        self.assertEqual(by[ADMIN]["availability"], {"state": "scheduled", "label": "Off Shift", "detail": "scheduled 9:00 AM - 5:30 PM"})
         # Clocked in beats the holiday; a person with nothing else gets the holiday.
         self.assertEqual(by[STAFF]["availability"]["state"], "in")
         self.assertEqual(by[LEAVE]["availability"]["state"], "off")
@@ -174,6 +174,19 @@ class DirectoryTests(unittest.TestCase):
         db.close()
         by = {p["email"]: p for p in self._get(STAFF).json()["people"]}
         self.assertEqual(by[STAFF]["availability"]["state"], "out")
+        self.assertEqual(by[STAFF]["availability"]["label"], "Off Shift")
+
+    def test_a_clock_user_with_no_punch_today_is_off_shift(self):
+        db = database.SessionLocal()
+        yesterday = datetime.now(timezone.utc) - timedelta(days=2)
+        db.add(models.TimePunch(id="p-old", employee_email=BOSS, kind="out", at=yesterday.isoformat(),
+                                local_date=yesterday.date().isoformat(), tz_offset_min=420,
+                                created_at=yesterday.isoformat()))
+        db.commit()
+        db.close()
+        by = {p["email"]: p for p in self._get(STAFF).json()["people"]}
+        self.assertEqual(by[BOSS]["availability"], {"state": "out", "label": "Off Shift", "detail": ""})
+        self.assertIsNone(by[ADMIN]["availability"])     # never punches: nothing guessed
 
     def test_a_guest_is_refused(self):
         r = self._get(GUEST)
@@ -205,7 +218,8 @@ class DirectoryTests(unittest.TestCase):
             calls.append(sorted(json["ids"]))
             resp = mock.Mock(); resp.raise_for_status = lambda: None
             resp.json = lambda: {"value": [{"id": "g-staff", "availability": "Busy", "activity": "InACall"},
-                                           {"id": "g-boss", "availability": "Available", "activity": "Available"}]}
+                                           {"id": "g-boss", "availability": "Available", "activity": "Available",
+                                            "outOfOfficeSettings": {"isOutOfOffice": True, "message": "Back Monday"}}]}
             return resp
 
         with mock.patch.object(graph_mail, "graph_configured", return_value=True), \
@@ -216,6 +230,8 @@ class DirectoryTests(unittest.TestCase):
         self.assertTrue(first["enabled"])
         self.assertEqual(first["presence"][STAFF], {"availability": "Busy", "activity": "InACall"})
         self.assertEqual(first["presence"][BOSS]["availability"], "Available")
+        self.assertTrue(first["presence"][BOSS]["outOfOffice"])
+        self.assertNotIn("Back Monday", str(first))              # the auto-reply text never leaves
         self.assertEqual(calls, [["g-boss", "g-staff"]])        # one Graph call served both viewers (ids are case-insensitive GUIDs)
         self.assertEqual(second["presence"], first["presence"])
 

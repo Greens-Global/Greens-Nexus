@@ -6,19 +6,19 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
+  ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
-  Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
+  Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot } from './components';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -27,6 +27,9 @@ import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
+import Checklist from './Checklist';
+import CommentThread from './CommentThread';
+import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -35,6 +38,45 @@ import { MonthDayControls, YearDayControls } from './RecurrenceParts';
 import { useCustomSections } from './customSections';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
+/** A whole-number box for the Recurrence menu (Oct 13 2026). It used to save
+ *  - clamped to at least 1 - on every keystroke: clearing "1" put it straight
+ *  back, so typing "2" made "12", and each key sent a save and a "Changes
+ *  saved" toast. Now the box holds what is typed and saves once, on Enter or
+ *  leaving it, only a whole number >= `min`; Escape or anything else puts the
+ *  saved value back. `allowEmpty` lets clearing it save `null` (no count). */
+export function CommitNumberInput({ value, onCommit, min = 1, max = 9999, allowEmpty = false, style, ...rest }) {
+  const shown = value == null ? '' : String(value);
+  const [text, setText] = useState(shown);
+  const [synced, setSynced] = useState(shown);
+  if (synced !== shown) { setSynced(shown); setText(shown); }   // saved elsewhere
+  const commit = () => {
+    const raw = text.trim();
+    if (raw === '' && allowEmpty) { if (value != null) onCommit(null); return; }
+    const n = Number(raw);
+    if (raw === '' || !Number.isInteger(n) || n < min) { setText(shown); return; }
+    const v = Math.min(max, n);
+    setText(String(v));
+    if (v !== Number(value)) onCommit(v);
+  };
+  return (
+    <input type="number" inputMode="numeric" min={min} max={max} step="1" value={text} {...rest}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.stopPropagation(); setText(shown); }
+      }}
+      style={style} />
+  );
+}
+
+/** Toggling a day in or out of a recurrence's days - never down to none: a
+ *  rule with no days has nothing to land on. */
+const toggleDay = (days, i) => (days.includes(i)
+  ? (days.length > 1 ? days.filter((x) => x !== i) : days)
+  : [...days, i].sort((a, b) => a - b));
+
 /** "On these days" - the S M T W T F S row Weekly and Custom(week) share
  *  inside the Recurrence popover. Multi-toggle, stays open (no close-on-pick)
  *  since more than one day is usually wanted. */
@@ -297,6 +339,23 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     return result;
   };
 
+  // Duplicate (Oct 13 2026): a copy of this task and its subtasks
+  // (duplicateTaskData - what the task is, not its comments, files or
+  // recurrence), opened straight away; Undo deletes the copy again.
+  const duplicate = async () => {
+    try {
+      const copy = await createTask(duplicateTaskData(task));
+      for (const sub of subtasks) {
+        await createTask(duplicateTaskData(sub, { title: sub.title, parentTaskId: copy.id })).catch(() => {});
+      }
+      offerUndo(`Duplicated "${(task.title || '').slice(0, 40)}"`, () => deleteTask(copy.id));
+      setTrail([]);
+      setActiveId(copy.id);
+    } catch (e) {
+      alert(`Could not duplicate the task: ${e?.message || e}`);
+    }
+  };
+
   const counts = {
     comments: (task.commentIds || []).length,
     attachments: (task.attachmentIds || []).length,
@@ -394,6 +453,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
+                  <MenuItem icon={<Copy size={14} />} onClick={() => { close(); duplicate(); }}>Duplicate Task</MenuItem>
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
@@ -679,6 +739,9 @@ function TitleInput({ value, completed, onCommit }) {
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments }) {
   const isMobile = useIsMobile();
+  // Whether the folding sections below have anything in them.
+  const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
+  const hasComments = (task.commentIds || []).length > 0;
   const { statusMeta, statusOrder, statusOrderFor, customFields = [], tasks: allTasks = [] } = useTasks();
   // The task's own project, not the view's: this drawer opens from My Tasks and
   // from search, where no project is locked.
@@ -891,7 +954,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
               if (recStep === 'weekly') {
                 const cur = task.recurrence?.freq === 'weekly' ? task.recurrence : {};
                 const days = cur.daysOfWeek ?? (cur.dayOfWeek != null ? [cur.dayOfWeek] : [1]);
-                const toggle = (i) => pickFreq({ freq: 'weekly', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() });
+                const toggle = (i) => { const next = toggleDay(days, i); if (next !== days) pickFreq({ freq: 'weekly', daysOfWeek: next }); };
                 return (<>
                   <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
                   <div style={{ padding: '4px 10px 8px' }}>
@@ -969,8 +1032,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                   <div style={{ padding: '4px 10px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                       <span style={{ color: NX.faint }}>Every</span>
-                      <input type="number" min="1" step="1" value={interval}
-                        onChange={(e) => applyCustom({ interval: Math.max(1, Number(e.target.value) || 1) })}
+                      <CommitNumberInput value={interval} min={1} max={365} aria-label="Repeat every"
+                        onCommit={(n) => applyCustom({ interval: n })}
                         style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 12 }} />
                       <select value={unit} onChange={(e) => applyCustom({ unit: e.target.value })} style={recSel}>
                         <option value="day">Day{interval === 1 ? '' : 's'}</option>
@@ -981,7 +1044,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                     </div>
                     {unit === 'week' && (<>
                       <div style={{ fontSize: 11, color: NX.faint }}>On these days</div>
-                      <RecurDayPicker value={days} onToggle={(i) => applyCustom({ unit: 'week', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() })} />
+                      <RecurDayPicker value={days} onToggle={(i) => { const next = toggleDay(days, i); if (next !== days) applyCustom({ unit: 'week', daysOfWeek: next }); }} />
                     </>)}
                     {unit === 'month' && (<>
                       <div style={{ fontSize: 11, color: NX.faint }}>On</div>
@@ -1021,8 +1084,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
               )}
               {recEndMode === 'after' && (
                 <>
-                  <input type="number" min="1" step="1" value={task.recurrence.count ?? ''} placeholder="e.g. 10"
-                    onChange={(e) => patchRecEnd(e.target.value ? { count: Math.max(1, Number(e.target.value)) } : {})}
+                  <CommitNumberInput value={task.recurrence.count ?? null} min={1} allowEmpty placeholder="e.g. 10" aria-label="Occurrences"
+                    onCommit={(n) => patchRecEnd(n == null ? {} : { count: n })}
                     style={{ ...inputStyle, width: 72, padding: '5px 8px', fontSize: 12 }} />
                   <span style={{ color: NX.faint }}>times</span>
                 </>
@@ -1038,10 +1101,16 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
       </Section>
 
+      {/* Checklist (Oct 2026) - open when it has lines, folded when empty so
+          a task that never needed one is not pushed down by an add box. */}
+      <Section defaultOpen={(task.checklistTotal || 0) > 0} title={task.checklistTotal ? `Checklist ${task.checklistDone || 0}/${task.checklistTotal}` : 'Checklist'}>
+        <Checklist task={task} people={people} />
+      </Section>
+
       {/* Subtasks (inline) */}
       {/* Open whenever the task has subtasks (Oct 13 2026) - folded, they
           were easy to miss. */}
-      <Section key={`${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
+      <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
         <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading />
       </Section>
@@ -1050,19 +1119,21 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           task already has time on it (Oct 13 2026; see taskTracksTime). */}
       {taskTracksTime(task, projects, allTasks) && (
         <Section defaultOpen={false} title="Time Tracking">
-          <TimeTracking task={task} patch={patch} />
+          <TimeTracking task={task} />
         </Section>
       )}
 
-      {/* Approval */}
-      <Section defaultOpen={false} title="Approval">
+      {/* Approval, Comments (and Subtasks above): open when there is
+          something in them, folded when empty (Oct 13 2026). Keyed so the
+          choice is made again for each task, and when content first appears. */}
+      <Section key={`approval:${task.id}:${hasApproval}`} defaultOpen={hasApproval} title="Approval">
         <Approval task={task} patch={patch} />
       </Section>
 
       {/* Add comment - dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
       {!isMobile && (
-        <Section title="Comments">
+        <Section key={`comments:${task.id}:${hasComments}`} defaultOpen={hasComments} title="Comments">
           <QuickComment task={task} addComment={addComment} getComments={getComments}
             nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} />
         </Section>
@@ -1166,12 +1237,14 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   }, [getComments, task.id]);
   useEffect(() => { load(); }, [load]);
 
+  const [assignTo, setAssignTo] = useState('');
   const submit = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
     try {
-      const c = await addComment(task.id, body);
+      const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {});
       setBody('');
+      setAssignTo('');
       if (pending.length) {
         await uploadPendingAttachments(task.id, c.id, pending);
         setPending([]);
@@ -1184,15 +1257,15 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   // Same pin/edit/delete shape as the full Comments tab (CommentsTab) - this is
   // a preview of the identical data, not a separate simplified view, so it
   // needs the same actions rather than a read-only cut-down.
-  const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); load(); };
-  const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); load(); };
-  const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); load(); };
+  const handlers = useCommentHandlers(task, addComment, load);
 
   // Newest last, like a chat log - the composer sits directly under the most
   // recent line so the thread reads top to bottom into the box you type in.
+  // Threads, not lines: a question and its replies stay together.
   const all = rows || [];
-  const shown = all.slice(-RECENT_COMMENTS);
-  const hidden = all.length - shown.length;
+  const threads = threadComments(all);
+  const shown = threads.slice(-RECENT_COMMENTS);
+  const hidden = threads.length - shown.length;
 
   return (
     <div>
@@ -1209,10 +1282,8 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
                 an Asana-synced comment showed as "asana-sync" with the raw
                 "[Asana · Name]" stamp still in the body instead of the real
                 author. Reusing the component means the two can't drift again. */}
-            {shown.map((c) => (
-              <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
-                attachments={attachments.get(c.id) || []}
-                onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />
+            {shown.map((th) => (
+              <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />
             ))}
           </div>
           <button onClick={onViewAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.primary, marginTop: 8 }}>
@@ -1235,9 +1306,10 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
         <span style={{ fontSize: 11, color: NX.faint }}>
           Type <b>@</b> to mention someone - they'll get an email. ⌘/Ctrl+Enter to post.
         </span>
+        <AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} />
         <button onClick={submit} disabled={isEmptyDoc(body) || busy}
           style={{ ...btn('primary'), opacity: (isEmptyDoc(body) || busy) ? 0.5 : 1, flexShrink: 0 }}>
-          {busy ? 'Posting…' : 'Comment'}
+          {busy ? 'Posting…' : assignTo ? 'Assign Comment' : 'Comment'}
         </button>
       </div>
     </div>
@@ -1264,29 +1336,6 @@ function DescriptionInput({ task, value, onCommit, refresh }) {
       onAttachFile={attach}
       minHeight={90}
     />
-  );
-}
-
-function TimeTracking({ task, patch }) {
-  const [hrs, setHrs] = useState('');
-  const [mins, setMins] = useState('');
-  const log = () => {
-    const h = (Number(hrs) || 0) + (Number(mins) || 0) / 60;
-    if (h > 0) { patch({ actualHours: (task.actualHours || 0) + h }); setHrs(''); setMins(''); }
-  };
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 13, flexWrap: 'wrap' }}>
-      <div><div style={{ color: NX.faint }}>Estimate</div><div style={{ fontWeight: 700, color: NX.ink }}>{fmtHours(task.estimateHours)}</div></div>
-      <div><div style={{ color: NX.faint }}>Actual</div><div style={{ fontWeight: 700, color: NX.blue }}>{fmtHours(task.actualHours)}</div></div>
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input value={hrs} onChange={(e) => setHrs(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" step="1" placeholder="hrs"
-          style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
-        <span style={{ color: NX.faint }}>:</span>
-        <input value={mins} onChange={(e) => setMins(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" max="59" step="5" placeholder="min"
-          style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
-        <button onClick={log} style={{ ...btn('primary'), padding: '7px 11px', fontSize: 12 }}><Clock size={13} /> Log</button>
-      </div>
-    </div>
   );
 }
 
@@ -1347,10 +1396,12 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
+  const [assignTo, setAssignTo] = useState('');
   const submit = async () => {
     if (isEmptyDoc(body)) return;
     setBody('');
-    const c = await addComment(task.id, body).catch(() => null);
+    const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {}).catch(() => null);
+    setAssignTo('');
     if (c && pending.length) {
       await uploadPendingAttachments(task.id, c.id, pending);
       setPending([]);
@@ -1358,11 +1409,11 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
     }
     reload();
   };
-  const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); reload(); };
-  const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); reload(); };
-  const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); reload(); };
+  const handlers = useCommentHandlers(task, addComment, reload);
 
-  const list = (comments || []).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  // Pinned threads first, then oldest first; a resolved thread renders folded
+  // (CommentThread) so finished action items stop taking the room.
+  const list = threadComments(comments || []).slice().sort((a, b) => (b.root.pinned ? 1 : 0) - (a.root.pinned ? 1 : 0));
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1375,117 +1426,47 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
           </span>
+          <span style={{ marginLeft: 'auto' }}><AssignToggle value={assignTo} onChange={setAssignTo} people={people} nameOf={nameOf} /></span>
           <button onClick={submit} disabled={isEmptyDoc(body)}
-            style={{ ...btn('primary'), marginLeft: 'auto', opacity: isEmptyDoc(body) ? 0.5 : 1 }}>Send</button>
+            style={{ ...btn('primary'), opacity: isEmptyDoc(body) ? 0.5 : 1 }}>{assignTo ? 'Assign Comment' : 'Send'}</button>
         </div>
       </div>
       {comments === null ? <LoadingState />
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
-          : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail}
-              attachments={attachments.get(c.id) || []}
-              onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />)}
-    </div>
-  );
-}
-function CommentItem({ c, nameOf, mine, attachments = [], onPin, onEdit, onDelete }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(c.body);
-  const [hover, setHover] = useState(false);
-  const [zoomImage, zoomViewer] = useImageZoom();
-  const imported = parseImportedAuthor(c.body);
-  const displayName = imported?.name || nameOf(c.authorId);
-  const displayBody = imported ? imported.text : c.body;
-  return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? 'rgba(217,119,6,0.14)' : 'transparent' }}>
-      <Avatar email={c.authorId} name={displayName} size={26} />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{displayName}</span>
-          <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
-          {c.editedAt && <span style={{ fontSize: 11, fontStyle: 'italic', color: NX.faint }}>(edited)</span>}
-          {c.pinned && <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
-            <button onClick={onPin} title={c.pinned ? 'Unpin' : 'Pin'} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pin size={12} /></button>
-            {mine && <>
-              <button onClick={() => { setText(displayBody); setEditing(true); }} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={12} /></button>
-              <button onClick={onDelete} title="Delete" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={12} /></button>
-            </>}
-          </div>
-        </div>
-        {editing ? (
-          <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <RichDescription value={text} onChange={setText} minHeight={56} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <button onClick={() => { onEdit(text); setEditing(false); }} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Save</button>
-              <button onClick={() => setEditing(false)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12 }}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          // Bodies are HTML now (rich editor + Asana's html_text); richBodyHtml
-          // sanitizes them and escapes the older plain-text rows.
-          <div className="nx-rich-view" style={{ marginTop: 2, color: NX.dim }} onClick={zoomImage}
-            dangerouslySetInnerHTML={{ __html: richBodyHtml(displayBody, nameOf) }} />
-        )}
-        {zoomViewer}
-        {attachments.length > 0 && <CommentAttachments items={attachments} />}
-      </div>
+          : list.map((th) => <CommentThread key={th.root.id} thread={th} nameOf={nameOf} myEmail={myEmail} people={people} attachments={attachments} {...handlers} />)}
     </div>
   );
 }
 
-// Files attached while THIS comment was composed - see TaskAttachment.comment_id.
-// An image renders as a real inline preview (not the small chip the Attachments
-// tab uses); anything else renders as a named card with a Download link,
-// matching Asana's own comment-attachment layout.
-function CommentAttachments({ items }) {
-  const [view, setView] = useState(null);   // attachment open in the in-app viewer
-  // A row without a url is a failed/legacy upload (see uploadTaskAttachment) -
-  // it renders as a dead card, never a broken link. Everything stored opens the
-  // in-app viewer (images/videos/PDFs inline, other types a download card).
-  const card = (a, body) => {
-    const href = a.dataUrl || a.url;
-    const style = {
-      display: 'flex', alignItems: 'center', gap: 10, width: 260, padding: '9px 12px',
-      border: `1px solid ${NX.border}`, borderRadius: 10, textDecoration: 'none',
-      opacity: href ? 1 : 0.65,
-    };
-    return href
-      ? <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
-          style={{ ...style, background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'inherit' }}>{body}</button>
-      : <div key={a.id} style={style} title="This file failed to upload and isn't available - remove it and re-attach">{body}</div>;
+// The per-comment actions both comment surfaces share (Oct 2026): pin, edit,
+// delete, reply in the thread, react, resolve, assign. Each one re-reads the
+// list afterwards; the server is the source of truth for who may do what,
+// and a refused action simply leaves the thread as it was.
+function useCommentHandlers(task, addComment, reload) {
+  const quiet = (p) => p.catch((e) => { if (e?.message) window.alert(e.message); });
+  return {
+    onPin: async (c) => { await quiet(api.editTaskComment(c.id, { pinned: !c.pinned })); reload(); },
+    onEdit: async (c, text) => { await quiet(api.editTaskComment(c.id, { body: text })); reload(); },
+    onDelete: async (c) => { if (!window.confirm('Delete this comment?')) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
+    onReply: async (root, html) => { await quiet(addComment(task.id, html, { parent_id: root.id })); reload(); },
+    onReact: async (c, emoji) => { await quiet(api.reactTaskComment(c.id, emoji)); reload(); },
+    onResolve: async (c, v) => { await quiet(api.editTaskComment(c.id, { resolved: v })); reload(); },
+    onAssign: async (c, email) => { await quiet(api.editTaskComment(c.id, { assignee_email: email })); reload(); },
   };
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-      {items.map((a) => {
-        const href = a.dataUrl || a.url;
-        if (a.kind === 'image' && href) {
-          return (
-            <button key={a.id} type="button" onClick={() => setView({ ...a, url: href })} title={`View ${a.name}`}
-              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', alignSelf: 'flex-start' }}>
-              <img src={href} alt={a.name}
-                style={{ display: 'block', maxWidth: 320, maxHeight: 240, borderRadius: 10, border: `1px solid ${NX.border}`, objectFit: 'cover' }} />
-            </button>
-          );
-        }
-        return card(a, (
-          <>
-            <Paperclip size={16} style={{ color: NX.dim, flexShrink: 0 }} />
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-              <div style={{ fontSize: 11, color: NX.faint, display: 'flex', alignItems: 'center', gap: 4 }}>
-                {href ? <><Download size={10} /> View or download</> : 'Not stored'}
-              </div>
-            </div>
-          </>
-        ));
-      })}
-      {view && <AttachmentViewer att={view} onClose={() => setView(null)} />}
-    </div>
-  );
 }
 
+// "Assign to" beside the Send button: pick a person and the comment posts as
+// an action item for them (a bell and an email of their own; closed by
+// resolving it). Reads as a dot until someone is chosen.
+function AssignToggle({ value, onChange, people, nameOf }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: value ? NX.ink : NX.faint, whiteSpace: 'nowrap' }}>
+      <PersonDot value={value} people={people} nameOf={nameOf} onChange={onChange} size={18}
+        emptyTitle="Assign this comment to someone" nobodyLabel="Nobody (not an action item)" />
+      {value ? <>Assign to <b>{nameOf(value)}</b> <button type="button" onClick={() => onChange('')} aria-label="Do not assign" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={11} /></button></> : 'Assign to…'}
+    </span>
+  );
+}
 // ── Activity ────────────────────────────────────────────────────────────────
 function ActivityTab({ taskId, nameOf }) {
   const [rows, setRows] = useState(null);
@@ -1613,22 +1594,42 @@ function AttachmentsTab({ task, refresh }) {
 }
 
 // ── Subtasks ────────────────────────────────────────────────────────────────
+/** A subtask row's people: its assignees as faces, and a click opens a
+ *  searchable list to tick several on or off - right in the row, without
+ *  opening the subtask (Oct 13 2026: it was one person, display only). */
 function SubtaskAssignee({ subtask, people, updateTask }) {
+  const [q, setQ] = useState('');
+  const on = taskAssignees(subtask);
+  const filtered = matchPeople(people, q);
+  const toggle = (email) => updateTask(subtask.id, {
+    assigneeIds: on.includes(email) ? on.filter((x) => x !== email) : [...on, email],
+  });
+  const nav = useListNav(filtered, { query: q, onPick: (p) => toggle(p.email) });
   return (
     <div onClick={(e) => e.stopPropagation()}>
-      <Pop width={200} trigger={(t) => (
-        <button onClick={t} title={subtask.assigneeId ? 'Change assignee' : 'Assign'} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
-          {subtask.assigneeId
-            ? <Avatar email={subtask.assigneeId} size={18} />
+      <Pop width={240} trigger={(t) => (
+        <button type="button" onClick={() => { setQ(''); t(); }} aria-label={`Assignees of ${subtask.title}`}
+          title={on.length ? `Assigned to ${on.length === 1 ? '1 person' : `${on.length} people`} - change` : 'Assign'}
+          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+          {on.length
+            ? on.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} card={false} /></span>)
             : <span style={{ width: 18, height: 18, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
+          {on.length > 3 && <span style={{ fontSize: 11, color: NX.faint, marginLeft: 3 }}>+{on.length - 3}</span>}
         </button>
       )}>
-        {(close) => (
+        {() => (
           <>
-            <MenuItem icon={!subtask.assigneeId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { updateTask(subtask.id, { assigneeId: '' }); close(); }}>Unassigned</MenuItem>
-            {people.map((p) => (
-              <MenuItem key={p.email} icon={<Avatar email={p.email} name={p.name} size={16} card={false} />} onClick={() => { updateTask(subtask.id, { assigneeId: p.email }); close(); }}>{p.name}</MenuItem>
+            <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+              {...nav.inputProps} onKeyDown={nav.onKeyDown}
+              style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
+            {filtered.map((p, i) => (
+              <label key={p.email} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" className="nx-check" checked={on.includes(p.email)} onChange={() => toggle(p.email)} />
+                <Avatar email={p.email} name={p.name} size={18} card={false} />
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </label>
             ))}
+            {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No match</div>}
           </>
         )}
       </Pop>
@@ -1640,7 +1641,6 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
-  const dateRef = useRef(null);
   const done = subtasks.filter((s) => s.completed).length;
 
   // A new subtask starts with the main task's collaborators, project and team
@@ -1730,7 +1730,11 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
-            {s.dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(s.dueOn)}</span>}
+            {/* Due date, set or changed right here (Oct 13 2026). */}
+            <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', fontSize: 11.5, color: NX.faint }}>
+              <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact
+                title={s.dueOn ? 'Change due date' : 'Set due date'} />
+            </span>
             <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} />
             <ChevronRight size={14} style={{ color: NX.faint }} />
           </div>
@@ -1740,9 +1744,13 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13 }} />
-        {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
-        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
-        <input ref={dateRef} type="date" value={dueOn} min={localTodayISO()} onChange={(e) => setDueOn(notPast(e.target.value))} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
+        {/* The Nexus calendar, the one every task date uses (Oct 13 2026) -
+            this was the browser's own date picker, which opened off the
+            bottom of the drawer, half cut off and unclickable. It places
+            itself on screen, flipping above when there is no room below. */}
+        <span style={{ display: 'inline-flex', fontSize: 11.5, color: NX.faint }}>
+          <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} compact noPast title="Due Date" />
+        </span>
         <div style={{ minWidth: 150 }}>
           <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
         </div>

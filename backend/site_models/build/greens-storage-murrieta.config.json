@@ -1,0 +1,113 @@
+{
+  "id": "greens-storage-murrieta",
+  "name": "Greens Storage Murrieta",
+  "address": "25698 Adams Ave, Murrieta, CA 92562",
+  "apn": "909-060-071",
+  "acreage": 3.85,
+  "opened": "",
+  "county": "Riverside",
+  "parcelSource": "Riverside County Assessor parcels (OpenData)",
+  "cubbyFacilityId": "fac_TqcwmjuRLgy",
+  "frame": {
+    "lat0": 33.54245,
+    "lon0": -117.19463,
+    "bearingDeg": 47.8,
+    "mPerDegLon": 92783,
+    "mPerDegLat": 110900
+  },
+  "image": {
+    "file": "frontend/public/site-models/greens-storage-murrieta/ground.jpg",
+    "bbox": [
+      -117.196,
+      33.54087,
+      -117.193,
+      33.54373
+    ],
+    "px": [
+      1200,
+      1144
+    ],
+    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+  },
+  "imageWide": {
+    "file": "frontend/public/site-models/greens-storage-murrieta/ground-wide.jpg",
+    "bbox": [
+      -117.2061,
+      33.534,
+      -117.1831,
+      33.551
+    ]
+  },
+  "gates": [
+    {
+      "id": "main",
+      "name": "Gate",
+      "uv": [
+        [
+          -76,
+          4
+        ]
+      ]
+    }
+  ],
+  "classify": [
+    {
+      "match": "^(X|Z|DL|TEST|109)",
+      "k": "in",
+      "veh": 0
+    }
+  ],
+  "buildings": [
+    {
+      "id": "SHOP",
+      "letters": [
+        "X",
+        "Z",
+        "DL",
+        "TEST",
+        ""
+      ],
+      "name": "Office / Shop",
+      "kind": "office",
+      "rect": {
+        "E": -33.4,
+        "N": -16.9,
+        "L": 21.9,
+        "W": 17.1,
+        "bearing": 136.9
+      },
+      "height": 4.5,
+      "floors": 1,
+      "roof": "red",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Building at the Adams Ave corner; holds the enclosed spaces X001, Z001 and the DL cells."
+    }
+  ],
+  "zones": [
+    {
+      "id": "LOT",
+      "name": "RV Lot",
+      "kind": "rv-lot",
+      "letters": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "H",
+        "J"
+      ],
+      "parcels": [
+        "909060071"
+      ],
+      "inset": 4
+    }
+  ],
+  "sources": [
+    "Parcel: Riverside County Assessor OpenData parcels (APN 909060071, 3.85 ac)",
+    "Stall rows: schematic fill of the lot in letter order; no row survey yet",
+    "Units: Cubby FMS inventory export, Oct 11, 2026 (175 active units)"
+  ]
+}

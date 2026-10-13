@@ -1,78 +1,131 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { hasTimeData, projectTracksTime, taskTracksTime } from './lib';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
-vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
+// Time on a task (Oct 2026): start and stop a timer through the store, log
+// typed-in minutes, and the helpers behind the durations and the weekly sheet.
 
-// Time tracking per project (Oct 13 2026): Time / Actual are not shown by
-// default - only where a project tracks time, or a task has time on it.
+const calls = { add: vi.fn(), del: vi.fn(), upd: vi.fn(), mine: vi.fn(() => Promise.resolve([])) };
+let serverEntries = [];
+vi.mock('../api', () => ({
+  api: {
+    getTaskTime: () => Promise.resolve(serverEntries),
+    getMyTaskTime: (...a) => calls.mine(...a),
+    addTaskTime: (...a) => calls.add(...a),
+    deleteTaskTime: (...a) => calls.del(...a),
+    updateTaskTime: (...a) => calls.upd(...a),
+    getPeopleDirectory: () => Promise.resolve([]),
+    getPersonPhotos: () => Promise.resolve({}),
+  },
+}));
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => false, myGrantedModules: new Set() }) }));
+const store = { runningTimer: null, startTimer: vi.fn(), stopTimer: vi.fn(), applyServerTask: vi.fn(), nameOf: (e) => e, myEmail: 'me@greensglobal.com' };
+vi.mock('./TasksContext', () => ({ useTasks: () => store }));
 
-const { default: RichListView } = await import('./views/richlist');
+const TimeTracking = (await import('./TimeTracking')).default;
+const { fmtMinutes, fmtElapsed, groupTimeByDay } = await import('./lib');
+const TimeSheetView = (await import('./TimeSheetView')).default;
+const { weekStart } = await import('./TimeSheetView');
 
-const acct = { id: 'p-acct', name: '#General - Accounting', timeTracking: '' };
-const itProj = { id: 'p-it', name: '#General - IT Support', timeTracking: '' };
-const plain = (id, projectId, extra = {}) => ({
-  id, title: id, status: 'not_started', priority: 'medium', projectId, assigneeId: '', teamId: '', dueOn: '', startOn: '',
-  estimateHours: null, actualHours: null, followerIds: [], subtaskIds: [], commentIds: [], attachmentIds: [], tags: [],
-  completed: false, customFieldValues: {}, ...extra,
-});
-const tasks = [plain('a1', 'p-acct'), plain('a2', 'p-acct'), plain('i1', 'p-it', { estimateHours: 2 })];
+const task = { id: 't1', title: 'Fix the pump', estimateHours: 2, actualHours: 0.5 };
 
-describe('which projects track time', () => {
-  it('automatic: only once a task in the project has time on it', () => {
-    expect(projectTracksTime(acct, tasks)).toBe(false);
-    expect(projectTracksTime(itProj, tasks)).toBe(true);
-  });
-
-  it('On and Off win over what the tasks hold', () => {
-    expect(projectTracksTime({ ...acct, timeTracking: 'on' }, tasks)).toBe(true);
-    expect(projectTracksTime({ ...itProj, timeTracking: 'off' }, tasks)).toBe(false);
-  });
-
-  it('a task with time on it keeps showing it, even in a project that is Off', () => {
-    const off = [{ ...itProj, timeTracking: 'off' }];
-    expect(taskTracksTime(tasks[2], off, tasks)).toBe(true);
-    expect(taskTracksTime(tasks[0], [acct], tasks)).toBe(false);
-    expect(hasTimeData({ estimateHours: 0, actualHours: 0 })).toBe(false);
-  });
-});
-
-describe('the list in a project', () => {
-  const store = {
-    tasks, taskById: Object.fromEntries(tasks.map((t) => [t.id, t])), customFields: [], customStatuses: [],
-    projects: [acct, itProj], teams: [], loading: false, statusOrder: ['not_started'],
-    statusMeta: { not_started: { label: 'Not Started', color: '#888', tint: '#eee' } },
-    projectName: () => '', teamById: () => null, teamName: () => '', setStatus: () => {}, toggleComplete: () => {},
-    updateTask: () => Promise.resolve({}), createTask: () => Promise.resolve({}),
-  };
-  const ctx = { nameOf: () => '', projectName: () => '', teamName: () => '', customFields: [] };
-  const renderList = (projectId, projects = store.projects) => render(
-    <RichListView visible={tasks.filter((t) => t.projectId === projectId)} group="status" ctx={ctx}
-      store={{ ...store, projects }} people={[]} selected={new Set()} setSelected={() => {}} toggleSel={() => {}}
-      onOpen={() => {}} lockedProjectId={projectId} hidden={new Set()} setHidden={() => {}} />,
-  );
-
+describe('TimeTracking', () => {
   beforeEach(() => {
-    globalThis.matchMedia = (q) => ({
-      matches: false, media: q, onchange: null,
-      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
-    });
+    serverEntries = [];
+    Object.values(calls).forEach((f) => f.mockReset());
+    store.startTimer.mockReset(); store.stopTimer.mockReset(); store.applyServerTask.mockReset();
+    store.runningTimer = null;
   });
 
-  it('has no Time / Actual columns where the project does not track time', () => {
-    renderList('p-acct');
-    expect(screen.queryByText('Time')).toBeNull();
-    expect(screen.queryByText('Actual')).toBeNull();
+  it('shows estimate, tracked and a Start Timer button, and starts through the store', async () => {
+    store.startTimer.mockResolvedValue({});
+    render(<TimeTracking task={task} />);
+    expect(await screen.findByText('No time logged yet.')).toBeInTheDocument();
+    expect(screen.getByText('2h')).toBeInTheDocument();
+    expect(screen.getByText('30m')).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Start Timer/ })); });
+    expect(store.startTimer).toHaveBeenCalledWith('t1');
   });
 
-  it('has them where it does', () => {
-    renderList('p-it');
-    expect(screen.getByText('Time')).toBeTruthy();
-    expect(screen.getByText('Actual')).toBeTruthy();
+  it('a timer running here shows elapsed time and Stop; running elsewhere offers Switch', async () => {
+    store.runningTimer = { entry: { id: 'e1', taskId: 't1', startedAt: new Date(Date.now() - 65_000).toISOString(), running: true }, task };
+    store.stopTimer.mockResolvedValue({});
+    const { unmount } = render(<TimeTracking task={task} />);
+    await screen.findByText('No time logged yet.');
+    expect(screen.getByText(/00:01:0\d/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Timer note'), { target: { value: 'wiring' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Stop/ })); });
+    expect(store.stopTimer).toHaveBeenCalledWith({ note: 'wiring' });
+    unmount();
+    store.runningTimer = { entry: { id: 'e2', taskId: 'other', startedAt: new Date().toISOString() }, task: { id: 'other', title: 'Other job' } };
+    render(<TimeTracking task={task} />);
+    expect(await screen.findByRole('button', { name: /Switch Timer Here/ })).toBeInTheDocument();
+    expect(screen.getByText(/running on "Other job"/)).toBeInTheDocument();
   });
 
-  it('switched On, an untracked project gets them', () => {
-    renderList('p-acct', [{ ...acct, timeTracking: 'on' }, itProj]);
-    expect(screen.getByText('Time')).toBeTruthy();
+  it('logs typed minutes and hands the task back to the store', async () => {
+    calls.add.mockResolvedValue({ entry: { id: 'e9', minutes: 90, note: 'calls', startedAt: '2026-10-10T12:00:00Z', personId: 'me@greensglobal.com' }, task: { ...task, actualHours: 2, timeEntryCount: 1 } });
+    render(<TimeTracking task={task} />);
+    await screen.findByText('No time logged yet.');
+    fireEvent.change(screen.getByLabelText('Hours'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'calls' } });
+    fireEvent.click(screen.getByLabelText('Billable'));
+    serverEntries = [{ id: 'e9', minutes: 90, note: 'calls', startedAt: '2026-10-10T12:00:00Z', personId: 'me@greensglobal.com' }];
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Log Time' })); });
+    expect(calls.add).toHaveBeenCalledWith('t1', expect.objectContaining({ minutes: 90, note: 'calls', billable: true }));
+    expect(store.applyServerTask).toHaveBeenCalledWith(expect.objectContaining({ timeEntryCount: 1 }));
+    await waitFor(() => expect(screen.getByText('1h 30m')).toBeInTheDocument());
+  });
+
+  it('a viewer sees the totals and entries but no controls', async () => {
+    serverEntries = [{ id: 'e1', minutes: 20, note: '', source: 'timer', startedAt: '2026-10-10T12:00:00Z', personId: 'x@greensglobal.com' }];
+    render(<TimeTracking task={task} canLog={false} />);
+    expect(await screen.findByText('20m')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Start Timer/ })).toBeNull();
+    expect(screen.queryByLabelText('Hours')).toBeNull();
+  });
+});
+
+describe('TimeSheetView', () => {
+  it('asks a day wider than the week and keeps only local days inside it', async () => {
+    const monday = weekStart(new Date());
+    const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const shift = (n) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + n);
+    const inWeek = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 2, 9, 0, 0);
+    const before = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 1, 23, 0, 0);
+    calls.mine.mockImplementation(() => Promise.resolve([
+      { id: 'in', taskId: 't1', taskTitle: 'Inside', minutes: 30, startedAt: inWeek.toISOString() },
+      { id: 'out', taskId: 't2', taskTitle: 'Outside', minutes: 45, startedAt: before.toISOString() },
+    ]));
+    render(<TimeSheetView onOpen={() => {}} />);
+    expect(await screen.findByText('Inside')).toBeInTheDocument();
+    expect(screen.queryByText('Outside')).toBeNull();
+    expect(calls.mine).toHaveBeenCalledWith(day(shift(-1)), day(shift(7)));
+  });
+});
+
+describe('time helpers', () => {
+  it('formats minutes and elapsed time', () => {
+    expect(fmtMinutes(0)).toBe('0m');
+    expect(fmtMinutes(45)).toBe('45m');
+    expect(fmtMinutes(60)).toBe('1h');
+    expect(fmtMinutes(65)).toBe('1h 05m');
+    const start = new Date('2026-10-10T10:00:00Z');
+    expect(fmtElapsed(start.toISOString(), start.getTime() + 3_725_000)).toBe('01:02:05');
+  });
+
+  it('groups entries by local day, newest first, with totals', () => {
+    const g = groupTimeByDay([
+      { id: 'a', minutes: 30, startedAt: '2026-10-08T15:00:00' },
+      { id: 'b', minutes: 15, startedAt: '2026-10-10T09:00:00' },
+      { id: 'c', minutes: 45, startedAt: '2026-10-08T09:00:00' },
+    ]);
+    expect(g.map((x) => [x.day, x.minutes, x.entries.length])).toEqual([['2026-10-10', 15, 1], ['2026-10-08', 75, 2]]);
+  });
+
+  it('finds the Monday of a week', () => {
+    expect(weekStart(new Date(2026, 9, 10)).getDay()).toBe(1);        // Sat Oct 10 2026 -> Mon Oct 5
+    expect(weekStart(new Date(2026, 9, 10)).getDate()).toBe(5);
+    expect(weekStart(new Date(2026, 9, 5)).getDate()).toBe(5);        // a Monday stays
   });
 });

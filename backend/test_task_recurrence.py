@@ -111,6 +111,27 @@ class NextDueTests(unittest.TestCase):
         self.assertEqual(_next_due("2026-03-01", r), "2026-11-26")
         self.assertEqual(_next_due("2026-11-26", r), "2027-11-25")
 
+    # Every N weeks on several days (Oct 13 2026): the rest of this week's
+    # days first, THEN skip ahead. 1=Monday, 4=Thursday.
+    def test_every_2_weeks_on_monday_and_thursday(self):
+        r = {"freq": "custom", "unit": "week", "interval": 2, "daysOfWeek": [1, 4]}
+        dates, cur = [], "2026-10-19"
+        for _ in range(4):
+            cur = _next_due(cur, r)
+            dates.append(cur)
+        self.assertEqual(dates, ["2026-10-22", "2026-11-02", "2026-11-05", "2026-11-16"])
+
+    def test_every_2_weeks_on_one_day_is_unchanged(self):
+        r = {"freq": "custom", "unit": "week", "interval": 2, "daysOfWeek": [1]}
+        self.assertEqual(_next_due("2026-10-19", r), "2026-11-02")
+        # Starting off the rule's day: the next Monday two weeks on from this week.
+        self.assertEqual(_next_due("2026-10-14", r), "2026-10-26")
+
+    def test_weekly_on_several_days(self):
+        r = {"freq": "weekly", "daysOfWeek": [1, 3, 5]}
+        self.assertEqual(_next_due("2026-10-19", r), "2026-10-21")
+        self.assertEqual(_next_due("2026-10-23", r), "2026-10-26")
+
     def test_a_weekday_rule_always_moves_forward(self):
         # The daily roll-forward steps _next_due until it passes today, and
         # stops if a step does not move - every rule must strictly advance.

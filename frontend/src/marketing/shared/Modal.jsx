@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { isBypassing } from '../../lib/dialogGuard'
+import { useExit } from '../../lib/motion'
 import { X } from 'lucide-react'
 import { C, FONT, alpha } from '../theme'
 
@@ -23,7 +24,9 @@ const MAX_W = {
 export default function Modal({ title, onClose, children, width, isDirty = false, onSave }) {
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
-  const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else onClose() }
+  // Exit motion (lib/motion.js): a close the Modal performs itself plays the exit first.
+  const [closing, exit] = useExit(onClose)
+  const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else exit() }
   useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') requestClose()
@@ -32,7 +35,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [onClose, isDirty])
   const saveAndClose = async () => {
-    if (!onSave) { setConfirming(false); onClose(); return }
+    if (!onSave) { setConfirming(false); exit(); return }
     setSaving(true)
     try { await onSave() } finally { setSaving(false); setConfirming(false) }
   }
@@ -48,6 +51,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
 
   return (
     <div
+      className={`nx-overlay${closing ? ' is-closing' : ''}`}
       style={{
         position: 'fixed',
         inset: 0,
@@ -62,6 +66,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
       onClick={requestClose}
     >
       <div
+        className="nx-panel"
         style={{
           width: '100%',
           maxWidth,
@@ -120,7 +125,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => setConfirming(false)} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Keep Editing</button>
-              <button onClick={onClose} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Discard</button>
+              <button onClick={exit} style={{ background: C.gray100, color: C.gray700, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Discard</button>
               {onSave && (
                 <button onClick={saveAndClose} disabled={saving} style={{ background: C.emerald600, color: C.white, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
                   {saving ? 'Saving…' : 'Save Changes'}

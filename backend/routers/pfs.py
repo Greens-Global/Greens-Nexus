@@ -1569,10 +1569,24 @@ async def _nothing() -> dict:
     return {}
 
 
+def _note_viewed(profile_id: str, as_of: str, user: dict) -> None:
+    db = SessionLocal()
+    try:
+        # Who, which guarantor, which date - never a figure.
+        _audit(db, user, "pfs_statement_viewed", profile_id, {"as_of": as_of})
+        db.commit()
+    finally:
+        db.close()
+
+
 @router.get("/profiles/{profile_id}/statement")
-async def statement(profile_id: str, asof: Optional[str] = None):
-    """The statement as of a date, computed now. Nothing is kept."""
-    return await _statement(profile_id, _as_of(asof))
+async def statement(profile_id: str, asof: Optional[str] = None, user: dict = Depends(_read)):
+    """The statement as of a date, computed now. Nothing is kept but the
+    audit row saying who read it."""
+    as_of = _as_of(asof)
+    payload = await _statement(profile_id, as_of)
+    await asyncio.to_thread(_note_viewed, profile_id, as_of, user)
+    return payload
 
 
 class ProduceBody(BaseModel):
@@ -1770,9 +1784,12 @@ def _encrypt(profile_id: str, data: bytes, password: str, sid: str, user: dict) 
 
 
 @router.get("/profiles/{profile_id}/statements")
-def list_statements(profile_id: str, db: Session = Depends(get_db)):
+def list_statements(profile_id: str, user: dict = Depends(_read), db: Session = Depends(get_db)):
     rows = (db.query(models.PfsStatement).filter(models.PfsStatement.profile_id == profile_id)
             .order_by(models.PfsStatement.generated_at.desc()).limit(50).all())
+    # Each row carries a net worth, so reading the list is on record too.
+    _audit(db, user, "pfs_statements_listed", profile_id, {"count": len(rows)})
+    db.commit()
     return [{"id": s.id, "asOf": s.as_of, "generatedBy": s.generated_by, "generatedAt": s.generated_at,
              "netWorth": ((s.payload or {}).get("totals") or {}).get("netWorth", 0)} for s in rows]
 
