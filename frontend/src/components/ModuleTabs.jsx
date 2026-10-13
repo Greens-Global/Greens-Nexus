@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
+import TabInk from './TabInk';
 
 /*
 Module tab strip -> header center (Work OS shell, Jul 28).
@@ -88,6 +89,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   if (!inline && !mobileInline) return null;
   return (
     <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
+      <TabInk key={signature} active={active} variant="line" />
       {tabs.map(({ key, label, Icon, badge, items }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} />
       ) : (

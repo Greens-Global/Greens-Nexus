@@ -30,6 +30,7 @@ import { CONTACT_OPEN_KIND, CONTACT_EVENT } from '../lib/contactNav';
 import { openPersonProfile } from '../lib/personNav';
 import ProfilePanel, { Avatar, RoleBadge, StatusPills } from '../directory/ProfilePanel';
 import OrgChartLens from '../directory/OrgChartLens';
+import { useFlip } from '../lib/motion';
 import {
   searchPeople, groupByDepartment, buildTree, myTeam, isOffToday, teamsChat, teamsCall, mailto,
   csvOf, downloadText, readPins, writePins, byLastName,
@@ -74,6 +75,7 @@ export default function Directory() {
   const [cursor, setCursor] = useState(-1);               // keyboard row in the list
   const searchRef = useRef(null);
   const listRef = useRef(null);
+  useFlip(listRef);  // rows glide as a search narrows or a group opens
 
   // ── load + keep availability fresh ─────────────────────────────────────
   const load = useCallback((quiet = false, reset = false) => {
@@ -391,7 +393,7 @@ export default function Directory() {
                       {pinnedRows.length > 0 && (
                         <GroupHead icon={Star} name="Pinned" count={pinnedRows.length} open onToggle={null} />
                       )}
-                      {pinnedRows.map((p) => <PersonRow key={`pin-${p.email}`} p={p} me={myEmail} active={p.email === selected} focused={flat[cursor] === p.email} onSelect={select} mobile={mobile} />)}
+                      {pinnedRows.map((p) => <PersonRow key={`pin-${p.email}`} flip={`pin:${p.email}`} p={p} me={myEmail} active={p.email === selected} focused={flat[cursor] === p.email} onSelect={select} mobile={mobile} />)}
                       {(lens === 'dept' || searching) ? groups.map((g) => {
                         const open = searching || !collapsed.has(g.name);
                         return (
@@ -435,13 +437,13 @@ function GroupHead({ icon: Icon, name, count, open, onToggle }) {
   );
 }
 
-function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false }) {
+function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false, flip }) {
   // A phone row keeps Chat and Call (Teams first); Email and the rest are one
   // tap away on the card. Three buttons plus tree indentation left no room
   // for the name at 390px.
   const step = mobile ? 14 : 22;
   return (
-    <div data-email={p.email} className={`dir-row${active ? ' is-active' : ''}${focused ? ' is-focused' : ''}`}
+    <div data-email={p.email} data-flip={flip || p.email} className={`dir-row${active ? ' is-active' : ''}${focused ? ' is-focused' : ''}`}
       role="button" tabIndex={0} onClick={() => onSelect(p.email)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(p.email); } }}
       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', paddingLeft: 12 + depth * step, borderBottom: `1px solid ${NX.border}`, cursor: 'pointer', minWidth: 0, minHeight: 52 }}>

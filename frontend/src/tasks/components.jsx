@@ -1,6 +1,7 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useLayoutEffect, useState, useRef, useId } from 'react';
 import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
+import { useExit } from '../lib/motion';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
@@ -124,7 +125,10 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   const titleId = useId();
   // isBypassing(): a Discard already confirmed by the app-wide guard
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
-  const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else onClose(); };
+  // Exit motion (lib/motion.js): every close the Modal itself performs plays
+  // the exit first; a caller that closes from its own Save button is instant.
+  const [closing, exit] = useExit(onClose);
+  const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);
@@ -137,10 +141,10 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
     if (confirmClose) { setConfirmClose(false); return; }
     if (isDirty && !isBypassing()) { setConfirmClose(true); return; }
     if (overlayRef.current?.hasAttribute('data-nx-dirty')) {
-      confirmDiscard().then((ok) => { if (ok) onClose(); });
+      confirmDiscard().then((ok) => { if (ok) exit(); });
       return;
     }
-    onClose();
+    exit();
   });
   // AFTER useBackToClose on purpose: its history entry must be pushed while
   // the page is still at its real scroll offset. Pushed under the lock, the
@@ -149,12 +153,12 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   // the top on close).
   useScrollLock(isMobile);
   const saveAndClose = async () => {
-    if (!onSave) { setConfirmClose(false); onClose(); return; }
+    if (!onSave) { setConfirmClose(false); exit(); return; }
     setSaving(true);
     try { await onSave(); } finally { setSaving(false); setConfirmClose(false); }
   };
   return createPortal(
-    <div ref={overlayRef} className="nx-tasks-portal" onClick={requestClose} style={{
+    <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
       position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -163,12 +167,12 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
       // vh: with the keyboard up a landscape phone shows ~120-150px, and 7vh
       // a side would leave the card too short for its header and footer.
       padding: isMobile ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
-      fontFamily: FONT, animation: 'fadeIn 0.13s ease',
+      fontFamily: FONT,
     }}>
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
-        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet'} style={{
+        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet nx-panel'} style={{
         background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
@@ -214,7 +218,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
               <button style={btn('ghost')} onClick={() => setConfirmClose(false)}>Keep Editing</button>
-              <button style={btn('ghost')} onClick={onClose}>Discard</button>
+              <button style={btn('ghost')} onClick={exit}>Discard</button>
               <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>

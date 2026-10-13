@@ -28,6 +28,8 @@ import { AddSectionButton, SectionMenu } from './SectionControls';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import DueBadge from './DueBadge';
 import AnchoredMenu from '../components/AnchoredMenu';
+import ChangeFlash from '../components/ChangeFlash';
+import { changedRecently } from './recentChanges';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -272,7 +274,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
         e.preventDefault();
         onPick(t.id, e);
       }}
-      className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
+      className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ position: 'relative', display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
+      <ChangeFlash value={`${t.status}:${!!t.completed}`} color={store.statusMeta?.[t.status]?.color} isFresh={() => changedRecently(t.id)} />
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>

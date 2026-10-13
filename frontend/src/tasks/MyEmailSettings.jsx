@@ -16,6 +16,7 @@ import { SearchSelect } from './components';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { ZONE_GROUPS, LOCAL_TZ, zoneOptionLabel } from '../lib/worldClockZones';
 import { NX, FONT, btn, input as inputStyle } from './theme';
+import SavedCheck from '../components/SavedCheck';
 
 const label = { display: 'block', fontSize: 12.5, fontWeight: 700, color: NX.ink, marginBottom: 4 };
 const hint = { fontSize: 12, color: NX.dim, margin: '0 0 8px', lineHeight: 1.45 };
@@ -217,7 +218,7 @@ export default function EmailSettingsPanel({ onUnavailable }) {
               <button style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }} onClick={save} disabled={saving || !dirty}>
                 <Save size={14} /> {saving ? 'Saving…' : 'Save Email Settings'}
               </button>
-              {saved && !dirty && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+              <SavedCheck show={saved && !dirty} />
             </div>
           </>
         )}

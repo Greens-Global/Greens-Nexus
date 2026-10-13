@@ -16,6 +16,7 @@
 // One <DialogHost/> is mounted at the app root (main.jsx). Calls made before it
 // mounts are queued and shown once it does.
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { MOTION, motionWait } from '../lib/motion';
 
 let _present = null;          // set by the mounted DialogHost
 const _queue = [];            // calls made before the host mounted
@@ -44,20 +45,42 @@ export function DialogHost() {
   const [item, setItem] = useState(null);
   const [value, setValue] = useState('');
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // Exit motion (lib/motion.js): the promise resolves at once so the caller
+  // gets on with it, while the card plays `.is-closing` and is removed on a
+  // timer. A dialog presented during that window replaces it straight away.
+  const [closing, setClosing] = useState(false);
+  const exitTimer = useRef(null);
+  const itemRef = useRef(null);
+  useEffect(() => { itemRef.current = item; }, [item]);
   const inputRef = useRef(null);
   const okRef = useRef(null);
 
   useEffect(() => {
-    _present = (it) => { setValue(it.defaultValue || ''); setConfirmingDiscard(false); setItem(it); };
+    _present = (it) => {
+      clearTimeout(exitTimer.current); exitTimer.current = null; setClosing(false);
+      // Synced here as well as in the effect: a close that lands before that
+      // effect runs must still find the item to resolve.
+      itemRef.current = it;
+      setValue(it.defaultValue || ''); setConfirmingDiscard(false); setItem(it);
+    };
     if (_queue.length) _present(_queue.shift());
-    return () => { _present = null; };
+    return () => { _present = null; clearTimeout(exitTimer.current); };
   }, []);
 
   const close = useCallback((result) => {
-    setItem((cur) => { cur?.resolve(result); return null; });
-    setValue('');
-    // show the next queued dialog, if any
-    if (_queue.length) setTimeout(() => _present && _present(_queue.shift()), 0);
+    const cur = itemRef.current;
+    if (!cur || exitTimer.current) return;      // nothing open, or already leaving
+    cur.resolve(result);
+    const finish = () => {
+      exitTimer.current = null;
+      setItem(null); setClosing(false); setValue('');
+      // show the next queued dialog, if any
+      if (_queue.length) setTimeout(() => _present && _present(_queue.shift()), 0);
+    };
+    const wait = motionWait(MOTION.exit);
+    if (wait === 0) { finish(); return; }
+    setClosing(true);
+    exitTimer.current = setTimeout(finish, wait);
   }, []);
 
   // Focus the input (prompt) or the primary button when a dialog opens.
@@ -101,6 +124,7 @@ export function DialogHost() {
     return (
       <div
         role="presentation"
+        className={`nx-overlay${closing ? ' is-closing' : ''}`}
         onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmingDiscard(false); }}
         style={{
           position: 'fixed', inset: 0, zIndex: 100000,
@@ -112,6 +136,7 @@ export function DialogHost() {
         <div
           role="dialog"
           aria-modal="true"
+          className="nx-panel"
           onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setConfirmingDiscard(false); } }}
           style={{
             background: 'var(--card, var(--paper, #fff))',
@@ -142,6 +167,7 @@ export function DialogHost() {
   return (
     <div
       role="presentation"
+      className={`nx-overlay${closing ? ' is-closing' : ''}`}
       onMouseDown={(e) => { if (e.target === e.currentTarget) requestCancel(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 100000,
@@ -153,6 +179,7 @@ export function DialogHost() {
       <div
         role="dialog"
         aria-modal="true"
+        className="nx-panel"
         onKeyDown={onKeyDown}
         style={{
           background: 'var(--card, var(--paper, #fff))',

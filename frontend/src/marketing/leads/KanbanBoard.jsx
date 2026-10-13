@@ -40,7 +40,7 @@ export default function KanbanBoard({ leads, onSelectLead, onChangeStage }) {
               background: over ? C.gray100 : HOVER_TINT,
               padding: 10,
               minHeight: 200,
-              transition: 'all .15s',
+              transition: 'border-color .15s, background .15s',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '0 2px' }}>

@@ -3,7 +3,7 @@
 // NexusTaskStore with a single Nexus-style context: loads from the FastAPI
 // backend, applies optimistic updates, and refetches on a task_events realtime
 // ping (with a poll fallback), mirroring RequisitionContext.
-import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
@@ -12,6 +12,13 @@ import { STATUS_META, STATUS_ORDER, NX } from './theme';
 import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
+import { noteStatusChanges } from './recentChanges';
+
+function tasksReducer(prev, v) {
+  const next = typeof v === 'function' ? v(prev) : v;
+  noteStatusChanges(prev, next);
+  return next;
+}
 
 const Ctx = createContext(null);
 
@@ -103,7 +110,12 @@ export function TasksProvider({ children }) {
   // earlier visit, means this mount opens with the data already in hand and
   // never shows a spinner - the refresh below then streams over the top.
   const seed = taskSnapshot();
-  const [tasks, setTasks] = useState(seed?.tasks?.tasks || []);
+  // Every write to the task list notes which tasks changed status or
+  // completion (tasks/recentChanges.js), so a row or card that remounts in
+  // its new column / group can still glow. A reducer so it runs before any
+  // row renders the new list; the note is idempotent, so StrictMode's double
+  // call is harmless. `setTasks` keeps useState's (value | updater) contract.
+  const [tasks, setTasks] = useReducer(tasksReducer, seed?.tasks?.tasks || []);
   const [projects, setProjects] = useState(seed?.projects || []);
   const [portfolios, setPortfolios] = useState(seed?.portfolios || []);
   const [teams, setTeams] = useState(seed?.teams || []);

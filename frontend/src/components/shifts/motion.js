@@ -5,25 +5,12 @@
 // does it with a media query, and the components skip the classes outright
 // through useReducedMotion(), so nothing even starts.
 import { createElement, useEffect, useRef, useState } from 'react';
+// The reduced-motion pair now lives with the app-wide motion hooks
+// (lib/motion.js, Oct 11); re-exported so the Shifts imports stay as they are.
+import { prefersReducedMotion, useReducedMotion } from '../../lib/motion';
+export { prefersReducedMotion, useReducedMotion };
 
 export const MOTION = { fast: 120, base: 150, pop: 160, slide: 180, panel: 200, glow: 1500, stagger: 15, staggerCap: 200, undoMs: 5000 };
-
-export function prefersReducedMotion() {
-  try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches; } catch { return false; }
-}
-
-export function useReducedMotion() {
-  const [reduce, setReduce] = useState(prefersReducedMotion);
-  useEffect(() => {
-    let mq;
-    try { mq = window.matchMedia?.('(prefers-reduced-motion: reduce)'); } catch { mq = null; }
-    if (!mq?.addEventListener) return undefined;
-    const on = () => setReduce(!!mq.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return reduce;
-}
 
 // A number that rolls up or down when it changes (the Share count).
 export function RollingNumber({ value }) {

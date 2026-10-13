@@ -52,7 +52,7 @@ export default function BudgetUtilization({ spend, budget, onChangeBudget, range
         </span>
       </div>
       <div style={{ width: '100%', height: 10, borderRadius: 9999, background: C.gray100, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ height: '100%', borderRadius: 9999, background: barColor, transition: 'all .15s', width: `${pct}%` }} />
+        <div style={{ height: '100%', borderRadius: 9999, background: barColor, transition: 'width .15s', width: `${pct}%` }} />
       </div>
 
       {showProjection && (

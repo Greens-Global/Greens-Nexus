@@ -48,7 +48,7 @@ export default function AiAnalystButton({ insights, onNavigate }) {
           border: '1px solid ' + C.purple200,
           color: C.purple700,
           background: C.purple50,
-          transition: 'all .15s',
+          transition: 'color .15s, background .15s, border-color .15s',
           cursor: 'pointer',
         }}
       >
