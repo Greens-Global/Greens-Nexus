@@ -42,9 +42,25 @@ def read_workbook(path, store):
     occ = [{'n': str(r[1]).strip().upper(), 'size': str(r[2]).strip(), 'attr': str(r[3]).strip()}
            for r in wb['Rent Roll'].iter_rows(values_only=True, max_col=4)
            if str(r[0]) == str(store) and r[1] is not None]
+    check_shape(occ)
     mix = [{'size': r[1], 'attr': r[2], 'total': int(r[4] or 0), 'occ': int(r[8] or 0)}
            for r in wb['Cube Mix'].iter_rows(values_only=True, max_col=9) if str(r[0]) == str(store)]
     return occ, mix
+
+
+CUBE = re.compile(r'[0-9A-Z-]{1,12}')
+SIZE = re.compile(r'\d+(\.\d+)?\s*[Xx]\s*\d+(\.\d+)?')
+
+
+def check_shape(occ):
+    """Columns A-D are read by position: if CubeSmart ever reorders the Rent Roll,
+    a customer name or a date would land in the unit number. Refuse any row whose
+    Cube is not unit-shaped or whose dimensions are not WxD - and report a count
+    only, never the cell values (they could be customer data)."""
+    bad = sum(1 for r in occ if not CUBE.fullmatch(r['n']) or not SIZE.fullmatch(r['size']))
+    if bad:
+        raise SystemExit(f'Rent Roll columns A-D do not look like Store, Cube, Cube Dimensions, Cube Attribute '
+                         f'on {bad} of {len(occ)} rows - check the workbook layout before building')
 
 
 def numbers(name):

@@ -392,7 +392,9 @@ export function createSiteModelViewer(container, model, options = {}) {
       alive = false; cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', resize);
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp); el.removeEventListener('wheel', onWheel); el.removeEventListener('contextmenu', onCtx);
       if (diorama) diorama.dispose(); scene.traverse((o) => { if (o !== scene) disposeObject(o); }); scene.clear();
-      renderer.dispose(); if (el.parentNode) el.parentNode.removeChild(el);
+      // dispose() alone keeps the WebGL context: every look switch builds a new renderer, and
+      // browsers drop the oldest context past ~16 - release it now.
+      renderer.dispose(); renderer.forceContextLoss(); if (el.parentNode) el.parentNode.removeChild(el);
     },
   };
 }

@@ -81,7 +81,12 @@ def _post(path: str, body: Dict[str, Any]) -> Dict[str, Any]:
         data = r.json()
     except ValueError as e:
         raise CubbyError("Cubby answered with something that is not JSON") from e
-    return data.get("data") or {}
+    if not isinstance(data, dict):
+        raise CubbyError("Cubby answered in an unexpected shape")
+    inner = data.get("data") or {}
+    if not isinstance(inner, dict):
+        raise CubbyError("Cubby answered in an unexpected shape")
+    return inner
 
 
 def _num(v) -> float:
@@ -128,7 +133,11 @@ def normalize(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def fetch_units(facility_id: str) -> List[Dict[str, Any]]:
     data = _post("/units/search", {"where": {"facilityId": facility_id}, "expansions": ["pricingGroup"]})
-    return normalize(data)
+    try:
+        return normalize(data)
+    except (AttributeError, TypeError, ValueError, KeyError) as e:
+        # A changed payload must read as a Cubby failure (snapshot + backoff), never a 500
+        raise CubbyError("Cubby answered in an unexpected shape") from e
 
 
 def _facility_lock(facility_id: str) -> threading.Lock:

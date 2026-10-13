@@ -39,7 +39,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   const [xray, setXray] = useState(false); const [level, setLevel] = useState(0);
   const [placing, setPlacing] = useState(false); const [pending, setPending] = useState(null);
   const [pinTitle, setPinTitle] = useState(''); const [pinCat, setPinCat] = useState('maintenance');
-  const [hover, setHover] = useState(null);
+  const [hover, setHover] = useState(null); const [noGl, setNoGl] = useState(false);
   const [look, setLook] = useState(readLook);
   const selectedRef = useRef(null); const xrayRef = useRef(false);
   useEffect(() => { selectedRef.current = selected; xrayRef.current = xray; }, [selected, xray]);
@@ -59,8 +59,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
         onHover: (u, pos) => setHover(u ? { n: u.n, f: u.f, ...pos } : null),
       });
     } catch (e) {
-      // No WebGL (old GPU, headless) - the panel still works as a unit list.
-      setNotFound(''); console.warn('[site-model] viewer unavailable', e);
+      // No WebGL (old GPU, headless) - the panel still works as a unit list. A throw
+      // after the canvas went in leaves it behind: take it out so the stage shows the note.
+      stageRef.current.querySelectorAll('canvas').forEach((c) => c.remove());
+      setNotFound(''); setNoGl(true); console.warn('[site-model] viewer unavailable', e);
       return undefined;
     }
     viewerRef.current = v;
@@ -112,7 +114,8 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
         <div ref={stageRef} style={{ position: 'relative', height: look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
           {hover && <div style={{ position: 'absolute', left: hover.x + 12, top: hover.y - 26, pointerEvents: 'none', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '2px 7px', borderRadius: 6, font: `500 12px ui-monospace, Menlo, monospace`, zIndex: 2 }}>{hover.n}{hover.f > 1 ? ` · L${hover.f}` : ''}</div>}
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
-          <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
+          {noGl && <div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', fontSize: 14, color: 'var(--text-muted, #5f6358)', zIndex: 3 }}>The 3D view is not available on this device. Search by unit number still works.</div>}
+          {!noGl && <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
             <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Look">
               {[['satellite', 'Satellite'], ['illustrated', 'Illustrated']].map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{l}</button>)}
@@ -121,7 +124,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             {maxLevel > 1 && <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Level">
               {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
             </span>}
-          </div>
+          </div>}
           <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : model.image?.attribution || ''} · 1 unit = 1 m</div>
           {look === 'illustrated' && <SiteModelHud model={model} owner={owner} live={live} unit={u}
             stats={{ active: active.length, leased, vacant, bad: bad.length, leasedPct: active.length ? Math.round(100 * leased / active.length) : 0 }}

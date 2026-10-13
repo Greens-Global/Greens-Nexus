@@ -149,9 +149,40 @@ class SiteModelTests(unittest.TestCase):
         self.assertEqual((rows["B012"]["cc"], rows["B012"]["du"], rows["B012"]["pw"], rows["B012"]["t"]), (1, 1, 1, "S"))
         self.assertEqual((rows["A001"]["l"], rows["A001"]["r"], rows["A001"]["t"]), (0, 1, "P"))
 
+    def test_cubby_answer_in_an_unexpected_shape_is_a_cubby_error(self):
+        resp = mock.Mock(status_code=200); resp.json.return_value = ["not", "an", "object"]
+        with mock.patch.dict(os.environ, {"CUBBY_API_KEY": "test"}), mock.patch.object(cubby_client.httpx, "post", return_value=resp):
+            with self.assertRaises(cubby_client.CubbyError):
+                cubby_client.fetch_units("fac_1")
+        resp.json.return_value = {"data": {"units": [{"name": "A1", "rentability": "yes"}], "pricingGroups": []}}
+        with mock.patch.dict(os.environ, {"CUBBY_API_KEY": "test"}), mock.patch.object(cubby_client.httpx, "post", return_value=resp):
+            with self.assertRaises(cubby_client.CubbyError):
+                cubby_client.fetch_units("fac_1")
+
+    def test_pin_inputs_are_checked(self):
+        from fastapi import HTTPException
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(HTTPException):
+                site_models._coord(bad)
+        self.assertEqual(site_models._coord(1e9), 5000.0)
+        self.assertEqual(site_models._coord(-12.5), -12.5)
+        self.assertEqual(site_models._clean_ticket(" 3f2a-91 "), "3f2a-91")
+        for bad in ("<script>", "a" * 41, "../x"):
+            with self.assertRaises(HTTPException):
+                site_models._clean_ticket(bad)
+
+    def test_cubesmart_converter_refuses_a_reordered_rent_roll(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("cs", os.path.join(os.path.dirname(__file__), "site_models", "build", "cubesmart_units.py"))
+        cubesmart_units = importlib.util.module_from_spec(spec); spec.loader.exec_module(cubesmart_units)
+        cubesmart_units.check_shape([{"n": "1003-1004", "size": "10X15", "attr": "CD"}])
+        with self.assertRaises(SystemExit) as cm:
+            cubesmart_units.check_shape([{"n": "JANE DOE", "size": "10X15", "attr": "CD"}])
+        self.assertNotIn("JANE", str(cm.exception))   # a count, never the cell
+
     def test_bad_ids_are_404(self):
         from fastapi import HTTPException
-        for bad in ("../main", "GREENS", "", "nope-nope"):
+        for bad in ("../main", "GREENS", "", "nope-nope", "greens-storage-escondido\n"):
             with self.assertRaises(HTTPException):
                 site_models.load_model(bad)
 
